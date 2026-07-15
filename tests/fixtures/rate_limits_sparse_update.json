@@ -1,0 +1,18 @@
+{
+  "method": "account/rateLimits/updated",
+  "params": {
+    "rateLimits": {
+      "limitId": null,
+      "limitName": null,
+      "primary": {
+        "usedPercent": 35,
+        "windowDurationMins": null,
+        "resetsAt": null
+      },
+      "secondary": null,
+      "credits": null,
+      "planType": null,
+      "rateLimitReachedType": null
+    }
+  }
+}
