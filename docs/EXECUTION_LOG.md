@@ -177,3 +177,43 @@ Implement the refresh coordinator with one in-flight request, minimum refresh sp
 ### Next task
 
 Implement the runtime adapter that performs read-only refreshes, consumes sparse notifications, updates the store, and survives supervised process generations.
+
+## 2026-07-15 — P1-D2 long-running read-only runtime adapter
+
+### Completed
+
+- Connected supervised App Server generations to the JSON-RPC client, refresh coordinator, and normalized state store in one background runtime.
+- Repeated the initialize/initialized handshake on every process generation without replaying pending wire requests across generations.
+- Issued `account/read` and `account/rateLimits/read` concurrently and correlated deliberately out-of-order responses by request ID.
+- Applied sparse rate-limit notifications without clearing metadata, then scheduled a rate-limited authoritative full read.
+- Projected process, refresh, authentication, quota, timeout, protocol, and transport outcomes through the reducer while retaining the last valid snapshot.
+- Added idempotent runtime shutdown and a privacy-safe aggregate report.
+- Added an offline stdio fake App Server covering startup, refresh coalescing, sparse notification/full-read convergence, process recovery, and clean shutdown.
+
+### Files
+
+- `src/runtime.rs`
+- `src/lib.rs`
+- `tests/runtime_integration.rs`
+- `docs/TECH_DESIGN.md`
+- `docs/ROADMAP.md`
+
+### Verification
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo check --all-targets`: passed.
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- `cargo test --all-targets`: passed, 50 tests.
+- `git diff --check`: passed; only Git LF/CRLF conversion notices were emitted.
+- Runtime integration suite was also run twice consecutively after timing fixes; both runs passed.
+
+### Remaining risks
+
+- The default CLI still uses the finite P0 probe path; the long-running runtime is a library service awaiting a Windows host adapter.
+- Runtime CLI version detection and schema mismatch presentation are not implemented.
+- The required real Codex process soak and resource/orphan measurements remain outstanding.
+- No disk cache is present; adding one requires an explicit minimal-field privacy review.
+
+### Next task
+
+Finish P1 with version detection, the cache/settings decision, and a real-process soak before starting any tray UI work.

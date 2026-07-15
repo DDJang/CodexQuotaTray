@@ -78,13 +78,14 @@ JsonlTransport ──► JsonRpcClient ──► ProtocolDecoder ──► Quota
 - **当前实现 — `quota`**：优先读取多 bucket 视图，将窗口归一化为与 `primary`/`secondary` 语义无关的 domain model。
 - **当前实现 — CLI orchestration**：通过 `json_rpc` 发起请求、消费通知，并负责人类可读输出和退出码。
 - **当前实现 — `state`**：纯 `AppStateReducer` 是唯一状态转换入口，线程安全内存 store 返回 owned snapshot；UI 不得直接消费 wire JSON。
+- **当前实现 — `runtime`**：把 supervisor 连接代次、握手、并发只读 RPC、refresh coordinator、稀疏通知和 reducer 串为一个长期后台 worker；公开接口只暴露 normalized snapshot、刷新触发和幂等 shutdown report。
 - **拟议设计 — cache/UI/notification adapters**：只读取归一化状态，不持有 transport 或认证数据。
 
 ## 5. 进程生命周期
 
 ### 5.1 状态机
 
-当前 supervisor 生命周期；应用状态 reducer 尚未实现：
+当前 supervisor 与 runtime 共同执行以下生命周期；每次连接代次都重新握手，pending request 不跨代次重放：
 
 ```text
 Stopped → Starting → Handshaking → Ready → Stopping → Stopped
@@ -122,7 +123,7 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 - **当前实现** stdout EOF、读失败或 stdin 写失败会关闭 transport，并用同一受控错误结束所有 pending 请求。
 - **当前实现** 已完成 ID 保留有限历史，用于识别重复响应；未知 ID、非整数 ID、非法 JSON 和非法 envelope 不会 panic，也不会被错误投递给其他请求。
 - **当前实现** RPC error 只向上暴露请求 ID 和 error code；服务端 message 不进入错误对象或日志。
-- **未实现** App Server 重启、跨连接请求重放和 supervisor backoff；它们仍属于后续 P1 子任务。
+- **当前实现** App Server 重启和 supervisor backoff 已接入 runtime；旧连接的 pending request 会失败，新代次只从新的 startup/network-restored refresh 重新读取，不盲目重放旧 wire request。
 
 ### 6.1 错误分类
 
@@ -137,7 +138,7 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 
 ### 6.2 重试策略
 
-以下 restart 部分已在 supervisor 中实现；refresh 部分仍为**拟议设计**：
+以下 restart 与 read-only refresh 路径均已实现：
 
 - **当前实现** 单个连接代次同一时间只允许一个初始化流程；恢复生成新代次。
 - **当前实现** 重启 backoff 为 1、2、4、8、16、30 秒上限，并加入不超过总上限的 0–20% deterministic jitter。
@@ -155,7 +156,8 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 - **当前实现** startup、manual、rate-limit notification、resume、network restored、card opened 和 fallback 使用同一调度路径。
 - **当前实现** 未知或重复 completion 不修改当前 in-flight；request ID 单调且不回绕。
 - **已确认** 纯虚拟时间测试重放 24 小时，始终最多一个 in-flight，并只产生 1 次 startup 加 144 次 fallback。
-- **未实现** 实际 RPC executor 与 Windows resume/network/card-open 事件 adapter；它们属于下一 P1/P3 子任务。
+- **当前实现** runtime executor 每次逻辑 refresh 同时发出 `account/read` 与 `account/rateLimits/read`，按请求 ID 等待各自响应；通知先执行安全稀疏合并，再经最小间隔调度一次权威完整补读。
+- **未实现** Windows resume/network/card-open 事件 adapter；它们属于托盘/系统集成里程碑。
 
 ## 7. 状态管理
 
@@ -220,11 +222,12 @@ QuotaState:
 
 ### 9.1 已有覆盖
 
-- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试、9 个 reducer 测试和 9 个 refresh coordinator 测试完全离线通过。
+- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试、9 个 reducer 测试、9 个 refresh coordinator 测试和 5 个 runtime fake-process 测试完全离线通过。
 - 覆盖 ChatGPT、API Key、Bedrock、未登录、single/dual/multi bucket、未知时长、缺失字段、越界百分比、malformed JSON 和稀疏合并。
 - JSON-RPC 测试覆盖唯一 ID、多个 pending、乱序响应、RPC error、通知、timeout、EOF、未知/重复 ID、null result、非法 JSON 和非法 envelope。
 - supervisor 测试覆盖非零退出恢复、restart budget、启动失败、显式恢复、stderr flood、正常 EOF、强制回收和幂等 shutdown。
 - reducer 测试覆盖 process/auth/data 状态、失败保留、15 分钟 stale、完整替换、稀疏更新、歧义拒绝和 owned store snapshot。
+- runtime 测试通过真实本地 stdio pipe 覆盖乱序并发响应、启动快照、手动刷新合并、通知稀疏合并与完整补读、单代次崩溃恢复和幂等关闭。
 - 请求序列测试证明 runtime 只使用四个允许 method，通信层统一注入 request ID。
 - 脱敏实跑证明真实 quota 可读、默认发现 `codex.cmd` 可用且 stdin close 能干净退出。
 
