@@ -1,7 +1,7 @@
 # CodexQuotaTray Roadmap
 
 状态日期：2026-07-15
-当前完成度：P0 完成；P1 后台核心与版本兼容状态完成，24 小时真实进程 soak 与磁盘 cache 隐私决策待完成
+当前完成度：P0 完成；P1 后台核心、版本兼容与最小持久化完成，仅剩 24 小时真实进程 soak gate
 原则：每个里程碑先满足 gate，再开始下一个；未列入当前 milestone 的功能不得顺带实现。
 
 ## 1. 路线图依据
@@ -109,8 +109,10 @@ UI：不包含
 - 6 个完全离线的 stdio fake App Server runtime 测试，覆盖手动刷新合并、通知补读、崩溃恢复、版本 mismatch 和幂等退出。
 - 从实际握手 App Server 提取版本 token，与固定 schema record 精确比较并暴露 match/mismatch/unreported。
 - 有限时脱敏 soak harness；90 秒真实运行完成 1 次成功读取、0 failure/restart/forced termination，退出后无 orphan。
+- settings 与 quota cache 分离的标准库持久化边界；cache 使用严格匿名字段白名单、64 KiB/32-window 上限、temporary/backup replace 和 stale-only restore。
+- 损坏/超大/未知版本缓存不阻断 live runtime；恢复和回写由 6 个 persistence + 2 个 runtime 场景离线验证。
 
-上述交付完成通信、进程管理、reducer、refresh 调度、RPC/state runtime adapter 和运行版本探测；90 秒 smoke 不替代 24 小时 gate，磁盘 cache 取舍也尚未完成，因此 P1 exit gate 仍未满足。
+上述交付完成通信、进程管理、reducer、refresh 调度、RPC/state runtime adapter、版本探测和磁盘 cache 隐私 gate；90 秒 smoke 不替代 24 小时 gate，因此 P1 exit gate 仍未满足。
 
 ### 不在范围
 
@@ -226,4 +228,4 @@ UI：不包含
 
 ## 9. 推荐下一任务
 
-完成 P1 收口：添加 runtime CLI/schema version detection，评审最小非敏感 cache/settings schema，并执行可中断的真实 Codex 进程 soak 与 orphan/resource 检查。P1 gate 通过前不要创建托盘窗口。
+执行 24 小时真实 Codex runtime soak，并记录起止 working set、CPU、refresh/restart/forced termination 与 orphan 检查。P1 gate 通过前不要创建托盘窗口。

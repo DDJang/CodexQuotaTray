@@ -1,6 +1,7 @@
 pub mod app_server;
 pub mod compatibility;
 pub mod json_rpc;
+pub mod persistence;
 pub mod protocol;
 pub mod quota;
 pub mod refresh;

@@ -76,6 +76,7 @@ pub enum WarningCode {
     AmbiguousSparsePatch,
     SchemaVersionMismatch,
     RuntimeVersionUnreported,
+    PersistenceFailure,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,6 +128,12 @@ pub enum StateEvent {
     ProcessFailed,
     ProcessStopped,
     CompatibilityChecked(VersionCompatibility),
+    CachedQuotaRestored {
+        summary: QuotaSummary,
+        last_success_at: i64,
+        source_cli_version: Option<String>,
+    },
+    PersistenceFailed,
     RefreshStarted {
         at: i64,
     },
@@ -201,6 +208,19 @@ impl AppStateReducer {
             StateEvent::CompatibilityChecked(compatibility) => {
                 self.update_compatibility(compatibility)
             }
+            StateEvent::CachedQuotaRestored {
+                summary,
+                last_success_at,
+                source_cli_version,
+            } => {
+                if !summary.windows.is_empty() {
+                    self.state.quota = Some(summary);
+                    self.state.last_success_at = Some(last_success_at);
+                    self.state.source_cli_version = source_cli_version;
+                    self.state.data = DataState::Stale;
+                }
+            }
+            StateEvent::PersistenceFailed => self.push_warning(WarningCode::PersistenceFailure),
             StateEvent::RefreshStarted { at } => {
                 self.state.last_attempt_at = Some(at);
                 self.state.data = DataState::Refreshing {

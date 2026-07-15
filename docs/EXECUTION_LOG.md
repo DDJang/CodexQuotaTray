@@ -266,3 +266,55 @@ Finish P1 with version detection, the cache/settings decision, and a real-proces
 ### Next task
 
 Design and implement the minimal non-sensitive cache/settings boundary, then execute the longest practical real-process resource soak before P2.
+
+## 2026-07-15 — P1-E privacy-minimized settings and quota cache
+
+### Completed
+
+- Added separate settings and quota-cache stores under a caller-selected directory, with `%LOCALAPPDATA%\CodexQuotaTray` discovery for the Windows host.
+- Defined versioned settings defaults for startup, display mode, time format, cache preference, fallback refresh, network recovery, and notification toggles.
+- Persisted only used percentage, source slot, duration, reset timestamp, last-success timestamp, and parsed CLI version for quota cache.
+- Explicitly excluded limit IDs/names, plan/auth mode, account/email/token data, protocol warnings, and raw responses from the cache schema.
+- Bounded persistence files to 64 KiB and cache windows to 32; rejected invalid versions, percentages, durations, timestamps, settings, malformed JSON, and oversized input.
+- Added temporary/backup replacement, backup recovery, and idempotent primary/backup/temporary cache clearing.
+- Wired the optional cache into runtime startup and successful live/notification updates. Restored data is always stale/auth-unknown until live reads replace it.
+- Made cache load/write failures non-fatal and privacy-safe through an anonymous warning and aggregate counter.
+
+### Dependency decision
+
+- No new production dependency was added. Existing Serde/serde_json and the standard filesystem APIs cover the small JSON files.
+- Expected release-size impact is only project code; runtime work occurs only at startup, successful low-frequency refresh, settings save, or explicit clear.
+- SQLite was rejected for this bounded schema because it would add binary/runtime complexity without transactional or query benefits needed by the MVP.
+
+### Files
+
+- `src/persistence.rs`
+- `src/lib.rs`
+- `src/runtime.rs`
+- `src/state.rs`
+- `tests/persistence.rs`
+- `tests/runtime_integration.rs`
+- `examples/runtime_soak.rs`
+- `README.md`
+- `docs/API_CONTRACT.md`
+- `docs/TECH_DESIGN.md`
+- `docs/ROADMAP.md`
+
+### Verification
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- `cargo test --all-targets`: passed, 62 tests.
+- `git diff --check`: passed; only Git LF/CRLF conversion notices were emitted.
+- Cache privacy regression asserts the serialized file contains none of the forbidden identity/authentication field names.
+
+### Remaining risks
+
+- Actual Windows startup registration is not implemented; only the persisted preference exists.
+- The Windows host must opt into the quota cache according to settings; the core runtime does not silently write LocalAppData by default.
+- Standard-library replacement is crash-recoverable through a backup but does not fsync the containing directory.
+- The 24-hour real-process/resource soak remains the only P1 exit gate not met.
+
+### Next task
+
+Run the finite 24-hour real-process soak with external resource samples and an orphan check; do not start P2 before the result is recorded.

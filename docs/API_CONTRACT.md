@@ -323,6 +323,28 @@ unavailable  no usable state or unsupported environment
 - 不复制真实百分比、时间戳或原始 response blob。
 - parser 测试不得启动 Codex、读取凭据或访问网络。
 
+### 7.4 Persisted cache contract
+
+当前磁盘缓存是 normalized state 的最小投影，不是 wire response archive。允许字段固定为：
+
+```text
+format_version
+saved_at
+last_success_at
+source_cli_version?
+windows[]:
+  source_slot
+  used_percent
+  window_duration_mins?
+  resets_at?
+```
+
+- 明确不持久化 `limitId`、`limitName`、plan/auth mode、email、account ID、token、`codexHome`、warning detail 或 raw JSON。
+- 最多 32 个窗口，单文件最多 64 KiB；版本不支持、字段越界、损坏或超大文件均拒绝加载。
+- load 只返回 typed `RestoredQuota`；错误对象只包含匿名类别/I/O kind，不包含文件正文或用户路径。
+- 恢复后的 quota 固定为 stale 且 auth unknown，必须等待实时 `account/read`/`account/rateLimits/read` 才能进入 fresh/authenticated。
+- 写入使用同目录 temporary + backup replace；primary 损坏时可读取完整 backup。清除操作覆盖 primary、backup 和 temporary，且幂等。
+
 ## 8. Versioning and change control
 
 1. `schemas/CODEX_VERSION` 必须与生成 schema 的 CLI 版本一致。

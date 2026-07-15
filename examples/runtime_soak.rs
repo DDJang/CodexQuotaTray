@@ -104,7 +104,7 @@ fn run(options: Options) -> i32 {
         }
     };
     println!(
-        "soak complete: elapsed={}s refresh_successes={} refresh_failures={} notifications={} restarts={} forced_terminations={} protocol_diagnostics={}",
+        "soak complete: elapsed={}s refresh_successes={} refresh_failures={} notifications={} restarts={} forced_terminations={} protocol_diagnostics={} persistence_failures={}",
         started_at.elapsed().as_secs(),
         report.refresh_successes,
         report.refresh_failures,
@@ -112,6 +112,7 @@ fn run(options: Options) -> i32 {
         report.supervisor.restart_count,
         report.supervisor.forced_terminations,
         report.protocol_diagnostics,
+        report.persistence_failures,
     );
 
     if report.exit_reason != RuntimeExitReason::ShutdownRequested

@@ -9,9 +9,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use codex_quota_tray::app_server::AppServerLaunch;
 use codex_quota_tray::compatibility::VersionCompatibility;
+use codex_quota_tray::persistence::QuotaCacheStore;
+use codex_quota_tray::quota::{QuotaSummary, QuotaWindow, ResetCreditsState};
 use codex_quota_tray::refresh::{RefreshPolicy, RefreshReason};
 use codex_quota_tray::runtime::{QuotaRuntime, RuntimeConfig, RuntimeExitReason, RuntimeReport};
-use codex_quota_tray::state::{AppState, DataState, ProcessState, StableDataState};
+use codex_quota_tray::state::{AppState, DataState, ProcessState, StableDataState, WarningCode};
 use codex_quota_tray::supervisor::RestartPolicy;
 use serde_json::{Value, json};
 
@@ -140,6 +142,49 @@ fn schema_mismatch_is_explicit_but_read_only_quota_remains_best_effort() {
     assert_clean_shutdown(&report);
 }
 
+#[test]
+fn runtime_restores_stale_cache_then_replaces_and_persists_live_data() {
+    let fixture = RuntimeFixture::new("slow-start");
+    let cache = QuotaCacheStore::new(fixture.cache_path.clone());
+    cache.save(&cached_state(88)).unwrap();
+    let mut config = fixture.config();
+    config.quota_cache = Some(cache.clone());
+    let mut runtime = QuotaRuntime::start(config).unwrap();
+
+    let restored = wait_for_state(&runtime, |state| used_percent(state) == Some(88));
+    assert_eq!(restored.data, DataState::Stale);
+    assert_eq!(restored.auth, codex_quota_tray::state::AuthState::Unknown);
+
+    let live = wait_for_state(&runtime, |state| {
+        state.data == DataState::Fresh && used_percent(state) == Some(20)
+    });
+    assert_eq!(live.source_cli_version.as_deref(), Some("0.137.0"));
+
+    let report = runtime.shutdown().unwrap();
+    assert_eq!(report.persistence_failures, 0);
+    let persisted = cache.load().unwrap().unwrap();
+    assert_eq!(persisted.summary.windows[0].used_percent, 20);
+    assert_clean_shutdown(&report);
+}
+
+#[test]
+fn corrupt_cache_warns_anonymously_without_blocking_live_refresh() {
+    let fixture = RuntimeFixture::new("steady");
+    fs::write(&fixture.cache_path, b"private content must not be reported").unwrap();
+    let mut config = fixture.config();
+    config.quota_cache = Some(QuotaCacheStore::new(fixture.cache_path.clone()));
+    let mut runtime = QuotaRuntime::start(config).unwrap();
+
+    let live = wait_for_state(&runtime, |state| {
+        state.data == DataState::Fresh && used_percent(state) == Some(20)
+    });
+    assert!(live.warnings.contains(&WarningCode::PersistenceFailure));
+
+    let report = runtime.shutdown().unwrap();
+    assert_eq!(report.persistence_failures, 1);
+    assert_clean_shutdown(&report);
+}
+
 fn serve_fake_app_server(mode: &str, read_counter: &Path, generation: u64) {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
@@ -153,6 +198,9 @@ fn serve_fake_app_server(mode: &str, read_counter: &Path, generation: u64) {
         };
         match request.get("method").and_then(Value::as_str) {
             Some("initialize") => {
+                if mode == "slow-start" {
+                    thread::sleep(Duration::from_millis(250));
+                }
                 let version = if mode == "version-mismatch" {
                     "0.999.0"
                 } else {
@@ -260,6 +308,7 @@ struct RuntimeFixture {
     mode: &'static str,
     read_counter: PathBuf,
     generation_counter: PathBuf,
+    cache_path: PathBuf,
 }
 
 impl RuntimeFixture {
@@ -268,6 +317,7 @@ impl RuntimeFixture {
             mode,
             read_counter: unique_path(mode, "reads"),
             generation_counter: unique_path(mode, "generations"),
+            cache_path: unique_path(mode, "cache"),
         }
     }
 
@@ -308,6 +358,7 @@ impl RuntimeFixture {
             refresh_policy: RefreshPolicy::new(1, 60, 2).unwrap(),
             poll_interval: Duration::from_millis(10),
             expected_schema_version: "0.137.0".to_owned(),
+            quota_cache: None,
         }
     }
 }
@@ -316,6 +367,30 @@ impl Drop for RuntimeFixture {
     fn drop(&mut self) {
         let _ = fs::remove_file(&self.read_counter);
         let _ = fs::remove_file(&self.generation_counter);
+        let _ = fs::remove_file(&self.cache_path);
+        let _ = fs::remove_file(self.cache_path.with_extension("json.bak"));
+    }
+}
+
+fn cached_state(used_percent: i64) -> AppState {
+    AppState {
+        data: DataState::Fresh,
+        quota: Some(QuotaSummary {
+            windows: vec![QuotaWindow {
+                limit_id: Some("must-not-persist".to_owned()),
+                limit_name: Some("must-not-persist".to_owned()),
+                source_slot: "primary",
+                used_percent,
+                remaining_percent: 100 - used_percent,
+                window_duration_mins: Some(10_080),
+                resets_at: Some(4_102_444_800),
+            }],
+            issues: Vec::new(),
+            reset_credits: ResetCreditsState::UnavailableInSchema,
+        }),
+        last_success_at: Some(1_700_000_000),
+        source_cli_version: Some("0.137.0".to_owned()),
+        ..AppState::default()
     }
 }
 

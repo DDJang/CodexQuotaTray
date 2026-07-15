@@ -79,7 +79,8 @@ JsonlTransport ──► JsonRpcClient ──► ProtocolDecoder ──► Quota
 - **当前实现 — CLI orchestration**：通过 `json_rpc` 发起请求、消费通知，并负责人类可读输出和退出码。
 - **当前实现 — `state`**：纯 `AppStateReducer` 是唯一状态转换入口，线程安全内存 store 返回 owned snapshot；UI 不得直接消费 wire JSON。
 - **当前实现 — `runtime`**：把 supervisor 连接代次、握手、并发只读 RPC、refresh coordinator、稀疏通知和 reducer 串为一个长期后台 worker；公开接口只暴露 normalized snapshot、刷新触发和幂等 shutdown report。
-- **拟议设计 — cache/UI/notification adapters**：只读取归一化状态，不持有 transport 或认证数据。
+- **当前实现 — `persistence`**：settings 与 quota cache 分文件；cache 只保存匿名窗口数字和版本 provenance，恢复为 stale，I/O/corruption 只产生匿名 warning。
+- **拟议设计 — UI/notification adapters**：只读取归一化状态，不持有 transport 或认证数据。
 
 ## 5. 进程生命周期
 
@@ -201,6 +202,7 @@ QuotaState:
 - 不完整 read、无基线 patch 和多 bucket 歧义 patch 均保留最后有效快照并产生匿名 warning code。
 - 明确切换到未登录、API Key、Bedrock 或不支持账户模式时清除旧 ChatGPT quota，避免跨账户模式展示旧数据。
 - sparse patch 在私有 typed snapshot 上合并；公开 store snapshot 只包含 normalized domain state。
+- cache restore 不恢复 authenticated 状态或官方 limit metadata；只提供 stale 数字快照，实时账户读取可以清除或替换它。
 
 ## 8. 隐私与信任边界
 
@@ -218,18 +220,20 @@ QuotaState:
 - JSON-RPC error message 默认不原样打印；只输出 error code 和本地维护的可操作说明。
 - fixture 只能包含 `[REDACTED]` 或人工构造值，不能复制真实响应正文。
 - 非敏感缓存不得成为认证缓存。
+- cache 白名单仅包含 used percent、duration、reset time、last-success time、source CLI version 和 source slot；limit ID/name、plan/auth mode 均不落盘。
 
 ## 9. 测试策略
 
 ### 9.1 已有覆盖
 
-- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试、9 个 reducer 测试、9 个 refresh coordinator 测试、3 个 version compatibility 单元测试和 6 个 runtime fake-process 测试完全离线通过。
+- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试、9 个 reducer 测试、9 个 refresh coordinator 测试、3 个 version compatibility 单元测试、6 个 persistence 测试和 8 个 runtime fake-process 测试完全离线通过。
 - 覆盖 ChatGPT、API Key、Bedrock、未登录、single/dual/multi bucket、未知时长、缺失字段、越界百分比、malformed JSON 和稀疏合并。
 - JSON-RPC 测试覆盖唯一 ID、多个 pending、乱序响应、RPC error、通知、timeout、EOF、未知/重复 ID、null result、非法 JSON 和非法 envelope。
 - supervisor 测试覆盖非零退出恢复、restart budget、启动失败、显式恢复、stderr flood、正常 EOF、强制回收和幂等 shutdown。
 - reducer 测试覆盖 process/auth/data 状态、失败保留、15 分钟 stale、完整替换、稀疏更新、歧义拒绝和 owned store snapshot。
 - runtime 测试通过真实本地 stdio pipe 覆盖乱序并发响应、启动快照、手动刷新合并、通知稀疏合并与完整补读、单代次崩溃恢复和幂等关闭。
 - version 测试覆盖生成记录读取、精确 match、pre-release mismatch 与 unreported；mismatch runtime 测试同时证明 quota 仍可 best-effort 投影。
+- persistence 测试覆盖设置默认/往返/越界、字段隐私白名单、完整替换、backup recovery、损坏/超大输入和幂等清除；runtime 测试覆盖 stale cache → live replacement/write-back 与损坏缓存非阻断恢复。
 - 请求序列测试证明 runtime 只使用四个允许 method，通信层统一注入 request ID。
 - 脱敏实跑证明真实 quota 可读、默认发现 `codex.cmd` 可用且 stdin close 能干净退出。
 - 90 秒真实 runtime soak 保持 generation 0 / fresh / 单窗口，完成 1 次读取、0 failure、0 restart、0 forced termination、0 protocol diagnostic；退出后进程查询无遗留 App Server。

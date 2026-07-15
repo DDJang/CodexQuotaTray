@@ -10,6 +10,7 @@ use serde_json::Value;
 use crate::app_server::AppServerLaunch;
 use crate::compatibility::{evaluate_user_agent, schema_codex_version};
 use crate::json_rpc::{ClientEvent, JsonRpcClient, RpcClientError};
+use crate::persistence::QuotaCacheStore;
 use crate::protocol::{
     ACCOUNT_READ_METHOD, AccountRateLimitsUpdatedNotification, AccountReadResponse,
     INITIALIZE_METHOD, INITIALIZED_METHOD, InitializeResponse, RATE_LIMITS_READ_METHOD,
@@ -33,6 +34,7 @@ pub struct RuntimeConfig {
     pub refresh_policy: RefreshPolicy,
     pub poll_interval: Duration,
     pub expected_schema_version: String,
+    pub quota_cache: Option<QuotaCacheStore>,
 }
 
 impl RuntimeConfig {
@@ -43,6 +45,7 @@ impl RuntimeConfig {
             refresh_policy: RefreshPolicy::default(),
             poll_interval: Duration::from_millis(250),
             expected_schema_version: schema_codex_version().to_owned(),
+            quota_cache: None,
         }
     }
 }
@@ -62,6 +65,7 @@ pub struct RuntimeReport {
     pub refresh_failures: usize,
     pub rate_limit_notifications: usize,
     pub protocol_diagnostics: usize,
+    pub persistence_failures: usize,
 }
 
 enum RuntimeCommand {
@@ -82,11 +86,35 @@ impl QuotaRuntime {
             return Err("runtime poll interval must be positive".to_owned());
         }
         let state = AppStateStore::new();
+        let mut initial_persistence_failures = 0;
+        if let Some(cache) = config.quota_cache.as_ref() {
+            match cache.load() {
+                Ok(Some(restored)) => {
+                    state.dispatch(StateEvent::CachedQuotaRestored {
+                        summary: restored.summary,
+                        last_success_at: restored.last_success_at,
+                        source_cli_version: restored.source_cli_version,
+                    });
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    initial_persistence_failures = 1;
+                    state.dispatch(StateEvent::PersistenceFailed);
+                }
+            }
+        }
         let worker_state = state.clone();
         let (command_sender, command_receiver) = mpsc::channel();
         let thread = thread::Builder::new()
             .name("codex-quota-runtime".to_owned())
-            .spawn(move || runtime_worker(config, worker_state, command_receiver))
+            .spawn(move || {
+                runtime_worker(
+                    config,
+                    worker_state,
+                    command_receiver,
+                    initial_persistence_failures,
+                )
+            })
             .map_err(|error| format!("could not start quota runtime: {:?}", error.kind()))?;
 
         Ok(Self {
@@ -134,6 +162,7 @@ struct RuntimeCounters {
     refresh_failures: usize,
     rate_limit_notifications: usize,
     protocol_diagnostics: usize,
+    persistence_failures: usize,
 }
 
 impl RuntimeCounters {
@@ -143,6 +172,7 @@ impl RuntimeCounters {
             refresh_failures: 0,
             rate_limit_notifications: 0,
             protocol_diagnostics: 0,
+            persistence_failures: 0,
         }
     }
 }
@@ -151,12 +181,14 @@ fn runtime_worker(
     config: RuntimeConfig,
     state: AppStateStore,
     command_receiver: Receiver<RuntimeCommand>,
+    initial_persistence_failures: usize,
 ) -> Result<RuntimeReport, String> {
     let mut supervisor =
         AppServerSupervisor::start(config.launch.clone(), config.restart_policy.clone())?;
     let started_at = Instant::now();
     let mut coordinator = RefreshCoordinator::new(config.refresh_policy);
     let mut counters = RuntimeCounters::new();
+    counters.persistence_failures = initial_persistence_failures;
     let mut manual_pending = false;
 
     let exit_reason = 'runtime: loop {
@@ -285,6 +317,7 @@ fn runtime_worker(
         refresh_failures: counters.refresh_failures,
         rate_limit_notifications: counters.rate_limit_notifications,
         protocol_diagnostics: counters.protocol_diagnostics,
+        persistence_failures: counters.persistence_failures,
     })
 }
 
@@ -403,6 +436,7 @@ fn drive_connection(
                     patch: update.rate_limits,
                     received_at: unix_now(),
                 });
+                persist_snapshot(state, config, counters);
                 queue_decision(
                     actions,
                     coordinator.request(
@@ -466,6 +500,7 @@ fn execute_refresh(
                                     received_at: unix_now(),
                                     source_cli_version: runtime_cli_version.clone(),
                                 });
+                                persist_snapshot(state, config, counters);
                             }
                             let succeeded = !is_chatgpt || state.snapshot().last_failure.is_none();
                             if succeeded {
@@ -549,6 +584,16 @@ fn rpc_failure(error: &RpcClientError) -> OperationFailure {
 fn queue_decision(actions: &mut VecDeque<CoordinatorAction>, decision: RequestDecision) {
     if let RequestDecision::Started(request) = decision {
         actions.push_back(CoordinatorAction::Started(request));
+    }
+}
+
+fn persist_snapshot(state: &AppStateStore, config: &RuntimeConfig, counters: &mut RuntimeCounters) {
+    let Some(cache) = config.quota_cache.as_ref() else {
+        return;
+    };
+    if cache.save(&state.snapshot()).is_err() {
+        counters.persistence_failures += 1;
+        state.dispatch(StateEvent::PersistenceFailed);
     }
 }
 

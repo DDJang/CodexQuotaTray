@@ -37,6 +37,10 @@ cargo run --example runtime_soak -- --seconds 300 --sample-seconds 30
 
 For the 24-hour P1 gate, use `--seconds 86400`. Let the finite run complete so the harness can close stdin, reap the child, and report forced terminations. The harness never prints percentages, raw responses, email, account identifiers, or tokens.
 
+## Local settings and cache
+
+The persistence adapters use `%LOCALAPPDATA%\CodexQuotaTray\settings.json` and `quota-cache.json`. The quota cache is opt-in at runtime and contains only used percentage, window duration, reset time, last-success time, and the parsed CLI version. It excludes account/authentication data, plan type, limit identifiers/names, and raw protocol data. A restored cache is always marked stale until a live read succeeds.
+
 ## Regenerate schemas
 
 ```powershell
