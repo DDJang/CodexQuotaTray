@@ -1,6 +1,7 @@
 pub mod alerts;
 pub mod app_server;
 pub mod compatibility;
+pub mod host_events;
 pub mod json_rpc;
 pub mod persistence;
 pub mod protocol;

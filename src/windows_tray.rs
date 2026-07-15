@@ -3,8 +3,8 @@ use std::mem::size_of;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use windows::Win32::Foundation::{
-    COLORREF, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT,
-    WPARAM,
+    COLORREF, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, POINT,
+    RECT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush,
@@ -13,6 +13,12 @@ use windows::Win32::Graphics::Gdi::{
     HGDIOBJ, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT, SelectObject, SetBkMode,
     SetTextColor, TRANSPARENT,
 };
+use windows::Win32::NetworkManagement::IpHelper::{
+    CancelMibChangeNotify2, NotifyNetworkConnectivityHintChange,
+};
+use windows::Win32::Networking::WinSock::{
+    NL_NETWORK_CONNECTIVITY_HINT, NetworkConnectivityLevelHintInternetAccess,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey,
@@ -20,8 +26,8 @@ use windows::Win32::System::Registry::{
 };
 use windows::Win32::UI::Shell::{
     NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_ERROR, NIIF_INFO, NIIF_NOSOUND,
-    NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW, Shell_NotifyIconW,
-    ShellExecuteW,
+    NIIF_RESPECT_QUIET_TIME, NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
+    Shell_NotifyIconW, ShellExecuteW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu,
@@ -29,16 +35,17 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetClientRect, GetCursorPos, GetMessageW, GetSystemMetrics, HICON, HMENU, HWND_TOPMOST,
     IDC_ARROW, IDI_APPLICATION, IDI_ERROR, IDI_INFORMATION, IDI_QUESTION, IDI_WARNING,
     IsWindowVisible, KillTimer, LoadCursorW, LoadIconW, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG,
-    PostMessageW, PostQuitMessage, RegisterClassW, SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOW,
-    SW_SHOWNOACTIVATE, SWP_SHOWWINDOW, SetForegroundWindow, SetTimer, SetWindowLongPtrW,
-    SetWindowPos, SetWindowTextW, ShowWindow, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
-    WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DESTROY, WM_ENDSESSION, WM_KEYUP, WM_LBUTTONUP,
-    WM_NCCREATE, WM_PAINT, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP,
+    PBT_APMRESUMEAUTOMATIC, PostMessageW, PostQuitMessage, RegisterClassW, SM_CXSCREEN,
+    SM_CYSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_SHOWWINDOW, SetForegroundWindow, SetTimer,
+    SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    TrackPopupMenu, WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DESTROY, WM_ENDSESSION,
+    WM_KEYUP, WM_LBUTTONUP, WM_NCCREATE, WM_PAINT, WM_POWERBROADCAST, WM_QUERYENDSESSION,
+    WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
 use crate::alerts::{AlertKind, AlertTracker, QuotaAlert};
+use crate::host_events::{HostEvent, refresh_reason};
 use crate::persistence::{AppSettings, PersistencePaths, QuotaCacheStore, SettingsStore};
 use crate::quota::{QuotaSummary, QuotaWindow, ResetCreditsState};
 use crate::refresh::{RefreshPolicy, RefreshReason};
@@ -49,6 +56,8 @@ use crate::ui_model::{TrayIconState, TrayView, ViewPreferences, project_tray_vie
 const WINDOW_CLASS: PCWSTR = w!("CodexQuotaTrayWindow");
 const WINDOW_TITLE: PCWSTR = w!("CodexQuotaTray");
 const TRAY_CALLBACK: u32 = WM_APP + 17;
+const NETWORK_RESTORED_MESSAGE: u32 = WM_APP + 18;
+const SHOW_CARD_MESSAGE: u32 = WM_APP + 19;
 const TRAY_ID: u32 = 1;
 const TIMER_ID: usize = 1;
 const TIMER_MILLIS: u32 = 5_000;
@@ -91,11 +100,10 @@ pub fn request_existing_shutdown() -> Result<bool, String> {
 unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
     // SAFETY: Static UTF-16 class/title pointers are valid for the duration of the call.
     if let Ok(existing) = unsafe { FindWindowW(WINDOW_CLASS, PCWSTR::null()) } {
-        // SAFETY: `existing` is a window returned by the OS.
-        unsafe {
-            let _ = ShowWindow(existing, SW_SHOW);
-            let _ = SetForegroundWindow(existing);
-        }
+        // SAFETY: `existing` is a window returned by the OS. The owning UI thread performs the
+        // card-open refresh and foreground transition.
+        unsafe { PostMessageW(Some(existing), SHOW_CARD_MESSAGE, WPARAM(0), LPARAM(0)) }
+            .map_err(win_error("activate existing tray window"))?;
         return Ok(());
     }
 
@@ -122,6 +130,7 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
         view: None,
         tray_added: false,
         settings_warning,
+        network_notification: None,
     });
 
     // SAFETY: Null module name requests the current module.
@@ -167,6 +176,7 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
     }
     .map_err(win_error("create native tray window"))?;
     context.hwnd = Some(hwnd);
+    context.network_notification = register_network_notifications(hwnd);
     context.refresh_projection()?;
     context.add_tray_icon()?;
     // SAFETY: `hwnd` belongs to this thread and `TIMER_ID` is application-owned.
@@ -198,8 +208,9 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
     // SAFETY: Timer and tray icon belong to this context/window.
     let _ = unsafe { KillTimer(Some(hwnd), TIMER_ID) };
     context.delete_tray_icon();
-    context.shutdown_source()?;
-    Ok(())
+    let network_cleanup = context.unregister_network_notifications();
+    let runtime_cleanup = context.shutdown_source();
+    network_cleanup.and(runtime_cleanup)
 }
 
 struct AppContext {
@@ -212,6 +223,7 @@ struct AppContext {
     view: Option<TrayView>,
     tray_added: bool,
     settings_warning: bool,
+    network_notification: Option<HANDLE>,
 }
 
 enum StateSource {
@@ -227,12 +239,14 @@ impl StateSource {
         }
     }
 
-    fn refresh(&mut self) -> Result<(), String> {
+    fn refresh(&mut self, reason: RefreshReason) -> Result<(), String> {
         match self {
-            Self::Runtime(runtime) => runtime.request_refresh(RefreshReason::Manual),
+            Self::Runtime(runtime) => runtime.request_refresh(reason),
             Self::Demo { state, step } => {
-                *step = step.saturating_add(1);
-                *state = demo_state(*step);
+                if reason == RefreshReason::Manual {
+                    *step = step.saturating_add(1);
+                    *state = demo_state(*step);
+                }
                 Ok(())
             }
         }
@@ -364,7 +378,7 @@ impl AppContext {
         let mut data = self.tray_data(NIF_INFO)?;
         copy_wide(&mut data.szInfoTitle, title);
         copy_wide(&mut data.szInfo, &body);
-        data.dwInfoFlags = icon | NIIF_NOSOUND;
+        data.dwInfoFlags = icon | NIIF_NOSOUND | NIIF_RESPECT_QUIET_TIME;
         // SAFETY: Notification text is copied into fixed buffers in `data`.
         if !unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) }.as_bool() {
             return Err("Windows rejected a quota notification".to_owned());
@@ -382,6 +396,12 @@ impl AppContext {
             }
             return Ok(());
         }
+        self.show_card()
+    }
+
+    fn show_card(&mut self) -> Result<(), String> {
+        let hwnd = self.hwnd()?;
+        self.handle_host_event(HostEvent::CardOpened)?;
         self.refresh_projection()?;
         let mut point = POINT::default();
         // SAFETY: `point` is a valid out parameter.
@@ -473,7 +493,7 @@ impl AppContext {
         match command {
             0 => Ok(()),
             CMD_REFRESH => {
-                self.source.refresh()?;
+                self.source.refresh(RefreshReason::Manual)?;
                 self.refresh_projection()
             }
             CMD_OPEN_USAGE => open_usage_page(),
@@ -542,6 +562,26 @@ impl AppContext {
         }
         Ok(())
     }
+
+    fn handle_host_event(&mut self, event: HostEvent) -> Result<(), String> {
+        let Some(reason) = refresh_reason(event) else {
+            return Ok(());
+        };
+        self.source.refresh(reason)
+    }
+
+    fn unregister_network_notifications(&mut self) -> Result<(), String> {
+        let Some(handle) = self.network_notification.take() else {
+            return Ok(());
+        };
+        // SAFETY: The handle was returned by NotifyNetworkConnectivityHintChange and is consumed
+        // exactly once during UI-thread shutdown.
+        let result = unsafe { CancelMibChangeNotify2(handle) };
+        if result != ERROR_SUCCESS {
+            return Err("could not unregister the Windows network notification".to_owned());
+        }
+        Ok(())
+    }
 }
 
 unsafe extern "system" fn window_proc(
@@ -580,6 +620,26 @@ unsafe extern "system" fn window_proc(
                 let _ = context.refresh_projection();
             }
             LRESULT(0)
+        }
+        NETWORK_RESTORED_MESSAGE => {
+            if let Some(context) = context {
+                let _ = context.handle_host_event(HostEvent::NetworkConnectivityChanged {
+                    internet_available: true,
+                });
+            }
+            LRESULT(0)
+        }
+        SHOW_CARD_MESSAGE => {
+            if let Some(context) = context {
+                let _ = context.show_card();
+            }
+            LRESULT(0)
+        }
+        WM_POWERBROADCAST if wparam.0 == PBT_APMRESUMEAUTOMATIC as usize => {
+            if let Some(context) = context {
+                let _ = context.handle_host_event(HostEvent::SessionResumed);
+            }
+            LRESULT(1)
         }
         WM_LBUTTONUP => {
             if let Some(context) = context {
@@ -843,6 +903,34 @@ fn set_window_title(hwnd: HWND, title: &str) -> Result<(), String> {
     // remains valid for the duration of the call.
     unsafe { SetWindowTextW(hwnd, PCWSTR(wide.as_ptr())) }
         .map_err(win_error("set accessible window title"))
+}
+
+fn register_network_notifications(hwnd: HWND) -> Option<HANDLE> {
+    let mut handle = HANDLE::default();
+    // SAFETY: The callback stores no borrowed Rust pointer. Its context is the value of an
+    // OS-owned HWND; posting to an already destroyed window simply fails safely.
+    let result = unsafe {
+        NotifyNetworkConnectivityHintChange(
+            Some(network_connectivity_changed),
+            Some(hwnd.0.cast_const()),
+            false,
+            &mut handle,
+        )
+    };
+    (result == ERROR_SUCCESS).then_some(handle)
+}
+
+unsafe extern "system" fn network_connectivity_changed(
+    caller_context: *const core::ffi::c_void,
+    connectivity_hint: NL_NETWORK_CONNECTIVITY_HINT,
+) {
+    if connectivity_hint.ConnectivityLevel != NetworkConnectivityLevelHintInternetAccess {
+        return;
+    }
+    let hwnd = HWND(caller_context.cast_mut());
+    // SAFETY: The HWND value came from the registering UI thread. Failure is benign if the
+    // window has already begun shutdown.
+    let _ = unsafe { PostMessageW(Some(hwnd), NETWORK_RESTORED_MESSAGE, WPARAM(0), LPARAM(0)) };
 }
 
 fn severity_color(remaining: i64) -> COLORREF {

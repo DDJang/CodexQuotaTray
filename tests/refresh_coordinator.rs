@@ -74,6 +74,31 @@ fn minimum_interval_defers_manual_refresh_without_dropping_it() {
 }
 
 #[test]
+fn network_restore_burst_is_coalesced_and_rate_limited() {
+    let mut coordinator = RefreshCoordinator::default();
+    let startup = started(coordinator.request(RefreshReason::Startup, 0).unwrap());
+    coordinator.complete(startup.id, 1, true).unwrap();
+
+    for now in 2..10 {
+        assert_eq!(
+            coordinator.request(RefreshReason::NetworkRestored, now),
+            Ok(RequestDecision::Deferred { not_before: 10 })
+        );
+        assert_eq!(
+            coordinator.pending_reason(),
+            Some(RefreshReason::NetworkRestored)
+        );
+    }
+
+    assert!(coordinator.tick(9).unwrap().is_empty());
+    let actions = coordinator.tick(10).unwrap();
+    let [CoordinatorAction::Started(restored)] = actions.as_slice() else {
+        panic!("one coalesced restore refresh should start after the minimum interval");
+    };
+    assert_eq!(restored.reason, RefreshReason::NetworkRestored);
+}
+
+#[test]
 fn request_timeout_clears_only_the_matching_in_flight_work() {
     let mut coordinator = RefreshCoordinator::default();
     let request = started(coordinator.request(RefreshReason::Startup, 100).unwrap());

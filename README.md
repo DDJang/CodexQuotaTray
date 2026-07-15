@@ -36,6 +36,8 @@ Use `--codex-bin PATH` to override discovery. The tray menu provides refresh, th
 
 Keyboard access while the card is focused: `Enter` or `R` refreshes, `U` opens Usage, `F10` opens the system menu, and `Esc` hides the card. The release executable contains no WebView, Electron, or Chromium runtime.
 
+Card-open, Windows resume, and restored system connectivity are routed through the same coordinator as manual and App Server events. Event bursts remain subject to the 10-second minimum interval and single in-flight request, while a 10-minute fallback works even when no system or App Server notification arrives. Quota notifications ask Windows to respect quiet time and never play application sound.
+
 ## Run the spike
 
 ```powershell

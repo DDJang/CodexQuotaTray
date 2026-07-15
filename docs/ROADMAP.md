@@ -159,7 +159,7 @@ UI：不包含
 - normal/caution/critical/exhausted/refreshing/offline 使用形状不同的系统 icon，并辅以文字与颜色，不只依赖颜色。
 - 非敏感 cache、提醒、开机启动和 cache 清理的最小系统菜单；`--shutdown-existing` 供正常安装/卸载清理。
 - Windows 11 x64 手工 smoke 已通过 demo 刷新、菜单和退出；真实 release host 可启动并正常回收 P1 runtime。
-- 首次资源基线：931,328-byte release GUI；10 秒空闲主进程约 9.63 MiB working set、0 CPU 秒增量。
+- 当前资源基线：932,352-byte P3 release GUI；10 秒空闲主进程约 9.63 MiB working set、0 CPU 秒增量。
 
 ### 明确排除
 
@@ -181,7 +181,7 @@ UI：不包含
 
 ## 6. P3 — Refresh orchestration 与通知
 
-状态：**拟议**
+状态：**实现完成、验收中；随 P1 24 小时 soak 关闭 live gate**
 
 ### 目标
 
@@ -194,6 +194,16 @@ UI：不包含
 - 去重、周期重置和 Windows 专注模式兼容。
 - 最小设置与非敏感持久化。
 
+### 已完成
+
+- 稀疏 App Server 通知先合并、再经 10 秒最小间隔调度权威完整补读。
+- card-open、系统自动恢复和网络恢复事件映射到同一 refresh coordinator；网络离线事件不触发无意义读取。
+- 事件 burst 只保留一个 pending reason，同一时间最多一个 refresh；10 分钟 fallback 不依赖系统事件。
+- 20%、5%、耗尽和跨周期恢复 reducer，首次观察静默、同窗口/周期去重、关闭后不补发旧阈值。
+- Windows balloon 使用安静时段标志且无应用声音；提醒总开关和非敏感 settings 已持久化。
+- 77 个离线测试通过；Windows 11 smoke 验证网络 monitor 注册/注销、单实例 card-open 与正常退出。
+- P1 soak 首小时仍为 generation 0 / Fresh / schema match / 0 warning，证明无实际更新通知时 fallback 能维持权威新鲜状态。
+
 ### Entry gate
 
 - 至少一次 extended live/soak 环境观察到更新通知，或证明 fallback 能覆盖通知缺失。
@@ -204,6 +214,8 @@ UI：不包含
 - 阈值、去重、跨周期恢复和 stale cache 均有状态转换测试。
 - 主动请求最小间隔 10 秒；同一时间最多一个 refresh。
 - 网络故障不会清空旧数据或产生通知风暴。
+
+当前自动化已满足三个 exit 条目；最终状态随 P1 24 小时 soak 的 refresh/restart/orphan 汇总关闭。
 
 ## 7. P4 — Packaging 与发布准备
 

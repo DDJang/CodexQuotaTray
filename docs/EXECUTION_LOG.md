@@ -415,3 +415,48 @@ Add the smallest official Windows binding feature set and implement a demo-mode 
 ### Next task
 
 Add P3 card-open/resume refresh adapters and quiet-time notification behavior without changing the P1 refresh bounds, while the 24-hour soak continues.
+
+## 2026-07-15 — P3 host events and quiet-time notifications
+
+### Completed
+
+- Added a pure `HostEvent` mapping for card-open, session-resume, network-offline, and network-restored inputs.
+- Routed card-open through `RefreshReason::CardOpened`, `PBT_APMRESUMEAUTOMATIC` through `Resume`, and IP Helper InternetAccess callbacks through `NetworkRestored`.
+- Kept network-offline events passive; existing transport failures preserve the last snapshot and the 10-minute fallback remains authoritative.
+- Registered the Windows connectivity callback with only an HWND value as context, posted work back to the UI thread, and canceled the notification handle on every normal exit path.
+- Changed second-instance activation to post a card-open message to the owning UI thread instead of directly showing the window, preserving single-instance event semantics.
+- Added `NIIF_RESPECT_QUIET_TIME | NIIF_NOSOUND` to native quota notifications.
+- Added an offline burst test proving repeated network-restored events coalesce behind the 10-second minimum interval rather than producing parallel reads.
+
+### Dependency decision
+
+- Reused the existing Windows-only `windows` crate and added only its IP Helper and WinSock metadata features. The implementation calls the operating system connectivity hint API; it performs no web request, DNS probe, browser access, or cookie read.
+- No async runtime, network client, service, or polling thread was added. The callback posts one UI message only for InternetAccess; P1 remains the sole owner of request throttling and network I/O.
+
+### Files
+
+- `Cargo.toml`
+- `src/host_events.rs`, `src/lib.rs`
+- `src/windows_tray.rs`
+- `tests/host_events.rs`, `tests/refresh_coordinator.rs`
+- `README.md`
+- `docs/TECH_DESIGN.md`, `docs/ROADMAP.md`, `docs/EXECUTION_LOG.md`
+
+### Verification
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- `cargo test --all-targets`: passed, 77 tests total.
+- P3 stripped/thin-LTO release GUI: 932,352 bytes, only 1,024 bytes above the P2 host baseline.
+- Windows 11 smoke: the host registered the connectivity callback, a second launch retained one window/instance, and Alt+F4 returned from callback cancellation with no residual GUI process.
+- P1 soak at 3,600 seconds: generation 0, process Ready, data Fresh, one normalized window, schema match 0.137.0, last success present, 0 warnings; stderr 0 bytes. Harness working set was 5,533,696 bytes at the later sample.
+
+### Remaining risks
+
+- A real Wi-Fi disconnect/reconnect and sleep/resume cycle was not forced because changing the user's live system connectivity/power state is outside safe automated smoke scope; pure mappings and coordinator behavior are tested offline.
+- Windows connectivity callback registration failure is intentionally non-fatal because the 10-minute fallback must continue to work on unsupported/restricted systems.
+- P1's 24-hour soak and Windows 10 host smoke remain open release gates.
+
+### Next task
+
+Create a reproducible P4 Windows package with dependency/license inventory, install/upgrade/uninstall scripts, start-with-Windows handling, and offline packaging tests; do not sign or publish it.
