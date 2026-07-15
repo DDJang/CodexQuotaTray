@@ -1,3 +1,4 @@
+pub mod alerts;
 pub mod app_server;
 pub mod compatibility;
 pub mod json_rpc;
@@ -8,3 +9,4 @@ pub mod refresh;
 pub mod runtime;
 pub mod state;
 pub mod supervisor;
+pub mod ui_model;

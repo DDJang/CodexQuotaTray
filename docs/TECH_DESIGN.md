@@ -80,7 +80,9 @@ JsonlTransport ──► JsonRpcClient ──► ProtocolDecoder ──► Quota
 - **当前实现 — `state`**：纯 `AppStateReducer` 是唯一状态转换入口，线程安全内存 store 返回 owned snapshot；UI 不得直接消费 wire JSON。
 - **当前实现 — `runtime`**：把 supervisor 连接代次、握手、并发只读 RPC、refresh coordinator、稀疏通知和 reducer 串为一个长期后台 worker；公开接口只暴露 normalized snapshot、刷新触发和幂等 shutdown report。
 - **当前实现 — `persistence`**：settings 与 quota cache 分文件；cache 只保存匿名窗口数字和版本 provenance，恢复为 stale，I/O/corruption 只产生匿名 warning。
-- **拟议设计 — UI/notification adapters**：只读取归一化状态，不持有 transport 或认证数据。
+- **当前实现 — `ui_model`**：把 normalized `AppState` 投影为 tray icon severity、tooltip、card rows、reset-unavailable 和可操作状态文案；不引用 wire types。
+- **当前实现 — `alerts`**：纯内存阈值 reducer 按窗口/周期追踪 20%、5%、耗尽和恢复，首次观察不提醒，同阈值同周期只提醒一次。
+- **拟议设计 — Windows host adapter**：只消费 UI projection/alert events，不持有 transport 或认证数据。
 
 ## 5. 进程生命周期
 
@@ -234,6 +236,7 @@ QuotaState:
 - runtime 测试通过真实本地 stdio pipe 覆盖乱序并发响应、启动快照、手动刷新合并、通知稀疏合并与完整补读、单代次崩溃恢复和幂等关闭。
 - version 测试覆盖生成记录读取、精确 match、pre-release mismatch 与 unreported；mismatch runtime 测试同时证明 quota 仍可 best-effort 投影。
 - persistence 测试覆盖设置默认/往返/越界、字段隐私白名单、完整替换、backup recovery、损坏/超大输入和幂等清除；runtime 测试覆盖 stale cache → live replacement/write-back 与损坏缓存非阻断恢复。
+- UI projection 测试覆盖 duration 命名、剩余/已用模式、阈值 icon、refreshing 保留、stale/offline 降级、未登录/API Key/Bedrock 和缺失字段；alert 测试覆盖首次基线、20/5/0 去重、跨周期恢复、禁用策略与多窗口独立性。
 - 请求序列测试证明 runtime 只使用四个允许 method，通信层统一注入 request ID。
 - 脱敏实跑证明真实 quota 可读、默认发现 `codex.cmd` 可用且 stdin close 能干净退出。
 - 90 秒真实 runtime soak 保持 generation 0 / fresh / 单窗口，完成 1 次读取、0 failure、0 restart、0 forced termination、0 protocol diagnostic；退出后进程查询无遗留 App Server。

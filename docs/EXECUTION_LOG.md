@@ -318,3 +318,47 @@ Design and implement the minimal non-sensitive cache/settings boundary, then exe
 ### Next task
 
 Run the finite 24-hour real-process soak with external resource samples and an orphan check; do not start P2 before the result is recorded.
+
+## 2026-07-15 — P2-A platform-neutral tray projection and alert reducer
+
+### Completed
+
+- Added a pure `AppState` projection for tray severity, tooltip, account/status headline, quota rows, progress percentages, reset countdowns, last update, and reset-credit-unavailable text.
+- Derived quota names from duration/official normalized names, never from primary/secondary slot assumptions.
+- Kept missing windows/reset times unavailable instead of presenting 100% or zero.
+- Added distinct normal, caution, critical, exhausted, refreshing, and offline semantic icon states.
+- Added a pure in-memory alert tracker for 20%, 5%, exhausted, and recovered events.
+- Suppressed alerts on the initial observation, deduplicated each threshold per window/cycle, emitted only the most severe event on large drops, and rearmed after a confirmed cycle recovery.
+- Continued the independent finite 24-hour release soak; at the five-minute check the main process remained alive at about 5.8 MB working set, 0.56 cumulative CPU seconds, and empty stderr.
+
+### Dependency decision
+
+- No dependency was added for projection or alert logic; existing normalized types and Chrono cover local time presentation.
+- Official Microsoft `windows-rs` documentation was reviewed for the next adapter. It describes `windows-sys` as zero-overhead raw bindings and the `windows` crate as the safer Win32/COM/WinRT projection, both namespace-feature-gated. The current official API docs report 0.62.2.
+- The Win32 dependency will be added only with the exact Shell/WindowsAndMessaging/GDI/Registry features needed by the host; no webview/browser feature is permitted.
+
+### Files
+
+- `src/ui_model.rs`
+- `src/alerts.rs`
+- `src/lib.rs`
+- `tests/ui_model.rs`
+- `tests/alerts.rs`
+- `docs/TECH_DESIGN.md`
+- `docs/ROADMAP.md`
+
+### Verification
+
+- `cargo test --test ui_model --test alerts`: passed, 11 tests.
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- Independent soak status: alive after 307 seconds; runtime working set 5,849,088 bytes; stderr 0 bytes.
+
+### Remaining risks
+
+- No Win32 tray/window/balloon adapter exists yet.
+- Alert deduplication is currently in memory only; persisted notification-cycle state remains to be designed if restart deduplication is required for MVP.
+- The wall-clock 24-hour P1 gate is still running and P1 is not marked complete.
+
+### Next task
+
+Add the smallest official Windows binding feature set and implement a demo-mode native tray host against the tested projection, while the independent soak continues.

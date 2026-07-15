@@ -134,7 +134,7 @@ UI：不包含
 
 ## 5. P2 — Read-only Windows tray shell
 
-状态：**拟议，P1 完成前不得开始**
+状态：**平台无关投影/提醒 reducer 已完成；Win32 host 待 P1 soak 并行验证**
 
 ### 目标
 
@@ -146,6 +146,14 @@ UI：不包含
 - fresh/refreshing/stale/offline/unauthenticated/unavailable 显示。
 - 动态 quota windows、reset time 和最后更新时间。
 - 手动刷新触发器，只调用 P1 read service。
+
+### 已完成基础
+
+- `AppState` → tray severity/tooltip/card rows 的纯投影；UI 不接触 protocol JSON。
+- normal/caution/critical/exhausted/refreshing/offline 六种语义 icon state。
+- fresh/refreshing/stale/offline/unauthenticated/API Key/Bedrock/unavailable 的显式文案。
+- 20%、5%、耗尽与恢复的纯阈值 reducer，同一窗口/周期去重，首次快照静默建立基线。
+- 11 个完全离线测试覆盖 PRD AC-01/02/05/06/08 的展示与提醒核心。
 
 ### 明确排除
 
