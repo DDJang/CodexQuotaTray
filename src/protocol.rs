@@ -39,15 +39,23 @@ pub struct RateLimitsReadResponse {
     pub rate_limits_by_limit_id: Option<BTreeMap<String, RateLimitSnapshot>>,
 }
 
-impl RateLimitsReadResponse {
-    pub fn merge_sparse_notification(&mut self, patch: RateLimitSnapshot) {
-        match self.rate_limits.as_mut() {
-            Some(current) => current.merge_sparse(patch.clone()),
-            None => self.rate_limits = Some(patch.clone()),
-        }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SparseMergeOutcome {
+    LegacyOnly,
+    BucketUpdated,
+    BucketInserted,
+    AmbiguousBucket,
+}
 
-        let Some(buckets) = self.rate_limits_by_limit_id.as_mut() else {
-            return;
+impl RateLimitsReadResponse {
+    pub fn merge_sparse_notification(&mut self, patch: RateLimitSnapshot) -> SparseMergeOutcome {
+        let Some(buckets) = self
+            .rate_limits_by_limit_id
+            .as_mut()
+            .filter(|buckets| !buckets.is_empty())
+        else {
+            merge_legacy(&mut self.rate_limits, patch);
+            return SparseMergeOutcome::LegacyOnly;
         };
 
         let matching_key = patch
@@ -67,13 +75,33 @@ impl RateLimitsReadResponse {
                     .flatten()
             });
 
+        if matching_key.is_none() && patch.limit_id.is_none() {
+            return SparseMergeOutcome::AmbiguousBucket;
+        }
+
+        match self.rate_limits.as_mut() {
+            Some(current) => current.merge_sparse(patch.clone()),
+            None => self.rate_limits = Some(patch.clone()),
+        }
+
         if let Some(key) = matching_key {
             if let Some(current) = buckets.get_mut(&key) {
                 current.merge_sparse(patch);
             }
+            SparseMergeOutcome::BucketUpdated
         } else if let Some(limit_id) = patch.limit_id.clone() {
             buckets.insert(limit_id, patch);
+            SparseMergeOutcome::BucketInserted
+        } else {
+            SparseMergeOutcome::AmbiguousBucket
         }
+    }
+}
+
+fn merge_legacy(current: &mut Option<RateLimitSnapshot>, patch: RateLimitSnapshot) {
+    match current.as_mut() {
+        Some(current) => current.merge_sparse(patch),
+        None => *current = Some(patch),
     }
 }
 

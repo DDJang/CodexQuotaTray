@@ -77,7 +77,7 @@ JsonlTransport ──► JsonRpcClient ──► ProtocolDecoder ──► Quota
 - **当前实现 — `protocol`**：只定义握手、账户读取、额度读取及更新通知所需 wire types。
 - **当前实现 — `quota`**：优先读取多 bucket 视图，将窗口归一化为与 `primary`/`secondary` 语义无关的 domain model。
 - **当前实现 — CLI orchestration**：通过 `json_rpc` 发起请求、消费通知，并负责人类可读输出和退出码。
-- **拟议设计 — `AppStateReducer`**：未来唯一允许修改应用状态的入口；UI 不得直接消费 wire JSON。
+- **当前实现 — `state`**：纯 `AppStateReducer` 是唯一状态转换入口，线程安全内存 store 返回 owned snapshot；UI 不得直接消费 wire JSON。
 - **拟议设计 — cache/UI/notification adapters**：只读取归一化状态，不持有 transport 或认证数据。
 
 ## 5. 进程生命周期
@@ -150,7 +150,7 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 
 ## 7. 状态管理
 
-### 7.1 拟议状态模型
+### 7.1 当前状态模型
 
 ```text
 ProcessState = stopped | starting | handshaking | ready | backoff | failed
@@ -179,7 +179,16 @@ QuotaState:
 - 读取或更新失败不会清空最后有效快照。
 - **产品要求** 成功数据超过 15 分钟未刷新后进入 stale；这是产品策略，不是 App Server 协议事实。
 
-所有状态变化应通过纯 reducer 完成，以便使用 fixture 重放并测试每个转换。
+所有已实现状态变化均通过纯 reducer 完成；事件携带显式时间，reducer 不读取系统时钟或执行 I/O，因此可使用 fixture 完整重放。
+
+### 7.3 当前 reducer 失败语义
+
+- 刷新开始只把 data state 设为 `refreshing(previous)`，不会删除 quota snapshot。
+- transport failure 进入 `offline`；其他读取失败按最后成功时间保持 `fresh` 或进入 `stale`。
+- 成功数据满 15 分钟后由显式 `Tick` 转为 stale；缺失字段不会生成 0 或 100。
+- 不完整 read、无基线 patch 和多 bucket 歧义 patch 均保留最后有效快照并产生匿名 warning code。
+- 明确切换到未登录、API Key、Bedrock 或不支持账户模式时清除旧 ChatGPT quota，避免跨账户模式展示旧数据。
+- sparse patch 在私有 typed snapshot 上合并；公开 store snapshot 只包含 normalized domain state。
 
 ## 8. 隐私与信任边界
 
@@ -202,10 +211,11 @@ QuotaState:
 
 ### 9.1 已有覆盖
 
-- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试和 8 个 fake-process supervisor 测试完全离线通过。
+- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试和 9 个 reducer 测试完全离线通过。
 - 覆盖 ChatGPT、API Key、Bedrock、未登录、single/dual/multi bucket、未知时长、缺失字段、越界百分比、malformed JSON 和稀疏合并。
 - JSON-RPC 测试覆盖唯一 ID、多个 pending、乱序响应、RPC error、通知、timeout、EOF、未知/重复 ID、null result、非法 JSON 和非法 envelope。
 - supervisor 测试覆盖非零退出恢复、restart budget、启动失败、显式恢复、stderr flood、正常 EOF、强制回收和幂等 shutdown。
+- reducer 测试覆盖 process/auth/data 状态、失败保留、15 分钟 stale、完整替换、稀疏更新、歧义拒绝和 owned store snapshot。
 - 请求序列测试证明 runtime 只使用四个允许 method，通信层统一注入 request ID。
 - 脱敏实跑证明真实 quota 可读、默认发现 `codex.cmd` 可用且 stdin close 能干净退出。
 

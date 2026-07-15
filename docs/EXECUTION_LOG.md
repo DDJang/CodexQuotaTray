@@ -4,20 +4,22 @@
 
 - P0 complete.
 - P1-A JSON-RPC reliable communication layer complete.
-- P1-B App Server process supervisor complete and ready to commit.
-- 27 tests passing.
+- P1-B App Server process supervisor complete.
+- P1-C quota/application state reducer complete and ready to commit.
+- 36 tests passing.
 - No tray UI implemented.
 - MVP remains read-only.
 
 ## Next milestone
 
-Implement the quota state reducer and in-memory state store.
+Implement the refresh coordinator and connect supervisor/RPC events to the state store.
 
 ## Completed milestones
 
 - P0 protocol feasibility and documentation.
 - P1-A reliable JSON-RPC transport.
 - P1-B App Server process supervisor.
+- P1-C quota/application state reducer.
 
 ## 2026-07-15 — P1-A reliable JSON-RPC transport
 
@@ -99,3 +101,42 @@ Implement P1-B App Server process supervision, bounded restart backoff, idempote
 ### Next task
 
 Implement the pure quota/application state reducer, preserve the last valid snapshot across failures, and add state-transition tests.
+
+## 2026-07-15 — P1-C quota/application state reducer
+
+### Completed
+
+- Added a deterministic reducer for process, authentication, data freshness, quota, timestamps, and anonymous warnings.
+- Added a thread-safe in-memory store that returns owned normalized snapshots.
+- Preserved the last valid quota through timeout, RPC, protocol, incomplete-data, and transport failures.
+- Added explicit 15-minute stale transitions without replacing missing values with zero or 100.
+- Cleared old quota only for explicit unauthenticated or non-ChatGPT account modes.
+- Made sparse patch merging return an outcome and reject ambiguous multi-bucket patches without mutation.
+
+### Files
+
+- `src/state.rs`
+- `src/protocol.rs`
+- `src/lib.rs`
+- `tests/state_reducer.rs`
+- `tests/quota_parser.rs`
+- `docs/TECH_DESIGN.md`
+- `docs/API_CONTRACT.md`
+- `docs/ROADMAP.md`
+
+### Verification
+
+- `cargo fmt --check`: passed.
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- `cargo test`: passed, 36 tests.
+- `git diff --check`: passed; only Git LF/CRLF conversion notices were emitted.
+
+### Remaining risks
+
+- Runtime supervisor and RPC events are not yet orchestrated through the store.
+- Refresh deduplication, ten-second minimum interval, ten-minute fallback, and notification-driven refresh are not implemented.
+- Disk cache and long-duration soak remain outstanding.
+
+### Next task
+
+Implement the refresh coordinator with one in-flight request, minimum refresh spacing, fallback scheduling, failure projection, and offline tests.

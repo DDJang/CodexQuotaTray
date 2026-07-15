@@ -1,7 +1,7 @@
 use codex_quota_tray::protocol::{
     ACCOUNT_READ_METHOD, AccountRateLimitsUpdatedNotification, AccountReadResponse,
     INITIALIZE_METHOD, INITIALIZED_METHOD, RATE_LIMITS_READ_METHOD, RateLimitsReadResponse,
-    account_read_params, initialize_params, rate_limits_read_params,
+    SparseMergeOutcome, account_read_params, initialize_params, rate_limits_read_params,
 };
 use codex_quota_tray::quota::{
     AccountState, ResetCreditsState, account_state, duration_name, summarize_rate_limits,
@@ -127,7 +127,10 @@ fn sparse_notification_merges_without_clearing_metadata() {
     let notification: AccountRateLimitsUpdatedNotification =
         serde_json::from_value(notification_message["params"].clone()).unwrap();
 
-    response.merge_sparse_notification(notification.rate_limits);
+    assert_eq!(
+        response.merge_sparse_notification(notification.rate_limits),
+        SparseMergeOutcome::BucketUpdated
+    );
     let summary = summarize_rate_limits(&response);
     assert_eq!(summary.windows[0].used_percent, 35);
     assert_eq!(summary.windows[0].window_duration_mins, Some(10_080));

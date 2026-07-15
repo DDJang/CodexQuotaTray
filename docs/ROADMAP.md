@@ -1,7 +1,7 @@
 # CodexQuotaTray Roadmap
 
 状态日期：2026-07-15
-当前完成度：P0 完成；P1 通信与进程管理完成，状态与刷新层进行中
+当前完成度：P0 完成；P1 通信、进程管理和状态 reducer 完成，刷新层进行中
 原则：每个里程碑先满足 gate，再开始下一个；未列入当前 milestone 的功能不得顺带实现。
 
 ## 1. 路线图依据
@@ -98,8 +98,11 @@ UI：不包含
 - stderr 独立持续排空和仅布尔聚合的脱敏报告。
 - 非零退出、启动失败、显式 transport 恢复、可中断 backoff 和 exhausted 状态。
 - App Server/supervisor 两级幂等 shutdown，以及 8 个 fake-process 集成测试。
+- 纯 `AppStateReducer`、线程安全内存 store 和显式 process/auth/data 状态。
+- 失败保留最后有效 quota、15 分钟 stale 转换、认证模式隔离和 sparse patch 安全合并。
+- 多 bucket 歧义 patch 拒绝猜测，以及 9 个离线状态转换测试。
 
-上述交付完成通信与进程管理子层；reducer、refresh coordinator 和 soak 尚未完成，因此 P1 exit gate 仍未满足。
+上述交付完成通信、进程管理和 reducer 子层；refresh coordinator 和 soak 尚未完成，因此 P1 exit gate 仍未满足。
 
 ### 不在范围
 

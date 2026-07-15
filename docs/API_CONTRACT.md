@@ -234,7 +234,7 @@ Client merge policy：
 
 ## 5. Normalized domain contract
 
-以下是**拟议内部 API**，供未来 state store、cache 和 UI 使用，不是 App Server wire schema：
+以下 normalized state 已由当前 reducer/store 实现，供未来 cache 和 UI 使用；它不是 App Server wire schema：
 
 ```text
 AccountMode = chatgpt | api_key | bedrock | unauthenticated | unknown
@@ -267,6 +267,8 @@ Projection rules：
 - 缺少 `usedPercent` 的窗口不进入有效列表；产生 warning，不变成 0%。
 - 越界百分比只在展示计算时 clamp，并保留 warning。
 - 缺少 reset time 显示 unknown，不推测服务端周期边界。
+- read 或 patch 失败保留最后有效 normalized snapshot；只有明确的非 ChatGPT 账户状态才清除旧 quota。
+- 多 bucket 且 patch 缺少可定位的 `limitId` 时拒绝猜测，保留旧状态并要求完整 refresh。
 
 ## 6. Error and availability contract
 
