@@ -70,7 +70,7 @@
 
 ## 4. P1 — 生产化后台核心
 
-状态：**拟议，尚未开始**
+状态：**进行中；JSON-RPC 可靠通信子层已完成，其余子项未开始**
 UI：不包含
 
 ### 目标
@@ -85,6 +85,16 @@ UI：不包含
 - 非敏感内存 cache；磁盘 cache schema 仅在隐私评审后添加。
 - runtime CLI/schema version detection。
 - fake App Server integration harness。
+
+### 已完成子项
+
+- 连接内单调唯一 request ID 与多个 pending request。
+- 按 ID 匹配乱序成功/错误响应，并将通知路由到独立 event queue。
+- 独立请求 timeout、stdout EOF 批量失败和写失败关闭语义。
+- 对未知 ID、重复响应、非法 JSON、非法 envelope 的脱敏容错。
+- 7 个完全离线 fake transport 测试；P0 quota probe 已迁移到该通信层。
+
+上述交付只完成 JSON-RPC 可靠通信层，不代表 P1 exit gate 已满足。
 
 ### 不在范围
 

@@ -7,13 +7,11 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::protocol::IncomingMessage;
-
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug)]
 pub enum TransportEvent {
-    Message(IncomingMessage),
+    Message(Value),
     MalformedLine(String),
 }
 
@@ -72,7 +70,7 @@ impl AppServer {
                         let reader = BufReader::new(stdout);
                         for line in reader.lines() {
                             let event = match line {
-                                Ok(line) => match serde_json::from_str::<IncomingMessage>(&line) {
+                                Ok(line) => match serde_json::from_str::<Value>(&line) {
                                     Ok(message) => TransportEvent::Message(message),
                                     Err(error) => TransportEvent::MalformedLine(format!(
                                         "invalid JSONL message at line {}, column {}",

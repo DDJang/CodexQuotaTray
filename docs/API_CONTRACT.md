@@ -48,7 +48,20 @@ Schema source：`schemas/` 目录的 stable generator 输出
 { "method": "method/name", "params": {} }
 ```
 
-请求 ID 在单个连接内唯一。P0 使用 0、1、2；后续实现应使用单调递增整数并在 reconnect 后重置连接级计数器。
+请求 ID 在单个连接内唯一。**Current P1 client policy** 使用从 0 开始的单调递增 `i64`；整数耗尽时拒绝新请求，不回绕复用。未来 reconnect 建立新连接时可重新创建连接级计数器。
+
+### 2.3 P1 dispatch 与失败语义
+
+以下是当前客户端实现，不是 App Server 的额外协议保证：
+
+- 请求写入前先以 ID 注册到 pending map，允许多个请求同时等待。
+- 唯一 dispatcher 按响应 ID 完成对应 pending request，不使用到达顺序推断归属。
+- 同时含 `result` 与 `error`、两者均缺失或 error shape 非法的响应属于 protocol failure；若 ID 已知，只失败该请求。
+- 没有 ID 且包含字符串 `method` 的消息作为服务端通知进入独立 event queue。
+- 每个请求从发送时开始计算独立 deadline；超时后删除 pending entry，迟到响应不能恢复或覆盖该请求。
+- stdout EOF 或 transport 读写失败会原子关闭连接，并让所有 pending request 返回受控 transport error。
+- 未知 ID、有限历史内的重复响应、非整数响应 ID、非法 JSON 和非法 envelope 只产生脱敏诊断；不 panic、不打印原始消息、不投递给其他请求。
+- RPC error message 只验证其存在，不保存或向上返回；业务层仅接收本地 request ID 和 error code。
 
 ## 3. Allowed client messages
 
@@ -56,12 +69,13 @@ CodexQuotaTray 当前 allowlist 只有四条消息：
 
 | 顺序 | Method | ID | Params | 类型 |
 |---:|---|---:|---|---|
-| 1 | `initialize` | 0 | `InitializeParams` | request |
+| 1 | `initialize` | 动态唯一 | `InitializeParams` | request |
 | 2 | `initialized` | 无 | 无 | notification |
-| 3 | `account/read` | 1 | `{ "refreshToken": false }` | request |
-| 4 | `account/rateLimits/read` | 2 | `null` | request |
+| 3 | `account/read` | 动态唯一 | `{ "refreshToken": false }` | request |
+| 4 | `account/rateLimits/read` | 动态唯一 | `null` | request |
 
 除重新读取额度外，任何新 outbound method 都必须先更新本合同、生成 schema、隐私评审和请求序列测试。
+下列示例中的数字 ID 仅为说明；runtime ID 由 JSON-RPC 层生成，协议参数构造器不能指定 ID。
 
 ### 3.1 initialize
 

@@ -59,7 +59,7 @@
 CodexProcessSupervisor
         │ child stdin/stdout/stderr
         ▼
-JsonlTransport ──► ProtocolDecoder ──► QuotaProjector
+JsonlTransport ──► JsonRpcClient ──► ProtocolDecoder ──► QuotaProjector
                                             │
                                             ▼
                                       AppStateReducer
@@ -71,10 +71,11 @@ JsonlTransport ──► ProtocolDecoder ──► QuotaProjector
 
 ### 4.1 组件职责
 
-- **当前实现 — `app_server`**：发现 Codex、启动子进程、读写 JSONL、排空 stderr、关闭和回收进程。
+- **当前实现 — `app_server`**：发现 Codex、启动子进程、读写 JSONL framing、排空 stderr、关闭和回收进程；不负责响应路由。
+- **当前实现 — `json_rpc`**：生成连接内唯一 ID，维护多个 pending request，按 ID 分派乱序响应，区分成功、错误、通知和脱敏诊断，并统一处理请求超时与 stdout EOF。
 - **当前实现 — `protocol`**：只定义握手、账户读取、额度读取及更新通知所需 wire types。
 - **当前实现 — `quota`**：优先读取多 bucket 视图，将窗口归一化为与 `primary`/`secondary` 语义无关的 domain model。
-- **当前实现 — CLI orchestration**：管理请求 ID、超时、人类可读输出和退出码。
+- **当前实现 — CLI orchestration**：通过 `json_rpc` 发起请求、消费通知，并负责人类可读输出和退出码。
 - **拟议设计 — `AppStateReducer`**：未来唯一允许修改应用状态的入口；UI 不得直接消费 wire JSON。
 - **拟议设计 — cache/UI/notification adapters**：只读取归一化状态，不持有 transport 或认证数据。
 
@@ -110,6 +111,16 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 - **拟议设计** Windows 关机、会话退出和应用退出均走同一 idempotent shutdown path。
 
 ## 6. 故障恢复
+
+### 6.0 P1 JSON-RPC 通信可靠性
+
+- **当前实现** 每个连接使用从 0 开始的单调递增 `i64` 请求 ID；达到整数上限时拒绝新请求，不回绕复用。
+- **当前实现** pending map 在写入请求前登记，因此快速响应不会丢失；多个请求可同时 pending，完成顺序不影响投递。
+- **当前实现** 每个请求保存独立 deadline；超时会删除 pending entry，迟到响应只产生匿名诊断。
+- **当前实现** stdout EOF、读失败或 stdin 写失败会关闭 transport，并用同一受控错误结束所有 pending 请求。
+- **当前实现** 已完成 ID 保留有限历史，用于识别重复响应；未知 ID、非整数 ID、非法 JSON 和非法 envelope 不会 panic，也不会被错误投递给其他请求。
+- **当前实现** RPC error 只向上暴露请求 ID 和 error code；服务端 message 不进入错误对象或日志。
+- **未实现** App Server 重启、跨连接请求重放和 supervisor backoff；它们仍属于后续 P1 子任务。
 
 ### 6.1 错误分类
 
@@ -187,9 +198,10 @@ QuotaState:
 
 ### 9.1 已有覆盖
 
-- **已确认** 10 个 fixture/parser 测试完全离线通过。
+- **已确认** 10 个 fixture/parser 测试与 7 个 JSON-RPC fake transport 测试完全离线通过。
 - 覆盖 ChatGPT、API Key、Bedrock、未登录、single/dual/multi bucket、未知时长、缺失字段、越界百分比、malformed JSON 和稀疏合并。
-- 请求序列测试证明 runtime 只构造四条允许消息。
+- JSON-RPC 测试覆盖唯一 ID、多个 pending、乱序响应、RPC error、通知、timeout、EOF、未知/重复 ID、null result、非法 JSON 和非法 envelope。
+- 请求序列测试证明 runtime 只使用四个允许 method，通信层统一注入 request ID。
 - 脱敏实跑证明真实 quota 可读、默认发现 `codex.cmd` 可用且 stdin close 能干净退出。
 
 ### 9.2 后续测试层级

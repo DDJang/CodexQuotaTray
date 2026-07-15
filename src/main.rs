@@ -1,12 +1,14 @@
 use std::ffi::OsString;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use codex_quota_tray::app_server::{AppServer, TransportEvent};
+use codex_quota_tray::app_server::AppServer;
+use codex_quota_tray::json_rpc::{ClientEvent, JsonRpcClient, ProtocolDiagnostic, RpcClientError};
 use codex_quota_tray::protocol::{
-    ACCOUNT_READ_ID, AccountRateLimitsUpdatedNotification, AccountReadResponse, INITIALIZE_ID,
-    IncomingMessage, InitializeResponse, RATE_LIMITS_READ_ID, RATE_LIMITS_UPDATED_METHOD,
-    RateLimitsReadResponse, account_read_request, initialize_request, initialized_notification,
-    rate_limits_read_request,
+    ACCOUNT_READ_METHOD, AccountRateLimitsUpdatedNotification, AccountReadResponse,
+    INITIALIZE_METHOD, INITIALIZED_METHOD, InitializeResponse, RATE_LIMITS_READ_METHOD,
+    RATE_LIMITS_UPDATED_METHOD, RateLimitsReadResponse, account_read_params, initialize_params,
+    rate_limits_read_params,
 };
 use codex_quota_tray::quota::{
     AccountState, QuotaSummary, account_state, format_reset_time, summarize_rate_limits,
@@ -88,23 +90,32 @@ fn print_help() {
 }
 
 fn run(options: Options) -> i32 {
-    let mut server = match AppServer::spawn(options.codex_bin) {
-        Ok(server) => server,
+    let server = match AppServer::spawn(options.codex_bin) {
+        Ok(server) => Arc::new(Mutex::new(server)),
         Err(message) => {
             eprintln!("Codex App Server unavailable: {message}");
             eprintln!("Action: install Codex CLI or pass its executable with --codex-bin.");
             return 1;
         }
     };
+    let client = JsonRpcClient::new(Arc::clone(&server));
 
-    let session_code = match run_session(&mut server, options.watch_seconds) {
+    let session_code = match run_session(&client, options.watch_seconds) {
         Ok(code) => code,
         Err(message) => {
             eprintln!("P0 spike failed: {message}");
             1
         }
     };
+    drop(client);
 
+    let mut server = match server.lock() {
+        Ok(server) => server,
+        Err(_) => {
+            eprintln!("Could not lock App Server for shutdown.");
+            return 1;
+        }
+    };
     match server.shutdown() {
         Ok(report) if report.forced => {
             eprintln!("App Server did not exit after stdin closed and had to be terminated.");
@@ -128,11 +139,11 @@ fn run(options: Options) -> i32 {
     }
 }
 
-fn run_session(server: &mut AppServer, watch_seconds: u64) -> Result<i32, String> {
-    server.send(&initialize_request())?;
-    let initialize_message = wait_for_response(server, INITIALIZE_ID, INITIALIZE_TIMEOUT)?;
-    reject_rpc_error(&initialize_message, "initialize")?;
-    let initialize: InitializeResponse = parse_result(initialize_message, "initialize")?;
+fn run_session(client: &JsonRpcClient, watch_seconds: u64) -> Result<i32, String> {
+    let initialize_result = client
+        .request(INITIALIZE_METHOD, initialize_params(), INITIALIZE_TIMEOUT)
+        .map_err(|error| describe_rpc_error(INITIALIZE_METHOD, error))?;
+    let initialize: InitializeResponse = parse_result(initialize_result, INITIALIZE_METHOD)?;
 
     println!("Codex App Server: {}", initialize.user_agent);
     println!(
@@ -145,39 +156,38 @@ fn run_session(server: &mut AppServer, watch_seconds: u64) -> Result<i32, String
         );
     }
 
-    server.send(&initialized_notification())?;
-    server.send(&account_read_request())?;
-    server.send(&rate_limits_read_request())?;
+    client
+        .notify(INITIALIZED_METHOD, None)
+        .map_err(|error| describe_rpc_error(INITIALIZED_METHOD, error))?;
+    let account_request = client
+        .start_request(ACCOUNT_READ_METHOD, account_read_params(), READ_TIMEOUT)
+        .map_err(|error| describe_rpc_error(ACCOUNT_READ_METHOD, error))?;
+    let rate_limits_request = client
+        .start_request(
+            RATE_LIMITS_READ_METHOD,
+            rate_limits_read_params(),
+            READ_TIMEOUT,
+        )
+        .map_err(|error| describe_rpc_error(RATE_LIMITS_READ_METHOD, error))?;
 
-    let deadline = Instant::now() + READ_TIMEOUT;
-    let mut account_response = None;
-    let mut rate_limits_response = None;
-    while account_response.is_none() || rate_limits_response.is_none() {
-        let event = receive_until(server, deadline)?;
-        let TransportEvent::Message(message) = event else {
-            if let TransportEvent::MalformedLine(detail) = event {
-                return Err(format!("App Server emitted malformed JSONL: {detail}"));
-            }
-            unreachable!();
-        };
+    let account_response: AccountReadResponse = parse_result(
+        account_request
+            .wait()
+            .map_err(|error| describe_rpc_error(ACCOUNT_READ_METHOD, error))?,
+        ACCOUNT_READ_METHOD,
+    )?;
+    let mut rate_limits_response: RateLimitsReadResponse = parse_result(
+        rate_limits_request
+            .wait()
+            .map_err(|error| describe_rpc_error(RATE_LIMITS_READ_METHOD, error))?,
+        RATE_LIMITS_READ_METHOD,
+    )?;
 
-        if message.has_id(ACCOUNT_READ_ID) {
-            reject_rpc_error(&message, "account/read")?;
-            account_response = Some(parse_result(message, "account/read")?);
-        } else if message.has_id(RATE_LIMITS_READ_ID) {
-            reject_rpc_error(&message, "account/rateLimits/read")?;
-            rate_limits_response = Some(parse_result(message, "account/rateLimits/read")?);
-        }
-    }
-
-    let account_response: AccountReadResponse = account_response.expect("checked above");
     let account = account_state(&account_response);
     if let Some(code) = print_account_or_explain(&account) {
         return Ok(code);
     }
 
-    let mut rate_limits_response: RateLimitsReadResponse =
-        rate_limits_response.expect("checked above");
     let summary = summarize_rate_limits(&rate_limits_response);
     if summary.windows.is_empty() {
         eprintln!("No complete quota window was returned by this account.");
@@ -202,18 +212,18 @@ fn run_session(server: &mut AppServer, watch_seconds: u64) -> Result<i32, String
     while Instant::now() < watch_deadline {
         let remaining = watch_deadline.saturating_duration_since(Instant::now());
         let timeout = remaining.min(Duration::from_secs(1));
-        let Some(event) = server.receive(timeout)? else {
+        let Some(event) = client
+            .receive_event(timeout)
+            .map_err(|error| describe_rpc_error("notification stream", error))?
+        else {
             continue;
         };
 
         match event {
-            TransportEvent::MalformedLine(detail) => {
-                return Err(format!("App Server emitted malformed JSONL: {detail}"));
-            }
-            TransportEvent::Message(message)
-                if message.method.as_deref() == Some(RATE_LIMITS_UPDATED_METHOD) =>
+            ClientEvent::Notification(notification)
+                if notification.method == RATE_LIMITS_UPDATED_METHOD =>
             {
-                let params = message.params.ok_or_else(|| {
+                let params = notification.params.ok_or_else(|| {
                     "account/rateLimits/updated omitted required params".to_owned()
                 })?;
                 let notification: AccountRateLimitsUpdatedNotification =
@@ -228,61 +238,23 @@ fn run_session(server: &mut AppServer, watch_seconds: u64) -> Result<i32, String
                 let updated = summarize_rate_limits(&rate_limits_response);
                 print_summary("Rate limits updated", &updated);
             }
-            TransportEvent::Message(_) => {}
+            ClientEvent::Diagnostic(diagnostic) => {
+                eprintln!(
+                    "Protocol warning: {}",
+                    describe_protocol_diagnostic(&diagnostic)
+                );
+            }
+            ClientEvent::Notification(_) => {}
         }
     }
     println!("Update-listening window completed.");
     Ok(0)
 }
 
-fn wait_for_response(
-    server: &AppServer,
-    id: u64,
-    timeout: Duration,
-) -> Result<IncomingMessage, String> {
-    let deadline = Instant::now() + timeout;
-    loop {
-        match receive_until(server, deadline)? {
-            TransportEvent::Message(message) if message.has_id(id) => return Ok(message),
-            TransportEvent::Message(_) => {}
-            TransportEvent::MalformedLine(detail) => {
-                return Err(format!("App Server emitted malformed JSONL: {detail}"));
-            }
-        }
-    }
-}
-
-fn receive_until(server: &AppServer, deadline: Instant) -> Result<TransportEvent, String> {
-    let now = Instant::now();
-    if now >= deadline {
-        return Err("timed out waiting for App Server response".to_owned());
-    }
-    let timeout = deadline
-        .saturating_duration_since(now)
-        .min(Duration::from_secs(1));
-    match server.receive(timeout)? {
-        Some(event) => Ok(event),
-        None => receive_until(server, deadline),
-    }
-}
-
-fn reject_rpc_error(message: &IncomingMessage, operation: &str) -> Result<(), String> {
-    if let Some(error) = message.error.as_ref() {
-        return Err(format!(
-            "{operation} returned JSON-RPC error code {}; server text was suppressed for privacy. Action: verify Codex login and schema version.",
-            error.code
-        ));
-    }
-    Ok(())
-}
-
 fn parse_result<T: serde::de::DeserializeOwned>(
-    message: IncomingMessage,
+    result: serde_json::Value,
     operation: &str,
 ) -> Result<T, String> {
-    let result = message
-        .result
-        .ok_or_else(|| format!("{operation} response omitted result"))?;
     serde_json::from_value(result).map_err(|error| {
         format!(
             "{operation} response did not match generated schema at line {}, column {}",
@@ -290,6 +262,28 @@ fn parse_result<T: serde::de::DeserializeOwned>(
             error.column()
         )
     })
+}
+
+fn describe_rpc_error(operation: &str, error: RpcClientError) -> String {
+    format!(
+        "{operation} failed: {error}. Action: verify Codex login, CLI availability, and schema version."
+    )
+}
+
+fn describe_protocol_diagnostic(diagnostic: &ProtocolDiagnostic) -> &'static str {
+    match diagnostic {
+        ProtocolDiagnostic::MalformedJson => "discarded malformed JSON from App Server stdout",
+        ProtocolDiagnostic::InvalidEnvelope => "discarded an invalid JSON-RPC envelope",
+        ProtocolDiagnostic::UnsupportedResponseId => {
+            "discarded a response whose ID type was not a client-generated integer"
+        }
+        ProtocolDiagnostic::UnknownResponseId { .. } => {
+            "discarded a response for an unknown or expired request ID"
+        }
+        ProtocolDiagnostic::DuplicateResponse { .. } => {
+            "discarded a duplicate response for an already completed request"
+        }
+    }
 }
 
 fn print_account_or_explain(account: &AccountState) -> Option<i32> {

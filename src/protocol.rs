@@ -3,32 +3,11 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-pub const INITIALIZE_ID: u64 = 0;
-pub const ACCOUNT_READ_ID: u64 = 1;
-pub const RATE_LIMITS_READ_ID: u64 = 2;
+pub const INITIALIZE_METHOD: &str = "initialize";
+pub const INITIALIZED_METHOD: &str = "initialized";
+pub const ACCOUNT_READ_METHOD: &str = "account/read";
+pub const RATE_LIMITS_READ_METHOD: &str = "account/rateLimits/read";
 pub const RATE_LIMITS_UPDATED_METHOD: &str = "account/rateLimits/updated";
-
-#[derive(Debug, Deserialize)]
-pub struct IncomingMessage {
-    pub id: Option<Value>,
-    pub method: Option<String>,
-    pub params: Option<Value>,
-    pub result: Option<Value>,
-    pub error: Option<RpcError>,
-}
-
-impl IncomingMessage {
-    pub fn has_id(&self, expected: u64) -> bool {
-        self.id.as_ref().and_then(Value::as_u64) == Some(expected)
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct RpcError {
-    pub code: i64,
-    #[allow(dead_code)]
-    pub message: String,
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -183,36 +162,20 @@ pub struct AccountRateLimitsUpdatedNotification {
     pub rate_limits: RateLimitSnapshot,
 }
 
-pub fn initialize_request() -> Value {
+pub fn initialize_params() -> Value {
     json!({
-        "method": "initialize",
-        "id": INITIALIZE_ID,
-        "params": {
-            "clientInfo": {
-                "name": "codex_quota_tray_spike",
-                "title": "CodexQuotaTray P0 Spike",
-                "version": env!("CARGO_PKG_VERSION")
-            }
+        "clientInfo": {
+            "name": "codex_quota_tray_spike",
+            "title": "CodexQuotaTray P0 Spike",
+            "version": env!("CARGO_PKG_VERSION")
         }
     })
 }
 
-pub fn initialized_notification() -> Value {
-    json!({ "method": "initialized" })
+pub fn account_read_params() -> Value {
+    json!({ "refreshToken": false })
 }
 
-pub fn account_read_request() -> Value {
-    json!({
-        "method": "account/read",
-        "id": ACCOUNT_READ_ID,
-        "params": { "refreshToken": false }
-    })
-}
-
-pub fn rate_limits_read_request() -> Value {
-    json!({
-        "method": "account/rateLimits/read",
-        "id": RATE_LIMITS_READ_ID,
-        "params": null
-    })
+pub fn rate_limits_read_params() -> Value {
+    Value::Null
 }

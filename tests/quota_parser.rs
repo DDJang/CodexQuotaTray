@@ -1,7 +1,7 @@
 use codex_quota_tray::protocol::{
-    AccountRateLimitsUpdatedNotification, AccountReadResponse, IncomingMessage,
-    RateLimitsReadResponse, account_read_request, initialize_request, initialized_notification,
-    rate_limits_read_request,
+    ACCOUNT_READ_METHOD, AccountRateLimitsUpdatedNotification, AccountReadResponse,
+    INITIALIZE_METHOD, INITIALIZED_METHOD, RATE_LIMITS_READ_METHOD, RateLimitsReadResponse,
+    account_read_params, initialize_params, rate_limits_read_params,
 };
 use codex_quota_tray::quota::{
     AccountState, ResetCreditsState, account_state, duration_name, summarize_rate_limits,
@@ -9,7 +9,7 @@ use codex_quota_tray::quota::{
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-fn envelope_fixture(name: &str) -> IncomingMessage {
+fn envelope_fixture(name: &str) -> Value {
     let contents = match name {
         "account" => include_str!("fixtures/account_chatgpt_redacted.json"),
         "single" => include_str!("fixtures/rate_limits_single_weekly.json"),
@@ -22,8 +22,8 @@ fn envelope_fixture(name: &str) -> IncomingMessage {
     serde_json::from_str(contents).expect("fixture must contain a valid envelope")
 }
 
-fn result<T: DeserializeOwned>(message: IncomingMessage) -> T {
-    serde_json::from_value(message.result.expect("fixture result")).expect("typed fixture result")
+fn result<T: DeserializeOwned>(message: Value) -> T {
+    serde_json::from_value(message["result"].clone()).expect("typed fixture result")
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn sparse_notification_merges_without_clearing_metadata() {
     let mut response: RateLimitsReadResponse = result(envelope_fixture("single"));
     let notification_message = envelope_fixture("sparse");
     let notification: AccountRateLimitsUpdatedNotification =
-        serde_json::from_value(notification_message.params.unwrap()).unwrap();
+        serde_json::from_value(notification_message["params"].clone()).unwrap();
 
     response.merge_sparse_notification(notification.rate_limits);
     let summary = summarize_rate_limits(&response);
@@ -136,23 +136,19 @@ fn sparse_notification_merges_without_clearing_metadata() {
 
 #[test]
 fn malformed_fixture_fails_without_live_account() {
-    let error = serde_json::from_str::<IncomingMessage>(include_str!("fixtures/malformed.json"))
+    let error = serde_json::from_str::<Value>(include_str!("fixtures/malformed.json"))
         .expect_err("fixture must be malformed");
     assert!(error.is_eof());
 }
 
 #[test]
 fn outgoing_messages_are_read_only_and_match_schema() {
-    let messages = [
-        initialize_request(),
-        initialized_notification(),
-        account_read_request(),
-        rate_limits_read_request(),
+    let methods = [
+        INITIALIZE_METHOD,
+        INITIALIZED_METHOD,
+        ACCOUNT_READ_METHOD,
+        RATE_LIMITS_READ_METHOD,
     ];
-    let methods: Vec<&str> = messages
-        .iter()
-        .map(|message| message["method"].as_str().unwrap())
-        .collect();
     assert_eq!(
         methods,
         [
@@ -162,11 +158,11 @@ fn outgoing_messages_are_read_only_and_match_schema() {
             "account/rateLimits/read"
         ]
     );
-    assert!(messages[1].get("params").is_none());
-    assert_eq!(messages[2]["params"]["refreshToken"], Value::Bool(false));
-    assert!(messages[3]["params"].is_null());
+    assert!(initialize_params()["clientInfo"].is_object());
+    assert_eq!(account_read_params()["refreshToken"], Value::Bool(false));
+    assert!(rate_limits_read_params().is_null());
 
-    let serialized = serde_json::to_string(&messages).unwrap();
+    let serialized = serde_json::to_string(&(methods, account_read_params())).unwrap();
     assert!(!serialized.contains("consume"));
     assert!(!serialized.contains("token"));
 }
