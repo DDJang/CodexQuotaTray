@@ -148,6 +148,15 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 - 主动读取请求最小间隔 10 秒；并发刷新合并为一个 in-flight 请求。
 - 认证模式不支持和 schema version mismatch 不进行无意义的快速重试。
 
+### 6.3 Refresh coordinator
+
+- **当前实现** 同一时间最多一个 quota refresh；并发触发合并为一个最高优先级 pending reason。
+- **当前实现** 主动刷新最小间隔为 10 秒，请求 deadline 为 15 秒，无事件时每 10 分钟生成 fallback refresh。
+- **当前实现** startup、manual、rate-limit notification、resume、network restored、card opened 和 fallback 使用同一调度路径。
+- **当前实现** 未知或重复 completion 不修改当前 in-flight；request ID 单调且不回绕。
+- **已确认** 纯虚拟时间测试重放 24 小时，始终最多一个 in-flight，并只产生 1 次 startup 加 144 次 fallback。
+- **未实现** 实际 RPC executor 与 Windows resume/network/card-open 事件 adapter；它们属于下一 P1/P3 子任务。
+
 ## 7. 状态管理
 
 ### 7.1 当前状态模型
@@ -211,7 +220,7 @@ QuotaState:
 
 ### 9.1 已有覆盖
 
-- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试和 9 个 reducer 测试完全离线通过。
+- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试、9 个 reducer 测试和 9 个 refresh coordinator 测试完全离线通过。
 - 覆盖 ChatGPT、API Key、Bedrock、未登录、single/dual/multi bucket、未知时长、缺失字段、越界百分比、malformed JSON 和稀疏合并。
 - JSON-RPC 测试覆盖唯一 ID、多个 pending、乱序响应、RPC error、通知、timeout、EOF、未知/重复 ID、null result、非法 JSON 和非法 envelope。
 - supervisor 测试覆盖非零退出恢复、restart budget、启动失败、显式恢复、stderr flood、正常 EOF、强制回收和幂等 shutdown。

@@ -5,14 +5,15 @@
 - P0 complete.
 - P1-A JSON-RPC reliable communication layer complete.
 - P1-B App Server process supervisor complete.
-- P1-C quota/application state reducer complete and ready to commit.
-- 36 tests passing.
+- P1-C quota/application state reducer complete.
+- P1-D1 pure refresh coordinator complete and ready to commit.
+- 45 tests passing.
 - No tray UI implemented.
 - MVP remains read-only.
 
 ## Next milestone
 
-Implement the refresh coordinator and connect supervisor/RPC events to the state store.
+Connect supervisor/RPC events and the refresh coordinator to the state store in a long-running runtime adapter.
 
 ## Completed milestones
 
@@ -20,6 +21,7 @@ Implement the refresh coordinator and connect supervisor/RPC events to the state
 - P1-A reliable JSON-RPC transport.
 - P1-B App Server process supervisor.
 - P1-C quota/application state reducer.
+- P1-D1 pure refresh coordinator.
 
 ## 2026-07-15 — P1-A reliable JSON-RPC transport
 
@@ -140,3 +142,38 @@ Implement the pure quota/application state reducer, preserve the last valid snap
 ### Next task
 
 Implement the refresh coordinator with one in-flight request, minimum refresh spacing, fallback scheduling, failure projection, and offline tests.
+
+## 2026-07-15 — P1-D1 pure refresh coordinator
+
+### Completed
+
+- Added a deterministic refresh scheduler with monotonic request IDs and one in-flight request.
+- Coalesced concurrent startup, manual, notification, resume, network, card-open, and fallback triggers.
+- Enforced a ten-second minimum interval, fifteen-second deadline, and ten-minute fallback cadence.
+- Preserved the highest-priority pending reason and safely ignored unknown or duplicate completions.
+- Added a virtual 24-hour scheduling replay with 86,400 ticks and no overlapping request.
+
+### Files
+
+- `src/refresh.rs`
+- `src/lib.rs`
+- `tests/refresh_coordinator.rs`
+- `docs/TECH_DESIGN.md`
+- `docs/ROADMAP.md`
+
+### Verification
+
+- `cargo fmt --check`: passed.
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- `cargo test`: passed, 45 tests.
+- `git diff --check`: passed; only Git LF/CRLF conversion notices were emitted.
+
+### Remaining risks
+
+- The coordinator is pure scheduling logic; it does not yet execute RPC calls.
+- Supervisor/RPC events are not yet projected into the state store by a long-running runtime.
+- The virtual 24-hour test does not replace the required real process soak.
+
+### Next task
+
+Implement the runtime adapter that performs read-only refreshes, consumes sparse notifications, updates the store, and survives supervised process generations.
