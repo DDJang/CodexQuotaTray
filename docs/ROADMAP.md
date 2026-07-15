@@ -1,7 +1,7 @@
 # CodexQuotaTray Roadmap
 
 状态日期：2026-07-15
-当前完成度：P0 完成；P1 后台核心、版本兼容与最小持久化完成，仅剩 24 小时真实进程 soak gate
+当前完成度：P0 完成；P1 后台核心完成且 24 小时真实进程 soak 进行中；P2 Win32 host 已实现并等待 gate 汇总
 原则：每个里程碑先满足 gate，再开始下一个；未列入当前 milestone 的功能不得顺带实现。
 
 ## 1. 路线图依据
@@ -134,7 +134,7 @@ UI：不包含
 
 ## 5. P2 — Read-only Windows tray shell
 
-状态：**平台无关投影/提醒 reducer 已完成；Win32 host 待 P1 soak 并行验证**
+状态：**实现完成、验收中；P1 24 小时 soak 与 Windows 10 smoke gate 尚未关闭**
 
 ### 目标
 
@@ -154,12 +154,18 @@ UI：不包含
 - fresh/refreshing/stale/offline/unauthenticated/API Key/Bedrock/unavailable 的显式文案。
 - 20%、5%、耗尽与恢复的纯阈值 reducer，同一窗口/周期去重，首次快照静默建立基线。
 - 11 个完全离线测试覆盖 PRD AC-01/02/05/06/08 的展示与提醒核心。
+- 原生 Win32 tray icon、tooltip、深色只读卡片、标准右键菜单和单实例 host。
+- P1 normalized state 实时接入、手动刷新、动态窗口/重置倒计时、最后更新时间和明确的错误/认证状态。
+- normal/caution/critical/exhausted/refreshing/offline 使用形状不同的系统 icon，并辅以文字与颜色，不只依赖颜色。
+- 非敏感 cache、提醒、开机启动和 cache 清理的最小系统菜单；`--shutdown-existing` 供正常安装/卸载清理。
+- Windows 11 x64 手工 smoke 已通过 demo 刷新、菜单和退出；真实 release host 可启动并正常回收 P1 runtime。
+- 首次资源基线：931,328-byte release GUI；10 秒空闲主进程约 9.63 MiB working set、0 CPU 秒增量。
 
 ### 明确排除
 
 - reset-credit 消费、购买、登录 token 处理。
 - 网页抓取、Electron、浏览器运行时。
-- 通知阈值和复杂设置；留给 P3。
+- 复杂阈值编辑和独立设置窗口；基础提醒开关已实现，完整事件 adapter 仍留给 P3。
 
 ### Entry gate
 
@@ -236,4 +242,4 @@ UI：不包含
 
 ## 9. 推荐下一任务
 
-执行 24 小时真实 Codex runtime soak，并记录起止 working set、CPU、refresh/restart/forced termination 与 orphan 检查。P1 gate 通过前不要创建托盘窗口。
+保持 24 小时真实 Codex runtime soak 独立运行并记录每小时样本；同时补齐 P3 的 card-open/resume 事件 adapter 与 quiet-time 行为，再进入 P4 可重复打包和发布前验证。

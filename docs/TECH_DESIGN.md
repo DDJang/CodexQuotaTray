@@ -1,6 +1,6 @@
 # CodexQuotaTray 技术设计
 
-文档状态：P0 已验证，后续架构待实现
+文档状态：P0 已验证；P1 后台核心已实现并执行 24 小时 gate；P2 Win32 host 已实现、验收中
 协议基线：`codex-cli 0.137.0` stable App Server schema
 最后更新：2026-07-15
 
@@ -23,7 +23,7 @@
 - 稀疏通知合并、应用状态和故障恢复。
 - 隐私边界、测试分层和版本兼容。
 
-本设计不实现 Windows 托盘、弹出卡片、系统通知、设置页面、开机启动或任何 reset-credit 消费操作。
+本设计同时覆盖已实现的 Windows 托盘 host、弹出卡片、系统提醒、最小设置和开机启动边界。任何 reset-credit 展示推断或消费操作仍不在范围内。
 
 ## 3. P0 已确认的协议行为
 
@@ -82,7 +82,7 @@ JsonlTransport ──► JsonRpcClient ──► ProtocolDecoder ──► Quota
 - **当前实现 — `persistence`**：settings 与 quota cache 分文件；cache 只保存匿名窗口数字和版本 provenance，恢复为 stale，I/O/corruption 只产生匿名 warning。
 - **当前实现 — `ui_model`**：把 normalized `AppState` 投影为 tray icon severity、tooltip、card rows、reset-unavailable 和可操作状态文案；不引用 wire types。
 - **当前实现 — `alerts`**：纯内存阈值 reducer 按窗口/周期追踪 20%、5%、耗尽和恢复，首次观察不提醒，同阈值同周期只提醒一次。
-- **拟议设计 — Windows host adapter**：只消费 UI projection/alert events，不持有 transport 或认证数据。
+- **当前实现 — `windows_tray`**：使用 Win32 Shell/WindowsAndMessaging/GDI/Registry adapter 呈现 `ui_model`、触发只读 runtime refresh、发出系统提醒并管理最小设置；不接触 wire JSON、token 或账户标识。
 
 ## 5. 进程生命周期
 
@@ -114,7 +114,7 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 - **已确认** P0 关闭 stdin 后子进程在三秒内自然退出，退出码为 0。
 - **当前实现** 三秒后仍未退出才 kill 并 wait；强制终止被视为清理失败。
 - **当前实现** `AppServer` 与 supervisor shutdown 均幂等；重复调用返回第一次的相同脱敏报告。
-- **拟议设计** Windows 关机和会话退出信号在托盘里程碑接入同一 shutdown path。
+- **当前实现** Windows `WM_QUERYENDSESSION`、`WM_ENDSESSION`、窗口退出和 `--shutdown-existing` 均接入同一幂等 shutdown path；控制命令通过 `WM_CLOSE` 请求 UI 线程正常回收 runtime 与 App Server。
 
 ## 6. 故障恢复
 
@@ -162,6 +162,14 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 - **已确认** 纯虚拟时间测试重放 24 小时，始终最多一个 in-flight，并只产生 1 次 startup 加 144 次 fallback。
 - **当前实现** runtime executor 每次逻辑 refresh 同时发出 `account/read` 与 `account/rateLimits/read`，按请求 ID 等待各自响应；通知先执行安全稀疏合并，再经最小间隔调度一次权威完整补读。
 - **未实现** Windows resume/network/card-open 事件 adapter；它们属于托盘/系统集成里程碑。
+
+### 6.4 Windows host 边界
+
+- **当前实现** Windows 依赖只在 `cfg(windows)` 下启用；生产依赖是 Microsoft `windows` 0.62.2 的最小 Win32 namespace features，不包含 WebView、Electron 或 Chromium。
+- **当前实现** UI 每 5 秒只重新投影内存 snapshot 以更新时间文案；它不发网络请求。网络读取仍由 P1 的事件优先/10 分钟 fallback coordinator 控制。
+- **当前实现** 单实例按固定 window class 发现；再次启动只激活已有实例。安装器/卸载器可使用 `--shutdown-existing` 请求正常退出。
+- **当前实现** 卡片使用 normalized tooltip 作为动态窗口标题，提供 `Enter`/`R` 刷新、`U` 打开官方 Usage、`F10` 菜单和 `Esc` 关闭；标准 Win32 popup menu 是主要键盘/辅助技术命令面。
+- **已评审限制** quota rows 是自绘 GDI 内容，不分别暴露 UI Automation 节点；屏幕阅读器只能读取聚合窗口标题与标准菜单。P4 发布前必须决定是否接受该 MVP 边界，或改用原生 child controls/UIA provider。
 
 ## 7. 状态管理
 
@@ -228,7 +236,7 @@ QuotaState:
 
 ### 9.1 已有覆盖
 
-- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试、9 个 reducer 测试、9 个 refresh coordinator 测试、3 个 version compatibility 单元测试、6 个 persistence 测试和 8 个 runtime fake-process 测试完全离线通过。
+- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试、9 个 reducer 测试、9 个 refresh coordinator 测试、3 个 version compatibility 单元测试、7 个 persistence 测试、8 个 runtime fake-process 测试、6 个 UI projection 测试和 5 个 alert 测试完全离线通过。
 - 覆盖 ChatGPT、API Key、Bedrock、未登录、single/dual/multi bucket、未知时长、缺失字段、越界百分比、malformed JSON 和稀疏合并。
 - JSON-RPC 测试覆盖唯一 ID、多个 pending、乱序响应、RPC error、通知、timeout、EOF、未知/重复 ID、null result、非法 JSON 和非法 envelope。
 - supervisor 测试覆盖非零退出恢复、restart budget、启动失败、显式恢复、stderr flood、正常 EOF、强制回收和幂等 shutdown。
@@ -240,6 +248,8 @@ QuotaState:
 - 请求序列测试证明 runtime 只使用四个允许 method，通信层统一注入 request ID。
 - 脱敏实跑证明真实 quota 可读、默认发现 `codex.cmd` 可用且 stdin close 能干净退出。
 - 90 秒真实 runtime soak 保持 generation 0 / fresh / 单窗口，完成 1 次读取、0 failure、0 restart、0 forced termination、0 protocol diagnostic；退出后进程查询无遗留 App Server。
+- Windows 11 10.0.26200 x64 手工 smoke 验证 demo 卡片、中文动态窗口、按钮刷新、右键菜单勾选和菜单退出；真实 release host 能启动 P1 runtime，并通过正常控制路径退出且不遗留额外 App Server。
+- release GUI 二进制为 931,328 bytes；真实 host 稳定后 10 秒空闲窗口 working set 从 10,145,792 降至 10,096,640 bytes，CPU 增量 0 秒、6 threads、139 handles。App Server/Node 子树资源由独立 P1 soak 单独记录。
 
 ### 9.2 后续测试层级
 
@@ -256,4 +266,5 @@ QuotaState:
 - 更新通知尚未在 live run 中观察到；在生产依赖事件刷新前必须延长 smoke/soak 验证。
 - App Server schema 与 CLI 版本绑定；升级必须经过 schema diff、fixture 更新和兼容测试。
 - `rateLimitsByLimitId` 可能包含多个未知 bucket；UI 设计前必须先验证 domain ordering 和命名策略。
-- P0 只证明 CLI 可行性，不证明 Windows 托盘资源、可访问性或交互目标。
+- 当前只在 Windows 11 10.0.26200 x64 做过手工托盘 smoke；Windows 10 与不同 DPI/多显示器组合仍需发布前验证。
+- 自绘 quota rows 没有逐项 UIA 节点；当前以动态聚合标题、键盘快捷键和标准系统菜单提供最低可访问路径。

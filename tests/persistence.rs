@@ -154,6 +154,24 @@ fn malformed_or_oversized_cache_fails_safely_and_clear_is_idempotent() {
     assert!(store.load().unwrap().is_none());
 }
 
+#[test]
+fn disabled_quota_cache_neither_reads_nor_writes_until_reenabled() {
+    let fixture = PersistenceFixture::new("disabled-cache");
+    let store = QuotaCacheStore::new(fixture.paths.quota_cache.clone());
+    store.set_enabled(false);
+
+    assert!(!store.save(&quota_state(28, 1_700_000_000)).unwrap());
+    assert!(!fixture.paths.quota_cache.exists());
+    assert!(store.load().unwrap().is_none());
+
+    store.set_enabled(true);
+    assert!(store.save(&quota_state(40, 1_700_000_100)).unwrap());
+    assert_eq!(
+        store.load().unwrap().unwrap().summary.windows[0].used_percent,
+        40
+    );
+}
+
 fn quota_state(used_percent: i64, received_at: i64) -> AppState {
     let response: RateLimitsReadResponse = serde_json::from_value(serde_json::json!({
         "rateLimits": {

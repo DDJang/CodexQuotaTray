@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::persistence::NotificationSettings;
 use crate::quota::{QuotaSummary, QuotaWindow};
+use crate::ui_model::window_display_name;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AlertKind {
@@ -138,7 +139,7 @@ fn enabled(kind: AlertKind, settings: &NotificationSettings) -> bool {
 fn alert(window: &QuotaWindow, kind: AlertKind) -> QuotaAlert {
     QuotaAlert {
         kind,
-        window_name: window.display_name(),
+        window_name: window_display_name(window),
         remaining_percent: window.remaining_percent,
         resets_at: window.resets_at,
     }

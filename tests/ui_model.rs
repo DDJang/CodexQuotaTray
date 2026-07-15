@@ -10,7 +10,7 @@ fn weekly_window_is_named_by_duration_and_projects_remaining_percentage() {
     let view = project_tray_view(&state, NOW, ViewPreferences::default());
 
     assert_eq!(view.icon, TrayIconState::Normal);
-    assert_eq!(view.windows[0].name, "7-day quota");
+    assert_eq!(view.windows[0].name, "7 天额度");
     assert_eq!(view.windows[0].percent_label, "72% 剩余");
     assert_eq!(view.windows[0].progress_percent, 72);
     assert!(view.tooltip.contains("72%"));

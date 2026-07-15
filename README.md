@@ -1,6 +1,6 @@
 # CodexQuotaTray
 
-P0 is a read-only Rust command-line feasibility spike for the Codex App Server. It intentionally contains no Windows tray UI and no reset-credit consumption path.
+CodexQuotaTray is a read-only Rust client for the Codex App Server. It includes the P0 command-line probe, the long-running P1 service core, and a native Win32 tray host. It never implements reset-credit consumption.
 
 ## Build and test
 
@@ -12,6 +12,29 @@ cargo test --all-targets
 ```
 
 Parser tests use only anonymized files under `tests/fixtures`; they do not start Codex or contact a real account.
+
+## Run the Windows tray
+
+Debug builds default to deterministic demo data, so UI work never needs a live account:
+
+```powershell
+cargo run --bin codex-quota-tray-gui -- --demo
+```
+
+A release build starts the real read-only runtime and discovers `codex.cmd`, `codex.exe`, or `codex`:
+
+```powershell
+cargo build --release --bin codex-quota-tray-gui
+.\target\release\codex-quota-tray-gui.exe
+```
+
+Use `--codex-bin PATH` to override discovery. The tray menu provides refresh, the official Usage link, non-sensitive cache, quota reminders, start-with-Windows, cache clearing, and exit. An installer or script can request the existing instance's normal cleanup path with:
+
+```powershell
+.\target\release\codex-quota-tray-gui.exe --shutdown-existing
+```
+
+Keyboard access while the card is focused: `Enter` or `R` refreshes, `U` opens Usage, `F10` opens the system menu, and `Esc` hides the card. The release executable contains no WebView, Electron, or Chromium runtime.
 
 ## Run the spike
 

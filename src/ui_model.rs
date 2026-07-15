@@ -1,6 +1,6 @@
 use chrono::{Local, TimeZone};
 
-use crate::quota::{QuotaWindow, duration_name};
+use crate::quota::QuotaWindow;
 use crate::state::{AppState, AuthState, DataState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,7 +110,7 @@ fn project_window(window: &QuotaWindow, now: i64, preferences: ViewPreferences) 
     );
 
     QuotaWindowView {
-        name: window.display_name(),
+        name: window_display_name(window),
         percent_label,
         progress_percent,
         reset_label,
@@ -148,12 +148,7 @@ fn tooltip_text(state: &AppState, windows: &[QuotaWindowView], status: &str) -> 
         .iter()
         .take(2)
         .map(|window| {
-            let short_name = window
-                .name
-                .strip_suffix(" quota")
-                .unwrap_or(&window.name)
-                .replace("-hour", "小时")
-                .replace("-day", "天");
+            let short_name = window.name.strip_suffix("额度").unwrap_or(&window.name);
             format!("{short_name} {}%", window.remaining_percent)
         })
         .collect::<Vec<_>>();
@@ -226,6 +221,21 @@ fn format_countdown(timestamp: i64, now: i64) -> String {
     }
 }
 
-pub fn fallback_window_name(duration_mins: Option<i64>) -> String {
-    format!("{} quota", duration_name(duration_mins))
+pub fn window_display_name(window: &QuotaWindow) -> String {
+    if let Some(name) = window.limit_name.as_deref().filter(|name| !name.is_empty()) {
+        return name.to_owned();
+    }
+
+    match window.window_duration_mins {
+        Some(300) => "5 小时额度".to_owned(),
+        Some(10_080) => "7 天额度".to_owned(),
+        Some(minutes) if minutes > 0 && minutes % (24 * 60) == 0 => {
+            format!("{} 天额度", minutes / (24 * 60))
+        }
+        Some(minutes) if minutes > 0 && minutes % 60 == 0 => {
+            format!("{} 小时额度", minutes / 60)
+        }
+        Some(minutes) if minutes > 0 => format!("{minutes} 分钟额度"),
+        _ => "额度窗口".to_owned(),
+    }
 }

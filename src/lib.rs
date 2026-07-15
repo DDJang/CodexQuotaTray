@@ -10,3 +10,5 @@ pub mod runtime;
 pub mod state;
 pub mod supervisor;
 pub mod ui_model;
+#[cfg(windows)]
+pub mod windows_tray;

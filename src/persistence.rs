@@ -3,6 +3,8 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -147,14 +149,29 @@ impl SettingsStore {
 #[derive(Debug, Clone)]
 pub struct QuotaCacheStore {
     path: PathBuf,
+    enabled: Arc<AtomicBool>,
 }
 
 impl QuotaCacheStore {
     pub fn new(path: PathBuf) -> Self {
-        Self { path }
+        Self {
+            path,
+            enabled: Arc::new(AtomicBool::new(true)),
+        }
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Release);
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Acquire)
     }
 
     pub fn load(&self) -> Result<Option<RestoredQuota>, PersistenceError> {
+        if !self.is_enabled() {
+            return Ok(None);
+        }
         let Some(cache) = read_json::<CacheFile>(&self.path)? else {
             return Ok(None);
         };
@@ -162,6 +179,9 @@ impl QuotaCacheStore {
     }
 
     pub fn save(&self, state: &AppState) -> Result<bool, PersistenceError> {
+        if !self.is_enabled() {
+            return Ok(false);
+        }
         let Some(cache) = CacheFile::from_state(state) else {
             return Ok(false);
         };

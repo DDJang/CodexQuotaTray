@@ -362,3 +362,56 @@ Run the finite 24-hour real-process soak with external resource samples and an o
 ### Next task
 
 Add the smallest official Windows binding feature set and implement a demo-mode native tray host against the tested projection, while the independent soak continues.
+
+## 2026-07-15 — P2-B native read-only Windows tray host
+
+### Completed
+
+- Added a Windows-only `windows` 0.62.2 adapter using Shell, WindowsAndMessaging, GDI, Registry, Foundation, LibraryLoader, Security, and Threading namespace features.
+- Added a native tray icon with six semantic icon states, a normalized tooltip, a dark read-only quota card, dynamic Chinese duration names, progress bars, reset countdowns, last-update state, and reset-credit-unavailable text.
+- Connected the host only to `AppState`/`TrayView`, `QuotaRuntime::snapshot`, and `QuotaRuntime::request_refresh`; the UI has no wire JSON or account identity types.
+- Added deterministic debug/demo state changes for safe visual work, while release builds default to the real read-only P1 runtime.
+- Added a standard Win32 context menu for refresh, official Usage navigation, non-sensitive cache, quota reminders, start-with-Windows, cache clearing, and exit.
+- Wired Windows session shutdown, menu exit, and `--shutdown-existing` into the normal runtime/App Server cleanup path.
+- Made runtime cache enable/disable effective immediately through an atomic gate; disabling clears the cache and prevents subsequent runtime write-back.
+- Localized quota names for card and notification text without changing the protocol/domain parser's stable English debug names.
+- Added an aggregate non-sensitive window title plus `Enter`/`R`, `U`, `F10`, and `Esc` keyboard paths. Standard Win32 popup menu commands remain accessible even though individual self-drawn rows are not separate UIA nodes.
+
+### Dependency decision
+
+- `windows` is target-gated to Windows and uses only the named Win32 features required by this host. The official Microsoft projection avoids hand-written FFI while preserving a native process with no browser runtime.
+- The optimized stripped/thin-LTO GUI is 931,328 bytes, so the dependency does not threaten the installer-size target. Idle UI work is timer-driven every 5 seconds and only reads an in-memory snapshot; it does not alter the 10-minute network fallback.
+- A browser UI, WebView, Electron, Chromium, SQLite, async runtime, and image/icon asset dependency were all unnecessary.
+
+### Files
+
+- `Cargo.toml`, `Cargo.lock`
+- `src/bin/codex-quota-tray-gui.rs`
+- `src/windows_tray.rs`
+- `src/lib.rs`
+- `src/ui_model.rs`, `src/alerts.rs`
+- `src/persistence.rs`
+- `tests/ui_model.rs`, `tests/persistence.rs`
+- `README.md`
+- `docs/TECH_DESIGN.md`, `docs/ROADMAP.md`, `docs/EXECUTION_LOG.md`
+
+### Verification
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- `cargo test --all-targets`: passed, 74 tests total.
+- `git diff --check`: passed before documentation update; rerun at commit gate.
+- Windows 11 Home Chinese x64 10.0.26200 manual smoke: demo card rendered correctly, manual refresh changed normalized fixture state, context-menu checks were correct, and menu Exit removed the window.
+- Real release host started the P1 runtime and exited through `--shutdown-existing`; process inspection found no additional tray or App Server process after cleanup. The independent P1 soak tree remained intact.
+- Ten-second stable main-process sample: working set 10,145,792 → 10,096,640 bytes, CPU delta 0 seconds, 6 threads, 139 handles. This excludes the separately measured App Server process tree.
+
+### Remaining risks
+
+- P1's independent 24-hour wall-clock soak is still running, so P1/P2 gates are not marked complete.
+- Only Windows 11 build 26200 has a manual host smoke; Windows 10, multiple monitors, and additional DPI combinations remain release-test items.
+- Self-drawn quota rows do not expose individual UIA nodes. The aggregate title, keyboard shortcuts, and standard menu are the current minimum accessible path; native child controls or a UIA provider remain a P4 decision.
+- The official Usage menu item was visually verified but deliberately not activated during smoke, so its external navigation remains a release checklist item.
+
+### Next task
+
+Add P3 card-open/resume refresh adapters and quiet-time notification behavior without changing the P1 refresh bounds, while the 24-hour soak continues.
