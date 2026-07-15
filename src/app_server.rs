@@ -1,13 +1,15 @@
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
+const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Debug)]
 pub enum TransportEvent {
@@ -15,11 +17,69 @@ pub enum TransportEvent {
     MalformedLine(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShutdownReport {
     pub forced: bool,
     pub exit_code: Option<i32>,
     pub stderr_observed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProcessExit {
+    pub code: Option<i32>,
+    pub success: bool,
+}
+
+#[derive(Clone)]
+struct LaunchCommand {
+    program: OsString,
+    label: &'static str,
+    args: Vec<OsString>,
+    env: Vec<(OsString, OsString)>,
+}
+
+#[derive(Clone)]
+pub struct AppServerLaunch {
+    candidates: Vec<LaunchCommand>,
+    shutdown_timeout: Duration,
+}
+
+impl AppServerLaunch {
+    pub fn codex(explicit_binary: Option<OsString>) -> Self {
+        let args = vec![OsString::from("app-server"), OsString::from("--stdio")];
+        let candidates = if let Some(binary) = explicit_binary {
+            vec![LaunchCommand {
+                program: binary,
+                label: "explicit --codex-bin",
+                args,
+                env: Vec::new(),
+            }]
+        } else {
+            default_candidates(args)
+        };
+
+        Self {
+            candidates,
+            shutdown_timeout: DEFAULT_SHUTDOWN_TIMEOUT,
+        }
+    }
+
+    pub fn custom(
+        program: OsString,
+        args: Vec<OsString>,
+        env: Vec<(OsString, OsString)>,
+        shutdown_timeout: Duration,
+    ) -> Self {
+        Self {
+            candidates: vec![LaunchCommand {
+                program,
+                label: "custom App Server command",
+                args,
+                env,
+            }],
+            shutdown_timeout,
+        }
+    }
 }
 
 pub struct AppServer {
@@ -27,19 +87,25 @@ pub struct AppServer {
     stdin: Option<ChildStdin>,
     receiver: Receiver<TransportEvent>,
     reader_thread: Option<JoinHandle<()>>,
-    stderr_thread: Option<JoinHandle<bool>>,
-    stopped: bool,
+    stderr_thread: Option<JoinHandle<()>>,
+    stderr_observed: Arc<AtomicBool>,
+    shutdown_timeout: Duration,
+    shutdown_report: Option<ShutdownReport>,
 }
 
 impl AppServer {
     pub fn spawn(explicit_binary: Option<OsString>) -> Result<Self, String> {
-        let candidates = candidates(explicit_binary);
+        Self::spawn_launch(&AppServerLaunch::codex(explicit_binary))
+    }
+
+    pub fn spawn_launch(launch: &AppServerLaunch) -> Result<Self, String> {
         let mut failures = Vec::new();
 
-        for (program, label) in candidates {
-            let mut command = Command::new(&program);
+        for candidate in &launch.candidates {
+            let mut command = Command::new(&candidate.program);
             command
-                .args(["app-server", "--stdio"])
+                .args(&candidate.args)
+                .envs(candidate.env.iter().cloned())
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -52,18 +118,18 @@ impl AppServer {
 
             match command.spawn() {
                 Ok(mut child) => {
-                    let stdin = child
-                        .stdin
-                        .take()
-                        .ok_or_else(|| "App Server stdin pipe was unavailable".to_owned())?;
-                    let stdout = child
-                        .stdout
-                        .take()
-                        .ok_or_else(|| "App Server stdout pipe was unavailable".to_owned())?;
-                    let stderr = child
-                        .stderr
-                        .take()
-                        .ok_or_else(|| "App Server stderr pipe was unavailable".to_owned())?;
+                    let Some(stdin) = child.stdin.take() else {
+                        reap_incomplete_child(&mut child);
+                        return Err("App Server stdin pipe was unavailable".to_owned());
+                    };
+                    let Some(stdout) = child.stdout.take() else {
+                        reap_incomplete_child(&mut child);
+                        return Err("App Server stdout pipe was unavailable".to_owned());
+                    };
+                    let Some(stderr) = child.stderr.take() else {
+                        reap_incomplete_child(&mut child);
+                        return Err("App Server stderr pipe was unavailable".to_owned());
+                    };
 
                     let (sender, receiver) = mpsc::channel();
                     let reader_thread = thread::spawn(move || {
@@ -89,18 +155,20 @@ impl AppServer {
                         }
                     });
 
+                    let stderr_observed = Arc::new(AtomicBool::new(false));
+                    let thread_stderr_observed = Arc::clone(&stderr_observed);
                     let stderr_thread = thread::spawn(move || {
                         let mut reader = BufReader::new(stderr);
                         let mut buffer = [0_u8; 4096];
-                        let mut observed = false;
                         loop {
                             match reader.read(&mut buffer) {
                                 Ok(0) => break,
-                                Ok(_) => observed = true,
+                                Ok(_) => {
+                                    thread_stderr_observed.store(true, Ordering::Release);
+                                }
                                 Err(_) => break,
                             }
                         }
-                        observed
                     });
 
                     return Ok(Self {
@@ -109,10 +177,12 @@ impl AppServer {
                         receiver,
                         reader_thread: Some(reader_thread),
                         stderr_thread: Some(stderr_thread),
-                        stopped: false,
+                        stderr_observed,
+                        shutdown_timeout: launch.shutdown_timeout,
+                        shutdown_report: None,
                     });
                 }
-                Err(error) => failures.push(format!("{label}: {:?}", error.kind())),
+                Err(error) => failures.push(format!("{}: {:?}", candidate.label, error.kind())),
             }
         }
 
@@ -145,13 +215,28 @@ impl AppServer {
         }
     }
 
+    pub fn try_exit(&mut self) -> Result<Option<ProcessExit>, String> {
+        if let Some(report) = self.shutdown_report.as_ref() {
+            return Ok(Some(ProcessExit {
+                code: report.exit_code,
+                success: report.exit_code == Some(0),
+            }));
+        }
+
+        self.child
+            .try_wait()
+            .map(|status| status.map(process_exit))
+            .map_err(|error| format!("failed to poll App Server: {:?}", error.kind()))
+    }
+
     pub fn shutdown(&mut self) -> Result<ShutdownReport, String> {
-        if self.stopped {
-            return Err("App Server was already stopped".to_owned());
+        if let Some(report) = self.shutdown_report.as_ref() {
+            return Ok(report.clone());
         }
 
         self.stdin.take();
-        let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
+        let now = Instant::now();
+        let deadline = now.checked_add(self.shutdown_timeout).unwrap_or(now);
         let mut status = None;
         while Instant::now() < deadline {
             match self.child.try_wait() {
@@ -159,7 +244,7 @@ impl AppServer {
                     status = Some(exit_status);
                     break;
                 }
-                Ok(None) => thread::sleep(Duration::from_millis(50)),
+                Ok(None) => thread::sleep(Duration::from_millis(20)),
                 Err(error) => {
                     return Err(format!(
                         "failed while waiting for App Server: {:?}",
@@ -169,11 +254,24 @@ impl AppServer {
             }
         }
 
-        let forced = status.is_none();
-        if forced {
-            self.child
-                .kill()
-                .map_err(|error| format!("failed to terminate App Server: {:?}", error.kind()))?;
+        let mut forced = status.is_none();
+        if status.is_none()
+            && let Err(error) = self.child.kill()
+        {
+            match self.child.try_wait() {
+                Ok(Some(exit_status)) => {
+                    status = Some(exit_status);
+                    forced = false;
+                }
+                _ => {
+                    return Err(format!(
+                        "failed to terminate App Server: {:?}",
+                        error.kind()
+                    ));
+                }
+            }
+        }
+        if status.is_none() {
             status = Some(
                 self.child
                     .wait()
@@ -181,48 +279,75 @@ impl AppServer {
             );
         }
 
-        if let Some(handle) = self.reader_thread.take() {
-            let _ = handle.join();
-        }
-        let stderr_observed = self
-            .stderr_thread
-            .take()
-            .and_then(|handle| handle.join().ok())
-            .unwrap_or(false);
-        self.stopped = true;
+        join_thread(&mut self.reader_thread);
+        join_thread(&mut self.stderr_thread);
 
-        Ok(ShutdownReport {
+        let report = ShutdownReport {
             forced,
             exit_code: status.and_then(|value| value.code()),
-            stderr_observed,
-        })
+            stderr_observed: self.stderr_observed.load(Ordering::Acquire),
+        };
+        self.shutdown_report = Some(report.clone());
+        Ok(report)
     }
 }
 
 impl Drop for AppServer {
     fn drop(&mut self) {
-        if !self.stopped {
-            let _ = self.shutdown();
-        }
+        let _ = self.shutdown();
     }
 }
 
-fn candidates(explicit_binary: Option<OsString>) -> Vec<(OsString, &'static str)> {
-    if let Some(binary) = explicit_binary {
-        return vec![(binary, "explicit --codex-bin")];
-    }
-
+fn default_candidates(args: Vec<OsString>) -> Vec<LaunchCommand> {
     #[cfg(windows)]
     {
         vec![
-            (OsString::from("codex.cmd"), "codex.cmd"),
-            (OsString::from("codex.exe"), "codex.exe"),
-            (OsString::from("codex"), "codex"),
+            LaunchCommand {
+                program: OsString::from("codex.cmd"),
+                label: "codex.cmd",
+                args: args.clone(),
+                env: Vec::new(),
+            },
+            LaunchCommand {
+                program: OsString::from("codex.exe"),
+                label: "codex.exe",
+                args: args.clone(),
+                env: Vec::new(),
+            },
+            LaunchCommand {
+                program: OsString::from("codex"),
+                label: "codex",
+                args,
+                env: Vec::new(),
+            },
         ]
     }
 
     #[cfg(not(windows))]
     {
-        vec![(OsString::from("codex"), "codex")]
+        vec![LaunchCommand {
+            program: OsString::from("codex"),
+            label: "codex",
+            args,
+            env: Vec::new(),
+        }]
     }
+}
+
+fn process_exit(status: ExitStatus) -> ProcessExit {
+    ProcessExit {
+        code: status.code(),
+        success: status.success(),
+    }
+}
+
+fn join_thread(handle: &mut Option<JoinHandle<()>>) {
+    if let Some(handle) = handle.take() {
+        let _ = handle.join();
+    }
+}
+
+fn reap_incomplete_child(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }

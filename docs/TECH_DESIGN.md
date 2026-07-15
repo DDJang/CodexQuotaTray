@@ -72,6 +72,7 @@ JsonlTransport ──► JsonRpcClient ──► ProtocolDecoder ──► Quota
 ### 4.1 组件职责
 
 - **当前实现 — `app_server`**：发现 Codex、启动子进程、读写 JSONL framing、排空 stderr、关闭和回收进程；不负责响应路由。
+- **当前实现 — `supervisor`**：后台轮询子进程退出状态，发布连接代次，处理显式 transport 恢复请求，并执行有界 restart/backoff。
 - **当前实现 — `json_rpc`**：生成连接内唯一 ID，维护多个 pending request，按 ID 分派乱序响应，区分成功、错误、通知和脱敏诊断，并统一处理请求超时与 stdout EOF。
 - **当前实现 — `protocol`**：只定义握手、账户读取、额度读取及更新通知所需 wire types。
 - **当前实现 — `quota`**：优先读取多 bucket 视图，将窗口归一化为与 `primary`/`secondary` 语义无关的 domain model。
@@ -83,7 +84,7 @@ JsonlTransport ──► JsonRpcClient ──► ProtocolDecoder ──► Quota
 
 ### 5.1 状态机
 
-拟议的长期进程状态：
+当前 supervisor 生命周期；应用状态 reducer 尚未实现：
 
 ```text
 Stopped → Starting → Handshaking → Ready → Stopping → Stopped
@@ -105,10 +106,11 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 ### 5.3 正常运行与退出
 
 - **当前实现** P0 首次快照完成后按 CLI 参数限时监听通知。
-- **拟议设计** 常驻服务只维持一个 App Server 子进程，不为每次刷新重复启动。
+- **当前实现** supervisor 同一时间只维持一个 App Server 子进程；重启后发布新连接代次，旧 JSON-RPC pending 不跨进程重放。
 - **已确认** P0 关闭 stdin 后子进程在三秒内自然退出，退出码为 0。
 - **当前实现** 三秒后仍未退出才 kill 并 wait；强制终止被视为清理失败。
-- **拟议设计** Windows 关机、会话退出和应用退出均走同一 idempotent shutdown path。
+- **当前实现** `AppServer` 与 supervisor shutdown 均幂等；重复调用返回第一次的相同脱敏报告。
+- **拟议设计** Windows 关机和会话退出信号在托盘里程碑接入同一 shutdown path。
 
 ## 6. 故障恢复
 
@@ -135,11 +137,13 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 
 ### 6.2 重试策略
 
-以下为**拟议设计**：
+以下 restart 部分已在 supervisor 中实现；refresh 部分仍为**拟议设计**：
 
-- 单个 App Server 实例同一时间只允许一个初始化流程。
-- 重启 backoff 为 1、2、4、8、16、30 秒，之后保持 30 秒上限并加入 0–20% jitter。
-- 五分钟内最多自动重启 5 次；超过后进入 `unavailable`，只响应用户重试或环境变化。
+- **当前实现** 单个连接代次同一时间只允许一个初始化流程；恢复生成新代次。
+- **当前实现** 重启 backoff 为 1、2、4、8、16、30 秒上限，并加入不超过总上限的 0–20% deterministic jitter。
+- **当前实现** 五分钟窗口内最多自动重启 5 次；超过后发布 exhausted 事件并停止重启。
+- **当前实现** stderr 始终由独立线程排空，仅聚合 `stderr_observed`，不保存或传播原始文本。
+- **当前实现** 非零退出、stdin 写失败、stdout EOF 和显式 transport 恢复均可进入同一 bounded restart path；shutdown 可中断 backoff。
 - 读取请求失败使用同样上限，但不得重启仍然健康的 App Server，除非 transport 已关闭。
 - 主动读取请求最小间隔 10 秒；并发刷新合并为一个 in-flight 请求。
 - 认证模式不支持和 schema version mismatch 不进行无意义的快速重试。
@@ -198,9 +202,10 @@ QuotaState:
 
 ### 9.1 已有覆盖
 
-- **已确认** 10 个 fixture/parser 测试与 7 个 JSON-RPC fake transport 测试完全离线通过。
+- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试和 8 个 fake-process supervisor 测试完全离线通过。
 - 覆盖 ChatGPT、API Key、Bedrock、未登录、single/dual/multi bucket、未知时长、缺失字段、越界百分比、malformed JSON 和稀疏合并。
 - JSON-RPC 测试覆盖唯一 ID、多个 pending、乱序响应、RPC error、通知、timeout、EOF、未知/重复 ID、null result、非法 JSON 和非法 envelope。
+- supervisor 测试覆盖非零退出恢复、restart budget、启动失败、显式恢复、stderr flood、正常 EOF、强制回收和幂等 shutdown。
 - 请求序列测试证明 runtime 只使用四个允许 method，通信层统一注入 request ID。
 - 脱敏实跑证明真实 quota 可读、默认发现 `codex.cmd` 可用且 stdin close 能干净退出。
 

@@ -1,8 +1,8 @@
 use std::ffi::OsString;
-use std::sync::{Arc, Mutex};
+use std::fmt;
 use std::time::{Duration, Instant};
 
-use codex_quota_tray::app_server::AppServer;
+use codex_quota_tray::app_server::AppServerLaunch;
 use codex_quota_tray::json_rpc::{ClientEvent, JsonRpcClient, ProtocolDiagnostic, RpcClientError};
 use codex_quota_tray::protocol::{
     ACCOUNT_READ_METHOD, AccountRateLimitsUpdatedNotification, AccountReadResponse,
@@ -12,6 +12,9 @@ use codex_quota_tray::protocol::{
 };
 use codex_quota_tray::quota::{
     AccountState, QuotaSummary, account_state, format_reset_time, summarize_rate_limits,
+};
+use codex_quota_tray::supervisor::{
+    AppServerSupervisor, RestartPolicy, SupervisorEvent, SupervisorReport,
 };
 
 const SCHEMA_CODEX_VERSION: &str = "0.137.0";
@@ -27,6 +30,44 @@ struct Options {
 enum ParseOutcome {
     Run(Options),
     Help,
+}
+
+#[derive(Debug)]
+struct SessionFailure {
+    message: String,
+    recoverable_transport: bool,
+}
+
+impl SessionFailure {
+    fn from_rpc(operation: &str, error: RpcClientError) -> Self {
+        let recoverable_transport = matches!(
+            error,
+            RpcClientError::Transport { .. }
+                | RpcClientError::TransportClosed
+                | RpcClientError::ClientStopped
+        );
+        Self {
+            message: format!(
+                "{operation} failed: {error}. Action: verify Codex login, CLI availability, and schema version."
+            ),
+            recoverable_transport,
+        }
+    }
+}
+
+impl From<String> for SessionFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            recoverable_transport: false,
+        }
+    }
+}
+
+impl fmt::Display for SessionFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
 }
 
 fn main() {
@@ -90,59 +131,108 @@ fn print_help() {
 }
 
 fn run(options: Options) -> i32 {
-    let server = match AppServer::spawn(options.codex_bin) {
-        Ok(server) => Arc::new(Mutex::new(server)),
+    let launch = AppServerLaunch::codex(options.codex_bin);
+    let mut supervisor = match AppServerSupervisor::start(launch, RestartPolicy::default()) {
+        Ok(supervisor) => supervisor,
         Err(message) => {
-            eprintln!("Codex App Server unavailable: {message}");
-            eprintln!("Action: install Codex CLI or pass its executable with --codex-bin.");
+            eprintln!("Codex App Server supervisor unavailable: {message}");
             return 1;
         }
     };
-    let client = JsonRpcClient::new(Arc::clone(&server));
 
-    let session_code = match run_session(&client, options.watch_seconds) {
-        Ok(code) => code,
+    let session_code = run_supervised_session(&supervisor, options.watch_seconds);
+    match supervisor.shutdown() {
+        Ok(report) => finish_supervised_session(session_code, &report),
         Err(message) => {
-            eprintln!("P0 spike failed: {message}");
-            1
-        }
-    };
-    drop(client);
-
-    let mut server = match server.lock() {
-        Ok(server) => server,
-        Err(_) => {
-            eprintln!("Could not lock App Server for shutdown.");
-            return 1;
-        }
-    };
-    match server.shutdown() {
-        Ok(report) if report.forced => {
-            eprintln!("App Server did not exit after stdin closed and had to be terminated.");
-            1
-        }
-        Ok(report) => {
-            if report.stderr_observed {
-                eprintln!("Note: App Server wrote diagnostics to stderr; raw text was suppressed.");
-            }
-            if report.exit_code != Some(0) {
-                eprintln!("App Server exited with status {:?}.", report.exit_code);
-                1
-            } else {
-                session_code
-            }
-        }
-        Err(message) => {
-            eprintln!("Could not cleanly stop App Server: {message}");
+            eprintln!("Could not cleanly stop App Server supervisor: {message}");
             1
         }
     }
 }
 
-fn run_session(client: &JsonRpcClient, watch_seconds: u64) -> Result<i32, String> {
+fn run_supervised_session(supervisor: &AppServerSupervisor, watch_seconds: u64) -> i32 {
+    loop {
+        let event = match supervisor.next_event(Duration::from_secs(1)) {
+            Ok(Some(event)) => event,
+            Ok(None) => continue,
+            Err(message) => {
+                eprintln!("App Server supervisor failed: {message}");
+                return 1;
+            }
+        };
+
+        match event {
+            SupervisorEvent::Starting { .. } => {}
+            SupervisorEvent::Started(connection) => {
+                let generation = connection.generation();
+                let client = JsonRpcClient::new(connection.server());
+                let result = run_session(&client, watch_seconds);
+                drop(client);
+
+                match result {
+                    Ok(code) => return code,
+                    Err(failure) if failure.recoverable_transport => {
+                        eprintln!("App Server generation {generation} transport failed: {failure}");
+                        if let Err(message) = supervisor.request_restart() {
+                            eprintln!("Could not request App Server recovery: {message}");
+                            return 1;
+                        }
+                    }
+                    Err(failure) => {
+                        eprintln!("P0 spike failed: {failure}");
+                        return 1;
+                    }
+                }
+            }
+            SupervisorEvent::SpawnFailed { generation } => {
+                eprintln!("App Server generation {generation} could not be started.");
+            }
+            SupervisorEvent::ProcessExited {
+                generation, code, ..
+            } => {
+                eprintln!(
+                    "App Server generation {generation} exited unexpectedly with status {code:?}."
+                );
+            }
+            SupervisorEvent::Backoff { attempt, delay } => {
+                eprintln!(
+                    "App Server restart attempt {attempt} will begin after {} ms.",
+                    delay.as_millis()
+                );
+            }
+            SupervisorEvent::Exhausted { restart_count } => {
+                eprintln!(
+                    "App Server recovery stopped after {restart_count} bounded restart attempts."
+                );
+                eprintln!(
+                    "Action: verify Codex CLI installation and login, then restart CodexQuotaTray."
+                );
+                return 1;
+            }
+            SupervisorEvent::RestartRequested { .. } => {}
+        }
+    }
+}
+
+fn finish_supervised_session(session_code: i32, report: &SupervisorReport) -> i32 {
+    if report.stderr_observed {
+        eprintln!("Note: App Server wrote diagnostics to stderr; raw text was suppressed.");
+    }
+    if report.forced_terminations > 0 {
+        eprintln!(
+            "App Server required {} forced termination(s) after graceful shutdown timed out.",
+            report.forced_terminations
+        );
+        1
+    } else {
+        session_code
+    }
+}
+
+fn run_session(client: &JsonRpcClient, watch_seconds: u64) -> Result<i32, SessionFailure> {
     let initialize_result = client
         .request(INITIALIZE_METHOD, initialize_params(), INITIALIZE_TIMEOUT)
-        .map_err(|error| describe_rpc_error(INITIALIZE_METHOD, error))?;
+        .map_err(|error| SessionFailure::from_rpc(INITIALIZE_METHOD, error))?;
     let initialize: InitializeResponse = parse_result(initialize_result, INITIALIZE_METHOD)?;
 
     println!("Codex App Server: {}", initialize.user_agent);
@@ -158,28 +248,28 @@ fn run_session(client: &JsonRpcClient, watch_seconds: u64) -> Result<i32, String
 
     client
         .notify(INITIALIZED_METHOD, None)
-        .map_err(|error| describe_rpc_error(INITIALIZED_METHOD, error))?;
+        .map_err(|error| SessionFailure::from_rpc(INITIALIZED_METHOD, error))?;
     let account_request = client
         .start_request(ACCOUNT_READ_METHOD, account_read_params(), READ_TIMEOUT)
-        .map_err(|error| describe_rpc_error(ACCOUNT_READ_METHOD, error))?;
+        .map_err(|error| SessionFailure::from_rpc(ACCOUNT_READ_METHOD, error))?;
     let rate_limits_request = client
         .start_request(
             RATE_LIMITS_READ_METHOD,
             rate_limits_read_params(),
             READ_TIMEOUT,
         )
-        .map_err(|error| describe_rpc_error(RATE_LIMITS_READ_METHOD, error))?;
+        .map_err(|error| SessionFailure::from_rpc(RATE_LIMITS_READ_METHOD, error))?;
 
     let account_response: AccountReadResponse = parse_result(
         account_request
             .wait()
-            .map_err(|error| describe_rpc_error(ACCOUNT_READ_METHOD, error))?,
+            .map_err(|error| SessionFailure::from_rpc(ACCOUNT_READ_METHOD, error))?,
         ACCOUNT_READ_METHOD,
     )?;
     let mut rate_limits_response: RateLimitsReadResponse = parse_result(
         rate_limits_request
             .wait()
-            .map_err(|error| describe_rpc_error(RATE_LIMITS_READ_METHOD, error))?,
+            .map_err(|error| SessionFailure::from_rpc(RATE_LIMITS_READ_METHOD, error))?,
         RATE_LIMITS_READ_METHOD,
     )?;
 
@@ -214,7 +304,7 @@ fn run_session(client: &JsonRpcClient, watch_seconds: u64) -> Result<i32, String
         let timeout = remaining.min(Duration::from_secs(1));
         let Some(event) = client
             .receive_event(timeout)
-            .map_err(|error| describe_rpc_error("notification stream", error))?
+            .map_err(|error| SessionFailure::from_rpc("notification stream", error))?
         else {
             continue;
         };
@@ -262,12 +352,6 @@ fn parse_result<T: serde::de::DeserializeOwned>(
             error.column()
         )
     })
-}
-
-fn describe_rpc_error(operation: &str, error: RpcClientError) -> String {
-    format!(
-        "{operation} failed: {error}. Action: verify Codex login, CLI availability, and schema version."
-    )
 }
 
 fn describe_protocol_diagnostic(diagnostic: &ProtocolDiagnostic) -> &'static str {

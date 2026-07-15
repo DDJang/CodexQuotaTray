@@ -1,7 +1,7 @@
 # CodexQuotaTray Roadmap
 
 状态日期：2026-07-15
-当前完成度：P0 与 P0 文档基线完成
+当前完成度：P0 完成；P1 通信与进程管理完成，状态与刷新层进行中
 原则：每个里程碑先满足 gate，再开始下一个；未列入当前 milestone 的功能不得顺带实现。
 
 ## 1. 路线图依据
@@ -70,7 +70,7 @@
 
 ## 4. P1 — 生产化后台核心
 
-状态：**进行中；JSON-RPC 可靠通信子层已完成，其余子项未开始**
+状态：**进行中；JSON-RPC 与进程 supervisor 子层已完成**
 UI：不包含
 
 ### 目标
@@ -93,8 +93,13 @@ UI：不包含
 - 独立请求 timeout、stdout EOF 批量失败和写失败关闭语义。
 - 对未知 ID、重复响应、非法 JSON、非法 envelope 的脱敏容错。
 - 7 个完全离线 fake transport 测试；P0 quota probe 已迁移到该通信层。
+- 长期后台 supervisor、连接代次与同一时间单 App Server 进程约束。
+- 1–30 秒 capped exponential backoff、0–20% jitter 和五分钟最多 5 次 restart budget。
+- stderr 独立持续排空和仅布尔聚合的脱敏报告。
+- 非零退出、启动失败、显式 transport 恢复、可中断 backoff 和 exhausted 状态。
+- App Server/supervisor 两级幂等 shutdown，以及 8 个 fake-process 集成测试。
 
-上述交付只完成 JSON-RPC 可靠通信层，不代表 P1 exit gate 已满足。
+上述交付完成通信与进程管理子层；reducer、refresh coordinator 和 soak 尚未完成，因此 P1 exit gate 仍未满足。
 
 ### 不在范围
 
