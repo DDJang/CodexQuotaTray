@@ -1,5 +1,6 @@
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use crate::compatibility::VersionCompatibility;
 use crate::protocol::{RateLimitSnapshot, RateLimitsReadResponse, SparseMergeOutcome};
 use crate::quota::{AccountState, QuotaSummary, summarize_rate_limits};
 
@@ -73,11 +74,14 @@ pub enum WarningCode {
     QuotaDataIssues,
     PatchWithoutSnapshot,
     AmbiguousSparsePatch,
+    SchemaVersionMismatch,
+    RuntimeVersionUnreported,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppState {
     pub process: ProcessState,
+    pub compatibility: VersionCompatibility,
     pub auth: AuthState,
     pub data: DataState,
     pub quota: Option<QuotaSummary>,
@@ -92,6 +96,7 @@ impl Default for AppState {
     fn default() -> Self {
         Self {
             process: ProcessState::Stopped,
+            compatibility: VersionCompatibility::Unknown,
             auth: AuthState::Unknown,
             data: DataState::Empty,
             quota: None,
@@ -121,6 +126,7 @@ pub enum StateEvent {
     },
     ProcessFailed,
     ProcessStopped,
+    CompatibilityChecked(VersionCompatibility),
     RefreshStarted {
         at: i64,
     },
@@ -128,7 +134,7 @@ pub enum StateEvent {
     RateLimitsReplaced {
         response: RateLimitsReadResponse,
         received_at: i64,
-        source_cli_version: String,
+        source_cli_version: Option<String>,
     },
     RateLimitsPatched {
         patch: RateLimitSnapshot,
@@ -192,6 +198,9 @@ impl AppStateReducer {
                     DataState::Empty
                 };
             }
+            StateEvent::CompatibilityChecked(compatibility) => {
+                self.update_compatibility(compatibility)
+            }
             StateEvent::RefreshStarted { at } => {
                 self.state.last_attempt_at = Some(at);
                 self.state.data = DataState::Refreshing {
@@ -236,7 +245,7 @@ impl AppStateReducer {
         &mut self,
         response: RateLimitsReadResponse,
         received_at: i64,
-        source_cli_version: String,
+        source_cli_version: Option<String>,
     ) {
         let summary = summarize_rate_limits(&response);
         if summary.windows.is_empty() {
@@ -253,7 +262,7 @@ impl AppStateReducer {
         self.state.quota = Some(summary);
         self.state.last_success_at = Some(received_at);
         self.state.last_attempt_at = Some(received_at);
-        self.state.source_cli_version = Some(source_cli_version);
+        self.state.source_cli_version = source_cli_version;
         self.state.last_failure = None;
         self.state.data = DataState::Fresh;
     }
@@ -331,6 +340,25 @@ impl AppStateReducer {
         if !self.state.warnings.contains(&warning) {
             self.state.warnings.push(warning);
         }
+    }
+
+    fn update_compatibility(&mut self, compatibility: VersionCompatibility) {
+        self.state.warnings.retain(|warning| {
+            !matches!(
+                warning,
+                WarningCode::SchemaVersionMismatch | WarningCode::RuntimeVersionUnreported
+            )
+        });
+        match compatibility {
+            VersionCompatibility::Mismatch { .. } => {
+                self.push_warning(WarningCode::SchemaVersionMismatch)
+            }
+            VersionCompatibility::Unreported { .. } => {
+                self.push_warning(WarningCode::RuntimeVersionUnreported)
+            }
+            VersionCompatibility::Unknown | VersionCompatibility::Match { .. } => {}
+        }
+        self.state.compatibility = compatibility;
     }
 
     fn clear_transient_warnings(&mut self) {

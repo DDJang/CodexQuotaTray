@@ -1,7 +1,7 @@
 # CodexQuotaTray Roadmap
 
 状态日期：2026-07-15
-当前完成度：P0 完成；P1 通信、进程、状态、refresh 调度和 runtime 接线完成，真实进程 soak 与版本/缓存策略待完成
+当前完成度：P0 完成；P1 后台核心与版本兼容状态完成，24 小时真实进程 soak 与磁盘 cache 隐私决策待完成
 原则：每个里程碑先满足 gate，再开始下一个；未列入当前 milestone 的功能不得顺带实现。
 
 ## 1. 路线图依据
@@ -70,7 +70,7 @@
 
 ## 4. P1 — 生产化后台核心
 
-状态：**进行中；长期 read-only runtime 已完成，exit gate 尚缺真实进程 soak**
+状态：**进行中；长期 read-only runtime 与版本检测已完成，exit gate 尚缺 24 小时真实进程 soak**
 UI：不包含
 
 ### 目标
@@ -106,9 +106,11 @@ UI：不包含
 - supervisor、JSON-RPC、refresh coordinator 与 reducer 的长期 runtime 接线。
 - 每次逻辑 refresh 并发发出两个只读读取请求，并按 ID 接受乱序响应。
 - 稀疏更新先安全合并、后调度完整补读；transport failure 进入有界进程恢复。
-- 5 个完全离线的 stdio fake App Server runtime 测试，覆盖手动刷新合并、通知补读、崩溃恢复和幂等退出。
+- 6 个完全离线的 stdio fake App Server runtime 测试，覆盖手动刷新合并、通知补读、崩溃恢复、版本 mismatch 和幂等退出。
+- 从实际握手 App Server 提取版本 token，与固定 schema record 精确比较并暴露 match/mismatch/unreported。
+- 有限时脱敏 soak harness；90 秒真实运行完成 1 次成功读取、0 failure/restart/forced termination，退出后无 orphan。
 
-上述交付完成通信、进程管理、reducer、refresh 调度和实际 RPC/state runtime adapter；真实 Codex 进程 soak、运行版本探测以及磁盘 cache 取舍尚未完成，因此 P1 exit gate 仍未满足。
+上述交付完成通信、进程管理、reducer、refresh 调度、RPC/state runtime adapter 和运行版本探测；90 秒 smoke 不替代 24 小时 gate，磁盘 cache 取舍也尚未完成，因此 P1 exit gate 仍未满足。
 
 ### 不在范围
 

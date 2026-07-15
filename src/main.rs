@@ -3,6 +3,9 @@ use std::fmt;
 use std::time::{Duration, Instant};
 
 use codex_quota_tray::app_server::AppServerLaunch;
+use codex_quota_tray::compatibility::{
+    VersionCompatibility, evaluate_user_agent, schema_codex_version,
+};
 use codex_quota_tray::json_rpc::{ClientEvent, JsonRpcClient, ProtocolDiagnostic, RpcClientError};
 use codex_quota_tray::protocol::{
     ACCOUNT_READ_METHOD, AccountRateLimitsUpdatedNotification, AccountReadResponse,
@@ -17,7 +20,6 @@ use codex_quota_tray::supervisor::{
     AppServerSupervisor, RestartPolicy, SupervisorEvent, SupervisorReport,
 };
 
-const SCHEMA_CODEX_VERSION: &str = "0.137.0";
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 const READ_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -237,13 +239,22 @@ fn run_session(client: &JsonRpcClient, watch_seconds: u64) -> Result<i32, Sessio
 
     println!("Codex App Server: {}", initialize.user_agent);
     println!(
-        "Platform: {}/{}; generated schema: codex-cli {SCHEMA_CODEX_VERSION}",
-        initialize.platform_family, initialize.platform_os
+        "Platform: {}/{}; generated schema: codex-cli {}",
+        initialize.platform_family,
+        initialize.platform_os,
+        schema_codex_version()
     );
-    if !initialize.user_agent.contains(SCHEMA_CODEX_VERSION) {
-        eprintln!(
-            "Warning: running App Server does not advertise schema version {SCHEMA_CODEX_VERSION}; regenerate schemas before relying on new fields."
-        );
+    match evaluate_user_agent(&initialize.user_agent, schema_codex_version()) {
+        VersionCompatibility::Mismatch {
+            schema_version,
+            runtime_version,
+        } => eprintln!(
+            "Warning: running App Server version {runtime_version} differs from generated schema {schema_version}; regenerate schemas before relying on new fields."
+        ),
+        VersionCompatibility::Unreported { schema_version } => eprintln!(
+            "Warning: running App Server did not advertise a parseable version; generated schema is {schema_version}."
+        ),
+        VersionCompatibility::Unknown | VersionCompatibility::Match { .. } => {}
     }
 
     client
@@ -289,7 +300,8 @@ fn run_session(client: &JsonRpcClient, watch_seconds: u64) -> Result<i32, Sessio
     }
     print_summary("Rate limits", &summary);
     println!(
-        "Reset credits: unavailable (codex-cli {SCHEMA_CODEX_VERSION} does not expose a reset-credit count)"
+        "Reset credits: unavailable (codex-cli {} does not expose a reset-credit count)",
+        schema_codex_version()
     );
 
     if watch_seconds == 0 {

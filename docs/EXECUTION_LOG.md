@@ -217,3 +217,52 @@ Implement the runtime adapter that performs read-only refreshes, consumes sparse
 ### Next task
 
 Finish P1 with version detection, the cache/settings decision, and a real-process soak before starting any tray UI work.
+
+## 2026-07-15 — P1-D3 schema compatibility and real-runtime soak harness
+
+### Completed
+
+- Read the pinned version from `schemas/CODEX_VERSION` at compile time instead of duplicating it in runtime code.
+- Extracted only a version token from the initialized App Server user-agent and projected match, mismatch, or unreported into normalized state.
+- Kept schema mismatch best-effort and read-only while attaching an explicit anonymous warning; no restart loop is triggered by a version difference alone.
+- Stored only the parsed runtime version in quota provenance; the full user-agent is not retained by the state store.
+- Added a finite soak example that reports only process/data state, window count, version compatibility, booleans, and aggregate counters.
+- Ran a 90-second real App Server soak against codex-cli 0.137.0. It remained generation 0/fresh with one normalized window and exited cleanly.
+
+### Dependency decision
+
+- No production dependency was added. Version parsing, finite scheduling, and reporting use the standard library plus existing project types.
+- This avoids binary-size and runtime impact and is sufficient because only the stable CLI version token is required, not general semantic-version ordering.
+
+### Files
+
+- `src/compatibility.rs`
+- `src/lib.rs`
+- `src/main.rs`
+- `src/runtime.rs`
+- `src/state.rs`
+- `tests/runtime_integration.rs`
+- `tests/state_reducer.rs`
+- `examples/runtime_soak.rs`
+- `README.md`
+- `docs/API_CONTRACT.md`
+- `docs/TECH_DESIGN.md`
+- `docs/ROADMAP.md`
+
+### Verification
+
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- `cargo test --all-targets`: passed, 54 tests.
+- `cargo run --example runtime_soak -- --seconds 90 --sample-seconds 15`: passed.
+- Real soak report: 1 refresh success, 0 failures, 0 notifications, 0 restarts, 0 forced terminations, 0 protocol diagnostics.
+- Corrected WMI orphan query: no remaining `node.exe`/`codex.exe` process with `app-server --stdio`.
+
+### Remaining risks
+
+- The 90-second real run is a smoke, not the 24-hour P1 exit gate.
+- No live update notification was observed; notification behavior remains covered by the offline process fixture.
+- Disk quota cache remains disabled pending a minimal-field privacy and corruption-recovery design.
+
+### Next task
+
+Design and implement the minimal non-sensitive cache/settings boundary, then execute the longest practical real-process resource soak before P2.

@@ -96,7 +96,7 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 ### 5.2 启动
 
 1. **当前实现** Windows 依次尝试 `codex.cmd`、`codex.exe`、`codex`；显式 `--codex-bin` 覆盖发现逻辑。
-2. **拟议设计** 启动前执行版本探测，并将 runtime version 与 `schemas/CODEX_VERSION` 比较。
+2. **当前实现** 握手后只从该 App Server 的 `userAgent` 提取版本 token，并与 `schemas/CODEX_VERSION` 比较；避免另启 `codex --version` 可能探测到不同安装。match、mismatch 与 unreported 都进入 normalized state，完整 user-agent 不保留。
 3. 启动 `codex app-server --stdio`，三个标准流全部 pipe。
 4. 在 10 秒内完成 `initialize`。
 5. 发送 `initialized`，随后发出两个只读读取请求。
@@ -124,6 +124,7 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 - **当前实现** 已完成 ID 保留有限历史，用于识别重复响应；未知 ID、非整数 ID、非法 JSON 和非法 envelope 不会 panic，也不会被错误投递给其他请求。
 - **当前实现** RPC error 只向上暴露请求 ID 和 error code；服务端 message 不进入错误对象或日志。
 - **当前实现** App Server 重启和 supervisor backoff 已接入 runtime；旧连接的 pending request 会失败，新代次只从新的 startup/network-restored refresh 重新读取，不盲目重放旧 wire request。
+- **当前实现** schema mismatch 不会触发重启循环；runtime 产生匿名兼容性 warning，并继续 best-effort 执行固定只读 allowlist。解析失败仍按 protocol failure 处理。
 
 ### 6.1 错误分类
 
@@ -222,14 +223,16 @@ QuotaState:
 
 ### 9.1 已有覆盖
 
-- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试、9 个 reducer 测试、9 个 refresh coordinator 测试和 5 个 runtime fake-process 测试完全离线通过。
+- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试、9 个 reducer 测试、9 个 refresh coordinator 测试、3 个 version compatibility 单元测试和 6 个 runtime fake-process 测试完全离线通过。
 - 覆盖 ChatGPT、API Key、Bedrock、未登录、single/dual/multi bucket、未知时长、缺失字段、越界百分比、malformed JSON 和稀疏合并。
 - JSON-RPC 测试覆盖唯一 ID、多个 pending、乱序响应、RPC error、通知、timeout、EOF、未知/重复 ID、null result、非法 JSON 和非法 envelope。
 - supervisor 测试覆盖非零退出恢复、restart budget、启动失败、显式恢复、stderr flood、正常 EOF、强制回收和幂等 shutdown。
 - reducer 测试覆盖 process/auth/data 状态、失败保留、15 分钟 stale、完整替换、稀疏更新、歧义拒绝和 owned store snapshot。
 - runtime 测试通过真实本地 stdio pipe 覆盖乱序并发响应、启动快照、手动刷新合并、通知稀疏合并与完整补读、单代次崩溃恢复和幂等关闭。
+- version 测试覆盖生成记录读取、精确 match、pre-release mismatch 与 unreported；mismatch runtime 测试同时证明 quota 仍可 best-effort 投影。
 - 请求序列测试证明 runtime 只使用四个允许 method，通信层统一注入 request ID。
 - 脱敏实跑证明真实 quota 可读、默认发现 `codex.cmd` 可用且 stdin close 能干净退出。
+- 90 秒真实 runtime soak 保持 generation 0 / fresh / 单窗口，完成 1 次读取、0 failure、0 restart、0 forced termination、0 protocol diagnostic；退出后进程查询无遗留 App Server。
 
 ### 9.2 后续测试层级
 

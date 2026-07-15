@@ -8,6 +8,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::app_server::AppServerLaunch;
+use crate::compatibility::{evaluate_user_agent, schema_codex_version};
 use crate::json_rpc::{ClientEvent, JsonRpcClient, RpcClientError};
 use crate::protocol::{
     ACCOUNT_READ_METHOD, AccountRateLimitsUpdatedNotification, AccountReadResponse,
@@ -23,7 +24,6 @@ use crate::refresh::{
 use crate::state::{AppState, AppStateStore, FailureKind, StateEvent};
 use crate::supervisor::{AppServerSupervisor, RestartPolicy, SupervisorEvent, SupervisorReport};
 
-const SCHEMA_CODEX_VERSION: &str = "0.137.0";
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone)]
@@ -32,7 +32,7 @@ pub struct RuntimeConfig {
     pub restart_policy: RestartPolicy,
     pub refresh_policy: RefreshPolicy,
     pub poll_interval: Duration,
-    pub source_cli_version: String,
+    pub expected_schema_version: String,
 }
 
 impl RuntimeConfig {
@@ -42,7 +42,7 @@ impl RuntimeConfig {
             restart_policy: RestartPolicy::default(),
             refresh_policy: RefreshPolicy::default(),
             poll_interval: Duration::from_millis(250),
-            source_cli_version: SCHEMA_CODEX_VERSION.to_owned(),
+            expected_schema_version: schema_codex_version().to_owned(),
         }
     }
 }
@@ -178,12 +178,20 @@ fn runtime_worker(
                 let generation = connection.generation();
                 state.dispatch(StateEvent::ProcessHandshaking { generation });
                 let client = JsonRpcClient::new(connection.server());
-                match initialize_connection(&client) {
-                    Ok(_) => {
+                let runtime_cli_version = match initialize_connection(&client) {
+                    Ok(initialize) => {
+                        let compatibility = evaluate_user_agent(
+                            &initialize.user_agent,
+                            &config.expected_schema_version,
+                        );
+                        let runtime_cli_version =
+                            compatibility.runtime_version().map(str::to_owned);
+                        state.dispatch(StateEvent::CompatibilityChecked(compatibility));
                         state.dispatch(StateEvent::ProcessReady {
                             generation,
                             at: unix_now(),
                         });
+                        runtime_cli_version
                     }
                     Err(failure) if failure.recoverable_transport => {
                         state.dispatch(StateEvent::RefreshFailed {
@@ -202,7 +210,7 @@ fn runtime_worker(
                         state.dispatch(StateEvent::ProcessFailed);
                         break 'runtime RuntimeExitReason::FatalProtocol;
                     }
-                }
+                };
 
                 let reason = if generation == 0 {
                     RefreshReason::Startup
@@ -230,6 +238,7 @@ fn runtime_worker(
                     &mut actions,
                     &mut counters,
                     &config,
+                    &runtime_cli_version,
                     started_at,
                 )? {
                     ConnectionDisposition::Shutdown => {
@@ -314,6 +323,7 @@ fn drive_connection(
     actions: &mut VecDeque<CoordinatorAction>,
     counters: &mut RuntimeCounters,
     config: &RuntimeConfig,
+    runtime_cli_version: &Option<String>,
     started_at: Instant,
 ) -> Result<ConnectionDisposition, String> {
     loop {
@@ -326,6 +336,7 @@ fn drive_connection(
                     request,
                     counters,
                     config,
+                    runtime_cli_version,
                     started_at,
                 )? {
                     RefreshDisposition::Continue(mut follow_up) => actions.append(&mut follow_up),
@@ -427,6 +438,7 @@ fn execute_refresh(
     request: RefreshRequest,
     counters: &mut RuntimeCounters,
     config: &RuntimeConfig,
+    runtime_cli_version: &Option<String>,
     started_at: Instant,
 ) -> Result<RefreshDisposition, String> {
     state.dispatch(StateEvent::RefreshStarted { at: unix_now() });
@@ -452,7 +464,7 @@ fn execute_refresh(
                                 state.dispatch(StateEvent::RateLimitsReplaced {
                                     response: rate_limits,
                                     received_at: unix_now(),
-                                    source_cli_version: config.source_cli_version.clone(),
+                                    source_cli_version: runtime_cli_version.clone(),
                                 });
                             }
                             let succeeded = !is_chatgpt || state.snapshot().last_failure.is_none();

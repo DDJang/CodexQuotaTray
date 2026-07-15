@@ -8,6 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use codex_quota_tray::app_server::AppServerLaunch;
+use codex_quota_tray::compatibility::VersionCompatibility;
 use codex_quota_tray::refresh::{RefreshPolicy, RefreshReason};
 use codex_quota_tray::runtime::{QuotaRuntime, RuntimeConfig, RuntimeExitReason, RuntimeReport};
 use codex_quota_tray::state::{AppState, DataState, ProcessState, StableDataState};
@@ -119,6 +120,26 @@ fn child_exit_preserves_then_replaces_quota_after_supervised_recovery() {
     assert_clean_shutdown(&report);
 }
 
+#[test]
+fn schema_mismatch_is_explicit_but_read_only_quota_remains_best_effort() {
+    let fixture = RuntimeFixture::new("version-mismatch");
+    let mut runtime = QuotaRuntime::start(fixture.config()).unwrap();
+
+    let snapshot = wait_for_state(&runtime, |state| state.data == DataState::Fresh);
+    assert_eq!(
+        snapshot.compatibility,
+        VersionCompatibility::Mismatch {
+            schema_version: "0.137.0".to_owned(),
+            runtime_version: "0.999.0".to_owned(),
+        }
+    );
+    assert_eq!(snapshot.source_cli_version.as_deref(), Some("0.999.0"));
+    assert_eq!(used_percent(&snapshot), Some(20));
+
+    let report = runtime.shutdown().unwrap();
+    assert_clean_shutdown(&report);
+}
+
 fn serve_fake_app_server(mode: &str, read_counter: &Path, generation: u64) {
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout().lock();
@@ -131,15 +152,22 @@ fn serve_fake_app_server(mode: &str, read_counter: &Path, generation: u64) {
             continue;
         };
         match request.get("method").and_then(Value::as_str) {
-            Some("initialize") => respond(
-                &mut stdout,
-                request_id(&request),
-                json!({
-                    "userAgent": "codex-quota-test",
-                    "platformFamily": "windows",
-                    "platformOs": "windows"
-                }),
-            ),
+            Some("initialize") => {
+                let version = if mode == "version-mismatch" {
+                    "0.999.0"
+                } else {
+                    "0.137.0"
+                };
+                respond(
+                    &mut stdout,
+                    request_id(&request),
+                    json!({
+                        "userAgent": format!("codex_app_server_rs/{version}"),
+                        "platformFamily": "windows",
+                        "platformOs": "windows"
+                    }),
+                )
+            }
             Some("initialized") => {}
             Some("account/read") => account_request_id = Some(request_id(&request)),
             Some("account/rateLimits/read") => {
@@ -279,7 +307,7 @@ impl RuntimeFixture {
             .unwrap(),
             refresh_policy: RefreshPolicy::new(1, 60, 2).unwrap(),
             poll_interval: Duration::from_millis(10),
-            source_cli_version: "test-schema".to_owned(),
+            expected_schema_version: "0.137.0".to_owned(),
         }
     }
 }

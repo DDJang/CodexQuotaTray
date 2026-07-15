@@ -27,7 +27,7 @@ fn fresh_reducer(at: i64) -> AppStateReducer {
     reducer.reduce(StateEvent::RateLimitsReplaced {
         response: rate_limits_fixture("single"),
         received_at: at,
-        source_cli_version: "0.137.0".to_owned(),
+        source_cli_version: Some("0.137.0".to_owned()),
     });
     reducer
 }
@@ -130,7 +130,7 @@ fn successful_refresh_restores_fresh_and_clears_transient_failures() {
     reducer.reduce(StateEvent::RateLimitsReplaced {
         response: rate_limits_fixture("single"),
         received_at: 1_200,
-        source_cli_version: "0.137.0".to_owned(),
+        source_cli_version: Some("0.137.0".to_owned()),
     });
     assert_eq!(reducer.state().data, DataState::Fresh);
     assert_eq!(reducer.state().last_success_at, Some(1_200));
@@ -151,7 +151,7 @@ fn incomplete_refresh_does_not_replace_valid_quota_with_empty_data() {
     reducer.reduce(StateEvent::RateLimitsReplaced {
         response: rate_limits_fixture("missing"),
         received_at: 150,
-        source_cli_version: "0.137.0".to_owned(),
+        source_cli_version: Some("0.137.0".to_owned()),
     });
 
     assert_eq!(reducer.state().quota, original);
@@ -210,7 +210,7 @@ fn ambiguous_sparse_patch_is_rejected_without_guessing_a_bucket() {
     reducer.reduce(StateEvent::RateLimitsReplaced {
         response: rate_limits_fixture("multi"),
         received_at: 100,
-        source_cli_version: "0.137.0".to_owned(),
+        source_cli_version: Some("0.137.0".to_owned()),
     });
     let original = reducer.state().quota.clone();
     let patch: RateLimitSnapshot = serde_json::from_value(json!({

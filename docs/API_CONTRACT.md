@@ -254,9 +254,15 @@ QuotaSnapshot:
   windows: QuotaWindow[]
   plan_type: string?
   received_at: LocalInstant
-  source_cli_version: string
+  source_cli_version: string?
   reset_credit_state: unavailable_in_schema
   warnings: WarningCode[]
+
+VersionCompatibility:
+  unknown
+  match(schema_version, runtime_version)
+  mismatch(schema_version, runtime_version)
+  unreported(schema_version)
 ```
 
 Projection rules：
@@ -269,6 +275,7 @@ Projection rules：
 - 缺少 reset time 显示 unknown，不推测服务端周期边界。
 - read 或 patch 失败保留最后有效 normalized snapshot；只有明确的非 ChatGPT 账户状态才清除旧 quota。
 - 多 bucket 且 patch 缺少可定位的 `limitId` 时拒绝猜测，保留旧状态并要求完整 refresh。
+- runtime version 从完成握手的 App Server `userAgent` 中仅提取版本 token；完整 user-agent 不进入 normalized state。精确相同为 match，不同为 mismatch，无法解析为 unreported；mismatch/unreported 不阻止 best-effort 只读读取。
 
 ## 6. Error and availability contract
 
