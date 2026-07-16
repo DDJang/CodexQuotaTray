@@ -13,7 +13,51 @@
 
 The local read-only MVP baseline is complete. Remaining work is public-release validation: Windows 10, broader DPI/multi-monitor coverage, signing/provenance, and the separate seven-day quality soak.
 
+## 2026-07-16 — 0.1.3 Per-Monitor V2 clarity correction
+
+- Diagnosed the packaged 0.1.2 process with `GetProcessDpiAwareness`: it reported `PROCESS_DPI_UNAWARE`, and `mt.exe` confirmed that standard `RT_MANIFEST #1` was absent.
+- Corrected the resource type to numeric 24, added an early Per-Monitor V2 runtime assertion, and based the initial card layout on the cursor monitor's effective DPI.
+- Converted GDI font sizes from points to physical pixels and selected ClearType Natural quality; opaque pixel-for-pixel double buffering remains unchanged.
+- Release validation now requires both an embedded manifest and observed Per-Monitor-aware process/window DPI rather than trusting the source XML alone.
+
 ## Completed milestones
+
+## 2026-07-16 — 0.1.2 crisp rendering and rounded icon correction
+
+### Completed
+
+- Removed whole-window layered alpha after Windows visual inspection showed that it degraded GDI ClearType and produced transient composition artifacts during invalidation.
+- Kept the opaque double-buffered dark card, PerMonitorV2 layout, DWM dark-mode corners and shadows, and all existing interactions.
+- Preserved the supplied 24-bit artwork as `app-icon-source.png`; the generator now creates a 32-bit antialiased rounded-square preview and nine-frame ICO with transparent corners.
+- Kept protocol, refresh, privacy, cache, notification, and reset-credit boundaries unchanged.
+
+### Dependency decision
+
+- No dependency was added. Rounded Alpha masking and ICO validation use the existing build-time PowerShell/System.Drawing path; runtime remains native Win32/GDI.
+
+### Verification
+
+- The generator enforces transparent corners, an opaque center, and exact 16/20/24/32/40/48/64/128/256 frame dimensions.
+- See the final task report for formatting, Clippy, tests, package smoke, embedded-icon inspection, and Windows DPI visual results.
+
+## 2026-07-16 — 0.1.1 native visual polish and embedded icon
+
+### Completed
+
+- Kept the read-only Win32 host and added a dark, DPI-aware quota instrument layout with rounded quota surfaces, mint status accents, dynamic height, shared paint/hit-test geometry, mouse interaction states, and keyboard focus navigation.
+- Added official Windows 11 Desktop Acrylic/rounded-corner attributes with a non-fatal Windows 10 solid fallback.
+- Preserved the supplied 1254×1254 icon as source, generated a nine-size ICO, and embedded the icon plus PerMonitorV2/asInvoker manifest into the executable.
+- Kept protocol, refresh, privacy, cache, notification, and reset-credit boundaries unchanged.
+
+### Dependency decision
+
+- Added `embed-resource` 3.0.11 as a build-only dependency. It locates the MSVC resource compiler and links the checked-in icon/manifest; it has no runtime code, background activity, or framework deployment. The existing `windows` dependency only gained feature-gated DWM, HiDPI, and mouse-input bindings.
+- WinUI 3 was rejected for this iteration because the Windows App SDK bootstrap/runtime and host rewrite would increase packaging and compatibility risk without improving the existing tray lifecycle.
+
+### Verification
+
+- Offline layout tests cover 0–3 rows at 96/120/144/192 DPI, shared button hit regions, semantic tray icon shapes, and DWM failure fallback.
+- See the final task report for formatting, Clippy, test, package, icon-resource, and Windows smoke results.
 
 - P0 protocol feasibility and documentation.
 - P1-A reliable JSON-RPC transport.
