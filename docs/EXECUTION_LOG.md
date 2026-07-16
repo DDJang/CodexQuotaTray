@@ -3,15 +3,15 @@
 ## Current state
 
 - P0 complete.
-- P1 service core complete; its independent 24-hour real-process soak is running.
+- P1 service core complete; the independent real-process soak ran for 76,251 seconds (21 h 11 min) before the user explicitly ended the remaining monitoring window.
 - P2 native Win32 tray host and P3 host-event/quiet-time integration implemented.
 - P4 reproducible per-user ZIP packaging, isolated install/upgrade/uninstall smoke, privacy notice, dependency inventory, and unsigned release strategy implemented locally.
-- 84 tests passing before the final P4 commit gate.
+- 85 tests pass at the final P4/MVP gate.
 - MVP remains read-only.
 
 ## Next milestone
 
-Finish the P4 quality/package gates and 30-minute host resource sample, commit the packaging baseline, then audit the complete P1 24-hour soak and orphan-process result.
+The local read-only MVP baseline is complete. Remaining work is public-release validation: Windows 10, broader DPI/multi-monitor coverage, signing/provenance, and the separate seven-day quality soak.
 
 ## Completed milestones
 
@@ -23,6 +23,7 @@ Finish the P4 quality/package gates and 30-minute host resource sample, commit t
 - P1-D2 runtime adapter, P1-D3 schema compatibility, and P1-E privacy-minimized persistence.
 - P2 read-only native Windows tray host.
 - P3 host events and quiet-time notifications.
+- P4 reproducible package and local MVP validation.
 
 ## 2026-07-15 — P1-A reliable JSON-RPC transport
 
@@ -529,3 +530,30 @@ Create a reproducible P4 Windows package with dependency/license inventory, inst
 ### Next task
 
 Run the final Rust and package gates, record the 30-minute native-host sample, create the P4 milestone commit, then allow the finite P1 soak to finish and perform the final orphan/privacy audit.
+
+## 2026-07-16 — Final MVP validation and extended real-runtime soak
+
+### Completed
+
+- Preserved the independent release soak for 76,251 seconds (21 h 11 min). The user then explicitly ended the remaining monitoring period, so this result is not represented as a completed 24-hour run.
+- The last sampled state at 74,723 seconds was generation 0, process Ready, data Fresh, one normalized window, exact schema match 0.137.0, a recorded successful refresh, and zero warnings.
+- The extended run covered repeated 10-minute fallback intervals and a system sleep gap. A stale-preserving refresh state at 63,923 seconds returned to Fresh at 67,523 seconds without process restart or data loss.
+- Final external resource observation before termination: about 2.55 MiB working set, 50.656 cumulative CPU seconds, 92 handles, 6 threads, and zero stderr bytes.
+- After the explicit stop, the verified six-process soak tree (`runtime_soak`, command shim, Node, App Server, and console hosts) had zero remaining processes. No unrelated Codex process was terminated.
+- P4 remains committed as `1c65c88`; no artifact was published and no remote branch was pushed.
+
+### Final MVP boundary
+
+- The user-approved 21-hour run satisfies the MVP requirement for one extended live run, but does not satisfy or replace the originally planned exact 24-hour gate or the PRD seven-day release-quality target.
+- Windows 11 build/install/upgrade/uninstall/tray behavior, package privacy/integrity, 30-minute host resources, offline failure recovery, and read-only protocol behavior are verified.
+- Windows 10, signed release provenance, broader DPI/multi-monitor coverage, and seven-day stability remain public-release gates, not claims of this local developer build.
+
+### Verification
+
+- Final Rust gates before the documentation closeout: `cargo fmt --all -- --check`, Clippy with `-D warnings`, all 85 tests, and `git diff --check` passed.
+- Package smoke passed tamper rejection, install/upgrade, startup registration, shortcut, default removal, `-KeepUserData`, uninstall, cleanup, and build-path remapping.
+- The soak log contains only normalized state and aggregate booleans/counters; stderr stayed empty and no raw response, token, email, or account identifier was persisted.
+
+### Next task
+
+Do not resume the stopped soak automatically. Before a public release, execute the Windows 10/DPI matrix, organization-controlled signing and provenance flow, and a separately scheduled seven-day soak.

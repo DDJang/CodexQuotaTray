@@ -1,7 +1,7 @@
 # CodexQuotaTray Roadmap
 
-状态日期：2026-07-15
-当前完成度：P0 完成；P1 后台核心完成且 24 小时真实进程 soak 进行中；P2/P3 原生 host 与事件编排已实现；P4 可重复打包已实现并等待跨版本/长期 gate
+状态日期：2026-07-16
+当前完成度：本地只读 MVP 已完成；P1 实跑 21 小时 11 分后由用户明确结束监控；P2/P3 原生 host 与事件编排完成；P4 可重复打包完成。Windows 10、签名、七天 soak 和更广 UI 矩阵仍是公开发布 gate
 原则：每个里程碑先满足 gate，再开始下一个；未列入当前 milestone 的功能不得顺带实现。
 
 ## 1. 路线图依据
@@ -70,7 +70,7 @@
 
 ## 4. P1 — 生产化后台核心
 
-状态：**进行中；长期 read-only runtime 与版本检测已完成，exit gate 尚缺 24 小时真实进程 soak**
+状态：**完成（MVP）；真实进程 soak 运行 21 小时 11 分后按用户指示提前结束，未声称完成 24 小时**
 UI：不包含
 
 ### 目标
@@ -112,7 +112,7 @@ UI：不包含
 - settings 与 quota cache 分离的标准库持久化边界；cache 使用严格匿名字段白名单、64 KiB/32-window 上限、temporary/backup replace 和 stale-only restore。
 - 损坏/超大/未知版本缓存不阻断 live runtime；恢复和回写由 6 个 persistence + 2 个 runtime 场景离线验证。
 
-上述交付完成通信、进程管理、reducer、refresh 调度、RPC/state runtime adapter、版本探测和磁盘 cache 隐私 gate；90 秒 smoke 不替代 24 小时 gate，因此 P1 exit gate 仍未满足。
+上述交付完成通信、进程管理、reducer、refresh 调度、RPC/state runtime adapter、版本探测和磁盘 cache 隐私 gate。最终 extended run 持续 76,251 秒，保持 generation 0、Fresh、schema match、0 warning、stderr 0；用户明确结束剩余监控后，核对的六进程树残留为 0。该结果满足调整后的 MVP 长时运行要求，但不冒充完整 24 小时或七天质量 gate。
 
 ### 不在范围
 
@@ -132,9 +132,11 @@ UI：不包含
 - 失败时保留最后有效 snapshot，15 分钟后准确转 stale。
 - 所有单元/集成测试不需要真实账户。
 
+结果说明：原定 24 小时 gate 在 21 小时 11 分由用户明确提前终止；已观察区间无 orphan、持续内存增长、restart、warning 或敏感 stderr。剩余 2 小时 49 分不再作为本地 MVP 阻塞项，完整 24 小时/七天运行仍保留为发布质量证据。
+
 ## 5. P2 — Read-only Windows tray shell
 
-状态：**实现完成、验收中；P1 24 小时 soak 与 Windows 10 smoke gate 尚未关闭**
+状态：**本地 MVP 完成；Windows 11 已验证，Windows 10 保留为公开发布 gate**
 
 ### 目标
 
@@ -181,7 +183,7 @@ UI：不包含
 
 ## 6. P3 — Refresh orchestration 与通知
 
-状态：**实现完成、验收中；随 P1 24 小时 soak 关闭 live gate**
+状态：**完成（MVP）；21 小时 live run 覆盖 fallback/stale 恢复，未观察到 live update notification**
 
 ### 目标
 
@@ -215,11 +217,11 @@ UI：不包含
 - 主动请求最小间隔 10 秒；同一时间最多一个 refresh。
 - 网络故障不会清空旧数据或产生通知风暴。
 
-当前自动化已满足三个 exit 条目；最终状态随 P1 24 小时 soak 的 refresh/restart/orphan 汇总关闭。
+三个 exit 条目均由离线状态转换测试和 21 小时 live run 的 refresh/restart/orphan 汇总满足。
 
 ## 7. P4 — Packaging 与发布准备
 
-状态：**实现完成、验收中；Windows 10、签名和长期稳定性仍是公开发布 gate**
+状态：**本地 MVP 完成；Windows 10、签名和长期稳定性仍是公开发布 gate**
 
 ### 目标
 
@@ -250,7 +252,7 @@ UI：不包含
 
 - 当前本地 artifact 未签名，不可标记为正式发行版。
 - 当前环境没有 Windows 10，不能替代该平台的安装与托盘 smoke。
-- P1 24 小时 soak 仍在运行；PRD 七天 soak 是后续公开发布质量门禁。
+- P1 extended soak 在 21 小时 11 分按用户指示结束；未完成的精确 24 小时与 PRD 七天 soak 是后续公开发布质量证据。
 - 多 DPI、多显示器和逐项 UI Automation 体验仍需人工验收；MVP 当前依靠聚合可访问标题、键盘快捷键和标准系统菜单。
 
 ### Exit gate
@@ -260,7 +262,7 @@ UI：不包含
 - Windows 10/11 安装、升级、卸载和开机启动测试通过。
 - 空闲 CPU、内存、安装体积和 7 天 soak 结果达到或解释 PRD 目标。
 
-前两个 exit 条目已由自动化满足；第三项仅 Windows 11 已验证，第四项的安装体积与 30 分钟资源目标已满足，但仍等待 24 小时/七天证据与 Windows 10 环境。因此 P4 implementation 可以独立提交，公开发布 gate 不能关闭。
+前两个 exit 条目已由自动化满足；第三项仅 Windows 11 已验证，第四项的安装体积与 30 分钟资源目标已满足，并有 21 小时 11 分 extended run。P4 本地 MVP 已提交完成，但 Windows 10、签名和七天证据未完成，因此公开发布 gate 不能关闭。
 
 ## 8. Reset-credit 功能门禁
 
@@ -277,4 +279,4 @@ UI：不包含
 
 ## 9. 推荐下一任务
 
-保持 24 小时真实 Codex runtime soak 独立运行并记录每小时样本；完成 P4 的 30 分钟 native host 资源采样与最终 package smoke，然后汇总 orphan/privacy/quality gates。Windows 10、签名和七天 soak 留作公开发布前验证，不自动发布 artifact。
+不要自动恢复已按用户指示结束的 soak。下一阶段仅在准备公开发布时执行 Windows 10/DPI/多显示器矩阵、组织控制的签名与 provenance，以及单独安排的七天 soak；不得自动发布 artifact。
