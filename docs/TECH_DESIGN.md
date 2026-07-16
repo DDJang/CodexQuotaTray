@@ -166,6 +166,9 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 ### 6.4 Windows host 边界
 
 - **当前实现** Windows 依赖只在 `cfg(windows)` 下启用；生产依赖是 Microsoft `windows` 0.62.2 的所需 Win32 namespace features，不包含 WebView、Electron 或 Chromium。网络 monitor 只使用系统 IP Helper connectivity hint，不主动探测网站。
+- **当前实现（0.1.3）** UI 保留 Win32/GDI，不引入 WinUI 3 或 Windows App SDK。卡片不使用 `WS_EX_LAYERED` 或整窗 Alpha，始终在不透明 `#0D151C` 表面以 ClearType Natural 绘制；Windows 11 仅请求受支持的 DWM 深色模式、系统圆角和阴影，失败不影响业务状态。
+- **当前实现（0.1.3）** `windows_visuals` 以逻辑像素生成 0–3 个额度窗口的统一布局，96/120/144/192 DPI 均由同一几何数据驱动绘制和 hit-test。GUI 入口显式验证 PerMonitorV2，资源脚本以标准 `RT_MANIFEST` 数值类型 24 嵌入清单；卡片显示前读取光标所在显示器的有效 DPI，一次性计算尺寸与位置，并继续处理 `WM_DPICHANGED`。
+- **当前实现（0.1.3）** 用户提供的 24-bit PNG 保留为源资源；构建脚本生成抗锯齿、透明圆角的 32-bit preview 以及 16–256 px ICO，并验证 Alpha 与九个 frame。构建期 `embed-resource` 只调用 Windows resource compiler，将 icon 与 manifest 链接到 EXE；它不进入运行时。正常托盘状态使用产品图标，其他状态继续使用不同形状的系统 warning/error/information/offline 图标。
 - **当前实现** UI 每 30 秒只重新投影内存 snapshot 以更新时间文案；它不发网络请求。网络读取仍由 P1 的事件优先/10 分钟 fallback coordinator 控制。
 - **当前实现** 30 秒 timer 仅在投影内容实际变化时 invalidates/repaints；状态/通知由事件即时投递，正常倒计时最多每分钟改变一次，避免无变化的 GDI 重绘占用空闲 CPU。
 - **当前实现** JSON-RPC dispatcher 的空闲阻塞检查保持 25 ms，supervisor/runtime 为 250 ms；请求仍使用独立 15 秒 deadline，stdio 到达会立即唤醒 dispatcher。dispatcher 不放宽，因为当前收发互斥边界下会延迟并发写入并破坏可靠性测试。

@@ -2,6 +2,8 @@
 
 CodexQuotaTray is a read-only Rust client for the Codex App Server. It includes the P0 command-line probe, the long-running P1 service core, and a native Win32 tray host. It never implements reset-credit consumption.
 
+Version 0.1.3 fixes the executable manifest resource and verifies Per-Monitor V2 awareness at process startup, preventing Windows from bitmap-scaling the quota card. It also sizes the card for the cursor's target monitor and uses point-correct ClearType Natural fonts. The transparent rounded multi-resolution icon and opaque DWM dark card remain unchanged, with no WebView, Electron, Chromium, or Windows App SDK runtime.
+
 ## Build and test
 
 ```powershell
@@ -49,6 +51,8 @@ The control command waits up to 10 seconds for the existing process and its App 
 finish normal cleanup, and returns a nonzero exit code instead of reporting success early.
 
 Keyboard access while the card is focused: `Enter` or `R` refreshes, `U` opens Usage, `F10` opens the system menu, and `Esc` hides the card. The release executable contains no WebView, Electron, or Chromium runtime.
+
+`Tab`, Left, or Right changes the focused footer action; `Space` activates it. Rebuild the checked-in rounded preview and multi-resolution icon from `assets/app-icon-source.png` with `powershell -File .\scripts\generate-icon.ps1`; the generator validates transparent corners, an opaque center, and all nine ICO frames.
 
 Card-open for missing or at least 60-second-old data, Windows resume, and restored system connectivity are routed through the same coordinator as manual and App Server events. Event bursts remain subject to the 10-second minimum interval and single in-flight request, while a 10-minute fallback works even when no system or App Server notification arrives. Quota notifications ask Windows to respect quiet time and never play application sound.
 

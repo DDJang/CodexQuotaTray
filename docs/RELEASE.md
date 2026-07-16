@@ -15,7 +15,7 @@ The output is `dist\CodexQuotaTray-<version>-win-x64.zip`. The script runs locke
 Install for the current user:
 
 ```powershell
-Expand-Archive .\CodexQuotaTray-0.1.0-win-x64.zip .\CodexQuotaTray
+Expand-Archive .\CodexQuotaTray-0.1.3-win-x64.zip .\CodexQuotaTray
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\CodexQuotaTray\install.ps1 -StartWithWindows
 ```
 
@@ -36,4 +36,5 @@ No signing or publishing step is automated in this repository because the requir
 - Automated: locked release build, repository-path redaction, manifest verification, install, same-version overwrite/upgrade, isolated start-with-Windows registry value, shortcut creation, uninstall, default user-data removal, `-KeepUserData` preservation, size, and package-content checks.
 - Completed manually: Windows 11 10.0.26200 x64 tray/runtime smoke.
 - Required before public release: Windows 10 x64 install/upgrade/uninstall/tray smoke; Windows 11 stable-channel smoke; 100/125/150/200% DPI and multi-monitor positioning; signed artifact verification; real official Usage navigation.
+- UI 0.1.3 validation additionally checks `RT_MANIFEST #1`, effective Per-Monitor V2 process awareness, target-monitor window DPI, transparent rounded icon corners, opaque ClearType Natural rendering, Windows 11 DWM corners, hover/pressed/focus states, and dynamic zero-to-three-window layouts.
 - Stability: the P1 24-hour soak is the MVP gate currently in progress. The PRD's seven-day target is a release-quality objective and must be reported honestly until a full run completes.

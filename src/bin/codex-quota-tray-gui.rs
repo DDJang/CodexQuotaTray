@@ -2,6 +2,10 @@
 
 #[cfg(windows)]
 fn main() {
+    if let Err(message) = codex_quota_tray::windows_tray::initialize_dpi_awareness() {
+        show_error(&message);
+        return;
+    }
     // Debug builds default to deterministic fixture data for safe UI development;
     // release builds default to the real read-only runtime. `--demo` is explicit in either.
     let mut demo = cfg!(debug_assertions);

@@ -32,6 +32,62 @@ $oldAppData = $env:APPDATA
 $registryPath = "HKCU:\Software\CodexQuotaTray\PackagingSmoke-$PID"
 
 try {
+    Add-Type -AssemblyName System.Drawing
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class CodexQuotaTrayResourceProbe {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr LoadLibraryEx(string fileName, IntPtr file, uint flags);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr FindResource(IntPtr module, IntPtr name, IntPtr type);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern uint SizeofResource(IntPtr module, IntPtr resource);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr LoadResource(IntPtr module, IntPtr resource);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr LockResource(IntPtr resourceData);
+    [DllImport("kernel32.dll")]
+    private static extern bool FreeLibrary(IntPtr module);
+
+    public static string ReadManifest(string path) {
+        const uint LoadLibraryAsDataFile = 0x2;
+        IntPtr module = LoadLibraryEx(path, IntPtr.Zero, LoadLibraryAsDataFile);
+        if (module == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        try {
+            IntPtr resource = FindResource(module, new IntPtr(1), new IntPtr(24));
+            if (resource == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+            uint size = SizeofResource(module, resource);
+            IntPtr loaded = LoadResource(module, resource);
+            IntPtr bytes = LockResource(loaded);
+            if (size == 0 || loaded == IntPtr.Zero || bytes == IntPtr.Zero) {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            byte[] managed = new byte[size];
+            Marshal.Copy(bytes, managed, 0, managed.Length);
+            return Encoding.UTF8.GetString(managed);
+        } finally {
+            FreeLibrary(module);
+        }
+    }
+}
+'@
+    $iconPreview = [Drawing.Bitmap]::FromFile((Join-Path $repoRoot "assets\app-icon.png"))
+    try {
+        $corner = $iconPreview.GetPixel(0, 0)
+        $center = $iconPreview.GetPixel(
+            [int]($iconPreview.Width / 2),
+            [int]($iconPreview.Height / 2)
+        )
+        Assert-True ($corner.A -eq 0) "application icon corner is not transparent"
+        Assert-True ($center.A -eq 255) "application icon center is not opaque"
+    } finally {
+        $iconPreview.Dispose()
+    }
+
     if (Test-Path -LiteralPath $smokeRoot) {
         $item = Get-Item -LiteralPath $smokeRoot -Force
         if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
@@ -70,8 +126,17 @@ try {
     Assert-True ($difference.Count -eq 0) "release archive file allowlist changed"
     Assert-True ((Get-Item -LiteralPath (Join-Path $expanded "codex-quota-tray-gui.exe")).Length -lt 20MB) `
         "release executable exceeds 20 MB"
+    $associatedIcon = [Drawing.Icon]::ExtractAssociatedIcon(
+        (Join-Path $expanded "codex-quota-tray-gui.exe")
+    )
+    Assert-True ($null -ne $associatedIcon) "release executable has no associated icon"
+    $associatedIcon.Dispose()
+    $releaseExe = Join-Path $expanded "codex-quota-tray-gui.exe"
+    $embeddedManifest = [CodexQuotaTrayResourceProbe]::ReadManifest($releaseExe)
+    Assert-True ($embeddedManifest.Contains("PerMonitorV2")) `
+        "release executable manifest does not declare PerMonitorV2"
     $executableText = [Text.Encoding]::ASCII.GetString(
-        [IO.File]::ReadAllBytes((Join-Path $expanded "codex-quota-tray-gui.exe"))
+        [IO.File]::ReadAllBytes($releaseExe)
     )
     Assert-True (-not $executableText.Contains($repoRoot)) `
         "release executable contains the local repository path"
@@ -162,6 +227,7 @@ try {
         ExecutableBytes = (Get-Item -LiteralPath (Join-Path $expanded "codex-quota-tray-gui.exe")).Length
         IntegrityTamperRejected = $tamperRejected
         BuildPathRemapped = $true
+        PerMonitorV2Manifest = "passed"
         InstallUpgradeUninstall = "passed"
         KeepUserData = "passed"
     }

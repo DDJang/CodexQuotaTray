@@ -8,11 +8,13 @@ use windows::Win32::Foundation::{
     LRESULT, POINT, RECT, WAIT_OBJECT_0, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
-    BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush,
-    DEFAULT_CHARSET, DEFAULT_PITCH, DRAW_TEXT_FORMAT, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT,
-    DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FW_NORMAL, FillRect,
-    HGDIOBJ, InvalidateRect, OUT_DEFAULT_PRECIS, PAINTSTRUCT, SelectObject, SetBkMode,
-    SetTextColor, TRANSPARENT,
+    BeginPaint, BitBlt, CLIP_DEFAULT_PRECIS, CreateCompatibleBitmap, CreateCompatibleDC,
+    CreateFontW, CreatePen, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DRAW_TEXT_FORMAT,
+    DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, DeleteDC,
+    DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FONT_QUALITY, FW_NORMAL, FW_SEMIBOLD, FillRect,
+    GetMonitorInfoW, HDC, HGDIOBJ, InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO,
+    MonitorFromPoint, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, RoundRect, SRCCOPY, SelectObject,
+    SetBkMode, SetTextColor, TRANSPARENT, UpdateWindow,
 };
 use windows::Win32::NetworkManagement::IpHelper::{
     CancelMibChangeNotify2, NotifyNetworkConnectivityHintChange,
@@ -26,6 +28,8 @@ use windows::Win32::System::Registry::{
     RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegGetValueW, RegSetValueExW,
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject};
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::Shell::{
     NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_ERROR, NIIF_INFO, NIIF_NOSOUND,
     NIIF_RESPECT_QUIET_TIME, NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
@@ -33,17 +37,17 @@ use windows::Win32::UI::Shell::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu,
-    CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, FindWindowW, GWLP_USERDATA,
-    GetClientRect, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowThreadProcessId, HICON,
-    HMENU, HWND_TOPMOST, IDC_ARROW, IDI_APPLICATION, IDI_ERROR, IDI_INFORMATION, IDI_QUESTION,
-    IDI_WARNING, IsWindowVisible, KillTimer, LoadCursorW, LoadIconW, MF_CHECKED, MF_SEPARATOR,
-    MF_STRING, MSG, PBT_APMRESUMEAUTOMATIC, PostMessageW, PostQuitMessage, RegisterClassW,
-    SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_SHOWWINDOW, SetForegroundWindow,
-    SetTimer, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, TPM_RETURNCMD,
-    TPM_RIGHTBUTTON, TrackPopupMenu, WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DESTROY,
-    WM_ENDSESSION, WM_KEYUP, WM_LBUTTONUP, WM_NCCREATE, WM_PAINT, WM_POWERBROADCAST,
-    WM_QUERYENDSESSION, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-    WS_POPUP,
+    CreateWindowExW, DI_NORMAL, DefWindowProcW, DestroyMenu, DestroyWindow, DrawIconEx,
+    FindWindowW, GWLP_USERDATA, GetClientRect, GetCursorPos, GetMessageW, GetWindowThreadProcessId,
+    HICON, HMENU, HWND_TOPMOST, IDC_ARROW, IDI_ERROR, IDI_INFORMATION, IDI_QUESTION, IDI_WARNING,
+    IsWindowVisible, KillTimer, LoadCursorW, LoadIconW, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG,
+    PBT_APMRESUMEAUTOMATIC, PostMessageW, PostQuitMessage, RegisterClassW, SW_HIDE,
+    SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SetForegroundWindow, SetTimer,
+    SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    TrackPopupMenu, WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
+    WM_ENDSESSION, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_PAINT,
+    WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW,
+    WS_EX_TOPMOST, WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -55,6 +59,11 @@ use crate::refresh::{RefreshPolicy, RefreshReason};
 use crate::runtime::{QuotaRuntime, RuntimeConfig};
 use crate::state::{AppState, AuthState, DataState};
 use crate::ui_model::{TrayIconState, TrayView, ViewPreferences, project_tray_view};
+use crate::windows_visuals::{
+    CardLayout, IconKind, InteractionTarget, configure_window_chrome, ensure_per_monitor_v2,
+    icon_kind, load_app_icon, monitor_effective_dpi, request_mouse_leave, scale_for_dpi,
+    status_label,
+};
 
 const WINDOW_CLASS: PCWSTR = w!("CodexQuotaTrayWindow");
 const WINDOW_TITLE: PCWSTR = w!("CodexQuotaTray");
@@ -64,8 +73,6 @@ const SHOW_CARD_MESSAGE: u32 = WM_APP + 19;
 const TRAY_ID: u32 = 1;
 const TIMER_ID: usize = 1;
 const TIMER_MILLIS: u32 = 30_000;
-const CARD_WIDTH: i32 = 380;
-const CARD_HEIGHT: i32 = 460;
 const CMD_REFRESH: usize = 1001;
 const CMD_OPEN_USAGE: usize = 1002;
 const CMD_TOGGLE_CACHE: usize = 1003;
@@ -75,13 +82,20 @@ const CMD_CLEAR_CACHE: usize = 1006;
 const CMD_EXIT: usize = 1099;
 const KEY_ESCAPE: usize = 0x1b;
 const KEY_RETURN: usize = 0x0d;
+const KEY_SPACE: usize = 0x20;
+const KEY_TAB: usize = 0x09;
 const KEY_F10: usize = 0x79;
+const WM_MOUSELEAVE_LOCAL: u32 = 0x02a3;
 const USAGE_URL: PCWSTR = w!("https://chatgpt.com/codex/settings/usage");
 
 #[derive(Debug, Clone)]
 pub struct WindowsTrayOptions {
     pub demo: bool,
     pub codex_bin: Option<OsString>,
+}
+
+pub fn initialize_dpi_awareness() -> Result<(), String> {
+    ensure_per_monitor_v2()
 }
 
 pub fn run(options: WindowsTrayOptions) -> Result<(), String> {
@@ -142,6 +156,10 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
         config.quota_cache = cache_store.clone();
         StateSource::Runtime(QuotaRuntime::start(config)?)
     };
+    // SAFETY: Null module name requests the current module.
+    let module = unsafe { GetModuleHandleW(None) }.map_err(win_error("get module handle"))?;
+    let instance = HINSTANCE(module.0);
+    let app_icon = load_app_icon(instance)?;
     let mut context = Box::new(AppContext {
         hwnd: None,
         source,
@@ -153,11 +171,14 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
         tray_added: false,
         settings_warning,
         network_notification: None,
+        dpi: 96,
+        hover: InteractionTarget::None,
+        pressed: InteractionTarget::None,
+        focus: InteractionTarget::Refresh,
+        tracking_mouse: false,
+        app_icon,
     });
 
-    // SAFETY: Null module name requests the current module.
-    let module = unsafe { GetModuleHandleW(None) }.map_err(win_error("get module handle"))?;
-    let instance = HINSTANCE(module.0);
     // SAFETY: The stock cursor resource is owned by Windows.
     let cursor = unsafe { LoadCursorW(None, IDC_ARROW) }.map_err(win_error("load cursor"))?;
     let window_class = WNDCLASSW {
@@ -165,6 +186,7 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
         lpfnWndProc: Some(window_proc),
         hInstance: instance,
         hCursor: cursor,
+        hIcon: app_icon,
         lpszClassName: WINDOW_CLASS,
         ..Default::default()
     };
@@ -179,6 +201,7 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
     } else {
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST
     };
+    let initial_layout = CardLayout::new(96, 2);
     // SAFETY: The context pointer remains stable in `Box` until after the message loop exits.
     let hwnd = unsafe {
         CreateWindowExW(
@@ -188,8 +211,8 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
             WS_POPUP,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
-            CARD_WIDTH,
-            CARD_HEIGHT,
+            initial_layout.width,
+            initial_layout.height,
             None,
             None,
             Some(instance),
@@ -198,6 +221,8 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
     }
     .map_err(win_error("create native tray window"))?;
     context.hwnd = Some(hwnd);
+    context.dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
+    let _ = configure_window_chrome(hwnd);
     if context.settings.refresh_on_network_restore {
         context.network_notification = register_network_notifications(hwnd);
     }
@@ -248,6 +273,12 @@ struct AppContext {
     tray_added: bool,
     settings_warning: bool,
     network_notification: Option<HANDLE>,
+    dpi: u32,
+    hover: InteractionTarget,
+    pressed: InteractionTarget,
+    focus: InteractionTarget,
+    tracking_mouse: bool,
+    app_icon: HICON,
 }
 
 enum StateSource {
@@ -287,6 +318,41 @@ impl AppContext {
         ViewPreferences {
             show_remaining_percent: self.settings.show_remaining_percent,
             use_24_hour_time: self.settings.use_24_hour_time,
+        }
+    }
+
+    fn layout(&self) -> CardLayout {
+        CardLayout::new(
+            self.dpi,
+            self.view
+                .as_ref()
+                .map(|view| view.windows.len())
+                .unwrap_or_default(),
+        )
+    }
+
+    fn invalidate(&self) {
+        if let Some(hwnd) = self.hwnd {
+            // SAFETY: The window belongs to this UI thread and no erase is needed for custom paint.
+            unsafe {
+                let _ = InvalidateRect(Some(hwnd), None, false);
+            }
+        }
+    }
+
+    fn invalidate_buttons(&self) {
+        if let Some(hwnd) = self.hwnd {
+            let layout = self.layout();
+            let area = RECT {
+                left: layout.refresh_button.left,
+                top: layout.refresh_button.top,
+                right: layout.usage_button.right,
+                bottom: layout.usage_button.bottom,
+            };
+            // SAFETY: `area` lives through the call and both button rectangles are inside client.
+            unsafe {
+                let _ = InvalidateRect(Some(hwnd), Some(&area), false);
+            }
         }
     }
 
@@ -366,7 +432,7 @@ impl AppContext {
             uID: TRAY_ID,
             uFlags: flags,
             uCallbackMessage: TRAY_CALLBACK,
-            hIcon: icon_for(view.icon)?,
+            hIcon: icon_for(view.icon, self.app_icon)?,
             ..Default::default()
         };
         copy_wide(&mut data.szTip, &view.tooltip);
@@ -438,11 +504,25 @@ impl AppContext {
         let mut point = POINT::default();
         // SAFETY: `point` is a valid out parameter.
         unsafe { GetCursorPos(&mut point) }.map_err(win_error("read cursor position"))?;
-        // SAFETY: System metric indices are valid constants.
-        let screen_width = unsafe { GetSystemMetrics(SM_CXSCREEN) };
-        let screen_height = unsafe { GetSystemMetrics(SM_CYSCREEN) };
-        let x = (point.x - CARD_WIDTH).clamp(0, (screen_width - CARD_WIDTH).max(0));
-        let y = (point.y - CARD_HEIGHT).clamp(0, (screen_height - CARD_HEIGHT).max(0));
+        let monitor = unsafe { MonitorFromPoint(point, MONITOR_DEFAULTTONEAREST) };
+        self.dpi = monitor_effective_dpi(monitor, unsafe { GetDpiForWindow(hwnd) });
+        let layout = self.layout();
+        let mut monitor_info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
+        // SAFETY: Monitor handle comes from MonitorFromPoint and the structure has a valid size.
+        unsafe { GetMonitorInfoW(monitor, &mut monitor_info) }
+            .ok()
+            .map_err(win_error("read monitor work area"))?;
+        let work = monitor_info.rcWork;
+        let x =
+            (point.x - layout.width).clamp(work.left, (work.right - layout.width).max(work.left));
+        let y =
+            (point.y - layout.height).clamp(work.top, (work.bottom - layout.height).max(work.top));
+        self.hover = InteractionTarget::None;
+        self.pressed = InteractionTarget::None;
+        self.focus = InteractionTarget::Refresh;
         // SAFETY: Positioning and showing our own popup is valid on this UI thread.
         unsafe {
             SetWindowPos(
@@ -450,8 +530,8 @@ impl AppContext {
                 Some(HWND_TOPMOST),
                 x,
                 y,
-                CARD_WIDTH,
-                CARD_HEIGHT,
+                layout.width,
+                layout.height,
                 SWP_SHOWWINDOW,
             )
         }
@@ -673,16 +753,69 @@ unsafe extern "system" fn window_proc(
             }
             LRESULT(1)
         }
-        WM_LBUTTONUP => {
+        WM_MOUSEMOVE => {
             if let Some(context) = context {
-                let x = (lparam.0 as i16) as i32;
-                let y = ((lparam.0 >> 16) as i16) as i32;
-                if y >= CARD_HEIGHT - 62 && (20..=155).contains(&x) {
-                    let _ = context.handle_command(CMD_REFRESH);
-                } else if y >= CARD_HEIGHT - 62 && (170..=360).contains(&x) {
-                    let _ = context.handle_command(CMD_OPEN_USAGE);
+                let (x, y) = coordinates_from_lparam(lparam);
+                let target = context.layout().hit_test(x, y);
+                if target != context.hover {
+                    context.hover = target;
+                    context.invalidate_buttons();
+                }
+                if !context.tracking_mouse && request_mouse_leave(hwnd).is_ok() {
+                    context.tracking_mouse = true;
                 }
             }
+            // SAFETY: The context borrow above has ended; complete any requested paint now.
+            let _ = unsafe { UpdateWindow(hwnd) };
+            LRESULT(0)
+        }
+        WM_MOUSELEAVE_LOCAL => {
+            if let Some(context) = context {
+                context.tracking_mouse = false;
+                if context.hover != InteractionTarget::None {
+                    context.hover = InteractionTarget::None;
+                    context.invalidate_buttons();
+                }
+            }
+            // SAFETY: The context borrow above has ended; complete any requested paint now.
+            let _ = unsafe { UpdateWindow(hwnd) };
+            LRESULT(0)
+        }
+        WM_LBUTTONDOWN => {
+            if let Some(context) = context {
+                let (x, y) = coordinates_from_lparam(lparam);
+                let target = context.layout().hit_test(x, y);
+                if target != InteractionTarget::None {
+                    context.pressed = target;
+                    context.focus = target;
+                    // SAFETY: Capturing mouse input for our active button press is balanced on up.
+                    unsafe { SetCapture(hwnd) };
+                    context.invalidate_buttons();
+                }
+            }
+            // SAFETY: The context borrow above has ended; complete any requested paint now.
+            let _ = unsafe { UpdateWindow(hwnd) };
+            LRESULT(0)
+        }
+        WM_LBUTTONUP => {
+            if let Some(context) = context {
+                let (x, y) = coordinates_from_lparam(lparam);
+                let released_over = context.layout().hit_test(x, y);
+                let pressed = std::mem::take(&mut context.pressed);
+                // SAFETY: Harmless if this window did not own capture.
+                let _ = unsafe { ReleaseCapture() };
+                context.invalidate_buttons();
+                if pressed == released_over {
+                    let command = match pressed {
+                        InteractionTarget::Refresh => CMD_REFRESH,
+                        InteractionTarget::Usage => CMD_OPEN_USAGE,
+                        InteractionTarget::None => 0,
+                    };
+                    let _ = context.handle_command(command);
+                }
+            }
+            // SAFETY: The context borrow above has ended; complete any requested paint now.
+            let _ = unsafe { UpdateWindow(hwnd) };
             LRESULT(0)
         }
         WM_RBUTTONUP => {
@@ -703,6 +836,20 @@ unsafe extern "system" fn window_proc(
                     KEY_RETURN | 0x52 => {
                         let _ = context.handle_command(CMD_REFRESH);
                     }
+                    KEY_TAB | 0x25 | 0x27 => {
+                        context.focus = match context.focus {
+                            InteractionTarget::Refresh => InteractionTarget::Usage,
+                            _ => InteractionTarget::Refresh,
+                        };
+                        context.invalidate_buttons();
+                    }
+                    KEY_SPACE => {
+                        let command = match context.focus {
+                            InteractionTarget::Usage => CMD_OPEN_USAGE,
+                            _ => CMD_REFRESH,
+                        };
+                        let _ = context.handle_command(command);
+                    }
                     0x55 => {
                         let _ = context.handle_command(CMD_OPEN_USAGE);
                     }
@@ -712,6 +859,31 @@ unsafe extern "system" fn window_proc(
                     _ => {}
                 }
             }
+            // SAFETY: The context borrow above has ended; complete any requested paint now.
+            let _ = unsafe { UpdateWindow(hwnd) };
+            LRESULT(0)
+        }
+        WM_DPICHANGED => {
+            if let Some(context) = context {
+                context.dpi = (wparam.0 as u32 & 0xffff).max(96);
+                let layout = context.layout();
+                // SAFETY: WM_DPICHANGED supplies a pointer to the recommended window rectangle.
+                let suggested = unsafe { &*(lparam.0 as *const RECT) };
+                let _ = unsafe {
+                    SetWindowPos(
+                        hwnd,
+                        None,
+                        suggested.left,
+                        suggested.top,
+                        layout.width,
+                        layout.height,
+                        SWP_NOACTIVATE,
+                    )
+                };
+                context.invalidate();
+            }
+            // SAFETY: The context borrow above has ended; complete the DPI repaint immediately.
+            let _ = unsafe { UpdateWindow(hwnd) };
             LRESULT(0)
         }
         WM_ACTIVATE if (wparam.0 & 0xffff) as u32 == WA_INACTIVE => {
@@ -775,110 +947,314 @@ unsafe fn paint_card(hwnd: HWND, context: &AppContext) {
         let _ = unsafe { EndPaint(hwnd, &paint) };
         return;
     }
-    fill(dc, &client, rgb(24, 26, 31));
-    // SAFETY: The font is selected only for this paint cycle and deleted after restoring the old
-    // object. Segoe UI follows the Windows system typeface and ClearType rendering conventions.
-    let font = unsafe {
+    let layout = context.layout();
+    // SAFETY: The compatible memory surface is selected, copied, restored and deleted within
+    // this paint cycle. Full-card buffering is required for stable layered-window invalidation.
+    let memory_dc = unsafe { CreateCompatibleDC(Some(dc)) };
+    let bitmap = unsafe { CreateCompatibleBitmap(dc, client.right, client.bottom) };
+    if !memory_dc.0.is_null() && !bitmap.0.is_null() {
+        let previous_bitmap = unsafe { SelectObject(memory_dc, HGDIOBJ(bitmap.0)) };
+        unsafe { paint_card_surface(memory_dc, context, &layout, &client, true) };
+        let _ = unsafe {
+            BitBlt(
+                dc,
+                0,
+                0,
+                client.right,
+                client.bottom,
+                Some(memory_dc),
+                0,
+                0,
+                SRCCOPY,
+            )
+        };
+        unsafe {
+            SelectObject(memory_dc, previous_bitmap);
+            let _ = DeleteObject(HGDIOBJ(bitmap.0));
+            let _ = DeleteDC(memory_dc);
+        }
+    } else {
+        unsafe { paint_card_surface(dc, context, &layout, &client, true) };
+        if !bitmap.0.is_null() {
+            let _ = unsafe { DeleteObject(HGDIOBJ(bitmap.0)) };
+        }
+        if !memory_dc.0.is_null() {
+            let _ = unsafe { DeleteDC(memory_dc) };
+        }
+    }
+    // SAFETY: Completes the paint cycle begun above.
+    let _ = unsafe { EndPaint(hwnd, &paint) };
+}
+
+unsafe fn paint_card_surface(
+    dc: HDC,
+    context: &AppContext,
+    layout: &CardLayout,
+    client: &RECT,
+    fill_root: bool,
+) {
+    if fill_root {
+        fill(dc, client, rgb(13, 21, 28));
+    }
+    let body = create_font(layout.dpi, 11, FW_NORMAL.0 as i32, w!("Segoe UI"));
+    let small = create_font(layout.dpi, 10, FW_NORMAL.0 as i32, w!("Segoe UI"));
+    let title = create_font(
+        layout.dpi,
+        14,
+        FW_SEMIBOLD.0 as i32,
+        w!("Segoe UI Variable Display"),
+    );
+    let percent = create_font(
+        layout.dpi,
+        18,
+        FW_SEMIBOLD.0 as i32,
+        w!("Segoe UI Variable Display"),
+    );
+    // SAFETY: Fonts remain alive through all selections and the original object is restored.
+    let previous_font = unsafe {
+        let previous = SelectObject(dc, HGDIOBJ(body.0));
+        SetBkMode(dc, TRANSPARENT);
+        previous
+    };
+    if let Some(view) = context.view.as_ref() {
+        let _ = unsafe {
+            DrawIconEx(
+                dc,
+                layout.icon.left,
+                layout.icon.top,
+                context.app_icon,
+                layout.icon.width(),
+                layout.icon.height(),
+                0,
+                None,
+                DI_NORMAL,
+            )
+        };
+        unsafe { SelectObject(dc, HGDIOBJ(title.0)) };
+        draw_text(dc, &view.title, layout.title.to_win32(), rgb(245, 250, 248));
+        unsafe { SelectObject(dc, HGDIOBJ(small.0)) };
+        draw_status_badge(dc, layout.status_badge, view.icon, status_label(view.icon));
+        draw_text(
+            dc,
+            &view.status,
+            layout.status.to_win32(),
+            rgb(144, 163, 174),
+        );
+
+        for (window, panel) in view.windows.iter().take(3).zip(&layout.window_panels) {
+            rounded_fill(dc, *panel, scale_for_dpi(14, layout.dpi), rgb(19, 35, 43));
+            unsafe { SelectObject(dc, HGDIOBJ(body.0)) };
+            draw_text(
+                dc,
+                &window.name,
+                rect(
+                    panel.left + scale_for_dpi(14, layout.dpi),
+                    panel.top + scale_for_dpi(8, layout.dpi),
+                    panel.right - scale_for_dpi(150, layout.dpi),
+                    panel.top + scale_for_dpi(36, layout.dpi),
+                ),
+                rgb(226, 237, 234),
+            );
+            unsafe { SelectObject(dc, HGDIOBJ(percent.0)) };
+            draw_text_with_format(
+                dc,
+                &window.percent_label,
+                rect(
+                    panel.right - scale_for_dpi(150, layout.dpi),
+                    panel.top + scale_for_dpi(3, layout.dpi),
+                    panel.right - scale_for_dpi(14, layout.dpi),
+                    panel.top + scale_for_dpi(38, layout.dpi),
+                ),
+                severity_color(window.remaining_percent),
+                DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS,
+            );
+            let rail = crate::windows_visuals::RectI {
+                left: panel.left + scale_for_dpi(14, layout.dpi),
+                top: panel.top + scale_for_dpi(42, layout.dpi),
+                right: panel.right - scale_for_dpi(14, layout.dpi),
+                bottom: panel.top + scale_for_dpi(50, layout.dpi),
+            };
+            rounded_fill(dc, rail, rail.height(), rgb(43, 61, 68));
+            let progress_width = rail.width() * i32::from(window.progress_percent) / 100;
+            if progress_width > 0 {
+                rounded_fill(
+                    dc,
+                    crate::windows_visuals::RectI {
+                        right: rail.left + progress_width,
+                        ..rail
+                    },
+                    rail.height(),
+                    severity_color(window.remaining_percent),
+                );
+            }
+            unsafe { SelectObject(dc, HGDIOBJ(small.0)) };
+            draw_text(
+                dc,
+                &window.reset_label,
+                rect(
+                    panel.left + scale_for_dpi(14, layout.dpi),
+                    panel.top + scale_for_dpi(55, layout.dpi),
+                    panel.right - scale_for_dpi(14, layout.dpi),
+                    panel.bottom - scale_for_dpi(7, layout.dpi),
+                ),
+                rgb(144, 163, 174),
+            );
+        }
+
+        rounded_fill(
+            dc,
+            layout.credits,
+            scale_for_dpi(12, layout.dpi),
+            rgb(17, 31, 38),
+        );
+        unsafe { SelectObject(dc, HGDIOBJ(small.0)) };
+        draw_text(
+            dc,
+            &view.reset_credits,
+            layout
+                .credits
+                .inset(scale_for_dpi(12, layout.dpi))
+                .to_win32(),
+            rgb(168, 187, 185),
+        );
+        draw_text(
+            dc,
+            &view.last_updated,
+            layout.updated.to_win32(),
+            rgb(103, 126, 136),
+        );
+        if context.settings_warning {
+            draw_text(
+                dc,
+                "设置文件无效，当前使用安全默认值",
+                layout.warning.to_win32(),
+                rgb(242, 184, 76),
+            );
+        }
+        unsafe { SelectObject(dc, HGDIOBJ(body.0)) };
+        draw_button(
+            dc,
+            layout.refresh_button,
+            "刷新  R",
+            InteractionTarget::Refresh,
+            context,
+            layout.dpi,
+            false,
+        );
+        draw_button(
+            dc,
+            layout.usage_button,
+            "打开官方 Usage  U",
+            InteractionTarget::Usage,
+            context,
+            layout.dpi,
+            true,
+        );
+    }
+    unsafe {
+        SelectObject(dc, previous_font);
+        for font in [body, small, title, percent] {
+            let _ = DeleteObject(HGDIOBJ(font.0));
+        }
+    }
+}
+
+fn create_font(
+    dpi: u32,
+    points: i32,
+    weight: i32,
+    face: PCWSTR,
+) -> windows::Win32::Graphics::Gdi::HFONT {
+    let pixel_height = point_size_to_pixels(points, dpi);
+    // SAFETY: The face pointer is static and CreateFontW copies all requested font properties.
+    unsafe {
         CreateFontW(
-            -18,
+            -pixel_height,
             0,
             0,
             0,
-            FW_NORMAL.0 as i32,
+            weight,
             0,
             0,
             0,
             DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS,
             CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY,
+            FONT_QUALITY(6),
             u32::from(DEFAULT_PITCH.0) | u32::from(FF_DONTCARE.0),
-            w!("Segoe UI"),
+            face,
         )
-    };
-    let previous_font = unsafe {
-        let previous = SelectObject(dc, HGDIOBJ(font.0));
-        SetBkMode(dc, TRANSPARENT);
-        previous
-    };
-    if let Some(view) = context.view.as_ref() {
-        draw_text(dc, &view.title, rect(20, 18, 360, 46), rgb(245, 246, 248));
-        draw_text(dc, &view.status, rect(20, 48, 360, 72), rgb(166, 173, 186));
-        let mut y = 88;
-        for window in view.windows.iter().take(3) {
-            draw_text(
-                dc,
-                &window.name,
-                rect(20, y, 360, y + 22),
-                rgb(229, 232, 238),
-            );
-            draw_text(
-                dc,
-                &window.percent_label,
-                rect(250, y, 360, y + 22),
-                severity_color(window.remaining_percent),
-            );
-            let bar = rect(20, y + 28, 360, y + 40);
-            fill(dc, &bar, rgb(57, 61, 70));
-            let width = (bar.right - bar.left) * i32::from(window.progress_percent) / 100;
-            let progress = rect(bar.left, bar.top, bar.left + width, bar.bottom);
-            fill(dc, &progress, severity_color(window.remaining_percent));
-            draw_text(
-                dc,
-                &window.reset_label,
-                rect(20, y + 46, 360, y + 68),
-                rgb(151, 157, 169),
-            );
-            y += 92;
-        }
-        let details_y = (y + 4).min(350);
-        draw_text(
-            dc,
-            &view.reset_credits,
-            rect(20, details_y, 360, details_y + 24),
-            rgb(151, 157, 169),
-        );
-        draw_text(
-            dc,
-            &view.last_updated,
-            rect(20, details_y + 27, 360, details_y + 51),
-            rgb(118, 125, 138),
-        );
-        if context.settings_warning {
-            draw_text(
-                dc,
-                "设置文件无效，当前使用安全默认值",
-                rect(20, (details_y + 52).min(400), 360, 420),
-                rgb(244, 183, 64),
-            );
-        }
-        draw_button(
-            dc,
-            rect(20, CARD_HEIGHT - 54, 155, CARD_HEIGHT - 16),
-            "刷新",
-        );
-        draw_button(
-            dc,
-            rect(170, CARD_HEIGHT - 54, 360, CARD_HEIGHT - 16),
-            "打开官方 Usage",
-        );
     }
-    // SAFETY: Restore the original object before releasing the font created above.
-    unsafe {
-        SelectObject(dc, previous_font);
-        let _ = DeleteObject(HGDIOBJ(font.0));
-    }
-    // SAFETY: Completes the paint cycle begun above.
-    let _ = unsafe { EndPaint(hwnd, &paint) };
 }
 
-fn draw_button(dc: windows::Win32::Graphics::Gdi::HDC, area: RECT, label: &str) {
-    fill(dc, &area, rgb(49, 93, 197));
+fn point_size_to_pixels(points: i32, dpi: u32) -> i32 {
+    ((i64::from(points) * i64::from(dpi) + 36) / 72).clamp(1, i64::from(i32::MAX)) as i32
+}
+
+fn draw_status_badge(
+    dc: HDC,
+    area: crate::windows_visuals::RectI,
+    state: TrayIconState,
+    label: &str,
+) {
+    rounded_fill(dc, area, area.height(), muted_state_color(state));
     draw_text_with_format(
         dc,
         label,
-        area,
-        rgb(255, 255, 255),
+        area.to_win32(),
+        rgb(236, 246, 242),
+        DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS,
+    );
+}
+
+fn draw_button(
+    dc: HDC,
+    area: crate::windows_visuals::RectI,
+    label: &str,
+    target: InteractionTarget,
+    context: &AppContext,
+    dpi: u32,
+    primary: bool,
+) {
+    let radius = scale_for_dpi(12, dpi);
+    let focused = context.focus == target;
+    let mut inner = area;
+    if focused {
+        rounded_fill(dc, area, radius, rgb(47, 224, 179));
+        inner = area.inset(scale_for_dpi(2, dpi));
+    }
+    let color = if context.pressed == target {
+        if primary {
+            rgb(24, 144, 117)
+        } else {
+            rgb(31, 54, 63)
+        }
+    } else if context.hover == target {
+        if primary {
+            rgb(57, 232, 187)
+        } else {
+            rgb(36, 62, 72)
+        }
+    } else if primary {
+        rgb(47, 224, 179)
+    } else {
+        rgb(25, 45, 54)
+    };
+    rounded_fill(
+        dc,
+        inner,
+        radius.saturating_sub(scale_for_dpi(2, dpi)),
+        color,
+    );
+    draw_text_with_format(
+        dc,
+        label,
+        inner.to_win32(),
+        if primary {
+            rgb(5, 31, 27)
+        } else {
+            rgb(226, 237, 234)
+        },
         DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS,
     );
 }
@@ -914,6 +1290,33 @@ fn fill(dc: windows::Win32::Graphics::Gdi::HDC, area: &RECT, color: COLORREF) {
         let brush = CreateSolidBrush(color);
         FillRect(dc, area, brush);
         let _ = DeleteObject(HGDIOBJ(brush.0));
+    }
+}
+
+fn rounded_fill(dc: HDC, area: crate::windows_visuals::RectI, radius: i32, color: COLORREF) {
+    if area.width() <= 0 || area.height() <= 0 {
+        return;
+    }
+    // SAFETY: Brush and pen are selected only for this call, then restored and destroyed.
+    unsafe {
+        let brush = CreateSolidBrush(color);
+        let pen = CreatePen(PS_SOLID, 1, color);
+        let old_brush = SelectObject(dc, HGDIOBJ(brush.0));
+        let old_pen = SelectObject(dc, HGDIOBJ(pen.0));
+        let diameter = radius.saturating_mul(2).max(1);
+        let _ = RoundRect(
+            dc,
+            area.left,
+            area.top,
+            area.right,
+            area.bottom,
+            diameter,
+            diameter,
+        );
+        SelectObject(dc, old_brush);
+        SelectObject(dc, old_pen);
+        let _ = DeleteObject(HGDIOBJ(brush.0));
+        let _ = DeleteObject(HGDIOBJ(pen.0));
     }
 }
 
@@ -967,10 +1370,20 @@ unsafe extern "system" fn network_connectivity_changed(
 
 fn severity_color(remaining: i64) -> COLORREF {
     match remaining {
-        0 => rgb(226, 75, 75),
-        1..=5 => rgb(235, 101, 74),
-        6..=20 => rgb(244, 183, 64),
-        _ => rgb(74, 181, 122),
+        0 => rgb(245, 102, 101),
+        1..=5 => rgb(242, 124, 91),
+        6..=20 => rgb(242, 184, 76),
+        _ => rgb(47, 224, 179),
+    }
+}
+
+fn muted_state_color(state: TrayIconState) -> COLORREF {
+    match state {
+        TrayIconState::Normal => rgb(25, 91, 76),
+        TrayIconState::Caution => rgb(105, 79, 29),
+        TrayIconState::Critical | TrayIconState::Exhausted => rgb(111, 48, 48),
+        TrayIconState::Refreshing => rgb(30, 75, 91),
+        TrayIconState::Offline => rgb(57, 67, 75),
     }
 }
 
@@ -978,16 +1391,20 @@ fn rgb(red: u8, green: u8, blue: u8) -> COLORREF {
     COLORREF(u32::from(red) | (u32::from(green) << 8) | (u32::from(blue) << 16))
 }
 
-fn icon_for(state: TrayIconState) -> Result<HICON, String> {
-    let resource = match state {
-        TrayIconState::Normal => IDI_APPLICATION,
-        TrayIconState::Caution => IDI_WARNING,
-        TrayIconState::Critical | TrayIconState::Exhausted => IDI_ERROR,
-        TrayIconState::Refreshing => IDI_INFORMATION,
-        TrayIconState::Offline => IDI_QUESTION,
+fn icon_for(state: TrayIconState, app_icon: HICON) -> Result<HICON, String> {
+    let resource = match icon_kind(state) {
+        IconKind::App => return Ok(app_icon),
+        IconKind::Warning => IDI_WARNING,
+        IconKind::Error => IDI_ERROR,
+        IconKind::Information => IDI_INFORMATION,
+        IconKind::Offline => IDI_QUESTION,
     };
     // SAFETY: Stock icon resources are owned by Windows and need not be destroyed.
     unsafe { LoadIconW(None, resource) }.map_err(win_error("load tray icon"))
+}
+
+fn coordinates_from_lparam(lparam: LPARAM) -> (i32, i32) {
+    ((lparam.0 as i16) as i32, ((lparam.0 >> 16) as i16) as i32)
 }
 
 fn checked(value: bool) -> windows::Win32::UI::WindowsAndMessaging::MENU_ITEM_FLAGS {
@@ -1235,7 +1652,15 @@ fn win_error(operation: &'static str) -> impl FnOnce(windows::core::Error) -> St
 mod tests {
     use std::path::Path;
 
-    use super::startup_command_matches;
+    use super::{point_size_to_pixels, startup_command_matches};
+
+    #[test]
+    fn point_sizes_map_to_integer_physical_pixels() {
+        assert_eq!(point_size_to_pixels(10, 96), 13);
+        assert_eq!(point_size_to_pixels(11, 120), 18);
+        assert_eq!(point_size_to_pixels(14, 144), 28);
+        assert_eq!(point_size_to_pixels(18, 192), 48);
+    }
 
     #[test]
     fn startup_registration_requires_the_exact_quoted_executable() {
