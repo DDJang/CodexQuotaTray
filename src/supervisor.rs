@@ -79,7 +79,7 @@ impl Default for RestartPolicy {
             restart_window: Duration::from_secs(5 * 60),
             stable_reset_after: Duration::from_secs(5 * 60),
             jitter_percent: 20,
-            poll_interval: Duration::from_millis(50),
+            poll_interval: Duration::from_millis(250),
         }
     }
 }

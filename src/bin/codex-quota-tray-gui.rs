@@ -28,8 +28,8 @@ fn main() {
         }
     }
     if shutdown_existing {
-        if let Err(message) = codex_quota_tray::windows_tray::request_existing_shutdown() {
-            show_error(&message);
+        if codex_quota_tray::windows_tray::request_existing_shutdown().is_err() {
+            std::process::exit(1);
         }
         return;
     }

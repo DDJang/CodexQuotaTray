@@ -14,9 +14,11 @@ const CHILD_FLAG: &str = "CODEX_QUOTA_TRAY_FAKE_CHILD";
 const CHILD_MODE: &str = "CODEX_QUOTA_TRAY_FAKE_MODE";
 const CHILD_COUNTER: &str = "CODEX_QUOTA_TRAY_FAKE_COUNTER";
 const CHILD_FAILURES: &str = "CODEX_QUOTA_TRAY_FAKE_FAILURES";
+const CHILD_PID_FILE: &str = "CODEX_QUOTA_TRAY_FAKE_PID_FILE";
 const TEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[test]
+#[allow(clippy::zombie_processes)] // The process-tree fixture intentionally leaves a descendant for the job to reap.
 fn fake_app_server_child() {
     if env::var_os(CHILD_FLAG).is_none() {
         return;
@@ -50,6 +52,25 @@ fn fake_app_server_child() {
             }
             wait_for_stdin_eof();
         }
+        Ok("spawn-descendant") => {
+            thread::sleep(Duration::from_millis(100));
+            let mut descendant = process::Command::new(env::current_exe().unwrap());
+            descendant
+                .args(["--exact", "fake_app_server_child", "--nocapture"])
+                .env(CHILD_FLAG, "1")
+                .env(CHILD_MODE, "descendant")
+                .stdin(process::Stdio::null());
+            let descendant = descendant.spawn().unwrap();
+            fs::write(
+                env::var_os(CHILD_PID_FILE).expect("pid file path"),
+                descendant.id().to_string(),
+            )
+            .unwrap();
+            wait_for_stdin_eof();
+        }
+        Ok("descendant") => loop {
+            thread::sleep(Duration::from_millis(100));
+        },
         other => panic!("unknown fake child mode: {other:?}"),
     }
 }
@@ -213,6 +234,68 @@ fn unresponsive_child_is_forced_once_and_shutdown_remains_idempotent() {
 
     assert_eq!(first, second);
     assert_eq!(first.forced_terminations, 1);
+}
+
+#[cfg(windows)]
+#[test]
+fn shutdown_reaps_descendants_that_keep_transport_pipes_open() {
+    let pid_file = unique_counter_path("descendant-pid");
+    let launch = AppServerLaunch::custom(
+        env::current_exe().unwrap().into_os_string(),
+        vec![
+            OsString::from("--exact"),
+            OsString::from("fake_app_server_child"),
+            OsString::from("--nocapture"),
+        ],
+        vec![
+            (OsString::from(CHILD_FLAG), OsString::from("1")),
+            (
+                OsString::from(CHILD_MODE),
+                OsString::from("spawn-descendant"),
+            ),
+            (
+                OsString::from(CHILD_PID_FILE),
+                pid_file.as_os_str().to_owned(),
+            ),
+        ],
+        Duration::from_secs(1),
+    );
+    let mut server = AppServer::spawn_launch(&launch).unwrap();
+    let deadline = Instant::now() + TEST_TIMEOUT;
+    while !pid_file.exists() {
+        assert!(Instant::now() < deadline, "descendant did not start");
+        thread::sleep(Duration::from_millis(10));
+    }
+    let descendant_pid = fs::read_to_string(&pid_file)
+        .unwrap()
+        .parse::<u32>()
+        .unwrap();
+
+    let started = Instant::now();
+    let report = server.shutdown().unwrap();
+
+    assert!(!report.forced);
+    assert!(started.elapsed() < Duration::from_secs(3));
+    assert!(process_has_exited(descendant_pid));
+    remove_counter(&pid_file);
+}
+
+#[cfg(windows)]
+fn process_has_exited(pid: u32) -> bool {
+    use windows::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0};
+    use windows::Win32::System::Threading::{
+        OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject,
+    };
+
+    // SAFETY: The handle is used only for synchronization and closed before returning.
+    let Ok(handle) = (unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, pid) }) else {
+        return true;
+    };
+    // SAFETY: `handle` is a valid process handle returned above.
+    let result = unsafe { WaitForSingleObject(handle, 2_000) } == WAIT_OBJECT_0;
+    // SAFETY: This function owns the process handle.
+    let _ = unsafe { CloseHandle(handle) };
+    result
 }
 
 fn fake_launch(

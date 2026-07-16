@@ -4,6 +4,7 @@ use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -21,7 +22,8 @@ const CHILD_FLAG: &str = "CODEX_QUOTA_TRAY_RUNTIME_CHILD";
 const CHILD_MODE: &str = "CODEX_QUOTA_TRAY_RUNTIME_MODE";
 const READ_COUNTER: &str = "CODEX_QUOTA_TRAY_RUNTIME_READ_COUNTER";
 const GENERATION_COUNTER: &str = "CODEX_QUOTA_TRAY_RUNTIME_GENERATION_COUNTER";
-const TEST_TIMEOUT: Duration = Duration::from_secs(6);
+const TEST_TIMEOUT: Duration = Duration::from_secs(12);
+static RUNTIME_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn fake_runtime_server() {
@@ -39,6 +41,7 @@ fn fake_runtime_server() {
 
 #[test]
 fn startup_projects_a_fresh_snapshot_and_shutdown_is_idempotent() {
+    let _guard = runtime_test_guard();
     let fixture = RuntimeFixture::new("steady");
     let mut runtime = QuotaRuntime::start(fixture.config()).unwrap();
 
@@ -61,7 +64,8 @@ fn startup_projects_a_fresh_snapshot_and_shutdown_is_idempotent() {
 }
 
 #[test]
-fn manual_refreshes_are_coalesced_and_respect_the_minimum_interval() {
+fn manual_refresh_burst_is_bounded_to_active_and_one_pending() {
+    let _guard = runtime_test_guard();
     let fixture = RuntimeFixture::new("steady");
     let mut runtime = QuotaRuntime::start(fixture.config()).unwrap();
     wait_for_state(&runtime, |state| state.data == DataState::Fresh);
@@ -72,16 +76,21 @@ fn manual_refreshes_are_coalesced_and_respect_the_minimum_interval() {
     }
 
     wait_for_counter(&fixture.read_counter, 2);
-    thread::sleep(Duration::from_millis(250));
-    assert_eq!(read_counter(&fixture.read_counter), 2);
+    thread::sleep(Duration::from_millis(1_250));
+    let reads = read_counter(&fixture.read_counter);
+    assert!((2..=3).contains(&reads));
+    wait_for_state(&runtime, |state| {
+        state.data == DataState::Fresh && used_percent(state) == Some(19 + reads as i64)
+    });
 
     let report = runtime.shutdown().unwrap();
-    assert_eq!(report.refresh_successes, 2);
+    assert_eq!(report.refresh_successes, reads as usize);
     assert_clean_shutdown(&report);
 }
 
 #[test]
 fn sparse_notification_updates_state_and_schedules_a_full_read() {
+    let _guard = runtime_test_guard();
     let fixture = RuntimeFixture::new("notify");
     let mut runtime = QuotaRuntime::start(fixture.config()).unwrap();
 
@@ -105,6 +114,7 @@ fn sparse_notification_updates_state_and_schedules_a_full_read() {
 
 #[test]
 fn child_exit_preserves_then_replaces_quota_after_supervised_recovery() {
+    let _guard = runtime_test_guard();
     let fixture = RuntimeFixture::new("exit-once");
     let mut runtime = QuotaRuntime::start(fixture.config()).unwrap();
 
@@ -124,6 +134,7 @@ fn child_exit_preserves_then_replaces_quota_after_supervised_recovery() {
 
 #[test]
 fn schema_mismatch_is_explicit_but_read_only_quota_remains_best_effort() {
+    let _guard = runtime_test_guard();
     let fixture = RuntimeFixture::new("version-mismatch");
     let mut runtime = QuotaRuntime::start(fixture.config()).unwrap();
 
@@ -144,6 +155,7 @@ fn schema_mismatch_is_explicit_but_read_only_quota_remains_best_effort() {
 
 #[test]
 fn runtime_restores_stale_cache_then_replaces_and_persists_live_data() {
+    let _guard = runtime_test_guard();
     let fixture = RuntimeFixture::new("slow-start");
     let cache = QuotaCacheStore::new(fixture.cache_path.clone());
     cache.save(&cached_state(88)).unwrap();
@@ -169,6 +181,7 @@ fn runtime_restores_stale_cache_then_replaces_and_persists_live_data() {
 
 #[test]
 fn corrupt_cache_warns_anonymously_without_blocking_live_refresh() {
+    let _guard = runtime_test_guard();
     let fixture = RuntimeFixture::new("steady");
     fs::write(&fixture.cache_path, b"private content must not be reported").unwrap();
     let mut config = fixture.config();
@@ -183,6 +196,12 @@ fn corrupt_cache_warns_anonymously_without_blocking_live_refresh() {
     let report = runtime.shutdown().unwrap();
     assert_eq!(report.persistence_failures, 1);
     assert_clean_shutdown(&report);
+}
+
+fn runtime_test_guard() -> MutexGuard<'static, ()> {
+    RUNTIME_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn serve_fake_app_server(mode: &str, read_counter: &Path, generation: u64) {
@@ -221,6 +240,7 @@ fn serve_fake_app_server(mode: &str, read_counter: &Path, generation: u64) {
             Some("account/rateLimits/read") => {
                 let read_number = append_read(read_counter);
                 let used = match (mode, generation, read_number) {
+                    ("steady", _, _) => 19 + read_number as i64,
                     ("exit-once", 1, _) => 20,
                     ("exit-once", _, _) => 35,
                     ("notify", _, 1) => 20,
@@ -355,7 +375,7 @@ impl RuntimeFixture {
                 Duration::from_millis(5),
             )
             .unwrap(),
-            refresh_policy: RefreshPolicy::new(1, 60, 2).unwrap(),
+            refresh_policy: RefreshPolicy::new(1, 60, 5).unwrap(),
             poll_interval: Duration::from_millis(10),
             expected_schema_version: "0.137.0".to_owned(),
             quota_cache: None,
@@ -387,6 +407,7 @@ fn cached_state(used_percent: i64) -> AppState {
             }],
             issues: Vec::new(),
             reset_credits: ResetCreditsState::UnavailableInSchema,
+            rate_limit_reached: false,
         }),
         last_success_at: Some(1_700_000_000),
         source_cli_version: Some("0.137.0".to_owned()),

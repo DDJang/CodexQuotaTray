@@ -84,6 +84,28 @@ fn windows_are_tracked_independently() {
     );
 }
 
+#[test]
+fn aggregate_server_limit_signal_is_silent_on_baseline_and_deduplicated() {
+    let mut tracker = AlertTracker::new();
+    let settings = NotificationSettings::default();
+    let mut snapshot = quota(79, 1);
+    assert!(tracker.observe(&snapshot, &settings).is_empty());
+
+    snapshot = quota(80, 1);
+    snapshot.rate_limit_reached = true;
+    assert_eq!(
+        kinds(tracker.observe(&snapshot, &settings)),
+        [AlertKind::Exhausted]
+    );
+    assert!(tracker.observe(&snapshot, &settings).is_empty());
+
+    snapshot.rate_limit_reached = false;
+    assert_eq!(
+        kinds(tracker.observe(&snapshot, &settings)),
+        [AlertKind::Recovered]
+    );
+}
+
 fn kinds(alerts: Vec<codex_quota_tray::alerts::QuotaAlert>) -> Vec<AlertKind> {
     alerts.into_iter().map(|alert| alert.kind).collect()
 }
@@ -93,6 +115,7 @@ fn quota(used_percent: i64, cycle: i64) -> QuotaSummary {
         windows: vec![window("primary", 300, used_percent, cycle)],
         issues: Vec::new(),
         reset_credits: ResetCreditsState::UnavailableInSchema,
+        rate_limit_reached: false,
     }
 }
 
@@ -104,6 +127,7 @@ fn two_windows(first_used: i64, second_used: i64) -> QuotaSummary {
         ],
         issues: Vec::new(),
         reset_credits: ResetCreditsState::UnavailableInSchema,
+        rate_limit_reached: false,
     }
 }
 

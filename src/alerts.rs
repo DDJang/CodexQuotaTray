@@ -47,6 +47,7 @@ struct WindowAlertState {
 #[derive(Debug, Default)]
 pub struct AlertTracker {
     windows: HashMap<WindowKey, WindowAlertState>,
+    rate_limit_reached: Option<bool>,
 }
 
 impl AlertTracker {
@@ -99,6 +100,28 @@ impl AlertTracker {
             previous.resets_at = window.resets_at;
         }
         self.windows.retain(|key, _| observed.contains(key));
+        let previous_reached = self.rate_limit_reached.replace(quota.rate_limit_reached);
+        if let Some(previous_reached) = previous_reached {
+            if !previous_reached && quota.rate_limit_reached && settings.exhausted {
+                alerts.retain(|alert| {
+                    !matches!(alert.kind, AlertKind::Remaining20 | AlertKind::Remaining5)
+                });
+                if !alerts
+                    .iter()
+                    .any(|alert| alert.kind == AlertKind::Exhausted)
+                {
+                    alerts.push(aggregate_limit_alert(quota, AlertKind::Exhausted));
+                }
+            } else if previous_reached
+                && !quota.rate_limit_reached
+                && settings.recovered
+                && !alerts
+                    .iter()
+                    .any(|alert| alert.kind == AlertKind::Recovered)
+            {
+                alerts.push(aggregate_limit_alert(quota, AlertKind::Recovered));
+            }
+        }
         alerts
     }
 }
@@ -142,5 +165,19 @@ fn alert(window: &QuotaWindow, kind: AlertKind) -> QuotaAlert {
         window_name: window_display_name(window),
         remaining_percent: window.remaining_percent,
         resets_at: window.resets_at,
+    }
+}
+
+fn aggregate_limit_alert(quota: &QuotaSummary, kind: AlertKind) -> QuotaAlert {
+    QuotaAlert {
+        kind,
+        window_name: "账户级 Codex 额度".to_owned(),
+        remaining_percent: quota
+            .windows
+            .iter()
+            .map(|window| window.remaining_percent)
+            .min()
+            .unwrap_or(0),
+        resets_at: None,
     }
 }

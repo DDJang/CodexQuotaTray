@@ -2,7 +2,7 @@
 name = "codex-quota-tray"
 version = "0.1.0"
 edition = "2024"
-description = "Read-only Codex App Server quota feasibility spike"
+description = "Lightweight read-only Windows tray for Codex quota state"
 license = "MIT"
 
 [dependencies]
@@ -16,6 +16,7 @@ windows = { version = "0.62.2", features = [
     "Win32_Graphics_Gdi",
     "Win32_NetworkManagement_IpHelper",
     "Win32_Networking_WinSock",
+    "Win32_System_JobObjects",
     "Win32_System_LibraryLoader",
     "Win32_System_Registry",
     "Win32_Security",

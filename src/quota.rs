@@ -70,11 +70,13 @@ pub struct QuotaSummary {
     pub windows: Vec<QuotaWindow>,
     pub issues: Vec<ParseIssue>,
     pub reset_credits: ResetCreditsState,
+    pub rate_limit_reached: bool,
 }
 
 pub fn summarize_rate_limits(response: &RateLimitsReadResponse) -> QuotaSummary {
     let mut windows = Vec::new();
     let mut issues = Vec::new();
+    let mut rate_limit_reached = false;
 
     if let Some(buckets) = response
         .rate_limits_by_limit_id
@@ -82,6 +84,7 @@ pub fn summarize_rate_limits(response: &RateLimitsReadResponse) -> QuotaSummary 
         .filter(|buckets| !buckets.is_empty())
     {
         for (bucket_id, snapshot) in buckets {
+            rate_limit_reached |= snapshot.rate_limit_reached_type.is_some();
             append_snapshot(
                 snapshot,
                 Some(bucket_id.as_str()),
@@ -90,6 +93,7 @@ pub fn summarize_rate_limits(response: &RateLimitsReadResponse) -> QuotaSummary 
             );
         }
     } else if let Some(snapshot) = response.rate_limits.as_ref() {
+        rate_limit_reached = snapshot.rate_limit_reached_type.is_some();
         append_snapshot(snapshot, None, &mut windows, &mut issues);
     } else {
         issues.push(ParseIssue {
@@ -102,6 +106,7 @@ pub fn summarize_rate_limits(response: &RateLimitsReadResponse) -> QuotaSummary 
         windows,
         issues,
         reset_credits: ResetCreditsState::UnavailableInSchema,
+        rate_limit_reached,
     }
 }
 

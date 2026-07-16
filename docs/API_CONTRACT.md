@@ -21,6 +21,7 @@ Schema source：`schemas/` 目录的 stable generator 输出
 - **Confirmed** wire envelope 不包含 `jsonrpc` 字段。
 - 客户端必须持续读取 stdout 和 stderr，避免任一 pipe 填满造成死锁。
 - **Client policy** stderr 内容默认丢弃，仅记录“存在诊断输出”这一布尔事实。
+- **Windows client policy** child 及其后代被包含在 kill-on-close Job Object 中；关闭 stdin 后仍优先等待正常退出，只有命令 shim 留下持有 pipe 的后代时才由 job 回收整棵树。该策略是本地生命周期保证，不是 App Server wire contract。
 
 ### 2.2 Envelope
 
@@ -248,10 +249,10 @@ QuotaWindow:
   remaining_percent: 0..100
   window_duration_mins: int64?
   resets_at: UnixSeconds?
-  reached_type: string?
 
 QuotaSnapshot:
   windows: QuotaWindow[]
+  rate_limit_reached: bool
   plan_type: string?
   received_at: LocalInstant
   source_cli_version: string?
@@ -273,6 +274,7 @@ Projection rules：
 - 缺少 `usedPercent` 的窗口不进入有效列表；产生 warning，不变成 0%。
 - 越界百分比只在展示计算时 clamp，并保留 warning。
 - 缺少 reset time 显示 unknown，不推测服务端周期边界。
+- wire `rateLimitReachedType` 位于 `RateLimitSnapshot`，不是某个 primary/secondary window；normalized state 只保留“至少一个选中 bucket 已报告 reached”的聚合布尔值，驱动耗尽状态但不猜测具体周期。
 - read 或 patch 失败保留最后有效 normalized snapshot；只有明确的非 ChatGPT 账户状态才清除旧 quota。
 - 多 bucket 且 patch 缺少可定位的 `limitId` 时拒绝猜测，保留旧状态并要求完整 refresh。
 - runtime version 从完成握手的 App Server `userAgent` 中仅提取版本 token；完整 user-agent 不进入 normalized state。精确相同为 match，不同为 mismatch，无法解析为 unreported；mismatch/unreported 不阻止 best-effort 只读读取。

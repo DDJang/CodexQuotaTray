@@ -1,7 +1,7 @@
 # CodexQuotaTray Roadmap
 
 状态日期：2026-07-15
-当前完成度：P0 完成；P1 后台核心完成且 24 小时真实进程 soak 进行中；P2 Win32 host 已实现并等待 gate 汇总
+当前完成度：P0 完成；P1 后台核心完成且 24 小时真实进程 soak 进行中；P2/P3 原生 host 与事件编排已实现；P4 可重复打包已实现并等待跨版本/长期 gate
 原则：每个里程碑先满足 gate，再开始下一个；未列入当前 milestone 的功能不得顺带实现。
 
 ## 1. 路线图依据
@@ -97,7 +97,7 @@ UI：不包含
 - 1–30 秒 capped exponential backoff、0–20% jitter 和五分钟最多 5 次 restart budget。
 - stderr 独立持续排空和仅布尔聚合的脱敏报告。
 - 非零退出、启动失败、显式 transport 恢复、可中断 backoff 和 exhausted 状态。
-- App Server/supervisor 两级幂等 shutdown，以及 8 个 fake-process 集成测试。
+- App Server/supervisor 两级幂等 shutdown，以及 9 个 fake-process 集成测试；Windows kill-on-close Job Object 覆盖 npm 命令 shim 的残留后代。
 - 纯 `AppStateReducer`、线程安全内存 store 和显式 process/auth/data 状态。
 - 失败保留最后有效 quota、15 分钟 stale 转换、认证模式隔离和 sparse patch 安全合并。
 - 多 bucket 歧义 patch 拒绝猜测，以及 9 个离线状态转换测试。
@@ -197,7 +197,7 @@ UI：不包含
 ### 已完成
 
 - 稀疏 App Server 通知先合并、再经 10 秒最小间隔调度权威完整补读。
-- card-open、系统自动恢复和网络恢复事件映射到同一 refresh coordinator；网络离线事件不触发无意义读取。
+- card-open 仅在数据缺失或至少 60 秒未更新时触发；系统自动恢复和网络恢复事件映射到同一 refresh coordinator，网络离线事件不触发无意义读取。
 - 事件 burst 只保留一个 pending reason，同一时间最多一个 refresh；10 分钟 fallback 不依赖系统事件。
 - 20%、5%、耗尽和跨周期恢复 reducer，首次观察静默、同窗口/周期去重、关闭后不补发旧阈值。
 - Windows balloon 使用安静时段标志且无应用声音；提醒总开关和非敏感 settings 已持久化。
@@ -219,7 +219,7 @@ UI：不包含
 
 ## 7. P4 — Packaging 与发布准备
 
-状态：**拟议**
+状态：**实现完成、验收中；Windows 10、签名和长期稳定性仍是公开发布 gate**
 
 ### 目标
 
@@ -232,12 +232,35 @@ UI：不包含
 - 隐私说明、日志开关和 cache 清理。
 - 资源、7 天稳定性和崩溃恢复验收。
 
+### 已完成
+
+- locked `cargo rustc` 驱动的 per-user/no-admin x64 ZIP，使用 checked-in lockfile，并从最终 EXE remap 本地 repoRoot。
+- package 文件白名单、SHA-256 manifest、tamper rejection、项目 MIT license、锁定依赖清单和所有 dependency license 文本。
+- `%LOCALAPPDATA%\Programs\CodexQuotaTray` 安装、同版本覆盖升级、Start Menu shortcut、可选 HKCU 开机启动及默认清除用户数据的卸载脚本。
+- 安装/卸载路径与 registry 范围验证、reparse-point 拒绝、正常进程 shutdown 和有限文件重试。
+- 托盘从与当前 EXE 精确匹配的实际 HKCU Run 值派生启动项勾选状态，避免 installer 与 settings JSON 显示不一致。
+- 隔离 LocalAppData/AppData 与一次性 HKCU key 的自动 package smoke；覆盖默认删除与 `-KeepUserData`，且不修改真实安装或开机启动状态。
+- CLI 缺失、App Server backoff、schema mismatch/unreported version 的可操作 UI 诊断；缺失 quota 不显示虚假百分比。
+- 保留 snapshot-level `rateLimitReachedType` 为聚合耗尽信号；驱动图标、状态和去重提醒，但不猜测对应哪个 window slot。
+- 独立隐私说明、dependency/license inventory 和 unsigned/signing release strategy。
+- 当前 Windows 11 环境安装/升级/卸载 smoke 已通过；归档和 EXE 均远低于 PRD 的 20 MB 目标。
+- native host 以 30 秒 timer 维护分钟倒计时且只在 normalized view 改变时重绘；状态/通知仍即时处理。最终 30 分钟 AC-10 样本为 9.8→10.0 MiB、141 handles、6 threads，整机归一化 CPU 0.0054%，正常退出后无 tray/App Server 残留。
+
+### 明确未完成
+
+- 当前本地 artifact 未签名，不可标记为正式发行版。
+- 当前环境没有 Windows 10，不能替代该平台的安装与托盘 smoke。
+- P1 24 小时 soak 仍在运行；PRD 七天 soak 是后续公开发布质量门禁。
+- 多 DPI、多显示器和逐项 UI Automation 体验仍需人工验收；MVP 当前依靠聚合可访问标题、键盘快捷键和标准系统菜单。
+
 ### Exit gate
 
 - 可重复构建并记录 dependency/license 清单。
 - 不打包 Chromium，不存储敏感认证数据。
 - Windows 10/11 安装、升级、卸载和开机启动测试通过。
 - 空闲 CPU、内存、安装体积和 7 天 soak 结果达到或解释 PRD 目标。
+
+前两个 exit 条目已由自动化满足；第三项仅 Windows 11 已验证，第四项的安装体积与 30 分钟资源目标已满足，但仍等待 24 小时/七天证据与 Windows 10 环境。因此 P4 implementation 可以独立提交，公开发布 gate 不能关闭。
 
 ## 8. Reset-credit 功能门禁
 
@@ -254,4 +277,4 @@ UI：不包含
 
 ## 9. 推荐下一任务
 
-保持 24 小时真实 Codex runtime soak 独立运行并记录每小时样本；同时补齐 P3 的 card-open/resume 事件 adapter 与 quiet-time 行为，再进入 P4 可重复打包和发布前验证。
+保持 24 小时真实 Codex runtime soak 独立运行并记录每小时样本；完成 P4 的 30 分钟 native host 资源采样与最终 package smoke，然后汇总 orphan/privacy/quality gates。Windows 10、签名和七天 soak 留作公开发布前验证，不自动发布 artifact。

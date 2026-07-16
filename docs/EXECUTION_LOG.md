@@ -3,17 +3,15 @@
 ## Current state
 
 - P0 complete.
-- P1-A JSON-RPC reliable communication layer complete.
-- P1-B App Server process supervisor complete.
-- P1-C quota/application state reducer complete.
-- P1-D1 pure refresh coordinator complete and ready to commit.
-- 45 tests passing.
-- No tray UI implemented.
+- P1 service core complete; its independent 24-hour real-process soak is running.
+- P2 native Win32 tray host and P3 host-event/quiet-time integration implemented.
+- P4 reproducible per-user ZIP packaging, isolated install/upgrade/uninstall smoke, privacy notice, dependency inventory, and unsigned release strategy implemented locally.
+- 84 tests passing before the final P4 commit gate.
 - MVP remains read-only.
 
 ## Next milestone
 
-Connect supervisor/RPC events and the refresh coordinator to the state store in a long-running runtime adapter.
+Finish the P4 quality/package gates and 30-minute host resource sample, commit the packaging baseline, then audit the complete P1 24-hour soak and orphan-process result.
 
 ## Completed milestones
 
@@ -22,6 +20,9 @@ Connect supervisor/RPC events and the refresh coordinator to the state store in 
 - P1-B App Server process supervisor.
 - P1-C quota/application state reducer.
 - P1-D1 pure refresh coordinator.
+- P1-D2 runtime adapter, P1-D3 schema compatibility, and P1-E privacy-minimized persistence.
+- P2 read-only native Windows tray host.
+- P3 host events and quiet-time notifications.
 
 ## 2026-07-15 — P1-A reliable JSON-RPC transport
 
@@ -421,7 +422,7 @@ Add P3 card-open/resume refresh adapters and quiet-time notification behavior wi
 ### Completed
 
 - Added a pure `HostEvent` mapping for card-open, session-resume, network-offline, and network-restored inputs.
-- Routed card-open through `RefreshReason::CardOpened`, `PBT_APMRESUMEAUTOMATIC` through `Resume`, and IP Helper InternetAccess callbacks through `NetworkRestored`.
+- Routed card-open through `RefreshReason::CardOpened` only when data is missing or at least 60 seconds old, `PBT_APMRESUMEAUTOMATIC` through `Resume`, and IP Helper InternetAccess callbacks through `NetworkRestored`.
 - Kept network-offline events passive; existing transport failures preserve the last snapshot and the 10-minute fallback remains authoritative.
 - Registered the Windows connectivity callback with only an HWND value as context, posted work back to the UI thread, and canceled the notification handle on every normal exit path.
 - Changed second-instance activation to post a card-open message to the owning UI thread instead of directly showing the window, preserving single-instance event semantics.
@@ -460,3 +461,71 @@ Add P3 card-open/resume refresh adapters and quiet-time notification behavior wi
 ### Next task
 
 Create a reproducible P4 Windows package with dependency/license inventory, install/upgrade/uninstall scripts, start-with-Windows handling, and offline packaging tests; do not sign or publish it.
+
+## 2026-07-15 — P4 reproducible package and release baseline
+
+### Completed
+
+- Added a locked, Windows-target-filtered release builder for a per-user/no-admin ZIP package with an explicit ten-file archive allowlist.
+- Remapped the local repository prefix in the final Rust crate and added a package regression check so the release EXE cannot embed the build workspace path.
+- Added a SHA-256 manifest and installer-side exact manifest verification; a modified package file is rejected before any install mutation.
+- Generated complete third-party notices from each locked dependency's locally checked-out license files and checked the maintained dependency inventory against Cargo metadata.
+- Added current-user install, normal-shutdown upgrade, optional HKCU start-with-Windows, Start Menu shortcut, default user-data removal, and explicit `-KeepUserData` uninstall behavior.
+- Constrained install/uninstall paths and registry keys, rejected reparse-point directories, and used finite retry/replace behavior for files that may still be closing.
+- Added a fully isolated package smoke under `target`: it uses temporary LocalAppData/AppData and a one-time HKCU test key, verifies tamper rejection, installs, upgrades, verifies hashes/startup/shortcut, uninstalls, and cleans all test state.
+- Made the tray derive its start-with-Windows checkmark from an exact quoted-current-EXE match in the real HKCU Run value, preventing installer/settings display drift and stale-path false positives.
+- Added an MIT project license, privacy notice, exact locked dependency inventory, and release guide with the unsigned developer-build boundary and Authenticode/Trusted Signing strategy.
+- Added actionable UI diagnostics for missing App Server, bounded retry, schema mismatch, and unreported version without exposing raw user-agent/account data or fabricating quota values.
+- Made the persisted `refresh_on_network_restore` setting effective both at callback registration and pure event mapping.
+- Enforced the PRD card-open freshness rule: missing or at least 60-second-old data can refresh, while 0–59-second fresh data does not schedule another read.
+- Preserved confirmed snapshot-level `rateLimitReachedType` as an aggregate reached signal. It drives exhausted UI/notification semantics without guessing whether `primary` or `secondary` caused it.
+- Eliminated unconditional 5-second projection/repaint work: a 30-second timer now invalidates only when the normalized projection changes, while event delivery stays immediate and minute countdown updates remain intact.
+- Increased the supervisor's idle process check from 50 ms to 250 ms after measurement showed needless wakeups; stdio arrival still wakes immediately and request deadlines remain 15 seconds. Dispatcher experiments at 50/250 ms were rejected because integration tests exposed write starvation at the existing shared transport lock boundary, so its reliable 25 ms value is unchanged.
+- Contained each Windows App Server launch in a kill-on-close Job Object. This fixes an observed shutdown hang where `codex.cmd` exited but Node/Codex descendants retained redirected pipes; an offline process-tree regression now proves bounded cleanup.
+- Changed `--shutdown-existing` to wait up to 10 seconds for the target process and return a nonzero status on incomplete cleanup; install/uninstall scripts now reject that failure instead of racing a locked executable.
+- Verified the official Usage destination in the locally installed official Codex binary as `https://chatgpt.com/codex/settings/usage`; no page, cookie, or browser data was read.
+
+### Dependency decision
+
+- No production dependency was added. Packaging uses PowerShell/Windows facilities already present on supported systems, and dependency/license enumeration uses Cargo metadata.
+- The ZIP approach avoids MSI/WiX/runtime bootstrapper overhead while still providing deterministic current-user install, upgrade, uninstall, integrity checks, and startup integration.
+- Public signing is intentionally not automated because no repository-controlled signing identity exists; signing credentials must remain in an organization-controlled service or HSM.
+
+### Files
+
+- `LICENSE`
+- `packaging/install.ps1`, `packaging/uninstall.ps1`
+- `scripts/package.ps1`, `scripts/test-package.ps1`
+- `docs/PRIVACY.md`, `docs/DEPENDENCIES.md`, `docs/RELEASE.md`
+- `Cargo.toml`
+- `src/alerts.rs`, `src/host_events.rs`, `src/main.rs`, `src/persistence.rs`, `src/quota.rs`, `src/ui_model.rs`, `src/windows_tray.rs`
+- `tests/alerts.rs`, `tests/host_events.rs`, `tests/quota_parser.rs`, `tests/runtime_integration.rs`, `tests/ui_model.rs`
+- `tests/fixtures/rate_limits_reached.json`
+- `README.md`, `docs/TECH_DESIGN.md`, `docs/ROADMAP.md`, `docs/EXECUTION_LOG.md`
+
+### Verification
+
+- PowerShell parser check: zero syntax errors for all four packaging scripts.
+- Isolated package smoke: passed repeatedly, including tamper rejection, install, upgrade, start-with-Windows, shortcut, default data removal, `-KeepUserData`, uninstall, and cleanup.
+- Package privacy check confirms the final EXE contains neither the local repoRoot nor its slash-normalized form; a filename-only scan found no email-shaped literal in the package.
+- Final package smoke artifact after process-tree and idle-timer hardening: 431,565-byte ZIP and 941,056-byte native EXE, both below the 20 MB PRD target.
+- ZIP SHA-256: `DFEF4F7C9EDAF7F2E9153CE213C151DE97CE6D02D09634A1AB55032CF624B4B6`; the EXE Authenticode status remains explicitly `NotSigned`, matching the developer-build policy.
+- Locked dependency inventory and generated notices covered every dependency returned by target-filtered Cargo metadata.
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --all-targets --all-features -- -D warnings`: passed.
+- `cargo test --all-targets`: passed, 85 tests after diagnostic, host-setting, card-age, reached-signal, startup-command, stable-projection, and descendant-process cleanup regressions were added.
+- Windows 11 package operations were isolated and left no test registry key, install directory, user-data directory, shortcut, or package-host process.
+- Final 30-minute native-host sample (three 10-minute fallback intervals): working set 10,272,768 → 10,444,800 bytes (+168 KiB), 141 handles unchanged, 6 threads at start/end with brief refresh peaks at 8, and CPU delta 2.125 seconds over 1,801 seconds. That is 0.118% of one core and 0.0054% using Windows' whole-system normalization on 22 logical processors, below the PRD 0.1% idle CPU target.
+- The final real-process `--shutdown-existing` returned exit code 0 in 10 ms; after one second the tray PID and direct App Server child set were both absent, while the independent P1 soak PID remained alive.
+- Repeated runtime integration stress runs exposed and removed assumptions about transient intermediate states and parallel fake-process scheduling. The final test asserts the observable active+one-pending boundary, and the complete serialized fake-process suite passes without changing production behavior.
+
+### Remaining risks
+
+- Windows 10 is not available in the current environment; its install/upgrade/uninstall/tray smoke remains mandatory before public release.
+- The artifact is unsigned and must be labeled a developer build; official signing and provenance require an external organization-controlled identity.
+- P1's 24-hour soak is still in progress. The PRD seven-day run remains a separate public-release quality objective.
+- DPI/multi-monitor and per-row UI Automation validation still require a broader manual matrix.
+
+### Next task
+
+Run the final Rust and package gates, record the 30-minute native-host sample, create the P4 milestone commit, then allow the finite P1 soak to finish and perform the final orphan/privacy audit.

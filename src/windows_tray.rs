@@ -1,10 +1,11 @@
 use std::ffi::OsString;
 use std::mem::size_of;
+use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use windows::Win32::Foundation::{
-    COLORREF, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HANDLE, HINSTANCE, HWND, LPARAM, LRESULT, POINT,
-    RECT, WPARAM,
+    COLORREF, CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HANDLE, HINSTANCE, HWND, LPARAM,
+    LRESULT, POINT, RECT, WAIT_OBJECT_0, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CLEARTYPE_QUALITY, CLIP_DEFAULT_PRECIS, CreateFontW, CreateSolidBrush,
@@ -21,9 +22,10 @@ use windows::Win32::Networking::WinSock::{
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey,
-    RegCreateKeyExW, RegDeleteValueW, RegSetValueExW,
+    HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ,
+    RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegGetValueW, RegSetValueExW,
 };
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject};
 use windows::Win32::UI::Shell::{
     NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_ERROR, NIIF_INFO, NIIF_NOSOUND,
     NIIF_RESPECT_QUIET_TIME, NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
@@ -32,15 +34,16 @@ use windows::Win32::UI::Shell::{
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu,
     CreateWindowExW, DefWindowProcW, DestroyMenu, DestroyWindow, FindWindowW, GWLP_USERDATA,
-    GetClientRect, GetCursorPos, GetMessageW, GetSystemMetrics, HICON, HMENU, HWND_TOPMOST,
-    IDC_ARROW, IDI_APPLICATION, IDI_ERROR, IDI_INFORMATION, IDI_QUESTION, IDI_WARNING,
-    IsWindowVisible, KillTimer, LoadCursorW, LoadIconW, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG,
-    PBT_APMRESUMEAUTOMATIC, PostMessageW, PostQuitMessage, RegisterClassW, SM_CXSCREEN,
-    SM_CYSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_SHOWWINDOW, SetForegroundWindow, SetTimer,
-    SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    TrackPopupMenu, WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DESTROY, WM_ENDSESSION,
-    WM_KEYUP, WM_LBUTTONUP, WM_NCCREATE, WM_PAINT, WM_POWERBROADCAST, WM_QUERYENDSESSION,
-    WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    GetClientRect, GetCursorPos, GetMessageW, GetSystemMetrics, GetWindowThreadProcessId, HICON,
+    HMENU, HWND_TOPMOST, IDC_ARROW, IDI_APPLICATION, IDI_ERROR, IDI_INFORMATION, IDI_QUESTION,
+    IDI_WARNING, IsWindowVisible, KillTimer, LoadCursorW, LoadIconW, MF_CHECKED, MF_SEPARATOR,
+    MF_STRING, MSG, PBT_APMRESUMEAUTOMATIC, PostMessageW, PostQuitMessage, RegisterClassW,
+    SM_CXSCREEN, SM_CYSCREEN, SW_HIDE, SW_SHOWNOACTIVATE, SWP_SHOWWINDOW, SetForegroundWindow,
+    SetTimer, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, TrackPopupMenu, WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DESTROY,
+    WM_ENDSESSION, WM_KEYUP, WM_LBUTTONUP, WM_NCCREATE, WM_PAINT, WM_POWERBROADCAST,
+    WM_QUERYENDSESSION, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_POPUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -60,7 +63,7 @@ const NETWORK_RESTORED_MESSAGE: u32 = WM_APP + 18;
 const SHOW_CARD_MESSAGE: u32 = WM_APP + 19;
 const TRAY_ID: u32 = 1;
 const TIMER_ID: usize = 1;
-const TIMER_MILLIS: u32 = 5_000;
+const TIMER_MILLIS: u32 = 30_000;
 const CARD_WIDTH: i32 = 380;
 const CARD_HEIGHT: i32 = 460;
 const CMD_REFRESH: usize = 1001;
@@ -91,9 +94,28 @@ pub fn request_existing_shutdown() -> Result<bool, String> {
     let Ok(existing) = (unsafe { FindWindowW(WINDOW_CLASS, PCWSTR::null()) }) else {
         return Ok(false);
     };
+    let mut process_id = 0_u32;
+    // SAFETY: `existing` is a live window handle and `process_id` is valid writable storage.
+    unsafe { GetWindowThreadProcessId(existing, Some(&mut process_id)) };
+    if process_id == 0 {
+        return Err("could not identify the existing tray process".to_owned());
+    }
+    // SAFETY: Synchronize-only access is sufficient to wait without inspecting process data.
+    let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, process_id) }
+        .map_err(win_error("open existing tray process"))?;
     // SAFETY: Posting WM_CLOSE allows the target UI thread to run its ordinary cleanup path.
-    unsafe { PostMessageW(Some(existing), WM_CLOSE, WPARAM(0), LPARAM(0)) }
-        .map_err(win_error("request existing tray shutdown"))?;
+    if let Err(error) = unsafe { PostMessageW(Some(existing), WM_CLOSE, WPARAM(0), LPARAM(0)) } {
+        // SAFETY: This function owns the synchronization handle.
+        let _ = unsafe { CloseHandle(process) };
+        return Err(win_error("request existing tray shutdown")(error));
+    }
+    // SAFETY: `process` remains valid until it is closed below.
+    let wait_result = unsafe { WaitForSingleObject(process, 10_000) };
+    // SAFETY: This function owns the synchronization handle.
+    let _ = unsafe { CloseHandle(process) };
+    if wait_result != WAIT_OBJECT_0 {
+        return Err("existing tray did not shut down within 10 seconds".to_owned());
+    }
     Ok(true)
 }
 
@@ -176,7 +198,9 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
     }
     .map_err(win_error("create native tray window"))?;
     context.hwnd = Some(hwnd);
-    context.network_notification = register_network_notifications(hwnd);
+    if context.settings.refresh_on_network_restore {
+        context.network_notification = register_network_notifications(hwnd);
+    }
     context.refresh_projection()?;
     context.add_tray_icon()?;
     // SAFETY: `hwnd` belongs to this thread and `TIMER_ID` is application-owned.
@@ -287,7 +311,7 @@ impl AppContext {
         if changed && self.tray_added {
             self.modify_tray_icon()?;
         }
-        if let Some(hwnd) = self.hwnd {
+        if changed && let Some(hwnd) = self.hwnd {
             // SAFETY: `hwnd` is owned by this UI thread; null rect invalidates all client area.
             unsafe {
                 let _ = InvalidateRect(Some(hwnd), None, false);
@@ -401,7 +425,15 @@ impl AppContext {
 
     fn show_card(&mut self) -> Result<(), String> {
         let hwnd = self.hwnd()?;
-        self.handle_host_event(HostEvent::CardOpened)?;
+        let now = unix_now();
+        let last_success_age_secs = self
+            .source
+            .snapshot()
+            .last_success_at
+            .map(|last_success| now.saturating_sub(last_success).max(0) as u64);
+        self.handle_host_event(HostEvent::CardOpened {
+            last_success_age_secs,
+        })?;
         self.refresh_projection()?;
         let mut point = POINT::default();
         // SAFETY: `point` is a valid out parameter.
@@ -564,7 +596,7 @@ impl AppContext {
     }
 
     fn handle_host_event(&mut self, event: HostEvent) -> Result<(), String> {
-        let Some(reason) = refresh_reason(event) else {
+        let Some(reason) = refresh_reason(event, self.settings.refresh_on_network_restore) else {
             return Ok(());
         };
         self.source.refresh(reason)
@@ -1010,10 +1042,11 @@ fn load_persistence(
         return (AppSettings::default(), None, None, true);
     };
     let settings_store = SettingsStore::new(paths.settings);
-    let (settings, warning) = match settings_store.load() {
+    let (mut settings, warning) = match settings_store.load() {
         Ok(settings) => (settings, false),
         Err(_) => (AppSettings::default(), true),
     };
+    settings.start_with_windows = start_with_windows_enabled();
     let cache = QuotaCacheStore::new(paths.quota_cache);
     cache.set_enabled(settings.persist_quota_cache);
     (settings, Some(settings_store), Some(cache), warning)
@@ -1027,6 +1060,13 @@ fn notifications_enabled(settings: &AppSettings) -> bool {
 }
 
 fn set_start_with_windows(enabled: bool) -> Result<(), String> {
+    let command = if enabled {
+        let executable = std::env::current_exe()
+            .map_err(|error| format!("could not locate the tray executable: {:?}", error.kind()))?;
+        Some(format!("\"{}\"", executable.display()))
+    } else {
+        None
+    };
     let mut key = HKEY::default();
     // SAFETY: Opens/creates the current user's standard Run key with write-only access.
     let status = unsafe {
@@ -1047,10 +1087,7 @@ fn set_start_with_windows(enabled: bool) -> Result<(), String> {
             "could not open Windows startup settings: {status:?}"
         ));
     }
-    let result = if enabled {
-        let executable = std::env::current_exe()
-            .map_err(|error| format!("could not locate the tray executable: {:?}", error.kind()))?;
-        let command = format!("\"{}\"", executable.display());
+    let result = if let Some(command) = command.as_deref() {
         let wide = command
             .encode_utf16()
             .chain(std::iter::once(0))
@@ -1079,6 +1116,53 @@ fn set_start_with_windows(enabled: bool) -> Result<(), String> {
     result
 }
 
+fn start_with_windows_enabled() -> bool {
+    let Ok(executable) = std::env::current_exe() else {
+        return false;
+    };
+    let mut byte_count = 0u32;
+    // SAFETY: This size query reads one REG_SZ value from the current user's Run key.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+            w!("CodexQuotaTray"),
+            RRF_RT_REG_SZ,
+            None,
+            None,
+            Some(&mut byte_count),
+        )
+    };
+    if status != ERROR_SUCCESS || byte_count == 0 {
+        return false;
+    }
+    let mut value = vec![0u16; (byte_count as usize).div_ceil(size_of::<u16>())];
+    // SAFETY: `value` has the byte capacity returned by the size query and remains live.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+            w!("CodexQuotaTray"),
+            RRF_RT_REG_SZ,
+            None,
+            Some(value.as_mut_ptr().cast()),
+            Some(&mut byte_count),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return false;
+    }
+    let length = value
+        .iter()
+        .position(|character| *character == 0)
+        .unwrap_or(value.len());
+    startup_command_matches(&String::from_utf16_lossy(&value[..length]), &executable)
+}
+
+fn startup_command_matches(value: &str, executable: &Path) -> bool {
+    value.eq_ignore_ascii_case(&format!("\"{}\"", executable.display()))
+}
+
 fn demo_state(step: usize) -> AppState {
     let first_remaining = [72, 20, 5, 0, 84][step % 5];
     let second_remaining = [41, 35, 29, 24, 90][step % 5];
@@ -1100,6 +1184,7 @@ fn demo_state(step: usize) -> AppState {
             ],
             issues: Vec::new(),
             reset_credits: ResetCreditsState::UnavailableInSchema,
+            rate_limit_reached: false,
         }),
         last_success_at: Some(now),
         source_cli_version: Some("0.137.0-demo".to_owned()),
@@ -1144,4 +1229,28 @@ fn unix_now() -> i64 {
 
 fn win_error(operation: &'static str) -> impl FnOnce(windows::core::Error) -> String {
     move |_| format!("native Windows operation failed: {operation}")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::startup_command_matches;
+
+    #[test]
+    fn startup_registration_requires_the_exact_quoted_executable() {
+        let executable = Path::new(r"C:\Program Files\CodexQuotaTray\codex-quota-tray-gui.exe");
+        assert!(startup_command_matches(
+            r#""C:\Program Files\CodexQuotaTray\codex-quota-tray-gui.exe""#,
+            executable,
+        ));
+        assert!(!startup_command_matches(
+            r"C:\Program Files\CodexQuotaTray\codex-quota-tray-gui.exe",
+            executable,
+        ));
+        assert!(!startup_command_matches(
+            r#""C:\Old\codex-quota-tray-gui.exe""#,
+            executable,
+        ));
+    }
 }

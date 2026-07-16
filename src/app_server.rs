@@ -7,6 +7,22 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+#[cfg(windows)]
+use std::mem::size_of;
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
+
+#[cfg(windows)]
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
+#[cfg(windows)]
+use windows::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    SetInformationJobObject,
+};
+#[cfg(windows)]
+use windows::core::PCWSTR;
+
 use serde_json::Value;
 
 const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
@@ -84,6 +100,8 @@ impl AppServerLaunch {
 
 pub struct AppServer {
     child: Child,
+    #[cfg(windows)]
+    process_job: Option<ProcessJob>,
     stdin: Option<ChildStdin>,
     receiver: Receiver<TransportEvent>,
     reader_thread: Option<JoinHandle<()>>,
@@ -118,6 +136,14 @@ impl AppServer {
 
             match command.spawn() {
                 Ok(mut child) => {
+                    #[cfg(windows)]
+                    let process_job = match ProcessJob::assign(&child) {
+                        Ok(job) => job,
+                        Err(message) => {
+                            reap_incomplete_child(&mut child);
+                            return Err(message);
+                        }
+                    };
                     let Some(stdin) = child.stdin.take() else {
                         reap_incomplete_child(&mut child);
                         return Err("App Server stdin pipe was unavailable".to_owned());
@@ -173,6 +199,8 @@ impl AppServer {
 
                     return Ok(Self {
                         child,
+                        #[cfg(windows)]
+                        process_job: Some(process_job),
                         stdin: Some(stdin),
                         receiver,
                         reader_thread: Some(reader_thread),
@@ -279,6 +307,12 @@ impl AppServer {
             );
         }
 
+        // A command shim such as `codex.cmd` can exit while a descendant still owns the
+        // redirected pipes. Closing the kill-on-close job before joining the drain threads
+        // terminates those descendants and guarantees that both readers observe EOF.
+        #[cfg(windows)]
+        drop(self.process_job.take());
+
         join_thread(&mut self.reader_thread);
         join_thread(&mut self.stderr_thread);
 
@@ -289,6 +323,49 @@ impl AppServer {
         };
         self.shutdown_report = Some(report.clone());
         Ok(report)
+    }
+}
+
+#[cfg(windows)]
+struct ProcessJob(HANDLE);
+
+// SAFETY: `ProcessJob` exclusively owns a kernel handle. Windows handles may be closed from a
+// different thread, and all other operations occur before the value is published.
+#[cfg(windows)]
+unsafe impl Send for ProcessJob {}
+
+#[cfg(windows)]
+impl ProcessJob {
+    fn assign(child: &Child) -> Result<Self, String> {
+        // SAFETY: A null name creates a private job object owned by this handle.
+        let handle = unsafe { CreateJobObjectW(None, PCWSTR::null()) }
+            .map_err(|_| "could not create the App Server process job".to_owned())?;
+        let job = Self(handle);
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        // SAFETY: `limits` has the exact layout and size required by the selected information
+        // class, and both handles remain valid throughout these calls.
+        unsafe {
+            SetInformationJobObject(
+                job.0,
+                JobObjectExtendedLimitInformation,
+                (&raw const limits).cast(),
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            )
+            .map_err(|_| "could not configure the App Server process job".to_owned())?;
+            AssignProcessToJobObject(job.0, HANDLE(child.as_raw_handle()))
+                .map_err(|_| "could not contain the App Server process tree".to_owned())?;
+        }
+        Ok(job)
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ProcessJob {
+    fn drop(&mut self) {
+        // SAFETY: This instance owns the handle. KILL_ON_JOB_CLOSE also releases any
+        // descendant that survived the command shim's ordinary stdin-driven shutdown.
+        let _ = unsafe { CloseHandle(self.0) };
     }
 }
 

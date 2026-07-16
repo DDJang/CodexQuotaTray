@@ -1,5 +1,6 @@
+use codex_quota_tray::compatibility::VersionCompatibility;
 use codex_quota_tray::quota::{QuotaSummary, QuotaWindow, ResetCreditsState};
-use codex_quota_tray::state::{AppState, AuthState, DataState, StableDataState};
+use codex_quota_tray::state::{AppState, AuthState, DataState, ProcessState, StableDataState};
 use codex_quota_tray::ui_model::{TrayIconState, ViewPreferences, project_tray_view};
 
 const NOW: i64 = 1_700_000_000;
@@ -108,6 +109,64 @@ fn used_percentage_and_twelve_hour_preferences_only_change_presentation() {
     );
 }
 
+#[test]
+fn failed_app_server_and_backoff_have_actionable_status_without_fake_quota() {
+    let failed = AppState {
+        process: ProcessState::Failed,
+        data: DataState::Unavailable,
+        ..AppState::default()
+    };
+    let failed_view = project_tray_view(&failed, NOW, ViewPreferences::default());
+    assert!(failed_view.status.contains("Codex CLI 已安装"));
+    assert!(!failed_view.tooltip.contains("100%"));
+
+    let mut backoff = state_with_windows(DataState::Offline, vec![window(40, Some(300))]);
+    backoff.process = ProcessState::Backoff { attempt: 2 };
+    let backoff_view = project_tray_view(&backoff, NOW, ViewPreferences::default());
+    assert!(backoff_view.status.contains("有限重试"));
+    assert_eq!(backoff_view.windows.len(), 1);
+}
+
+#[test]
+fn schema_mismatch_is_visible_without_exposing_raw_user_agent() {
+    let mut state = state_with_windows(DataState::Fresh, vec![window(28, Some(300))]);
+    state.compatibility = VersionCompatibility::Mismatch {
+        schema_version: "0.137.0".to_owned(),
+        runtime_version: "0.138.0".to_owned(),
+    };
+    let view = project_tray_view(&state, NOW, ViewPreferences::default());
+    assert!(view.status.contains("0.138.0"));
+    assert!(view.status.contains("0.137.0"));
+    assert!(view.status.contains("只读兼容模式"));
+    assert!(!view.status.contains("userAgent"));
+}
+
+#[test]
+fn explicit_server_limit_reached_overrides_nonzero_percentage_without_guessing_a_window() {
+    let mut state = state_with_windows(DataState::Fresh, vec![window(40, Some(300))]);
+    state.quota.as_mut().unwrap().rate_limit_reached = true;
+
+    let view = project_tray_view(&state, NOW, ViewPreferences::default());
+    assert_eq!(view.icon, TrayIconState::Exhausted);
+    assert!(view.status.contains("服务报告"));
+    assert!(view.tooltip.contains("已达到限制"));
+    assert_eq!(view.windows[0].remaining_percent, 60);
+}
+
+#[test]
+fn projection_stays_equal_between_countdown_boundaries() {
+    let state = state_with_windows(DataState::Fresh, vec![window(40, Some(300))]);
+    let initial = project_tray_view(&state, NOW, ViewPreferences::default());
+    let five_seconds_later = project_tray_view(&state, NOW + 5, ViewPreferences::default());
+    let one_minute_later = project_tray_view(&state, NOW + 60, ViewPreferences::default());
+
+    assert_eq!(initial, five_seconds_later);
+    assert_ne!(
+        initial.windows[0].reset_label,
+        one_minute_later.windows[0].reset_label
+    );
+}
+
 fn state_with_windows(data: DataState, windows: Vec<QuotaWindow>) -> AppState {
     AppState {
         auth: AuthState::Authenticated {
@@ -118,6 +177,7 @@ fn state_with_windows(data: DataState, windows: Vec<QuotaWindow>) -> AppState {
             windows,
             issues: Vec::new(),
             reset_credits: ResetCreditsState::UnavailableInSchema,
+            rate_limit_reached: false,
         }),
         last_success_at: Some(NOW - 30),
         ..AppState::default()

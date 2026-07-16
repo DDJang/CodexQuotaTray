@@ -237,14 +237,24 @@ fn run_session(client: &JsonRpcClient, watch_seconds: u64) -> Result<i32, Sessio
         .map_err(|error| SessionFailure::from_rpc(INITIALIZE_METHOD, error))?;
     let initialize: InitializeResponse = parse_result(initialize_result, INITIALIZE_METHOD)?;
 
-    println!("Codex App Server: {}", initialize.user_agent);
+    let compatibility = evaluate_user_agent(&initialize.user_agent, schema_codex_version());
+    let runtime_version = match &compatibility {
+        VersionCompatibility::Match {
+            runtime_version, ..
+        }
+        | VersionCompatibility::Mismatch {
+            runtime_version, ..
+        } => runtime_version.as_str(),
+        VersionCompatibility::Unknown | VersionCompatibility::Unreported { .. } => "unreported",
+    };
+    println!("Codex App Server version: {runtime_version}");
     println!(
         "Platform: {}/{}; generated schema: codex-cli {}",
         initialize.platform_family,
         initialize.platform_os,
         schema_codex_version()
     );
-    match evaluate_user_agent(&initialize.user_agent, schema_codex_version()) {
+    match compatibility {
         VersionCompatibility::Mismatch {
             schema_version,
             runtime_version,
@@ -413,8 +423,8 @@ fn print_account_or_explain(account: &AccountState) -> Option<i32> {
             eprintln!("Action: inspect `codex login status` and retry.");
             Some(2)
         }
-        AccountState::Unsupported(kind) => {
-            eprintln!("Quota unavailable: unsupported account type `{kind}`.");
+        AccountState::Unsupported(_) => {
+            eprintln!("Quota unavailable: App Server returned an unsupported account type.");
             Some(2)
         }
     }

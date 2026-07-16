@@ -249,6 +249,7 @@ impl CacheFile {
                 windows,
                 issues: Vec::new(),
                 reset_credits: ResetCreditsState::UnavailableInSchema,
+                rate_limit_reached: false,
             },
             last_success_at: self.last_success_at,
             source_cli_version: self.source_cli_version,

@@ -114,7 +114,7 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 - **已确认** P0 关闭 stdin 后子进程在三秒内自然退出，退出码为 0。
 - **当前实现** 三秒后仍未退出才 kill 并 wait；强制终止被视为清理失败。
 - **当前实现** `AppServer` 与 supervisor shutdown 均幂等；重复调用返回第一次的相同脱敏报告。
-- **当前实现** Windows `WM_QUERYENDSESSION`、`WM_ENDSESSION`、窗口退出和 `--shutdown-existing` 均接入同一幂等 shutdown path；控制命令通过 `WM_CLOSE` 请求 UI 线程正常回收 runtime 与 App Server。
+- **当前实现** Windows `WM_QUERYENDSESSION`、`WM_ENDSESSION`、窗口退出和 `--shutdown-existing` 均接入同一幂等 shutdown path；控制命令通过 `WM_CLOSE` 请求 UI 线程正常回收 runtime 与 App Server，并等待目标进程退出后才返回。App Server 子进程位于 kill-on-close Job Object 中，确保 npm 命令 shim 退出后仍持有 stdio 的后代也能被回收。
 
 ## 6. 故障恢复
 
@@ -161,17 +161,31 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 - **当前实现** 未知或重复 completion 不修改当前 in-flight；request ID 单调且不回绕。
 - **已确认** 纯虚拟时间测试重放 24 小时，始终最多一个 in-flight，并只产生 1 次 startup 加 144 次 fallback。
 - **当前实现** runtime executor 每次逻辑 refresh 同时发出 `account/read` 与 `account/rateLimits/read`，按请求 ID 等待各自响应；通知先执行安全稀疏合并，再经最小间隔调度一次权威完整补读。
-- **当前实现** card-open、`PBT_APMRESUMEAUTOMATIC` 和 Windows Network Connectivity Hint 的 InternetAccess 转换分别映射到 `CardOpened`、`Resume` 与 `NetworkRestored`；映射本身是纯函数，最终仍受同一 coordinator 限流。
+- **当前实现** card-open 只在没有成功数据或数据至少 60 秒未更新时映射到 `CardOpened`；`PBT_APMRESUMEAUTOMATIC` 和 Windows Network Connectivity Hint 的 InternetAccess 分别映射到 `Resume` 与 `NetworkRestored`。映射本身是纯函数，最终仍受同一 coordinator 限流。
 
 ### 6.4 Windows host 边界
 
 - **当前实现** Windows 依赖只在 `cfg(windows)` 下启用；生产依赖是 Microsoft `windows` 0.62.2 的所需 Win32 namespace features，不包含 WebView、Electron 或 Chromium。网络 monitor 只使用系统 IP Helper connectivity hint，不主动探测网站。
-- **当前实现** UI 每 5 秒只重新投影内存 snapshot 以更新时间文案；它不发网络请求。网络读取仍由 P1 的事件优先/10 分钟 fallback coordinator 控制。
+- **当前实现** UI 每 30 秒只重新投影内存 snapshot 以更新时间文案；它不发网络请求。网络读取仍由 P1 的事件优先/10 分钟 fallback coordinator 控制。
+- **当前实现** 30 秒 timer 仅在投影内容实际变化时 invalidates/repaints；状态/通知由事件即时投递，正常倒计时最多每分钟改变一次，避免无变化的 GDI 重绘占用空闲 CPU。
+- **当前实现** JSON-RPC dispatcher 的空闲阻塞检查保持 25 ms，supervisor/runtime 为 250 ms；请求仍使用独立 15 秒 deadline，stdio 到达会立即唤醒 dispatcher。dispatcher 不放宽，因为当前收发互斥边界下会延迟并发写入并破坏可靠性测试。
 - **当前实现** 单实例按固定 window class 发现；再次启动只激活已有实例。安装器/卸载器可使用 `--shutdown-existing` 请求正常退出。
 - **当前实现** connectivity callback 只把 HWND 值作为 callback context，并向 UI 线程投递自定义消息；不跨线程借用 Rust 状态。注销失败不会跳过 runtime shutdown，且 10 分钟 fallback 仍覆盖 monitor 不可用。
 - **当前实现** quota balloon 加入 `NIIF_RESPECT_QUIET_TIME | NIIF_NOSOUND`，让 Windows 安静时段/专注设置决定展示，并避免应用自行播放声音。
 - **当前实现** 卡片使用 normalized tooltip 作为动态窗口标题，提供 `Enter`/`R` 刷新、`U` 打开官方 Usage、`F10` 菜单和 `Esc` 关闭；标准 Win32 popup menu 是主要键盘/辅助技术命令面。
 - **已评审限制** quota rows 是自绘 GDI 内容，不分别暴露 UI Automation 节点；屏幕阅读器只能读取聚合窗口标题与标准菜单。P4 发布前必须决定是否接受该 MVP 边界，或改用原生 child controls/UIA provider。
+
+### 6.5 Packaging 与发布边界
+
+- **当前实现** P4 产物是面向当前用户的 Windows x64 ZIP，不要求管理员权限；安装目录固定为 `%LOCALAPPDATA%\Programs\CodexQuotaTray`，设置与可选额度缓存保持在独立的 `%LOCALAPPDATA%\CodexQuotaTray`。
+- **当前实现** package script 使用 `Cargo.lock` 和 locked `cargo rustc` release 编译，目标依赖图固定为 `x86_64-pc-windows-msvc`，并以 `--remap-path-prefix` 从最终 crate 移除本地 repoRoot。归档内容采用显式文件白名单，包含原生 EXE、安装/卸载脚本、SHA-256 manifest、项目许可证、隐私说明、依赖清单和从本地 Cargo metadata 收集的完整第三方许可证文本。
+- **当前实现** installer 在复制前验证 manifest 的完整文件集合和每个 SHA-256；拒绝 reparse-point 安装目录，先通过 `--shutdown-existing` 请求旧进程正常退出，再以 temporary-file move 和有限重试替换文件。uninstaller 只允许删除两个预期的精确子目录，默认删除设置/cache，并提供显式 `-KeepUserData`。
+- **当前实现** 启动项只写当前用户的 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，且值为完整、加引号的 EXE 路径；隔离 smoke 使用一次性 HKCU 测试 key，不修改真实启动项。
+- **当前实现** 托盘启动时只把与当前 EXE 精确匹配的 Run 值显示为已启用，避免 installer/setting JSON 状态分叉或旧路径被误报为当前启动项。
+- **当前实现** CLI 启动失败、有限 backoff、schema version mismatch 和 unreported version 都投影成可操作、无身份信息的 UI 文案；quota 缺失时不伪造 0% 或 100%。
+- **已确认** release binary 是单个原生 Win32 进程，不打包 WebView、Electron 或 Chromium；当前 version-matched schema 没有 reset-credit count/consume contract，package 也没有相关入口。
+- **发布决策** 当前本地归档是 unsigned developer build。公开发布需要组织控制的 Authenticode/Trusted Signing 身份：先在受控环境构建和签名 EXE/脚本，验证签名后重新生成 manifest/ZIP，并发布外部 checksum 与 provenance。仓库不持有签名凭据，也不自动发布。
+- **开放门禁** Windows 11 当前环境已有安装与 tray smoke；Windows 10、稳定渠道 Windows 11、多 DPI/多显示器、签名验证和 PRD 七天 soak 仍是公开发布前门禁，不得从现有自动化结果推断为已完成。
 
 ## 7. 状态管理
 
@@ -186,6 +200,7 @@ QuotaState:
   account_mode
   plan_type?
   buckets[]
+  rate_limit_reached
   last_success_at?
   last_attempt_at?
   source_cli_version
@@ -200,6 +215,7 @@ QuotaState:
 - `primary` 和 `secondary` 只保留为 source slot，不决定显示名称。
 - `windowDurationMins` 决定 5-hour、7-day 或动态时长名称。
 - `remainingPercent = clamp(100 - usedPercent, 0, 100)`；越界输入产生 warning。
+- `rateLimitReachedType` 属于 bucket snapshot 而不是单个 window；parser 聚合为 `rate_limit_reached`，UI/提醒按“服务端已报告限制”处理，但不把它猜测分配给 `primary` 或 `secondary`。
 - 稀疏通知只覆盖 `Some` 字段；null/缺失字段不清除已有元数据。
 - 读取或更新失败不会清空最后有效快照。
 - **产品要求** 成功数据超过 15 分钟未刷新后进入 stale；这是产品策略，不是 App Server 协议事实。
@@ -238,10 +254,10 @@ QuotaState:
 
 ### 9.1 已有覆盖
 
-- **已确认** 10 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、8 个 fake-process supervisor 测试、9 个 reducer 测试、10 个 refresh coordinator 测试、3 个 version compatibility 单元测试、7 个 persistence 测试、8 个 runtime fake-process 测试、6 个 UI projection 测试、5 个 alert 测试和 2 个 host-event 测试完全离线通过。
+- **已确认** 11 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、9 个 fake-process supervisor 测试、9 个 reducer 测试、10 个 refresh coordinator 测试、3 个 version compatibility 单元测试、1 个 startup command 单元测试、7 个 persistence 测试、8 个 runtime fake-process 测试、10 个 UI projection 测试、6 个 alert 测试和 2 个 host-event 测试完全离线通过。
 - 覆盖 ChatGPT、API Key、Bedrock、未登录、single/dual/multi bucket、未知时长、缺失字段、越界百分比、malformed JSON 和稀疏合并。
 - JSON-RPC 测试覆盖唯一 ID、多个 pending、乱序响应、RPC error、通知、timeout、EOF、未知/重复 ID、null result、非法 JSON 和非法 envelope。
-- supervisor 测试覆盖非零退出恢复、restart budget、启动失败、显式恢复、stderr flood、正常 EOF、强制回收和幂等 shutdown。
+- supervisor 测试覆盖非零退出恢复、restart budget、启动失败、显式恢复、stderr flood、正常 EOF、强制回收、幂等 shutdown，以及命令 shim 退出后仍持有 transport pipe 的后代进程树回收。
 - reducer 测试覆盖 process/auth/data 状态、失败保留、15 分钟 stale、完整替换、稀疏更新、歧义拒绝和 owned store snapshot。
 - runtime 测试通过真实本地 stdio pipe 覆盖乱序并发响应、启动快照、手动刷新合并、通知稀疏合并与完整补读、单代次崩溃恢复和幂等关闭。
 - version 测试覆盖生成记录读取、精确 match、pre-release mismatch 与 unreported；mismatch runtime 测试同时证明 quota 仍可 best-effort 投影。

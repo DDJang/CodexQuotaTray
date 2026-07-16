@@ -13,6 +13,17 @@ cargo test --all-targets
 
 Parser tests use only anonymized files under `tests/fixtures`; they do not start Codex or contact a real account.
 
+## Build the Windows package
+
+P4 produces a per-user, no-admin ZIP package from the locked dependency graph:
+
+```powershell
+pwsh -NoProfile -File .\scripts\package.ps1 -Cargo C:\Users\<user>\.cargo\bin\cargo.exe
+pwsh -NoProfile -File .\scripts\test-package.ps1 -Cargo C:\Users\<user>\.cargo\bin\cargo.exe
+```
+
+The artifact is written to `dist\CodexQuotaTray-<version>-win-x64.zip`. The smoke script verifies the package allowlist and dependency notices, rejects a tampered file, and exercises isolated install, in-place upgrade, start-with-Windows registration, default data removal, and `-KeepUserData` uninstall. Current local packages are unsigned developer builds; read [the release guide](docs/RELEASE.md), [privacy notice](docs/PRIVACY.md), and [dependency inventory](docs/DEPENDENCIES.md) before distribution.
+
 ## Run the Windows tray
 
 Debug builds default to deterministic demo data, so UI work never needs a live account:
@@ -34,9 +45,12 @@ Use `--codex-bin PATH` to override discovery. The tray menu provides refresh, th
 .\target\release\codex-quota-tray-gui.exe --shutdown-existing
 ```
 
+The control command waits up to 10 seconds for the existing process and its App Server tree to
+finish normal cleanup, and returns a nonzero exit code instead of reporting success early.
+
 Keyboard access while the card is focused: `Enter` or `R` refreshes, `U` opens Usage, `F10` opens the system menu, and `Esc` hides the card. The release executable contains no WebView, Electron, or Chromium runtime.
 
-Card-open, Windows resume, and restored system connectivity are routed through the same coordinator as manual and App Server events. Event bursts remain subject to the 10-second minimum interval and single in-flight request, while a 10-minute fallback works even when no system or App Server notification arrives. Quota notifications ask Windows to respect quiet time and never play application sound.
+Card-open for missing or at least 60-second-old data, Windows resume, and restored system connectivity are routed through the same coordinator as manual and App Server events. Event bursts remain subject to the 10-second minimum interval and single in-flight request, while a 10-minute fallback works even when no system or App Server notification arrives. Quota notifications ask Windows to respect quiet time and never play application sound.
 
 ## Run the spike
 
@@ -64,7 +78,7 @@ For the 24-hour P1 gate, use `--seconds 86400`. Let the finite run complete so t
 
 ## Local settings and cache
 
-The persistence adapters use `%LOCALAPPDATA%\CodexQuotaTray\settings.json` and `quota-cache.json`. The quota cache is opt-in at runtime and contains only used percentage, window duration, reset time, last-success time, and the parsed CLI version. It excludes account/authentication data, plan type, limit identifiers/names, and raw protocol data. A restored cache is always marked stale until a live read succeeds.
+The persistence adapters use `%LOCALAPPDATA%\CodexQuotaTray\settings.json` and `quota-cache.json`. The tray enables its non-sensitive cache by default for immediate card display; the menu can disable and delete it at any time. The runtime writes only when that host setting is enabled. The cache contains only used percentage, window duration, reset time, last-success time, and the parsed CLI version. It excludes account/authentication data, plan type, limit identifiers/names, and raw protocol data. A restored cache is always marked stale until a live read succeeds.
 
 ## Regenerate schemas
 

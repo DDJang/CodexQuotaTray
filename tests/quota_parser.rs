@@ -17,6 +17,7 @@ fn envelope_fixture(name: &str) -> Value {
         "multi" => include_str!("fixtures/rate_limits_multi_bucket.json"),
         "sparse" => include_str!("fixtures/rate_limits_sparse_update.json"),
         "missing" => include_str!("fixtures/rate_limits_missing_fields.json"),
+        "reached" => include_str!("fixtures/rate_limits_reached.json"),
         _ => panic!("unknown fixture"),
     };
     serde_json::from_str(contents).expect("fixture must contain a valid envelope")
@@ -118,6 +119,15 @@ fn out_of_range_percentage_is_clamped_with_warning() {
     assert_eq!(summary.windows[0].used_percent, 100);
     assert_eq!(summary.windows[0].remaining_percent, 0);
     assert_eq!(summary.issues.len(), 1);
+}
+
+#[test]
+fn snapshot_level_reached_signal_is_preserved_without_assigning_it_to_a_slot() {
+    let response: RateLimitsReadResponse = result(envelope_fixture("reached"));
+    let summary = summarize_rate_limits(&response);
+    assert!(summary.rate_limit_reached);
+    assert_eq!(summary.windows.len(), 1);
+    assert_eq!(summary.windows[0].remaining_percent, 60);
 }
 
 #[test]

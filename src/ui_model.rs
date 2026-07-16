@@ -1,7 +1,8 @@
 use chrono::{Local, TimeZone};
 
+use crate::compatibility::VersionCompatibility;
 use crate::quota::QuotaWindow;
-use crate::state::{AppState, AuthState, DataState};
+use crate::state::{AppState, AuthState, DataState, ProcessState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayIconState {
@@ -130,6 +131,13 @@ fn icon_state(state: &AppState, windows: &[QuotaWindowView]) -> TrayIconState {
     if matches!(state.data, DataState::Refreshing { .. }) {
         return TrayIconState::Refreshing;
     }
+    if state
+        .quota
+        .as_ref()
+        .is_some_and(|quota| quota.rate_limit_reached)
+    {
+        return TrayIconState::Exhausted;
+    }
     let minimum = windows.iter().map(|window| window.remaining_percent).min();
     match minimum {
         Some(0) => TrayIconState::Exhausted,
@@ -152,11 +160,20 @@ fn tooltip_text(state: &AppState, windows: &[QuotaWindowView], status: &str) -> 
             format!("{short_name} {}%", window.remaining_percent)
         })
         .collect::<Vec<_>>();
-    parts.push(if matches!(state.data, DataState::Fresh) {
-        "重置次数不可用".to_owned()
-    } else {
-        status.to_owned()
-    });
+    parts.push(
+        if matches!(state.data, DataState::Fresh)
+            && state
+                .quota
+                .as_ref()
+                .is_some_and(|quota| quota.rate_limit_reached)
+        {
+            "服务端报告已达到限制".to_owned()
+        } else if matches!(state.data, DataState::Fresh) {
+            "重置次数不可用".to_owned()
+        } else {
+            status.to_owned()
+        },
+    );
     format!("Codex：{}", parts.join(" · "))
 }
 
@@ -178,17 +195,57 @@ fn status_text(state: &AppState) -> String {
         AuthState::ApiKey => "API Key 模式没有 ChatGPT 套餐额度".to_owned(),
         AuthState::Bedrock => "Bedrock 模式没有 ChatGPT 套餐额度".to_owned(),
         AuthState::Unsupported(_) => "当前账户类型不支持额度显示".to_owned(),
-        AuthState::Unknown if matches!(state.data, DataState::Empty) => {
+        _ => status_text_for_supported_account(state),
+    }
+}
+
+fn status_text_for_supported_account(state: &AppState) -> String {
+    match &state.compatibility {
+        VersionCompatibility::Mismatch {
+            schema_version,
+            runtime_version,
+        } => {
+            return format!(
+                "Codex CLI {runtime_version} 与协议基线 {schema_version} 不匹配；只读兼容模式"
+            );
+        }
+        VersionCompatibility::Unreported { .. } => {
+            return "无法确认 Codex CLI 版本；只读兼容模式".to_owned();
+        }
+        VersionCompatibility::Unknown | VersionCompatibility::Match { .. } => {}
+    }
+
+    match state.process {
+        ProcessState::Failed if state.quota.is_some() => {
+            return "Codex App Server 已停止；显示上次数据".to_owned();
+        }
+        ProcessState::Failed => {
+            return "无法启动 Codex App Server；请确认 Codex CLI 已安装并可运行".to_owned();
+        }
+        ProcessState::Backoff { .. } => {
+            return "Codex App Server 异常；正在有限重试并保留上次数据".to_owned();
+        }
+        _ => {}
+    }
+
+    match state.data {
+        DataState::Fresh
+            if state
+                .quota
+                .as_ref()
+                .is_some_and(|quota| quota.rate_limit_reached) =>
+        {
+            "Codex 服务报告当前额度已达到限制".to_owned()
+        }
+        DataState::Empty if matches!(state.auth, AuthState::Unknown) => {
             "正在连接 Codex…".to_owned()
         }
-        _ => match state.data {
-            DataState::Empty => "尚无额度数据".to_owned(),
-            DataState::Refreshing { .. } => "正在刷新，保留上次数据".to_owned(),
-            DataState::Fresh => "数据已更新".to_owned(),
-            DataState::Stale => "数据可能已过期".to_owned(),
-            DataState::Offline => "暂时无法连接，显示上次数据".to_owned(),
-            DataState::Unavailable => "暂时无法获取额度".to_owned(),
-        },
+        DataState::Empty => "尚无额度数据".to_owned(),
+        DataState::Refreshing { .. } => "正在刷新，保留上次数据".to_owned(),
+        DataState::Fresh => "数据已更新".to_owned(),
+        DataState::Stale => "数据可能已过期".to_owned(),
+        DataState::Offline => "暂时无法连接，显示上次数据".to_owned(),
+        DataState::Unavailable => "暂时无法获取额度".to_owned(),
     }
 }
 
