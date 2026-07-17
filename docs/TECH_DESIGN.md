@@ -166,16 +166,20 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 ### 6.4 Windows host 边界
 
 - **当前实现** Windows 依赖只在 `cfg(windows)` 下启用；生产依赖是 Microsoft `windows` 0.62.2 的所需 Win32 namespace features，不包含 WebView、Electron 或 Chromium。网络 monitor 只使用系统 IP Helper connectivity hint，不主动探测网站。
-- **当前实现（0.1.3）** UI 保留 Win32/GDI，不引入 WinUI 3 或 Windows App SDK。卡片不使用 `WS_EX_LAYERED` 或整窗 Alpha，始终在不透明 `#0D151C` 表面以 ClearType Natural 绘制；Windows 11 仅请求受支持的 DWM 深色模式、系统圆角和阴影，失败不影响业务状态。
-- **当前实现（0.1.3）** `windows_visuals` 以逻辑像素生成 0–3 个额度窗口的统一布局，96/120/144/192 DPI 均由同一几何数据驱动绘制和 hit-test。GUI 入口显式验证 PerMonitorV2，资源脚本以标准 `RT_MANIFEST` 数值类型 24 嵌入清单；卡片显示前读取光标所在显示器的有效 DPI，一次性计算尺寸与位置，并继续处理 `WM_DPICHANGED`。
-- **当前实现（0.1.3）** 用户提供的 24-bit PNG 保留为源资源；构建脚本生成抗锯齿、透明圆角的 32-bit preview 以及 16–256 px ICO，并验证 Alpha 与九个 frame。构建期 `embed-resource` 只调用 Windows resource compiler，将 icon 与 manifest 链接到 EXE；它不进入运行时。正常托盘状态使用产品图标，其他状态继续使用不同形状的系统 warning/error/information/offline 图标。
+- **当前实现（0.1.4）** UI 保留 Win32/GDI，不引入 WinUI 3 或 Windows App SDK。卡片不使用 `WS_EX_LAYERED` 或整窗 Alpha，始终在不透明 `#F5F7FA` 表面以 ClearType Natural 绘制；Windows 11 请求浅色 DWM 模式、系统圆角和阴影，失败不影响业务状态。
+- **当前实现（0.1.4）** `windows_visuals` 以逻辑像素生成 0–3 个额度窗口的统一布局，96/120/144/192 DPI 均由同一几何数据驱动绘制和 hit-test。状态徽章区域已移除，状态作为标题下方的语义颜色文本；GUI 入口显式验证 PerMonitorV2，资源脚本以标准 `RT_MANIFEST` 数值类型 24 嵌入清单；卡片显示前读取光标所在显示器的有效 DPI，并使用 `rcWork.right - width` / `rcWork.bottom - height` 定位到任务栏上方，继续处理 `WM_DPICHANGED`。
+- **当前实现（0.1.4）** 用户提供的 24-bit PNG 保留为源资源；构建脚本生成抗锯齿、透明圆角的 32-bit preview 以及 16–256 px ICO，并验证 Alpha 与九个 frame。构建期 `embed-resource` 只调用 Windows resource compiler，将 icon 与 manifest 链接到 EXE；它不进入运行时。应用在注册窗口类前从当前 HINSTANCE 同步加载 32px、16px 和独立托盘 HICON；正常、离线和刷新初始状态均使用产品托盘图标，不使用 `IDI_QUESTION`、`IDI_INFORMATION` 或 `IDI_APPLICATION` 占位回退。`scripts/verify-pe-icon.ps1` 会从最终 PE 的 `RT_GROUP_ICON #101` 读取并验证 16/20/24/32/48/256 等尺寸及其 `RT_ICON` 子资源。
+- **当前实现（DPI 图标清晰度）** 注册窗口类的启动图标与当前 DPI 的窗口大/小图标、托盘图标分离管理。窗口和托盘尺寸通过 `GetSystemMetricsForDpi` 选择不小于目标物理尺寸的内嵌 ICO frame；弹出卡片标题区采用纯文本布局，不再绘制易受 Shell HICON 栅格化影响的装饰图标。`WM_DPICHANGED` 先加载完整的新窗口/托盘图标集合，替换成功后才释放旧动态句柄；加载失败保留旧产品图标并记录诊断日志，不显示系统占位图标。
 - **当前实现** UI 每 30 秒只重新投影内存 snapshot 以更新时间文案；它不发网络请求。网络读取仍由 P1 的事件优先/10 分钟 fallback coordinator 控制。
 - **当前实现** 30 秒 timer 仅在投影内容实际变化时 invalidates/repaints；状态/通知由事件即时投递，正常倒计时最多每分钟改变一次，避免无变化的 GDI 重绘占用空闲 CPU。
 - **当前实现** JSON-RPC dispatcher 的空闲阻塞检查保持 25 ms，supervisor/runtime 为 250 ms；请求仍使用独立 15 秒 deadline，stdio 到达会立即唤醒 dispatcher。dispatcher 不放宽，因为当前收发互斥边界下会延迟并发写入并破坏可靠性测试。
 - **当前实现** 单实例按固定 window class 发现；再次启动只激活已有实例。安装器/卸载器可使用 `--shutdown-existing` 请求正常退出。
 - **当前实现** connectivity callback 只把 HWND 值作为 callback context，并向 UI 线程投递自定义消息；不跨线程借用 Rust 状态。注销失败不会跳过 runtime shutdown，且 10 分钟 fallback 仍覆盖 monitor 不可用。
 - **当前实现** quota balloon 加入 `NIIF_RESPECT_QUIET_TIME | NIIF_NOSOUND`，让 Windows 安静时段/专注设置决定展示，并避免应用自行播放声音。
-- **当前实现** 卡片使用 normalized tooltip 作为动态窗口标题，提供 `Enter`/`R` 刷新、`U` 打开官方 Usage、`F10` 菜单和 `Esc` 关闭；标准 Win32 popup menu 是主要键盘/辅助技术命令面。
+- **当前实现** 卡片使用 normalized tooltip 作为动态窗口标题，提供 `Enter` 刷新、`Tab`/方向键焦点移动、`Space` 执行当前操作、`F10` 菜单和 `Esc` 关闭；标准 Win32 popup menu 是主要键盘/辅助技术命令面。
+- **当前实现（0.1.4）** 托盘使用独立的 `HWND_MESSAGE` 消息窗口作为 `NOTIFYICONDATAW.hWnd`。`NOTIFYICON_VERSION_4` 回调只取 `LOWORD(lParam)`，仅 `WM_LBUTTONUP` 投递一次 `WM_APP_TOGGLE_WINDOW`；右键通过独立消息投递菜单。主 UI 线程以 `desired_visible` 作为唯一显隐状态源，显示时再次单击隐藏、隐藏时单击显示。刷新、绘制、布局、DPI 和 `WM_ACTIVATE/WM_ACTIVATEAPP` 只记录或重绘，不自动隐藏，也没有失焦定时器或点击防抖。Explorer 仅在 `TaskbarCreated` 后重新执行 `NIM_DELETE → NIM_ADD → NIM_SETVERSION`，不改变显隐状态。
+- **当前实现（UI 紧凑化）** 卡片按额度窗口数量和设置警告动态计算高度，移除独立的“最后更新”区域；标题下状态行合并为更新时间或失败重试提示，额度窗口将倒计时和本地重置日期分成两行。重置次数不可用仅作为低权重信息条显示，不改变额度数据或协议边界。
+- **当前实现（UI 文案与颜色）** 套餐名称 `plus` 仅在展示层规范化为 `Plus`；按钮正文使用“刷新”和“打开官方用量页面”，不在 UI 或键盘处理上暴露 R/U 快捷键。百分比和进度强调色按剩余值分为绿色（>50%）、橙色（20%–50%）和红色（<20%），不影响托盘状态阈值。
 - **已评审限制** quota rows 是自绘 GDI 内容，不分别暴露 UI Automation 节点；屏幕阅读器只能读取聚合窗口标题与标准菜单。P4 发布前必须决定是否接受该 MVP 边界，或改用原生 child controls/UIA provider。
 
 ### 6.5 Packaging 与发布边界

@@ -14,8 +14,14 @@ fn weekly_window_is_named_by_duration_and_projects_remaining_percentage() {
     assert_eq!(view.windows[0].name, "7 天额度");
     assert_eq!(view.windows[0].percent_label, "72% 剩余");
     assert_eq!(view.windows[0].progress_percent, 72);
+    assert_eq!(view.title, "Codex 用量 · Plus");
+    assert!(view.status_line.starts_with("● 已更新 · "));
+    assert!(view.windows[0].reset_countdown.contains("后重置"));
+    assert!(view.windows[0].reset_countdown.contains(' '));
+    assert!(view.windows[0].reset_at_label.contains('月'));
     assert!(view.tooltip.contains("72%"));
-    assert!(view.reset_credits.contains("未提供"));
+    assert!(view.reset_credits.contains("暂未提供"));
+    assert!(!view.reset_credits.contains("App Server"));
     assert!(!view.reset_credits.contains("0 次"));
 }
 
@@ -69,7 +75,8 @@ fn missing_window_and_reset_time_are_not_rendered_as_full_quota() {
     no_reset.resets_at = None;
     let state = state_with_windows(DataState::Fresh, vec![no_reset]);
     let view = project_tray_view(&state, NOW, ViewPreferences::default());
-    assert_eq!(view.windows[0].reset_label, "未提供重置时间");
+    assert_eq!(view.windows[0].reset_countdown, "未提供重置时间");
+    assert!(view.windows[0].reset_at_label.is_empty());
 }
 
 #[test]
@@ -86,6 +93,7 @@ fn unauthenticated_and_non_chatgpt_modes_are_actionable_without_fake_quota() {
         };
         let view = project_tray_view(&state, NOW, ViewPreferences::default());
         assert!(view.status.contains(expected));
+        assert!(view.status_line.contains(expected));
         assert!(view.windows.is_empty());
         assert!(!view.tooltip.contains("100%"));
     }
@@ -105,7 +113,8 @@ fn used_percentage_and_twelve_hour_preferences_only_change_presentation() {
     assert_eq!(view.windows[0].percent_label, "28% 已用");
     assert_eq!(view.windows[0].progress_percent, 28);
     assert!(
-        view.windows[0].reset_label.contains("AM") || view.windows[0].reset_label.contains("PM")
+        view.windows[0].reset_at_label.contains("AM")
+            || view.windows[0].reset_at_label.contains("PM")
     );
 }
 
@@ -162,9 +171,42 @@ fn projection_stays_equal_between_countdown_boundaries() {
 
     assert_eq!(initial, five_seconds_later);
     assert_ne!(
-        initial.windows[0].reset_label,
-        one_minute_later.windows[0].reset_label
+        initial.windows[0].reset_countdown,
+        one_minute_later.windows[0].reset_countdown
     );
+}
+
+#[test]
+fn countdown_keeps_nonzero_days_hours_and_minutes() {
+    let cases = [
+        (6 * 24 * 60 * 60 + 60 * 60 + 2 * 60, "6天 1小时 2分钟后重置"),
+        (5 * 60 * 60 + 23 * 60, "5小时 23分钟后重置"),
+        (23 * 60, "23分钟后重置"),
+        (0, "即将重置"),
+    ];
+    for (remaining, expected) in cases {
+        let mut quota_window = window(28, Some(300));
+        quota_window.resets_at = Some(NOW + remaining);
+        let state = state_with_windows(DataState::Fresh, vec![quota_window]);
+        let view = project_tray_view(&state, NOW, ViewPreferences::default());
+        assert_eq!(view.windows[0].reset_countdown, expected);
+    }
+}
+
+#[test]
+fn status_line_distinguishes_refreshing_and_failure_without_duplicate_last_updated_text() {
+    let refreshing = state_with_windows(
+        DataState::Refreshing {
+            previous: StableDataState::Fresh,
+        },
+        vec![window(30, Some(300))],
+    );
+    let refreshing_view = project_tray_view(&refreshing, NOW, ViewPreferences::default());
+    assert_eq!(refreshing_view.status_line, "正在更新…");
+
+    let failed = state_with_windows(DataState::Offline, vec![window(30, Some(300))]);
+    let failed_view = project_tray_view(&failed, NOW, ViewPreferences::default());
+    assert_eq!(failed_view.status_line, "● 更新失败 · 点击刷新重试");
 }
 
 fn state_with_windows(data: DataState, windows: Vec<QuotaWindow>) -> AppState {
@@ -192,6 +234,6 @@ fn window(used_percent: i64, duration: Option<i64>) -> QuotaWindow {
         used_percent,
         remaining_percent: 100 - used_percent,
         window_duration_mins: duration,
-        resets_at: Some(NOW + 7_200),
+        resets_at: Some(NOW + (6 * 24 + 2) * 60 * 60),
     }
 }
