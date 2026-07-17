@@ -2,7 +2,9 @@
 
 CodexQuotaTray is a read-only Rust client for the Codex App Server. It includes the P0 command-line probe, the long-running P1 service core, and a native Win32 tray host. It never implements reset-credit consumption.
 
-Version 0.1.3 fixes the executable manifest resource and verifies Per-Monitor V2 awareness at process startup, preventing Windows from bitmap-scaling the quota card. It also sizes the card for the cursor's target monitor and uses point-correct ClearType Natural fonts. The transparent rounded multi-resolution icon and opaque DWM dark card remain unchanged, with no WebView, Electron, Chromium, or Windows App SDK runtime.
+Version 0.1.4 adds a light, modern quota card: status is plain semantic text (no status badge), the tray icon toggles the card on repeated clicks, and the card is anchored to the lower-right of the active monitor work area above the taskbar. The UI remains opaque Win32/GDI with Per-Monitor V2 and no WebView, Electron, Chromium, or Windows App SDK runtime.
+
+The quota card is intentionally compact: its text-only header combines update state and time, each quota panel prioritizes remaining percentage followed by countdown and reset date, and unavailable reset-credit information is shown as a low-emphasis notice. The embedded icon remains DPI-aware for the window and notification area; the popup deliberately omits a decorative title icon so its header stays crisp and aligned. The default `Plus` label and Chinese action text are presentation-only changes; refresh, Usage navigation, tray commands, settings, and cache behavior remain unchanged.
 
 ## Build and test
 
@@ -11,6 +13,7 @@ cargo fmt --all -- --check
 cargo check --all-targets
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets
+git diff --check
 ```
 
 Parser tests use only anonymized files under `tests/fixtures`; they do not start Codex or contact a real account.
@@ -25,6 +28,30 @@ pwsh -NoProfile -File .\scripts\test-package.ps1 -Cargo C:\Users\<user>\.cargo\b
 ```
 
 The artifact is written to `dist\CodexQuotaTray-<version>-win-x64.zip`. The smoke script verifies the package allowlist and dependency notices, rejects a tampered file, and exercises isolated install, in-place upgrade, start-with-Windows registration, default data removal, and `-KeepUserData` uninstall. Current local packages are unsigned developer builds; read [the release guide](docs/RELEASE.md), [privacy notice](docs/PRIVACY.md), and [dependency inventory](docs/DEPENDENCIES.md) before distribution.
+
+正式 Windows 安装器使用 Inno Setup 7 生成。先安装 Inno Setup 7，再执行：
+
+```powershell
+pwsh -NoProfile -File .\scripts\package-inno.ps1 -Cargo C:\Users\<user>\.cargo\bin\cargo.exe
+```
+
+`package-inno.ps1` validates the final Release PE before invoking Inno Setup. To verify a
+binary independently, run:
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify-pe-icon.ps1 `
+  -Executable .\target\release\codex-quota-tray-gui.exe
+```
+
+安装器输出到 `dist-inno\CodexQuotaTray-<version>-setup.exe`，默认安装到当前用户的 `%LOCALAPPDATA%\Programs\CodexQuotaTray`，并默认勾选登录 Windows 自动启动。Inno Setup 卸载器会先请求程序正常退出、移除开机启动项和安装文件；额度设置与缓存保留在 `%LOCALAPPDATA%\CodexQuotaTray`，需要保留用户数据，避免卸载误删配置。
+
+如果要卸载此前由旧版 PowerShell 安装脚本安装的版本，可执行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\CodexQuotaTray\uninstall.ps1"
+# 保留设置和额度缓存：
+# powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\CodexQuotaTray\uninstall.ps1" -KeepUserData
+```
 
 ## Run the Windows tray
 
@@ -50,7 +77,7 @@ Use `--codex-bin PATH` to override discovery. The tray menu provides refresh, th
 The control command waits up to 10 seconds for the existing process and its App Server tree to
 finish normal cleanup, and returns a nonzero exit code instead of reporting success early.
 
-Keyboard access while the card is focused: `Enter` or `R` refreshes, `U` opens Usage, `F10` opens the system menu, and `Esc` hides the card. The release executable contains no WebView, Electron, or Chromium runtime.
+Keyboard access while the card is focused: `Enter` refreshes, `Tab`/arrow keys move focus, `Space` activates the focused action, `F10` opens the system menu, and `Esc` hides the card. The release executable contains no WebView, Electron, or Chromium runtime.
 
 `Tab`, Left, or Right changes the focused footer action; `Space` activates it. Rebuild the checked-in rounded preview and multi-resolution icon from `assets/app-icon-source.png` with `powershell -File .\scripts\generate-icon.ps1`; the generator validates transparent corners, an opaque center, and all nine ICO frames.
 

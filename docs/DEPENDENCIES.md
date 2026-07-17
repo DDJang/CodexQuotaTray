@@ -1,6 +1,6 @@
 # Dependency and license inventory
 
-Target snapshot: `x86_64-pc-windows-msvc`, Cargo.lock for CodexQuotaTray 0.1.3, generated from `cargo metadata --locked --offline --filter-platform x86_64-pc-windows-msvc` on 2026-07-16.
+Target snapshot: `x86_64-pc-windows-msvc`, Cargo.lock for CodexQuotaTray 0.1.4, generated from `cargo metadata --locked --offline --filter-platform x86_64-pc-windows-msvc` on 2026-07-16.
 
 The release package contains a generated `THIRD_PARTY_NOTICES.txt` assembled from every dependency's checked-out license files. Build-only procedural macro crates are included here because they participate in producing the binary even when they are not linked at runtime.
 

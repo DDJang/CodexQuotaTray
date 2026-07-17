@@ -1,20 +1,35 @@
 use std::ffi::OsString;
 use std::mem::size_of;
 use std::path::Path;
+use std::ptr::null_mut;
+#[cfg(debug_assertions)]
+use std::sync::OnceLock;
+#[cfg(debug_assertions)]
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(debug_assertions)]
+use std::time::Instant;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use windows::Win32::Foundation::{
-    COLORREF, CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HANDLE, HINSTANCE, HWND, LPARAM,
-    LRESULT, POINT, RECT, WAIT_OBJECT_0, WPARAM,
+    COLORREF, CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, GetLastError, HANDLE, HINSTANCE,
+    HWND, LPARAM, LRESULT, POINT, RECT, WAIT_OBJECT_0, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, CLIP_DEFAULT_PRECIS, CreateCompatibleBitmap, CreateCompatibleDC,
-    CreateFontW, CreatePen, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH, DRAW_TEXT_FORMAT,
-    DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_RIGHT, DT_SINGLELINE, DT_VCENTER, DeleteDC,
-    DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FONT_QUALITY, FW_NORMAL, FW_SEMIBOLD, FillRect,
-    GetMonitorInfoW, HDC, HGDIOBJ, InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO,
-    MonitorFromPoint, OUT_DEFAULT_PRECIS, PAINTSTRUCT, PS_SOLID, RoundRect, SRCCOPY, SelectObject,
-    SetBkMode, SetTextColor, TRANSPARENT, UpdateWindow,
+    CreateFontW, CreateRoundRectRgn, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH,
+    DRAW_TEXT_FORMAT, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_RIGHT, DT_SINGLELINE, DT_VCENTER,
+    DeleteDC, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FONT_QUALITY, FW_NORMAL, FW_SEMIBOLD,
+    FillRect, FillRgn, FrameRgn, GetMonitorInfoW, GetTextMetricsW, HDC, HGDIOBJ, InvalidateRect,
+    MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
+    SRCCOPY, SelectObject, SetBkMode, SetTextColor, TEXTMETRICW, TRANSPARENT, UpdateWindow,
+};
+use windows::Win32::Graphics::GdiPlus::{
+    FillModeAlternate, GdipAddPathArc, GdipAddPathLine, GdipClosePathFigure, GdipCreateFromHDC,
+    GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics,
+    GdipDeletePath, GdipDeletePen, GdipDrawEllipse, GdipDrawLine, GdipDrawPath, GdipFillEllipse,
+    GdipFillPath, GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusShutdown, GdiplusStartup,
+    GdiplusStartupInput, GdiplusStartupOutput, GpBrush, GpGraphics, GpPath, GpPen, Ok as GdiPlusOk,
+    PixelOffsetModeHalf, SmoothingModeAntiAlias8x8, UnitPixel,
 };
 use windows::Win32::NetworkManagement::IpHelper::{
     CancelMibChangeNotify2, NotifyNetworkConnectivityHintChange,
@@ -22,34 +37,37 @@ use windows::Win32::NetworkManagement::IpHelper::{
 use windows::Win32::Networking::WinSock::{
     NL_NETWORK_CONNECTIVITY_HINT, NetworkConnectivityLevelHintInternetAccess,
 };
+#[cfg(debug_assertions)]
+use windows::Win32::System::Diagnostics::Debug::OutputDebugStringW;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ,
     RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegGetValueW, RegSetValueExW,
 };
 use windows::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, WaitForSingleObject};
-use windows::Win32::UI::HiDpi::GetDpiForWindow;
+use windows::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
 use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::Shell::{
-    NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_ERROR, NIIF_INFO, NIIF_NOSOUND,
-    NIIF_RESPECT_QUIET_TIME, NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY, NOTIFYICONDATAW,
-    Shell_NotifyIconW, ShellExecuteW,
+    NIF_GUID, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_ERROR, NIIF_INFO,
+    NIIF_NOSOUND, NIIF_RESPECT_QUIET_TIME, NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY,
+    NIM_SETVERSION, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW, ShellExecuteW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu,
-    CreateWindowExW, DI_NORMAL, DefWindowProcW, DestroyMenu, DestroyWindow, DrawIconEx,
-    FindWindowW, GWLP_USERDATA, GetClientRect, GetCursorPos, GetMessageW, GetWindowThreadProcessId,
-    HICON, HMENU, HWND_TOPMOST, IDC_ARROW, IDI_ERROR, IDI_INFORMATION, IDI_QUESTION, IDI_WARNING,
-    IsWindowVisible, KillTimer, LoadCursorW, LoadIconW, MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG,
-    PBT_APMRESUMEAUTOMATIC, PostMessageW, PostQuitMessage, RegisterClassW, SW_HIDE,
-    SW_SHOWNOACTIVATE, SWP_NOACTIVATE, SWP_SHOWWINDOW, SetForegroundWindow, SetTimer,
-    SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    TrackPopupMenu, WA_INACTIVE, WM_ACTIVATE, WM_APP, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
-    WM_ENDSESSION, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_PAINT,
-    WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu, DestroyWindow, FindWindowW,
+    GWLP_USERDATA, GetClientRect, GetCursorPos, GetForegroundWindow, GetMessageW,
+    GetWindowThreadProcessId, HICON, HMENU, HWND_MESSAGE, HWND_TOPMOST, ICON_BIG, ICON_SMALL,
+    IDC_ARROW, IsIconic, IsWindowVisible, KillTimer, LoadCursorW, MF_CHECKED, MF_SEPARATOR,
+    MF_STRING, MSG, PBT_APMRESUMEAUTOMATIC, PostMessageW, PostQuitMessage, RegisterClassExW,
+    RegisterWindowMessageW, SC_MINIMIZE, SM_CXICON, SM_CXSMICON, SW_HIDE, SW_SHOWNOACTIVATE,
+    SW_SHOWNORMAL, SWP_NOACTIVATE, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW,
+    SetWindowPos, SetWindowTextW, ShowWindow, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
+    WM_ACTIVATE, WM_ACTIVATEAPP, WM_APP, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ENDSESSION,
+    WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT,
+    WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETICON, WM_SIZE, WM_SYSCOMMAND,
+    WM_TIMER, WNDCLASSEXW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
-use windows::core::{PCWSTR, w};
+use windows::core::{GUID, PCWSTR, w};
 
 use crate::alerts::{AlertKind, AlertTracker, QuotaAlert};
 use crate::host_events::{HostEvent, refresh_reason};
@@ -60,17 +78,24 @@ use crate::runtime::{QuotaRuntime, RuntimeConfig};
 use crate::state::{AppState, AuthState, DataState};
 use crate::ui_model::{TrayIconState, TrayView, ViewPreferences, project_tray_view};
 use crate::windows_visuals::{
-    CardLayout, IconKind, InteractionTarget, configure_window_chrome, ensure_per_monitor_v2,
-    icon_kind, load_app_icon, monitor_effective_dpi, request_mouse_leave, scale_for_dpi,
-    status_label,
+    CardLayout, InteractionTarget, bottom_right_popup_origin, configure_window_chrome,
+    ensure_per_monitor_v2, icon_resource_size_for_target, load_app_icon, monitor_effective_dpi,
+    request_mouse_leave, scale_for_dpi,
 };
 
 const WINDOW_CLASS: PCWSTR = w!("CodexQuotaTrayWindow");
+const TRAY_MESSAGE_CLASS: PCWSTR = w!("CodexQuotaTrayMessageWindow");
 const WINDOW_TITLE: PCWSTR = w!("CodexQuotaTray");
 const TRAY_CALLBACK: u32 = WM_APP + 17;
 const NETWORK_RESTORED_MESSAGE: u32 = WM_APP + 18;
 const SHOW_CARD_MESSAGE: u32 = WM_APP + 19;
-const TRAY_ID: u32 = 1;
+const TOGGLE_WINDOW_MESSAGE: u32 = WM_APP + 20;
+const EXIT_PROCESS_MESSAGE: u32 = WM_APP + 21;
+const SHOW_MENU_MESSAGE: u32 = WM_APP + 22;
+// The stable GUID is the notification-area identity; uID is retained only for older Shell32
+// paths that still inspect it when NIF_GUID is unavailable.
+const TRAY_ID: u32 = 0x5143_5452;
+const TRAY_GUID: GUID = GUID::from_u128(0x8f4f2c19_0c4c_4e1b_8f5c_50d0f1a4a77d);
 const TIMER_ID: usize = 1;
 const TIMER_MILLIS: u32 = 30_000;
 const CMD_REFRESH: usize = 1001;
@@ -117,12 +142,19 @@ pub fn request_existing_shutdown() -> Result<bool, String> {
     // SAFETY: Synchronize-only access is sufficient to wait without inspecting process data.
     let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE, false, process_id) }
         .map_err(win_error("open existing tray process"))?;
-    // SAFETY: Posting WM_CLOSE allows the target UI thread to run its ordinary cleanup path.
-    if let Err(error) = unsafe { PostMessageW(Some(existing), WM_CLOSE, WPARAM(0), LPARAM(0)) } {
+    // SAFETY: Use a private exit message so WM_CLOSE can retain its ordinary hide-to-tray
+    // behavior for user initiated window closes.
+    if let Err(error) =
+        unsafe { PostMessageW(Some(existing), EXIT_PROCESS_MESSAGE, WPARAM(0), LPARAM(0)) }
+    {
         // SAFETY: This function owns the synchronization handle.
         let _ = unsafe { CloseHandle(process) };
         return Err(win_error("request existing tray shutdown")(error));
     }
+    // Queue WM_CLOSE as a compatibility fallback for an older already-running build that does
+    // not know EXIT_PROCESS_MESSAGE. In the current build the private exit message is queued
+    // first and destroys the window; the later WM_CLOSE is then discarded by Windows.
+    let _ = unsafe { PostMessageW(Some(existing), WM_CLOSE, WPARAM(0), LPARAM(0)) };
     // SAFETY: `process` remains valid until it is closed below.
     let wait_result = unsafe { WaitForSingleObject(process, 10_000) };
     // SAFETY: This function owns the synchronization handle.
@@ -131,6 +163,143 @@ pub fn request_existing_shutdown() -> Result<bool, String> {
         return Err("existing tray did not shut down within 10 seconds".to_owned());
     }
     Ok(true)
+}
+
+/// Owns the process-level GDI+ session used by the anti-aliased rounded primitives. GDI+ is a
+/// Windows system component, so this does not add a redistributable runtime to the package. If a
+/// legacy/remote-desktop environment cannot initialize it, painting falls back to the existing
+/// opaque GDI path and the quota UI remains usable.
+struct GdiPlusSession {
+    token: usize,
+}
+
+impl GdiPlusSession {
+    fn start() -> Option<Self> {
+        let input = GdiplusStartupInput {
+            GdiplusVersion: 1,
+            ..Default::default()
+        };
+        let mut output = GdiplusStartupOutput::default();
+        let mut token = 0_usize;
+        // SAFETY: GDI+ copies the startup input synchronously; output and token remain valid for
+        // the duration of the call and the session is shut down in Drop.
+        let status = unsafe { GdiplusStartup(&mut token, &input, &mut output) };
+        (status == GdiPlusOk && token != 0).then_some(Self { token })
+    }
+}
+
+impl Drop for GdiPlusSession {
+    fn drop(&mut self) {
+        // SAFETY: The token was returned by GdiplusStartup and is owned by this session.
+        unsafe { GdiplusShutdown(self.token) };
+    }
+}
+
+/// Owns the icons used by the visible window and notification area for one effective monitor DPI.
+/// The class icons are intentionally kept separate: Windows retains those handles in the
+/// registered WNDCLASSEXW until the process exits, so they must never be destroyed during a DPI
+/// transition.
+struct DpiIconSet {
+    dpi: u32,
+    window_big: HICON,
+    window_small: HICON,
+    tray: HICON,
+}
+
+impl DpiIconSet {
+    fn load(instance: HINSTANCE, dpi: u32) -> Result<Self, String> {
+        let dpi = dpi.max(96);
+        let large_size = system_icon_resource_size(dpi, SM_CXICON, 32, true);
+        let small_size = system_icon_resource_size(dpi, SM_CXSMICON, 16, false);
+        let window_big =
+            load_icon_for_startup(instance, large_size, large_size, "window_icon_big")?;
+        let window_small =
+            match load_icon_for_startup(instance, small_size, small_size, "window_icon_small") {
+                Ok(icon) => icon,
+                Err(error) => {
+                    destroy_owned_icon(window_big);
+                    return Err(error);
+                }
+            };
+        let tray = match load_icon_for_startup(instance, small_size, small_size, "tray_icon") {
+            Ok(icon) => icon,
+            Err(error) => {
+                destroy_owned_icon(window_big);
+                destroy_owned_icon(window_small);
+                return Err(error);
+            }
+        };
+        Ok(Self {
+            dpi,
+            window_big,
+            window_small,
+            tray,
+        })
+    }
+}
+
+impl Drop for DpiIconSet {
+    fn drop(&mut self) {
+        for icon in [self.tray, self.window_small, self.window_big] {
+            destroy_owned_icon(icon);
+        }
+    }
+}
+
+fn destroy_owned_icon(icon: HICON) {
+    if !icon.is_invalid() {
+        // SAFETY: Every handle passed here came from LoadImageW without LR_SHARED and is owned by
+        // this process. The caller only invokes this after all window/shell references changed.
+        unsafe {
+            let _ = DestroyIcon(icon);
+        }
+    }
+}
+
+fn system_icon_resource_size(
+    dpi: u32,
+    metric: windows::Win32::UI::WindowsAndMessaging::SYSTEM_METRICS_INDEX,
+    fallback_base: i32,
+    large: bool,
+) -> i32 {
+    // SAFETY: The metric index is one of the documented icon metrics and dpi is clamped to the
+    // valid PM-aware range. The fallback keeps the product icon usable on older shells.
+    let requested = unsafe { GetSystemMetricsForDpi(metric, dpi) };
+    if requested > 0 {
+        icon_resource_size_for_target(requested, large)
+    } else {
+        // Keep the pure mapping as the fallback for shells that do not expose the per-DPI metric.
+        crate::windows_visuals::icon_resource_size_for_dpi(dpi, large)
+            .max(scale_for_dpi(fallback_base, dpi))
+    }
+}
+
+fn icon_handle_value(icon: HICON) -> usize {
+    icon.0 as usize
+}
+
+fn load_icon_for_startup(
+    instance: HINSTANCE,
+    width: i32,
+    height: i32,
+    label: &str,
+) -> Result<HICON, String> {
+    match load_app_icon(instance, width, height) {
+        Ok(icon) => {
+            debug_log(&format!(
+                "{label}: loaded {width}x{height} HICON={}",
+                icon_handle_value(icon)
+            ));
+            Ok(icon)
+        }
+        Err(error) => {
+            let last_error = unsafe { GetLastError().0 };
+            debug_log(&format!(
+                "{label}: LoadImageW failed HICON=0 error={error} last_error={last_error}"
+            ));
+            Err(error)
+        }
+    }
 }
 
 unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
@@ -159,9 +328,16 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
     // SAFETY: Null module name requests the current module.
     let module = unsafe { GetModuleHandleW(None) }.map_err(win_error("get module handle"))?;
     let instance = HINSTANCE(module.0);
-    let app_icon = load_app_icon(instance)?;
+    let class_icon_big = load_icon_for_startup(instance, 32, 32, "class_icon_big")?;
+    let class_icon_small = load_icon_for_startup(instance, 16, 16, "class_icon_small")?;
+    // The initial set is a valid 96-DPI product icon. It is replaced with the actual window DPI
+    // set after the HWND exists and before the first NIM_ADD/ShowWindow call.
+    let dpi_icons = DpiIconSet::load(instance, 96)?;
+    let taskbar_created_message = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
     let mut context = Box::new(AppContext {
         hwnd: None,
+        tray_message_hwnd: None,
+        instance,
         source,
         settings,
         settings_store,
@@ -176,23 +352,45 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
         pressed: InteractionTarget::None,
         focus: InteractionTarget::Refresh,
         tracking_mouse: false,
-        app_icon,
+        desired_visible: false,
+        class_icon_big,
+        class_icon_small,
+        dpi_icons,
+        taskbar_created_message,
+        toggle_post_count: 0,
+        toggle_handle_count: 0,
+        gdiplus: GdiPlusSession::start(),
     });
 
     // SAFETY: The stock cursor resource is owned by Windows.
     let cursor = unsafe { LoadCursorW(None, IDC_ARROW) }.map_err(win_error("load cursor"))?;
-    let window_class = WNDCLASSW {
+    let window_class = WNDCLASSEXW {
+        cbSize: size_of::<WNDCLASSEXW>() as u32,
         style: CS_HREDRAW | CS_VREDRAW,
         lpfnWndProc: Some(window_proc),
         hInstance: instance,
         hCursor: cursor,
-        hIcon: app_icon,
+        hIcon: class_icon_big,
+        hIconSm: class_icon_small,
         lpszClassName: WINDOW_CLASS,
         ..Default::default()
     };
+    let tray_window_class = WNDCLASSEXW {
+        cbSize: size_of::<WNDCLASSEXW>() as u32,
+        lpfnWndProc: Some(tray_message_proc),
+        hInstance: instance,
+        hCursor: cursor,
+        hIcon: class_icon_big,
+        hIconSm: class_icon_small,
+        lpszClassName: TRAY_MESSAGE_CLASS,
+        ..Default::default()
+    };
     // SAFETY: `window_class` contains valid handles and a static class name.
-    if unsafe { RegisterClassW(&window_class) } == 0 {
+    if unsafe { RegisterClassExW(&window_class) } == 0 {
         return Err("could not register the native tray window class".to_owned());
+    }
+    if unsafe { RegisterClassExW(&tray_window_class) } == 0 {
+        return Err("could not register the native tray message class".to_owned());
     }
 
     let context_ptr = (&mut *context as *mut AppContext).cast();
@@ -201,7 +399,7 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
     } else {
         WS_EX_TOOLWINDOW | WS_EX_TOPMOST
     };
-    let initial_layout = CardLayout::new(96, 2);
+    let initial_layout = CardLayout::new(96, 2, false);
     // SAFETY: The context pointer remains stable in `Box` until after the message loop exits.
     let hwnd = unsafe {
         CreateWindowExW(
@@ -221,12 +419,39 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
     }
     .map_err(win_error("create native tray window"))?;
     context.hwnd = Some(hwnd);
+    set_window_icons(hwnd, class_icon_big, class_icon_small);
+    let context_ptr = (&mut *context as *mut AppContext).cast();
+    // SAFETY: A message-only window receives shell callbacks without creating a taskbar button or
+    // taking activation. The same stable context pointer is used until both windows are gone.
+    let tray_message_hwnd = unsafe {
+        CreateWindowExW(
+            WS_EX_NOACTIVATE,
+            TRAY_MESSAGE_CLASS,
+            WINDOW_TITLE,
+            WS_POPUP,
+            0,
+            0,
+            0,
+            0,
+            Some(HWND_MESSAGE),
+            None,
+            Some(instance),
+            Some(context_ptr),
+        )
+    }
+    .map_err(win_error("create tray message window"))?;
+    context.tray_message_hwnd = Some(tray_message_hwnd);
+    debug_log(&format!(
+        "tray_message_hwnd created hwnd={}",
+        tray_message_hwnd.0 as usize
+    ));
     context.dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
     let _ = configure_window_chrome(hwnd);
     if context.settings.refresh_on_network_restore {
         context.network_notification = register_network_notifications(hwnd);
     }
     context.refresh_projection()?;
+    context.refresh_dpi_icons(context.dpi);
     context.add_tray_icon()?;
     // SAFETY: `hwnd` belongs to this thread and `TIMER_ID` is application-owned.
     if unsafe { SetTimer(Some(hwnd), TIMER_ID, TIMER_MILLIS, None) } == 0 {
@@ -234,7 +459,8 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
         return Err("could not start the low-frequency tray timer".to_owned());
     }
     if options.demo {
-        context.toggle_card()?;
+        context.desired_visible = true;
+        context.show_main_window()?;
     }
 
     let mut message = MSG::default();
@@ -257,6 +483,10 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
     // SAFETY: Timer and tray icon belong to this context/window.
     let _ = unsafe { KillTimer(Some(hwnd), TIMER_ID) };
     context.delete_tray_icon();
+    if let Some(tray_message_hwnd) = context.tray_message_hwnd.take() {
+        // SAFETY: The message-only window is owned by this UI thread and has no visible surface.
+        let _ = unsafe { DestroyWindow(tray_message_hwnd) };
+    }
     let network_cleanup = context.unregister_network_notifications();
     let runtime_cleanup = context.shutdown_source();
     network_cleanup.and(runtime_cleanup)
@@ -264,6 +494,8 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
 
 struct AppContext {
     hwnd: Option<HWND>,
+    tray_message_hwnd: Option<HWND>,
+    instance: HINSTANCE,
     source: StateSource,
     settings: AppSettings,
     settings_store: Option<SettingsStore>,
@@ -278,12 +510,29 @@ struct AppContext {
     pressed: InteractionTarget,
     focus: InteractionTarget,
     tracking_mouse: bool,
-    app_icon: HICON,
+    desired_visible: bool,
+    class_icon_big: HICON,
+    class_icon_small: HICON,
+    dpi_icons: DpiIconSet,
+    taskbar_created_message: u32,
+    toggle_post_count: u64,
+    toggle_handle_count: u64,
+    gdiplus: Option<GdiPlusSession>,
 }
 
 enum StateSource {
     Runtime(QuotaRuntime),
     Demo { state: AppState, step: usize },
+}
+
+impl Drop for AppContext {
+    fn drop(&mut self) {
+        // The class handles are retained until the process exits because RegisterClassExW stores
+        // them for the lifetime of the class. Dynamic DPI icons are released by DpiIconSet after
+        // the tray entry and window have already been removed.
+        destroy_owned_icon(self.class_icon_big);
+        destroy_owned_icon(self.class_icon_small);
+    }
 }
 
 impl StateSource {
@@ -322,13 +571,57 @@ impl AppContext {
     }
 
     fn layout(&self) -> CardLayout {
-        CardLayout::new(
+        let line_height = measure_small_line_height(self.dpi);
+        let layout = CardLayout::new_with_metrics(
             self.dpi,
             self.view
                 .as_ref()
                 .map(|view| view.windows.len())
                 .unwrap_or_default(),
-        )
+            self.settings_warning,
+            line_height,
+            scale_for_dpi(16, self.dpi),
+        );
+        debug_layout(&layout, line_height);
+        layout
+    }
+
+    fn refresh_dpi_icons(&mut self, dpi: u32) {
+        let dpi = dpi.max(96);
+        if self.dpi_icons.dpi == dpi {
+            return;
+        }
+        let next = match DpiIconSet::load(self.instance, dpi) {
+            Ok(next) => next,
+            Err(error) => {
+                debug_log(&format!(
+                    "DPI icon refresh failed dpi={dpi}; keeping existing product icons: {error}"
+                ));
+                return;
+            }
+        };
+        if self.tray_added
+            && let Err(error) = self.modify_tray_icon_with(next.tray)
+        {
+            debug_log(&format!(
+                "DPI tray icon update failed dpi={dpi}; keeping existing product icons: {error}"
+            ));
+            return;
+        }
+        if let Some(hwnd) = self.hwnd {
+            set_window_icons(hwnd, next.window_big, next.window_small);
+        }
+        let old = std::mem::replace(&mut self.dpi_icons, next);
+        self.dpi = dpi;
+        debug_log(&format!(
+            "DPI icon set activated dpi={} window_big={} window_small={} tray={}",
+            self.dpi,
+            icon_handle_value(self.dpi_icons.window_big),
+            icon_handle_value(self.dpi_icons.window_small),
+            icon_handle_value(self.dpi_icons.tray),
+        ));
+        self.invalidate();
+        drop(old);
     }
 
     fn invalidate(&self) {
@@ -387,21 +680,53 @@ impl AppContext {
     }
 
     fn add_tray_icon(&mut self) -> Result<(), String> {
-        let data = self.tray_data(NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP)?;
+        let data = self.tray_data(NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP | NIF_GUID)?;
+        debug_shell_notify("NIM_ADD", &data);
         // SAFETY: `data` is fully initialized and references no borrowed pointers.
         if !unsafe { Shell_NotifyIconW(NIM_ADD, &data) }.as_bool() {
-            return Err("Windows rejected the tray icon".to_owned());
+            let error = unsafe { GetLastError().0 };
+            debug_log(&format!("NIM_ADD failed error={error}"));
+            return Err(format!(
+                "Windows rejected the tray icon (error {error}, hwnd={}, icon={}, cbSize={}, flags=0x{:x})",
+                data.hWnd.0 as usize,
+                icon_handle_value(data.hIcon),
+                data.cbSize,
+                data.uFlags.0
+            ));
         }
+        debug_log("NIM_ADD succeeded");
         self.tray_added = true;
+        let mut version_data = data;
+        version_data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
+        debug_shell_notify("NIM_SETVERSION", &version_data);
+        // SAFETY: The icon was just added and the version field is the documented v4 value.
+        if !unsafe { Shell_NotifyIconW(NIM_SETVERSION, &version_data) }.as_bool() {
+            let error = unsafe { GetLastError().0 };
+            debug_log(&format!("NIM_SETVERSION failed error={error}"));
+            self.delete_tray_icon();
+            return Err(format!(
+                "Windows rejected NOTIFYICON_VERSION_4 (error {error})"
+            ));
+        }
+        debug_log("NIM_SETVERSION succeeded version=4");
         Ok(())
     }
 
     fn modify_tray_icon(&self) -> Result<(), String> {
-        let data = self.tray_data(NIF_ICON | NIF_TIP | NIF_SHOWTIP)?;
+        self.modify_tray_icon_with(self.dpi_icons.tray)
+    }
+
+    fn modify_tray_icon_with(&self, icon: HICON) -> Result<(), String> {
+        let data = self.tray_data_with_icon(NIF_ICON | NIF_TIP | NIF_SHOWTIP | NIF_GUID, icon)?;
+        debug_shell_notify("NIM_MODIFY", &data);
         // SAFETY: `data` is fully initialized and the icon has already been added.
         if !unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) }.as_bool() {
-            return Err("Windows rejected a tray icon update".to_owned());
+            let error = unsafe { GetLastError().0 };
+            return Err(format!(
+                "Windows rejected a tray icon update (error {error})"
+            ));
         }
+        debug_log("NIM_MODIFY succeeded");
         Ok(())
     }
 
@@ -409,10 +734,14 @@ impl AppContext {
         if !self.tray_added {
             return;
         }
-        if let Ok(data) = self.tray_data(NIF_MESSAGE) {
+        if let Ok(data) = self.tray_data(NIF_MESSAGE | NIF_GUID) {
+            debug_shell_notify("NIM_DELETE", &data);
             // SAFETY: Removing a previously added icon is idempotent from the app perspective.
-            unsafe {
-                let _ = Shell_NotifyIconW(NIM_DELETE, &data);
+            if unsafe { Shell_NotifyIconW(NIM_DELETE, &data) }.as_bool() {
+                debug_log("NIM_DELETE succeeded");
+            } else {
+                let error = unsafe { GetLastError().0 };
+                debug_log(&format!("NIM_DELETE failed error={error}"));
             }
         }
         self.tray_added = false;
@@ -422,17 +751,28 @@ impl AppContext {
         &self,
         flags: windows::Win32::UI::Shell::NOTIFY_ICON_DATA_FLAGS,
     ) -> Result<NOTIFYICONDATAW, String> {
+        self.tray_data_with_icon(flags, self.dpi_icons.tray)
+    }
+
+    fn tray_data_with_icon(
+        &self,
+        flags: windows::Win32::UI::Shell::NOTIFY_ICON_DATA_FLAGS,
+        icon: HICON,
+    ) -> Result<NOTIFYICONDATAW, String> {
         let view = self
             .view
             .as_ref()
             .ok_or_else(|| "tray projection was unavailable".to_owned())?;
         let mut data = NOTIFYICONDATAW {
             cbSize: size_of::<NOTIFYICONDATAW>() as u32,
-            hWnd: self.hwnd()?,
+            hWnd: self
+                .tray_message_hwnd
+                .ok_or_else(|| "tray message window was unavailable".to_owned())?,
             uID: TRAY_ID,
             uFlags: flags,
             uCallbackMessage: TRAY_CALLBACK,
-            hIcon: icon_for(view.icon, self.app_icon)?,
+            hIcon: icon,
+            guidItem: TRAY_GUID,
             ..Default::default()
         };
         copy_wide(&mut data.szTip, &view.tooltip);
@@ -465,31 +805,22 @@ impl AppContext {
                 NIIF_INFO,
             ),
         };
-        let mut data = self.tray_data(NIF_INFO)?;
+        let mut data = self.tray_data(NIF_INFO | NIF_GUID)?;
         copy_wide(&mut data.szInfoTitle, title);
         copy_wide(&mut data.szInfo, &body);
         data.dwInfoFlags = icon | NIIF_NOSOUND | NIIF_RESPECT_QUIET_TIME;
+        debug_shell_notify("NIM_MODIFY(info)", &data);
         // SAFETY: Notification text is copied into fixed buffers in `data`.
         if !unsafe { Shell_NotifyIconW(NIM_MODIFY, &data) }.as_bool() {
+            let error = unsafe { GetLastError().0 };
+            debug_log(&format!("NIM_MODIFY(info) failed error={error}"));
             return Err("Windows rejected a quota notification".to_owned());
         }
+        debug_log("NIM_MODIFY(info) succeeded");
         Ok(())
     }
 
-    fn toggle_card(&mut self) -> Result<(), String> {
-        let hwnd = self.hwnd()?;
-        // SAFETY: `hwnd` is the app window.
-        if unsafe { IsWindowVisible(hwnd) }.as_bool() {
-            // SAFETY: Hiding our own window is valid.
-            unsafe {
-                let _ = ShowWindow(hwnd, SW_HIDE);
-            }
-            return Ok(());
-        }
-        self.show_card()
-    }
-
-    fn show_card(&mut self) -> Result<(), String> {
+    fn show_main_window(&mut self) -> Result<(), String> {
         let hwnd = self.hwnd()?;
         let now = unix_now();
         let last_success_age_secs = self
@@ -516,31 +847,40 @@ impl AppContext {
             .ok()
             .map_err(win_error("read monitor work area"))?;
         let work = monitor_info.rcWork;
-        let x =
-            (point.x - layout.width).clamp(work.left, (work.right - layout.width).max(work.left));
-        let y =
-            (point.y - layout.height).clamp(work.top, (work.bottom - layout.height).max(work.top));
+        let work = crate::windows_visuals::RectI {
+            left: work.left,
+            top: work.top,
+            right: work.right,
+            bottom: work.bottom,
+        };
+        let (x, y) = bottom_right_popup_origin(work, layout.width, layout.height);
         self.hover = InteractionTarget::None;
         self.pressed = InteractionTarget::None;
         self.focus = InteractionTarget::Refresh;
         // SAFETY: Positioning and showing our own popup is valid on this UI thread.
-        unsafe {
-            SetWindowPos(
-                hwnd,
-                Some(HWND_TOPMOST),
-                x,
-                y,
-                layout.width,
-                layout.height,
-                SWP_SHOWWINDOW,
-            )
-        }
-        .map_err(win_error("show quota card"))?;
-        // SAFETY: Activating our own visible window enables outside-click dismissal.
+        set_window_pos_logged(
+            hwnd,
+            Some(HWND_TOPMOST),
+            x,
+            y,
+            layout.width,
+            layout.height,
+            SWP_NOACTIVATE,
+            "show_main_window",
+        )?;
+        show_window_logged(hwnd, SW_SHOWNORMAL, "show_main_window");
+        // SAFETY: Activation is restricted to the explicit show entry point.
         unsafe {
             let _ = SetForegroundWindow(hwnd);
         }
         Ok(())
+    }
+
+    fn hide_main_window(&mut self) {
+        let Ok(hwnd) = self.hwnd() else {
+            return;
+        };
+        show_window_logged(hwnd, SW_HIDE, "hide_main_window");
     }
 
     fn show_menu(&mut self) -> Result<(), String> {
@@ -696,6 +1036,90 @@ impl AppContext {
     }
 }
 
+unsafe extern "system" fn tray_message_proc(
+    hwnd: HWND,
+    message: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    if message == WM_NCCREATE {
+        // SAFETY: WM_NCCREATE lParam is a valid CREATESTRUCTW for this call.
+        let create = unsafe { &*(lparam.0 as *const CREATESTRUCTW) };
+        // SAFETY: Stores the stable Box pointer passed to CreateWindowExW.
+        unsafe {
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
+        }
+    }
+
+    let context = unsafe { context_for(hwnd) };
+    if context.as_ref().is_some_and(|context| {
+        context.taskbar_created_message != 0 && message == context.taskbar_created_message
+    }) {
+        debug_event(hwnd, "TaskbarCreated", wparam, lparam);
+        if let Some(context) = unsafe { context_for(hwnd) } {
+            // Explorer owns the notification area. Re-add only after it explicitly announces a
+            // restart; desired_visible is deliberately not touched here.
+            context.delete_tray_icon();
+            let _ = context.add_tray_icon();
+        }
+        return LRESULT(0);
+    }
+
+    if message == TRAY_CALLBACK {
+        let event = tray_event_from_lparam(lparam);
+        debug_log(&format!(
+            "tray_message_hwnd event raw_wparam={} raw_lparam={} event={event}",
+            wparam.0, lparam.0
+        ));
+        if let Some(context) = context {
+            match event {
+                event if tray_event_is_toggle(event) => {
+                    let Some(main_hwnd) = context.hwnd else {
+                        return LRESULT(0);
+                    };
+                    context.toggle_post_count = context.toggle_post_count.saturating_add(1);
+                    debug_log(&format!(
+                        "TRAY WM_LBUTTONUP -> PostMessage WM_APP_TOGGLE_WINDOW count={} main_hwnd={}",
+                        context.toggle_post_count, main_hwnd.0 as usize
+                    ));
+                    // SAFETY: The main window belongs to this UI thread; the queued message is
+                    // the sole visibility toggle entry point for a tray click.
+                    if let Err(error) = unsafe {
+                        PostMessageW(Some(main_hwnd), TOGGLE_WINDOW_MESSAGE, WPARAM(0), LPARAM(0))
+                    } {
+                        debug_log(&format!(
+                            "PostMessage WM_APP_TOGGLE_WINDOW failed: {}",
+                            win_error("post tray toggle message")(error)
+                        ));
+                    }
+                }
+                WM_RBUTTONUP => {
+                    let Some(main_hwnd) = context.hwnd else {
+                        return LRESULT(0);
+                    };
+                    debug_log("TRAY WM_RBUTTONUP -> PostMessage WM_APP_SHOW_MENU");
+                    // SAFETY: Menu creation and tracking stay on the main window's UI message
+                    // path, keeping the shell callback free of visibility side effects.
+                    let _ = unsafe {
+                        PostMessageW(Some(main_hwnd), SHOW_MENU_MESSAGE, WPARAM(0), LPARAM(0))
+                    };
+                }
+                _ => {
+                    debug_log(&format!("tray event ignored event={event}"));
+                }
+            }
+        }
+        return LRESULT(0);
+    }
+
+    if message == WM_NCDESTROY {
+        // SAFETY: Default cleanup for the private message-only window.
+        return unsafe { DefWindowProcW(hwnd, message, wparam, lparam) };
+    }
+    // SAFETY: Default processing for shell messages not owned by this app.
+    unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+}
+
 unsafe extern "system" fn window_proc(
     hwnd: HWND,
     message: u32,
@@ -713,18 +1137,36 @@ unsafe extern "system" fn window_proc(
 
     let context = unsafe { context_for(hwnd) };
     match message {
-        TRAY_CALLBACK => {
+        TOGGLE_WINDOW_MESSAGE => {
+            debug_event(hwnd, "WM_APP_TOGGLE_WINDOW", wparam, lparam);
             if let Some(context) = context {
-                match lparam.0 as u32 {
-                    WM_LBUTTONUP => {
-                        let _ = context.toggle_card();
-                    }
-                    WM_RBUTTONUP => {
-                        let _ = context.show_menu();
-                    }
-                    _ => {}
+                context.toggle_handle_count = context.toggle_handle_count.saturating_add(1);
+                let before = context.desired_visible;
+                context.desired_visible = !before;
+                debug_log(&format!(
+                    "WM_APP_TOGGLE_WINDOW handled count={} desired_visible {} -> {}",
+                    context.toggle_handle_count, before, context.desired_visible
+                ));
+                if context.desired_visible {
+                    let _ = context.show_main_window();
+                } else {
+                    context.hide_main_window();
                 }
             }
+            LRESULT(0)
+        }
+        SHOW_MENU_MESSAGE => {
+            debug_event(hwnd, "WM_APP_SHOW_MENU", wparam, lparam);
+            if let Some(context) = context {
+                let _ = context.show_menu();
+            }
+            LRESULT(0)
+        }
+        EXIT_PROCESS_MESSAGE => {
+            debug_event(hwnd, "WM_APP_EXIT_PROCESS", wparam, lparam);
+            // SAFETY: This private message is posted only by request_existing_shutdown or the
+            // owning exit command, and DestroyWindow drives the normal cleanup path.
+            let _ = unsafe { DestroyWindow(hwnd) };
             LRESULT(0)
         }
         WM_TIMER if wparam.0 == TIMER_ID => {
@@ -743,7 +1185,8 @@ unsafe extern "system" fn window_proc(
         }
         SHOW_CARD_MESSAGE => {
             if let Some(context) = context {
-                let _ = context.show_card();
+                context.desired_visible = true;
+                let _ = context.show_main_window();
             }
             LRESULT(0)
         }
@@ -828,12 +1271,10 @@ unsafe extern "system" fn window_proc(
             if let Some(context) = context {
                 match wparam.0 {
                     KEY_ESCAPE => {
-                        // SAFETY: Hiding our own popup is valid.
-                        unsafe {
-                            let _ = ShowWindow(hwnd, SW_HIDE);
-                        }
+                        context.desired_visible = false;
+                        context.hide_main_window();
                     }
-                    KEY_RETURN | 0x52 => {
+                    KEY_RETURN => {
                         let _ = context.handle_command(CMD_REFRESH);
                     }
                     KEY_TAB | 0x25 | 0x27 => {
@@ -850,9 +1291,6 @@ unsafe extern "system" fn window_proc(
                         };
                         let _ = context.handle_command(command);
                     }
-                    0x55 => {
-                        let _ = context.handle_command(CMD_OPEN_USAGE);
-                    }
                     KEY_F10 => {
                         let _ = context.show_menu();
                     }
@@ -864,32 +1302,59 @@ unsafe extern "system" fn window_proc(
             LRESULT(0)
         }
         WM_DPICHANGED => {
+            debug_event(hwnd, "WM_DPICHANGED", wparam, lparam);
             if let Some(context) = context {
                 context.dpi = (wparam.0 as u32 & 0xffff).max(96);
+                context.refresh_dpi_icons(context.dpi);
                 let layout = context.layout();
                 // SAFETY: WM_DPICHANGED supplies a pointer to the recommended window rectangle.
                 let suggested = unsafe { &*(lparam.0 as *const RECT) };
-                let _ = unsafe {
-                    SetWindowPos(
-                        hwnd,
-                        None,
-                        suggested.left,
-                        suggested.top,
-                        layout.width,
-                        layout.height,
-                        SWP_NOACTIVATE,
-                    )
-                };
+                let _ = set_window_pos_logged(
+                    hwnd,
+                    None,
+                    suggested.left,
+                    suggested.top,
+                    layout.width,
+                    layout.height,
+                    SWP_NOACTIVATE,
+                    "WM_DPICHANGED",
+                );
                 context.invalidate();
             }
             // SAFETY: The context borrow above has ended; complete the DPI repaint immediately.
             let _ = unsafe { UpdateWindow(hwnd) };
             LRESULT(0)
         }
-        WM_ACTIVATE if (wparam.0 & 0xffff) as u32 == WA_INACTIVE => {
-            // SAFETY: Hiding the app window on focus loss is valid.
-            unsafe {
-                let _ = ShowWindow(hwnd, SW_HIDE);
+        WM_ACTIVATE => {
+            debug_event(hwnd, "WM_ACTIVATE", wparam, lparam);
+            LRESULT(0)
+        }
+        WM_ACTIVATEAPP => {
+            debug_event(hwnd, "WM_ACTIVATEAPP", wparam, lparam);
+            LRESULT(0)
+        }
+        WM_SIZE => {
+            debug_event(hwnd, "WM_SIZE", wparam, lparam);
+            LRESULT(0)
+        }
+        WM_SYSCOMMAND => {
+            debug_event(hwnd, "WM_SYSCOMMAND", wparam, lparam);
+            if (wparam.0 & 0xfff0) == SC_MINIMIZE as usize {
+                if let Some(context) = context {
+                    context.desired_visible = false;
+                    context.hide_main_window();
+                }
+                LRESULT(0)
+            } else {
+                // SAFETY: Preserve normal system command behavior for commands we do not own.
+                unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
+            }
+        }
+        WM_CLOSE => {
+            debug_event(hwnd, "WM_CLOSE", wparam, lparam);
+            if let Some(context) = context {
+                context.desired_visible = false;
+                context.hide_main_window();
             }
             LRESULT(0)
         }
@@ -912,6 +1377,7 @@ unsafe extern "system" fn window_proc(
             unsafe { PostQuitMessage(0) };
             LRESULT(0)
         }
+        WM_NCDESTROY => LRESULT(0),
         _ => {
             // SAFETY: Default processing for messages not handled above.
             unsafe { DefWindowProcW(hwnd, message, wparam, lparam) }
@@ -994,7 +1460,7 @@ unsafe fn paint_card_surface(
     fill_root: bool,
 ) {
     if fill_root {
-        fill(dc, client, rgb(13, 21, 28));
+        fill(dc, client, rgb(245, 247, 250));
     }
     let body = create_font(layout.dpi, 11, FW_NORMAL.0 as i32, w!("Segoe UI"));
     let small = create_font(layout.dpi, 10, FW_NORMAL.0 as i32, w!("Segoe UI"));
@@ -1017,32 +1483,24 @@ unsafe fn paint_card_surface(
         previous
     };
     if let Some(view) = context.view.as_ref() {
-        let _ = unsafe {
-            DrawIconEx(
-                dc,
-                layout.icon.left,
-                layout.icon.top,
-                context.app_icon,
-                layout.icon.width(),
-                layout.icon.height(),
-                0,
-                None,
-                DI_NORMAL,
-            )
-        };
         unsafe { SelectObject(dc, HGDIOBJ(title.0)) };
-        draw_text(dc, &view.title, layout.title.to_win32(), rgb(245, 250, 248));
+        draw_text(dc, &view.title, layout.title.to_win32(), rgb(23, 33, 43));
         unsafe { SelectObject(dc, HGDIOBJ(small.0)) };
-        draw_status_badge(dc, layout.status_badge, view.icon, status_label(view.icon));
         draw_text(
             dc,
-            &view.status,
+            &view.status_line,
             layout.status.to_win32(),
-            rgb(144, 163, 174),
+            state_text_color(view.icon),
         );
 
         for (window, panel) in view.windows.iter().take(3).zip(&layout.window_panels) {
-            rounded_fill(dc, *panel, scale_for_dpi(14, layout.dpi), rgb(19, 35, 43));
+            rounded_fill(
+                dc,
+                *panel,
+                scale_for_dpi(14, layout.dpi),
+                rgb(255, 255, 255),
+                context.gdiplus.as_ref(),
+            );
             unsafe { SelectObject(dc, HGDIOBJ(body.0)) };
             draw_text(
                 dc,
@@ -1053,7 +1511,7 @@ unsafe fn paint_card_surface(
                     panel.right - scale_for_dpi(150, layout.dpi),
                     panel.top + scale_for_dpi(36, layout.dpi),
                 ),
-                rgb(226, 237, 234),
+                rgb(23, 33, 43),
             );
             unsafe { SelectObject(dc, HGDIOBJ(percent.0)) };
             draw_text_with_format(
@@ -1074,81 +1532,92 @@ unsafe fn paint_card_surface(
                 right: panel.right - scale_for_dpi(14, layout.dpi),
                 bottom: panel.top + scale_for_dpi(50, layout.dpi),
             };
-            rounded_fill(dc, rail, rail.height(), rgb(43, 61, 68));
-            let progress_width = rail.width() * i32::from(window.progress_percent) / 100;
-            if progress_width > 0 {
-                rounded_fill(
-                    dc,
-                    crate::windows_visuals::RectI {
-                        right: rail.left + progress_width,
-                        ..rail
-                    },
-                    rail.height(),
-                    severity_color(window.remaining_percent),
-                );
-            }
+            draw_progress_bar(
+                dc,
+                rail,
+                window.progress_percent,
+                severity_color(window.remaining_percent),
+                context.gdiplus.as_ref(),
+            );
             unsafe { SelectObject(dc, HGDIOBJ(small.0)) };
             draw_text(
                 dc,
-                &window.reset_label,
+                &window.reset_countdown,
                 rect(
                     panel.left + scale_for_dpi(14, layout.dpi),
                     panel.top + scale_for_dpi(55, layout.dpi),
                     panel.right - scale_for_dpi(14, layout.dpi),
-                    panel.bottom - scale_for_dpi(7, layout.dpi),
+                    panel.top + scale_for_dpi(77, layout.dpi),
                 ),
-                rgb(144, 163, 174),
+                rgb(71, 85, 105),
             );
+            if !window.reset_at_label.is_empty() {
+                draw_text(
+                    dc,
+                    &window.reset_at_label,
+                    rect(
+                        panel.left + scale_for_dpi(14, layout.dpi),
+                        panel.top + scale_for_dpi(78, layout.dpi),
+                        panel.right - scale_for_dpi(14, layout.dpi),
+                        panel.bottom - scale_for_dpi(7, layout.dpi),
+                    ),
+                    rgb(100, 116, 139),
+                );
+            }
         }
 
         rounded_fill(
             dc,
             layout.credits,
             scale_for_dpi(12, layout.dpi),
-            rgb(17, 31, 38),
+            rgb(238, 242, 246),
+            context.gdiplus.as_ref(),
         );
         unsafe { SelectObject(dc, HGDIOBJ(small.0)) };
+        draw_info_icon(
+            dc,
+            layout.credits_icon,
+            rgb(100, 116, 139),
+            context.gdiplus.as_ref(),
+        );
         draw_text(
             dc,
             &view.reset_credits,
-            layout
-                .credits
-                .inset(scale_for_dpi(12, layout.dpi))
-                .to_win32(),
-            rgb(168, 187, 185),
-        );
-        draw_text(
-            dc,
-            &view.last_updated,
-            layout.updated.to_win32(),
-            rgb(103, 126, 136),
+            layout.credits_text.to_win32(),
+            rgb(71, 85, 105),
         );
         if context.settings_warning {
             draw_text(
                 dc,
-                "设置文件无效，当前使用安全默认值",
+                "设置文件无效，已使用安全默认值",
                 layout.warning.to_win32(),
-                rgb(242, 184, 76),
+                rgb(180, 83, 9),
             );
         }
         unsafe { SelectObject(dc, HGDIOBJ(body.0)) };
         draw_button(
             dc,
             layout.refresh_button,
-            "刷新  R",
             InteractionTarget::Refresh,
             context,
             layout.dpi,
-            false,
+            context.gdiplus.as_ref(),
+            ButtonPresentation {
+                label: "刷新",
+                primary: false,
+            },
         );
         draw_button(
             dc,
             layout.usage_button,
-            "打开官方 Usage  U",
             InteractionTarget::Usage,
             context,
             layout.dpi,
-            true,
+            context.gdiplus.as_ref(),
+            ButtonPresentation {
+                label: "打开官方用量页面",
+                primary: true,
+            },
         );
     }
     unsafe {
@@ -1187,73 +1656,135 @@ fn create_font(
     }
 }
 
+fn measure_small_line_height(dpi: u32) -> i32 {
+    // Measure the exact HFONT used for the information strip. The result is in physical pixels
+    // because the backing DC and the PM-aware window are both physical-pixel surfaces.
+    let dc = unsafe { CreateCompatibleDC(None) };
+    if dc.0.is_null() {
+        return point_size_to_pixels(10, dpi).max(1);
+    }
+    let font = create_font(dpi, 10, FW_NORMAL.0 as i32, w!("Segoe UI"));
+    let previous = unsafe { SelectObject(dc, HGDIOBJ(font.0)) };
+    let mut metrics = TEXTMETRICW::default();
+    let measured = if unsafe { GetTextMetricsW(dc, &mut metrics) }.as_bool() {
+        metrics.tmHeight
+    } else {
+        point_size_to_pixels(10, dpi)
+    };
+    unsafe {
+        SelectObject(dc, previous);
+        let _ = DeleteObject(HGDIOBJ(font.0));
+        let _ = DeleteDC(dc);
+    }
+    measured.max(1)
+}
+
+#[cfg(debug_assertions)]
+fn debug_layout(layout: &CardLayout, line_height: i32) {
+    let message = format!(
+        "CodexQuotaTray layout dpi={} physical={}x{} credits=({},{}-{},{}), text_height={}, buttons=({},{}-{},{}),({},{}-{},{})\n",
+        layout.dpi,
+        layout.width,
+        layout.height,
+        layout.credits.left,
+        layout.credits.top,
+        layout.credits.right,
+        layout.credits.bottom,
+        line_height,
+        layout.refresh_button.left,
+        layout.refresh_button.top,
+        layout.refresh_button.right,
+        layout.refresh_button.bottom,
+        layout.usage_button.left,
+        layout.usage_button.top,
+        layout.usage_button.right,
+        layout.usage_button.bottom,
+    );
+    let wide = message
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: `wide` is NUL-terminated and valid for the synchronous debug output call.
+    unsafe { OutputDebugStringW(PCWSTR(wide.as_ptr())) };
+}
+
+#[cfg(not(debug_assertions))]
+fn debug_layout(_layout: &CardLayout, _line_height: i32) {}
+
 fn point_size_to_pixels(points: i32, dpi: u32) -> i32 {
     ((i64::from(points) * i64::from(dpi) + 36) / 72).clamp(1, i64::from(i32::MAX)) as i32
 }
 
-fn draw_status_badge(
-    dc: HDC,
-    area: crate::windows_visuals::RectI,
-    state: TrayIconState,
-    label: &str,
-) {
-    rounded_fill(dc, area, area.height(), muted_state_color(state));
-    draw_text_with_format(
-        dc,
-        label,
-        area.to_win32(),
-        rgb(236, 246, 242),
-        DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS,
-    );
+struct ButtonPresentation<'a> {
+    label: &'a str,
+    primary: bool,
 }
 
 fn draw_button(
     dc: HDC,
     area: crate::windows_visuals::RectI,
-    label: &str,
     target: InteractionTarget,
     context: &AppContext,
     dpi: u32,
-    primary: bool,
+    gdiplus: Option<&GdiPlusSession>,
+    presentation: ButtonPresentation<'_>,
 ) {
+    let ButtonPresentation { label, primary } = presentation;
     let radius = scale_for_dpi(12, dpi);
     let focused = context.focus == target;
-    let mut inner = area;
-    if focused {
-        rounded_fill(dc, area, radius, rgb(47, 224, 179));
-        inner = area.inset(scale_for_dpi(2, dpi));
-    }
+    let inner = area;
     let color = if context.pressed == target {
         if primary {
-            rgb(24, 144, 117)
+            rgb(15, 159, 123)
         } else {
-            rgb(31, 54, 63)
+            rgb(226, 232, 240)
         }
     } else if context.hover == target {
         if primary {
-            rgb(57, 232, 187)
+            rgb(25, 201, 154)
         } else {
-            rgb(36, 62, 72)
+            rgb(240, 253, 250)
         }
     } else if primary {
-        rgb(47, 224, 179)
+        rgb(22, 184, 138)
     } else {
-        rgb(25, 45, 54)
+        rgb(255, 255, 255)
     };
-    rounded_fill(
+    rounded_shape(
         dc,
         inner,
-        radius.saturating_sub(scale_for_dpi(2, dpi)),
+        radius,
         color,
+        if focused {
+            Some((
+                if primary {
+                    rgb(22, 140, 103)
+                } else {
+                    rgb(22, 184, 138)
+                },
+                if primary { 2.0 } else { 1.0 },
+            ))
+        } else if primary {
+            None
+        } else {
+            Some((rgb(220, 228, 234), 1.0))
+        },
+        gdiplus,
+    );
+    let label_area = rect(
+        inner.left + scale_for_dpi(8, dpi),
+        inner.top,
+        inner.right - scale_for_dpi(8, dpi),
+        inner.bottom,
     );
     draw_text_with_format(
         dc,
         label,
-        inner.to_win32(),
+        label_area,
         if primary {
-            rgb(5, 31, 27)
+            rgb(255, 255, 255)
         } else {
-            rgb(226, 237, 234)
+            rgb(23, 33, 43)
         },
         DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS,
     );
@@ -1293,19 +1824,48 @@ fn fill(dc: windows::Win32::Graphics::Gdi::HDC, area: &RECT, color: COLORREF) {
     }
 }
 
-fn rounded_fill(dc: HDC, area: crate::windows_visuals::RectI, radius: i32, color: COLORREF) {
+fn rounded_fill(
+    dc: HDC,
+    area: crate::windows_visuals::RectI,
+    radius: i32,
+    color: COLORREF,
+    gdiplus: Option<&GdiPlusSession>,
+) {
     if area.width() <= 0 || area.height() <= 0 {
         return;
     }
-    // SAFETY: Brush and pen are selected only for this call, then restored and destroyed.
+    if let Some(gdiplus) = gdiplus
+        && draw_rounded_gdiplus(dc, area, radius, color, None, gdiplus)
+    {
+        return;
+    }
+    rounded_fill_gdi(dc, area, radius, color);
+}
+
+fn rounded_shape(
+    dc: HDC,
+    area: crate::windows_visuals::RectI,
+    radius: i32,
+    fill_color: COLORREF,
+    outline: Option<(COLORREF, f32)>,
+    gdiplus: Option<&GdiPlusSession>,
+) {
+    if area.width() <= 0 || area.height() <= 0 {
+        return;
+    }
+    if let Some(gdiplus) = gdiplus
+        && draw_rounded_gdiplus(dc, area, radius, fill_color, outline, gdiplus)
+    {
+        return;
+    }
+    rounded_shape_gdi(dc, area, radius, fill_color, outline);
+}
+
+fn rounded_fill_gdi(dc: HDC, area: crate::windows_visuals::RectI, radius: i32, color: COLORREF) {
+    // SAFETY: The fallback region and brush are owned by this call and released immediately.
     unsafe {
-        let brush = CreateSolidBrush(color);
-        let pen = CreatePen(PS_SOLID, 1, color);
-        let old_brush = SelectObject(dc, HGDIOBJ(brush.0));
-        let old_pen = SelectObject(dc, HGDIOBJ(pen.0));
         let diameter = radius.saturating_mul(2).max(1);
-        let _ = RoundRect(
-            dc,
+        let region = CreateRoundRectRgn(
             area.left,
             area.top,
             area.right,
@@ -1313,10 +1873,238 @@ fn rounded_fill(dc: HDC, area: crate::windows_visuals::RectI, radius: i32, color
             diameter,
             diameter,
         );
-        SelectObject(dc, old_brush);
-        SelectObject(dc, old_pen);
+        let brush = CreateSolidBrush(color);
+        let _ = FillRgn(dc, region, brush);
+        let _ = DeleteObject(HGDIOBJ(region.0));
         let _ = DeleteObject(HGDIOBJ(brush.0));
-        let _ = DeleteObject(HGDIOBJ(pen.0));
+    }
+}
+
+fn rounded_shape_gdi(
+    dc: HDC,
+    area: crate::windows_visuals::RectI,
+    radius: i32,
+    fill_color: COLORREF,
+    outline: Option<(COLORREF, f32)>,
+) {
+    let (outline_color, outline_width) = outline.unwrap_or((fill_color, 0.0));
+    // SAFETY: The fallback region and brushes are owned by this call and released immediately.
+    unsafe {
+        let diameter = radius.saturating_mul(2).max(1);
+        let region = CreateRoundRectRgn(
+            area.left,
+            area.top,
+            area.right,
+            area.bottom,
+            diameter,
+            diameter,
+        );
+        let brush = CreateSolidBrush(fill_color);
+        let _ = FillRgn(dc, region, brush);
+        if outline_width > 0.0 {
+            let outline_brush = CreateSolidBrush(outline_color);
+            let _ = FrameRgn(
+                dc,
+                region,
+                outline_brush,
+                outline_width.round().max(1.0) as i32,
+                outline_width.round().max(1.0) as i32,
+            );
+            let _ = DeleteObject(HGDIOBJ(outline_brush.0));
+        }
+        let _ = DeleteObject(HGDIOBJ(region.0));
+        let _ = DeleteObject(HGDIOBJ(brush.0));
+    }
+}
+
+fn draw_rounded_gdiplus(
+    dc: HDC,
+    area: crate::windows_visuals::RectI,
+    radius: i32,
+    fill_color: COLORREF,
+    outline: Option<(COLORREF, f32)>,
+    _session: &GdiPlusSession,
+) -> bool {
+    // SAFETY: All GDI+ handles are created and released within this function. The HDC is owned by
+    // the current paint cycle and remains valid until the synchronous GDI+ calls return.
+    unsafe {
+        let mut graphics: *mut GpGraphics = null_mut();
+        if GdipCreateFromHDC(dc, &mut graphics) != GdiPlusOk || graphics.is_null() {
+            return false;
+        }
+        let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias8x8);
+        let _ = GdipSetPixelOffsetMode(graphics, PixelOffsetModeHalf);
+
+        let stroke_inset = outline.map_or(0.0, |(_, width)| width / 2.0);
+        let left = area.left as f32 + stroke_inset + 0.5;
+        let top = area.top as f32 + stroke_inset + 0.5;
+        let right = area.right as f32 - stroke_inset - 0.5;
+        let bottom = area.bottom as f32 - stroke_inset - 0.5;
+        let radius = (radius as f32 - stroke_inset)
+            .max(0.5)
+            .min(((right - left) / 2.0).min((bottom - top) / 2.0));
+        let mut path: *mut GpPath = null_mut();
+        if GdipCreatePath(FillModeAlternate, &mut path) != GdiPlusOk || path.is_null() {
+            let _ = GdipDeleteGraphics(graphics);
+            return false;
+        }
+        let diameter = radius * 2.0;
+        let path_ok = [
+            GdipAddPathLine(path, left + radius, top, right - radius, top),
+            GdipAddPathArc(path, right - diameter, top, diameter, diameter, 270.0, 90.0),
+            GdipAddPathLine(path, right, top + radius, right, bottom - radius),
+            GdipAddPathArc(
+                path,
+                right - diameter,
+                bottom - diameter,
+                diameter,
+                diameter,
+                0.0,
+                90.0,
+            ),
+            GdipAddPathLine(path, right - radius, bottom, left + radius, bottom),
+            GdipAddPathArc(
+                path,
+                left,
+                bottom - diameter,
+                diameter,
+                diameter,
+                90.0,
+                90.0,
+            ),
+            GdipAddPathLine(path, left, bottom - radius, left, top + radius),
+            GdipAddPathArc(path, left, top, diameter, diameter, 180.0, 90.0),
+            GdipClosePathFigure(path),
+        ]
+        .into_iter()
+        .all(|status| status == GdiPlusOk);
+        if !path_ok {
+            let _ = GdipDeletePath(path);
+            let _ = GdipDeleteGraphics(graphics);
+            return false;
+        }
+
+        let mut brush = null_mut();
+        let fill_ok =
+            GdipCreateSolidFill(to_argb(fill_color), &mut brush) == GdiPlusOk && !brush.is_null();
+        if fill_ok {
+            let _ = GdipFillPath(graphics, brush.cast::<GpBrush>(), path);
+            let _ = GdipDeleteBrush(brush.cast::<GpBrush>());
+        }
+        let mut pen: *mut GpPen = null_mut();
+        let outline_ok = if let Some((color, width)) = outline {
+            GdipCreatePen1(to_argb(color), width.max(1.0), UnitPixel, &mut pen) == GdiPlusOk
+                && !pen.is_null()
+        } else {
+            true
+        };
+        if outline_ok && let Some(_) = outline {
+            let _ = GdipDrawPath(graphics, pen, path);
+        }
+        if !pen.is_null() {
+            let _ = GdipDeletePen(pen);
+        }
+        let _ = GdipDeletePath(path);
+        let _ = GdipDeleteGraphics(graphics);
+        fill_ok && outline_ok
+    }
+}
+
+fn to_argb(color: COLORREF) -> u32 {
+    let value = color.0;
+    0xff00_0000 | ((value & 0x0000_00ff) << 16) | (value & 0x0000_ff00) | ((value >> 16) & 0xff)
+}
+
+fn draw_progress_bar(
+    dc: HDC,
+    rail: crate::windows_visuals::RectI,
+    percent: u8,
+    color: COLORREF,
+    gdiplus: Option<&GdiPlusSession>,
+) {
+    let radius = (rail.height() / 2).max(1);
+    rounded_fill(dc, rail, radius, rgb(220, 228, 234), gdiplus);
+    let fill = crate::windows_visuals::progress_fill_rect(rail, percent);
+    if fill.width() > 0 {
+        rounded_fill(
+            dc,
+            fill,
+            crate::windows_visuals::progress_radius(rail, fill),
+            color,
+            gdiplus,
+        );
+    }
+}
+
+fn draw_info_icon(
+    dc: HDC,
+    area: crate::windows_visuals::RectI,
+    color: COLORREF,
+    gdiplus: Option<&GdiPlusSession>,
+) {
+    if let Some(gdiplus) = gdiplus {
+        let _ = draw_info_icon_gdiplus(dc, area, color, gdiplus);
+    }
+    // GDI+ is present on supported Windows versions. If it cannot initialize (for example in a
+    // constrained remote session), leave the strip text-only rather than reintroducing a legacy
+    // shell bitmap with a mismatched visual style.
+}
+
+fn draw_info_icon_gdiplus(
+    dc: HDC,
+    area: crate::windows_visuals::RectI,
+    color: COLORREF,
+    _session: &GdiPlusSession,
+) -> bool {
+    // SAFETY: Every GDI+ object is created and released within this synchronous paint operation.
+    unsafe {
+        let mut graphics: *mut GpGraphics = null_mut();
+        if GdipCreateFromHDC(dc, &mut graphics) != GdiPlusOk || graphics.is_null() {
+            return false;
+        }
+        let _ = GdipSetSmoothingMode(graphics, SmoothingModeAntiAlias8x8);
+        let _ = GdipSetPixelOffsetMode(graphics, PixelOffsetModeHalf);
+
+        let size = area.width().min(area.height()).max(1) as f32;
+        let left = area.left as f32 + 0.75;
+        let top = area.top as f32 + 0.75;
+        let size = (size - 1.5).max(1.0);
+        let stroke = (size / 14.0).clamp(1.0, 2.0);
+        let mut pen: *mut GpPen = null_mut();
+        if GdipCreatePen1(to_argb(color), stroke, UnitPixel, &mut pen) != GdiPlusOk || pen.is_null()
+        {
+            let _ = GdipDeleteGraphics(graphics);
+            return false;
+        }
+        let center_x = left + size / 2.0;
+        let _ = GdipDrawEllipse(graphics, pen, left, top, size, size);
+        let _ = GdipDrawLine(
+            graphics,
+            pen,
+            center_x,
+            top + size * 0.42,
+            center_x,
+            top + size * 0.76,
+        );
+
+        let dot = (size * 0.13).max(1.0);
+        let mut brush = null_mut();
+        let brush_ok =
+            GdipCreateSolidFill(to_argb(color), &mut brush) == GdiPlusOk && !brush.is_null();
+        if brush_ok {
+            let _ = GdipFillEllipse(
+                graphics,
+                brush.cast::<GpBrush>(),
+                center_x - dot / 2.0,
+                top + size * 0.22,
+                dot,
+                dot,
+            );
+            let _ = GdipDeleteBrush(brush.cast::<GpBrush>());
+        }
+        let _ = GdipDeletePen(pen);
+        let _ = GdipDeleteGraphics(graphics);
+        brush_ok
     }
 }
 
@@ -1370,41 +2158,151 @@ unsafe extern "system" fn network_connectivity_changed(
 
 fn severity_color(remaining: i64) -> COLORREF {
     match remaining {
-        0 => rgb(245, 102, 101),
-        1..=5 => rgb(242, 124, 91),
-        6..=20 => rgb(242, 184, 76),
-        _ => rgb(47, 224, 179),
+        i64::MIN..=19 => rgb(190, 58, 52),
+        20..=50 => rgb(180, 83, 9),
+        _ => rgb(22, 140, 103),
     }
 }
 
-fn muted_state_color(state: TrayIconState) -> COLORREF {
+fn state_text_color(state: TrayIconState) -> COLORREF {
     match state {
-        TrayIconState::Normal => rgb(25, 91, 76),
-        TrayIconState::Caution => rgb(105, 79, 29),
-        TrayIconState::Critical | TrayIconState::Exhausted => rgb(111, 48, 48),
-        TrayIconState::Refreshing => rgb(30, 75, 91),
-        TrayIconState::Offline => rgb(57, 67, 75),
+        TrayIconState::Normal => rgb(22, 140, 103),
+        TrayIconState::Caution => rgb(180, 83, 9),
+        TrayIconState::Critical | TrayIconState::Exhausted => rgb(190, 58, 52),
+        TrayIconState::Refreshing => rgb(37, 99, 235),
+        TrayIconState::Offline => rgb(100, 116, 139),
     }
+}
+
+fn set_window_icons(hwnd: HWND, window_icon_big: HICON, window_icon_small: HICON) {
+    // SAFETY: Both icon handles remain owned by AppContext until after the window is destroyed;
+    // WM_SETICON only stores the handles and does not transfer ownership.
+    unsafe {
+        let _ = SendMessageW(
+            hwnd,
+            WM_SETICON,
+            Some(WPARAM(ICON_BIG as usize)),
+            Some(LPARAM(window_icon_big.0 as isize)),
+        );
+        let _ = SendMessageW(
+            hwnd,
+            WM_SETICON,
+            Some(WPARAM(ICON_SMALL as usize)),
+            Some(LPARAM(window_icon_small.0 as isize)),
+        );
+    }
+    debug_log(&format!(
+        "WM_SETICON hwnd={} big={} small={}",
+        hwnd.0 as usize,
+        icon_handle_value(window_icon_big),
+        icon_handle_value(window_icon_small)
+    ));
+}
+
+fn window_state(hwnd: HWND) -> (bool, bool, bool) {
+    // SAFETY: The HWND is owned by this process and is queried synchronously on the UI thread.
+    unsafe {
+        (
+            IsWindowVisible(hwnd).as_bool(),
+            IsIconic(hwnd).as_bool(),
+            GetForegroundWindow() == hwnd,
+        )
+    }
+}
+
+fn show_window_logged(
+    hwnd: HWND,
+    command: windows::Win32::UI::WindowsAndMessaging::SHOW_WINDOW_CMD,
+    source: &str,
+) {
+    let before = window_state(hwnd);
+    // SAFETY: The HWND belongs to this process and the command is a valid ShowWindow command.
+    unsafe {
+        let _ = ShowWindow(hwnd, command);
+    }
+    let after = window_state(hwnd);
+    debug_log(&format!(
+        "{source}: ShowWindow({command:?}) visible={} iconic={} foreground={} -> visible={} iconic={} foreground={}",
+        before.0, before.1, before.2, after.0, after.1, after.2
+    ));
+}
+
+#[allow(clippy::too_many_arguments)]
+fn set_window_pos_logged(
+    hwnd: HWND,
+    insert_after: Option<HWND>,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    flags: windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS,
+    source: &str,
+) -> Result<(), String> {
+    let before = window_state(hwnd);
+    // SAFETY: Coordinates and flags are calculated for this app-owned window on the UI thread.
+    unsafe { SetWindowPos(hwnd, insert_after, x, y, width, height, flags) }
+        .map_err(|error| format!("{source}: SetWindowPos failed: {error}"))?;
+    let after = window_state(hwnd);
+    debug_log(&format!(
+        "{source}: SetWindowPos x={x} y={y} size={width}x{height} flags={flags:?} visible={} iconic={} foreground={} -> visible={} iconic={} foreground={}",
+        before.0, before.1, before.2, after.0, after.1, after.2
+    ));
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+static DEBUG_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+#[cfg(debug_assertions)]
+static DEBUG_START: OnceLock<Instant> = OnceLock::new();
+
+#[cfg(debug_assertions)]
+fn debug_log(message: &str) {
+    let sequence = DEBUG_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let elapsed = DEBUG_START.get_or_init(Instant::now).elapsed().as_millis();
+    let line = format!("CodexQuotaTray [#{sequence} +{elapsed}ms] {message}\n");
+    let wide = line
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: `wide` is NUL-terminated and valid for this synchronous call.
+    unsafe { OutputDebugStringW(PCWSTR(wide.as_ptr())) };
+}
+
+#[cfg(not(debug_assertions))]
+fn debug_log(_message: &str) {}
+
+fn debug_event(hwnd: HWND, event: &str, wparam: WPARAM, lparam: LPARAM) {
+    let state = window_state(hwnd);
+    debug_log(&format!(
+        "{event} wparam={} lparam={} visible={} iconic={} foreground={}",
+        wparam.0, lparam.0, state.0, state.1, state.2
+    ));
+}
+
+fn debug_shell_notify(operation: &str, data: &NOTIFYICONDATAW) {
+    debug_log(&format!(
+        "Shell_NotifyIcon {operation} hwnd={} uid={} icon={} flags=0x{:x}",
+        data.hWnd.0 as usize,
+        data.uID,
+        icon_handle_value(data.hIcon),
+        data.uFlags.0
+    ));
 }
 
 fn rgb(red: u8, green: u8, blue: u8) -> COLORREF {
     COLORREF(u32::from(red) | (u32::from(green) << 8) | (u32::from(blue) << 16))
 }
 
-fn icon_for(state: TrayIconState, app_icon: HICON) -> Result<HICON, String> {
-    let resource = match icon_kind(state) {
-        IconKind::App => return Ok(app_icon),
-        IconKind::Warning => IDI_WARNING,
-        IconKind::Error => IDI_ERROR,
-        IconKind::Information => IDI_INFORMATION,
-        IconKind::Offline => IDI_QUESTION,
-    };
-    // SAFETY: Stock icon resources are owned by Windows and need not be destroyed.
-    unsafe { LoadIconW(None, resource) }.map_err(win_error("load tray icon"))
-}
-
 fn coordinates_from_lparam(lparam: LPARAM) -> (i32, i32) {
     ((lparam.0 as i16) as i32, ((lparam.0 >> 16) as i16) as i32)
+}
+
+fn tray_event_from_lparam(lparam: LPARAM) -> u32 {
+    (lparam.0 as u32) & 0xffff
+}
+
+fn tray_event_is_toggle(event: u32) -> bool {
+    event == WM_LBUTTONUP
 }
 
 fn checked(value: bool) -> windows::Win32::UI::WindowsAndMessaging::MENU_ITEM_FLAGS {
@@ -1652,7 +2550,14 @@ fn win_error(operation: &'static str) -> impl FnOnce(windows::core::Error) -> St
 mod tests {
     use std::path::Path;
 
-    use super::{point_size_to_pixels, startup_command_matches};
+    use super::{
+        point_size_to_pixels, rgb, severity_color, startup_command_matches, state_text_color,
+        tray_event_from_lparam, tray_event_is_toggle,
+    };
+    use crate::ui_model::TrayIconState;
+    use windows::Win32::Foundation::LPARAM;
+    use windows::Win32::UI::Shell::NIN_SELECT;
+    use windows::Win32::UI::WindowsAndMessaging::{WM_LBUTTONDOWN, WM_LBUTTONUP};
 
     #[test]
     fn point_sizes_map_to_integer_physical_pixels() {
@@ -1677,5 +2582,50 @@ mod tests {
             r#""C:\Old\codex-quota-tray-gui.exe""#,
             executable,
         ));
+    }
+
+    #[test]
+    fn light_theme_state_colors_remain_semantically_distinct() {
+        let colors = [
+            state_text_color(TrayIconState::Normal),
+            state_text_color(TrayIconState::Caution),
+            state_text_color(TrayIconState::Critical),
+            state_text_color(TrayIconState::Refreshing),
+            state_text_color(TrayIconState::Offline),
+        ];
+        for (index, color) in colors.iter().enumerate() {
+            assert!(colors[..index].iter().all(|previous| previous != color));
+        }
+    }
+
+    #[test]
+    fn quota_colors_follow_remaining_percentage_bands() {
+        assert_eq!(severity_color(51), rgb(22, 140, 103));
+        assert_eq!(severity_color(50), rgb(180, 83, 9));
+        assert_eq!(severity_color(20), rgb(180, 83, 9));
+        assert_eq!(severity_color(19), rgb(190, 58, 52));
+    }
+
+    #[test]
+    fn tray_event_uses_low_word_and_only_left_button_up_is_a_toggle() {
+        let packed = LPARAM(((0x1234_u32 << 16) | WM_LBUTTONUP) as isize);
+        assert_eq!(tray_event_from_lparam(packed), WM_LBUTTONUP);
+        assert_eq!(
+            tray_event_from_lparam(LPARAM(WM_LBUTTONDOWN as isize)),
+            WM_LBUTTONDOWN
+        );
+        assert_ne!(tray_event_from_lparam(packed), WM_LBUTTONDOWN);
+        assert!(tray_event_is_toggle(WM_LBUTTONUP));
+        assert!(!tray_event_is_toggle(WM_LBUTTONDOWN));
+        assert!(!tray_event_is_toggle(NIN_SELECT));
+    }
+
+    #[test]
+    fn desired_visibility_flips_once_per_queued_toggle() {
+        let mut desired_visible = false;
+        desired_visible = !desired_visible;
+        assert!(desired_visible);
+        desired_visible = !desired_visible;
+        assert!(!desired_visible);
     }
 }

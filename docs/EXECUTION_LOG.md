@@ -1,12 +1,65 @@
 # Execution Log
 
+## 2026-07-17 — Popup header icon removal
+
+- Removed the decorative application icon from the popup header after manual DPI checks showed
+  that its Win32 `HICON` rasterization remained visibly soft.
+- Reclaimed the icon column for the title and status text, aligning both with the quota panels.
+- Kept the embedded PE icon, window icons, notification-area icon, and flat information glyph.
+
+## 2026-07-17 — 0.1.4 tray icon and visibility root-cause repair
+
+- Loaded the embedded PE icon resources synchronously before class registration and removed all
+  stock `IDI_QUESTION`/`IDI_INFORMATION`/`IDI_APPLICATION` fallback paths. The first `NIM_ADD`
+  carries the product HICON and is followed by `NIM_SETVERSION` 4; `TaskbarCreated` alone can
+  trigger a delete/re-add cycle.
+- Moved shell callbacks to an independent `HWND_MESSAGE`; only `WM_LBUTTONUP` (the low word of
+  the Version 4 callback) posts one `WM_APP_TOGGLE_WINDOW`. Visibility now comes only from the
+  UI-thread `desired_visible` state, without focus-loss hiding, timers, or debounce suppression.
+- Debug logs use a monotonic sequence and elapsed milliseconds. In the Codex desktop runner,
+  `Shell_NotifyIconW(NIM_ADD)` returned `E_FAIL` (2147500037), so a real Explorer notification
+  smoke was unavailable; the release path reports the error instead of showing a placeholder.
+
+## 2026-07-17 — DPI-native icon rendering correction
+
+- Confirmed the remaining blur was caused by fixed 32px/16px HICON handles being enlarged by
+  `DrawIconEx` and the window shell at 125%–200% DPI; the PE ICO already contained the required
+  16/20/24/32/40/48/64/128/256 frames.
+- Added a DPI icon set separate from the registered class icons. The UI icon now uses the same
+  physical rectangle size as `CardLayout`, while window and tray icons select the nearest larger
+  embedded frame using per-DPI system metrics.
+- `WM_DPICHANGED` loads all replacement handles first, updates the tray/window references, then
+  releases the old dynamic set. A failed reload keeps the previous valid product icons.
+
+## 2026-07-16 — 0.1.4 light UI and tray toggle
+
+- Removed the rounded status badge; status remains as semantic text with normal, caution, critical, refreshing, and offline colors.
+- Switched the opaque card to the light palette (`#F5F7FA` root, white quota panels, dark primary text, mint primary action) while preserving ClearType Natural and Per-Monitor V2.
+- Anchored the card to the active monitor `rcWork` lower-right corner above the taskbar, with clamping for negative coordinates and small work areas.
+- The final visibility path is handled by the independent tray message window and queued
+  `WM_APP_TOGGLE_WINDOW`; focus loss is not used to hide the card.
+
+## 2026-07-17 — compact quota card presentation
+
+- Merged the update label and last-update timestamp into one title-area status line, with explicit refreshing and retry wording.
+- Replaced the single quota reset sentence with separate countdown and local-date rows, normalized `Plus` casing, and shortened the reset-credit notice to a low-weight Chinese information strip.
+- Recomputed card height from 0–3 quota panels and optional settings warnings; buttons now follow the information strip without a reserved blank footer.
+- Updated button labels and removed the R/U shortcut hints and key commands; Enter, Tab/arrow focus, Space, F10, and Esc remain unchanged.
+
+## 2026-07-17 — Inno Setup release installer
+
+- Added `installer/CodexQuotaTray.iss` for a per-user Inno Setup 7 installer with embedded application icon, Start Menu shortcut, default HKCU autostart task, upgrade shutdown, and generated uninstaller.
+- Added `scripts/package-inno.ps1` to build the locked x64 release and invoke `ISCC.exe`; it fails with an actionable message when Inno Setup is not installed.
+- The formal uninstaller preserves `%LOCALAPPDATA%\CodexQuotaTray` user data while removing the installed executable, shortcut, and autostart value.
+
 ## Current state
 
 - P0 complete.
 - P1 service core complete; the independent real-process soak ran for 76,251 seconds (21 h 11 min) before the user explicitly ended the remaining monitoring window.
 - P2 native Win32 tray host and P3 host-event/quiet-time integration implemented.
 - P4 reproducible per-user ZIP packaging, isolated install/upgrade/uninstall smoke, privacy notice, dependency inventory, and unsigned release strategy implemented locally.
-- 85 tests pass at the final P4/MVP gate.
+- 103 tests pass at the final P4/MVP gate, including the offline icon-event and desired-visibility
+  checks.
 - MVP remains read-only.
 
 ## Next milestone
@@ -601,3 +654,24 @@ Run the final Rust and package gates, record the 30-minute native-host sample, c
 ### Next task
 
 Do not resume the stopped soak automatically. Before a public release, execute the Windows 10/DPI matrix, organization-controlled signing and provenance flow, and a separately scheduled seven-day soak.
+## 2026-07-17 — 0.1.4 tray icon and visibility root-cause repair
+
+### Completed
+
+- Removed the initial stock-question tray icon path. Release resources are loaded synchronously from the current HINSTANCE before class registration; the window class, `WM_SETICON`, and the first `NIM_ADD` all receive owned product HICON handles. `NIM_SETVERSION` is applied immediately, and all owned handles are released only during shutdown.
+- Added `scripts/verify-pe-icon.ps1`, which reads `RT_GROUP_ICON #101` and its `RT_ICON` children directly from the built PE. The verified release binary contains nine 32-bit frames: 16, 20, 24, 32, 40, 48, 64, 128 and 256 pixels.
+- Moved shell callbacks to a dedicated `HWND_MESSAGE`. With notification icon version 4, only the low-word `WM_LBUTTONUP` event posts `WM_APP_TOGGLE_WINDOW`; double-click, button-down and `NIN_SELECT` events are ignored for toggling. Explorer restart is the only path that re-adds the icon.
+- Replaced visibility reads, focus-loss timers and 200 ms suppression with the UI-thread `desired_visible` state. Exactly one queued toggle flips it and calls the corresponding show/hide helper; activation, repaint, refresh and DPI messages cannot change visibility.
+- Added debug sequence numbers and monotonic elapsed milliseconds for shell events, toggle posts/handling, visibility transitions, icon loading and Shell_NotifyIcon operations. Logs contain no account or protocol data.
+
+### Root causes
+
+- The startup `?` was the notification-area icon selected by the initial offline projection (`IDI_QUESTION`), not the taskbar/Alt+Tab/title icon. The previous runtime modification happened after `NIM_ADD`.
+- The second-click flash was a race between the tray callback and the old `WM_ACTIVATE/WA_INACTIVE` 80 ms hide timer. The callback now targets an independent message-only window and has a single event entry point.
+
+### Verification
+
+- `cargo fmt --all -- --check`: passed.
+- `cargo clippy --all-targets --all-features --locked --offline -- -D warnings`: passed.
+- `cargo test --all-targets --locked --offline`: passed (all offline tests).
+- Release PE verification: passed for `RT_GROUP_ICON #101` and nine child icon frames.

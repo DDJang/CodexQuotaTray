@@ -35,9 +35,9 @@ pub struct TrayView {
     pub tooltip: String,
     pub title: String,
     pub status: String,
+    pub status_line: String,
     pub windows: Vec<QuotaWindowView>,
     pub reset_credits: String,
-    pub last_updated: String,
     pub can_refresh: bool,
 }
 
@@ -46,7 +46,8 @@ pub struct QuotaWindowView {
     pub name: String,
     pub percent_label: String,
     pub progress_percent: u8,
-    pub reset_label: String,
+    pub reset_countdown: String,
+    pub reset_at_label: String,
     pub remaining_percent: i64,
 }
 
@@ -65,19 +66,16 @@ pub fn project_tray_view(state: &AppState, now: i64, preferences: ViewPreference
     let icon = icon_state(state, &windows);
     let status = status_text(state);
     let tooltip = tooltip_text(state, &windows, &status);
-    let last_updated = state.last_success_at.map_or_else(
-        || "尚无成功更新".to_owned(),
-        |timestamp| format!("最后更新 {}", format_local_time(timestamp, preferences)),
-    );
+    let status_line = status_line(state, preferences);
 
     TrayView {
         icon,
         tooltip,
         title: account_title(&state.auth),
         status,
+        status_line,
         windows,
-        reset_credits: "重置次数：当前 App Server 版本未提供".to_owned(),
-        last_updated,
+        reset_credits: "当前服务端暂未提供重置次数".to_owned(),
         can_refresh: !matches!(state.data, DataState::Refreshing { .. }),
     }
 }
@@ -99,13 +97,12 @@ fn project_window(window: &QuotaWindow, now: i64, preferences: ViewPreferences) 
         window.used_percent
     }
     .clamp(0, 100) as u8;
-    let reset_label = window.resets_at.map_or_else(
-        || "未提供重置时间".to_owned(),
+    let (reset_countdown, reset_at_label) = window.resets_at.map_or_else(
+        || ("未提供重置时间".to_owned(), String::new()),
         |timestamp| {
-            format!(
-                "{} 重置 · {}",
-                format_local_time(timestamp, preferences),
-                format_countdown(timestamp, now)
+            (
+                format_countdown(timestamp, now),
+                format_reset_time(timestamp, preferences),
             )
         },
     );
@@ -114,7 +111,8 @@ fn project_window(window: &QuotaWindow, now: i64, preferences: ViewPreferences) 
         name: window_display_name(window),
         percent_label,
         progress_percent,
-        reset_label,
+        reset_countdown,
+        reset_at_label,
         remaining_percent: window.remaining_percent,
     }
 }
@@ -181,11 +179,42 @@ fn account_title(auth: &AuthState) -> String {
     match auth {
         AuthState::Authenticated { plan_type } => plan_type.as_ref().map_or_else(
             || "Codex 用量".to_owned(),
-            |plan| format!("Codex 用量 · {plan}"),
+            |plan| format!("Codex 用量 · {}", display_plan_name(plan)),
         ),
         AuthState::ApiKey => "Codex · API Key 计费".to_owned(),
         AuthState::Bedrock => "Codex · Amazon Bedrock".to_owned(),
         _ => "Codex 用量".to_owned(),
+    }
+}
+
+fn display_plan_name(plan: &str) -> &str {
+    if plan.eq_ignore_ascii_case("plus") {
+        "Plus"
+    } else {
+        plan
+    }
+}
+
+fn status_line(state: &AppState, preferences: ViewPreferences) -> String {
+    if !matches!(&state.auth, AuthState::Authenticated { .. })
+        || !matches!(
+            &state.compatibility,
+            VersionCompatibility::Unknown | VersionCompatibility::Match { .. }
+        )
+    {
+        return status_text(state);
+    }
+    match &state.data {
+        DataState::Refreshing { .. } => "正在更新…".to_owned(),
+        DataState::Fresh => state.last_success_at.map_or_else(
+            || "● 已更新".to_owned(),
+            |timestamp| format!("● 已更新 · {}", format_status_time(timestamp, preferences)),
+        ),
+        DataState::Empty if matches!(state.auth, AuthState::Unknown) => "正在连接…".to_owned(),
+        DataState::Empty => "● 更新失败 · 点击刷新重试".to_owned(),
+        DataState::Stale | DataState::Offline | DataState::Unavailable => {
+            "● 更新失败 · 点击刷新重试".to_owned()
+        }
     }
 }
 
@@ -250,32 +279,58 @@ fn status_text_for_supported_account(state: &AppState) -> String {
 }
 
 fn format_local_time(timestamp: i64, preferences: ViewPreferences) -> String {
+    format_with_pattern(timestamp, preferences, "%m-%d %H:%M", "%m-%d %I:%M %p")
+}
+
+fn format_status_time(timestamp: i64, preferences: ViewPreferences) -> String {
+    format_local_time(timestamp, preferences)
+}
+
+fn format_reset_time(timestamp: i64, preferences: ViewPreferences) -> String {
+    format_with_pattern(
+        timestamp,
+        preferences,
+        "%m月%d日 %H:%M",
+        "%m月%d日 %I:%M %p",
+    )
+}
+
+fn format_with_pattern(
+    timestamp: i64,
+    preferences: ViewPreferences,
+    twenty_four_hour: &str,
+    twelve_hour: &str,
+) -> String {
     let Some(value) = Local.timestamp_opt(timestamp, 0).single() else {
         return "无效时间".to_owned();
     };
     if preferences.use_24_hour_time {
-        value.format("%m-%d %H:%M").to_string()
+        value.format(twenty_four_hour).to_string()
     } else {
-        value.format("%m-%d %I:%M %p").to_string()
+        value.format(twelve_hour).to_string()
     }
 }
 
 fn format_countdown(timestamp: i64, now: i64) -> String {
     let remaining = timestamp.saturating_sub(now);
     if remaining <= 0 {
-        return "等待服务端更新".to_owned();
+        return "即将重置".to_owned();
     }
     let minutes = (remaining + 59) / 60;
     let days = minutes / (24 * 60);
     let hours = (minutes % (24 * 60)) / 60;
     let minutes = minutes % 60;
+    let mut parts = Vec::with_capacity(3);
     if days > 0 {
-        format!("还有 {days}天{hours}小时")
-    } else if hours > 0 {
-        format!("还有 {hours}小时{minutes}分钟")
-    } else {
-        format!("还有 {minutes}分钟")
+        parts.push(format!("{days}天"));
     }
+    if hours > 0 {
+        parts.push(format!("{hours}小时"));
+    }
+    if minutes > 0 {
+        parts.push(format!("{minutes}分钟"));
+    }
+    format!("{}后重置", parts.join(" "))
 }
 
 pub fn window_display_name(window: &QuotaWindow) -> String {
