@@ -1,7 +1,7 @@
 # CodexQuotaTray 技术设计
 
 文档状态：只读 MVP、Win32 host 与本地打包已实现；公开发布 gate 尚未全部满足
-协议基线：`codex-cli 0.137.0` stable App Server schema
+协议基线：`codex-cli 0.144.5` stable App Server schema
 最后更新：2026-07-18
 
 ## 1. 事实、要求与设计决定
@@ -48,7 +48,9 @@
 
 ### 3.3 Reset credit 限制
 
-- **已确认** 0.137.0 stable 和 experimental schema 均未提供 `rateLimitResetCredits.availableCount`。
+- **已确认** 0.144.5 stable schema 在 `account/rateLimits/read` 顶层提供可空的 `rateLimitResetCredits`；其中 `availableCount` 是权威数量，`credits` 可空且可能是截断明细。
+- **客户端设计** 协议兼容性采用能力检测：初始化和实际读取成功即启用功能，不用 CLI 版本字符串做相等性门禁。稀疏 updated 通知不会清空完整读取保存的重置卡快照。
+- **隐私边界** 重置卡 opaque ID、标题、描述和原始响应不进入 UI、日志、诊断或持久化；UI 仅投影权威数量、明细条数和可解析的最早到期时间。
 - **已确认** 当前 `credits { hasCredits, unlimited, balance }` 是通用 credits snapshot，不能解释为 reset-credit 次数。
 - **已确认** 当前生成 schema 没有 reset-credit 消费方法。
 - **设计结论** 在 schema 提供明确只读数量前，产品状态必须是“重置次数不可用”，不能显示 0，也不能根据 credits 推断。
@@ -81,7 +83,7 @@ JsonlTransport ──► JsonRpcClient ──► ProtocolDecoder ──► Quota
 - **当前实现 — `runtime`**：把 supervisor 连接代次、握手、并发只读 RPC、refresh coordinator、稀疏通知和 reducer 串为一个长期后台 worker；公开接口只暴露 normalized snapshot、刷新触发和幂等 shutdown report。
 - **当前实现 — `persistence`**：settings 与 quota cache 分文件；cache 只保存匿名窗口数字和版本 provenance，恢复为 stale，I/O/corruption 只产生匿名 warning。
 - **当前实现 — `ui_model`**：把 normalized `AppState` 投影为 tray icon severity、tooltip、card rows、reset-unavailable 和可操作状态文案；不引用 wire types。
-- **当前实现 — `alerts`**：纯内存阈值 reducer 按窗口/周期追踪 20%、5%、耗尽和恢复，首次观察不提醒，同阈值同周期只提醒一次。
+- **当前实现 — `alerts`**：阈值 reducer 按窗口/周期追踪 50%、20% 和 10%，通过带 schema version 的本地状态跨重启去重；首次观察与新启用阈值只建立基线。
 - **当前实现 — `windows_tray`**：使用 Win32 Shell/WindowsAndMessaging/GDI/Registry adapter 呈现 `ui_model`、触发只读 runtime refresh、发出系统提醒并管理最小设置；不接触 wire JSON、token 或账户标识。
 
 ## 5. 进程生命周期
@@ -150,16 +152,16 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 - **当前实现** stderr 始终由独立线程排空，仅聚合 `stderr_observed`，不保存或传播原始文本。
 - **当前实现** 非零退出、stdin 写失败、stdout EOF 和显式 transport 恢复均可进入同一 bounded restart path；shutdown 可中断 backoff。
 - 读取请求失败使用同样上限，但不得重启仍然健康的 App Server，除非 transport 已关闭。
-- 主动读取请求最小间隔 10 秒；并发刷新合并为一个 in-flight 请求。
+- 自动、通知和系统事件触发的主动读取最小间隔为 10 秒；显式手动刷新在没有 in-flight 时立即执行，并发刷新仍合并为一个 in-flight 请求。
 - 认证模式不支持和 schema version mismatch 不进行无意义的快速重试。
 
 ### 6.3 Refresh coordinator
 
 - **当前实现** 同一时间最多一个 quota refresh；并发触发合并为一个最高优先级 pending reason。
-- **当前实现** 主动刷新最小间隔为 10 秒，请求 deadline 为 15 秒，无事件时每 10 分钟生成 fallback refresh。
-- **当前实现** startup、manual、rate-limit notification、resume、network restored、card opened 和 fallback 使用同一调度路径。
+- **当前实现** 非手动主动刷新最小间隔为 10 秒，请求 deadline 为 15 秒；显式手动刷新跳过空闲节流但不绕过单 in-flight。UI 在首次启动同步、运行时 refreshing 或短暂手动反馈期间启用临时 100ms 状态轮询，完成后立即停止；因此刷新完成不依赖重新打开卡片或 30 秒空闲计时器。Auto、固定 5/15/30 分钟与 ManualOnly 由统一策略生成调度。
+- **当前实现** startup、manual、rate-limit notification、resume、network restored、card opened 和 scheduled 使用同一调度路径。
 - **当前实现** 未知或重复 completion 不修改当前 in-flight；request ID 单调且不回绕。
-- **已确认** 纯虚拟时间测试重放 24 小时，始终最多一个 in-flight，并只产生 1 次 startup 加 144 次 fallback。
+- **已确认** 纯虚拟时间测试覆盖五种模式、唯一请求 ID、单 in-flight、合并、超时、失败退避、成功复位和模式热更新。
 - **当前实现** runtime executor 每次逻辑 refresh 同时发出 `account/read` 与 `account/rateLimits/read`，按请求 ID 等待各自响应；通知先执行安全稀疏合并，再经最小间隔调度一次权威完整补读。
 - **当前实现** card-open 只在没有成功数据或数据至少 60 秒未更新时映射到 `CardOpened`；`PBT_APMRESUMEAUTOMATIC` 和 Windows Network Connectivity Hint 的 InternetAccess 分别映射到 `Resume` 与 `NetworkRestored`。映射本身是纯函数，最终仍受同一 coordinator 限流。
 
@@ -170,11 +172,11 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 - **当前实现（0.1.4）** `windows_visuals` 以逻辑像素生成 0–3 个额度窗口的统一布局，96/120/144/192 DPI 均由同一几何数据驱动绘制和 hit-test。状态徽章区域已移除，状态作为标题下方的语义颜色文本；GUI 入口显式验证 PerMonitorV2，资源脚本以标准 `RT_MANIFEST` 数值类型 24 嵌入清单；卡片显示前读取光标所在显示器的有效 DPI，并使用 `rcWork.right - width` / `rcWork.bottom - height` 定位到任务栏上方，继续处理 `WM_DPICHANGED`。
 - **当前实现（0.1.4）** 用户提供的 24-bit PNG 保留为源资源；构建脚本生成抗锯齿、透明圆角的 32-bit preview 以及 16–256 px ICO，并验证 Alpha 与九个 frame。构建期 `embed-resource` 只调用 Windows resource compiler，将 icon 与 manifest 链接到 EXE；它不进入运行时。应用在注册窗口类前从当前 HINSTANCE 同步加载 32px、16px 和独立托盘 HICON；正常、离线和刷新初始状态均使用产品托盘图标，不使用 `IDI_QUESTION`、`IDI_INFORMATION` 或 `IDI_APPLICATION` 占位回退。`scripts/verify-pe-icon.ps1` 会从最终 PE 的 `RT_GROUP_ICON #101` 读取并验证 16/20/24/32/48/256 等尺寸及其 `RT_ICON` 子资源。
 - **当前实现（DPI 图标清晰度）** 注册窗口类的启动图标与当前 DPI 的窗口大/小图标、托盘图标分离管理。窗口和托盘尺寸通过 `GetSystemMetricsForDpi` 选择不小于目标物理尺寸的内嵌 ICO frame；弹出卡片标题区采用纯文本布局，不再绘制易受 Shell HICON 栅格化影响的装饰图标。`WM_DPICHANGED` 先加载完整的新窗口/托盘图标集合，替换成功后才释放旧动态句柄；加载失败保留旧产品图标并记录诊断日志，不显示系统占位图标。
-- **当前实现** UI 每 30 秒只重新投影内存 snapshot 以更新时间文案；它不发网络请求。网络读取仍由 P1 的事件优先/10 分钟 fallback coordinator 控制。
+- **当前实现** UI 每 30 秒只重新投影内存 snapshot 以更新时间文案；它不直接发网络请求。所有主动读取都经可配置的 refresh coordinator 控制。
 - **当前实现** 30 秒 timer 仅在投影内容实际变化时 invalidates/repaints；状态/通知由事件即时投递，正常倒计时最多每分钟改变一次，避免无变化的 GDI 重绘占用空闲 CPU。
 - **当前实现** JSON-RPC dispatcher 的空闲阻塞检查保持 25 ms，supervisor/runtime 为 250 ms；请求仍使用独立 15 秒 deadline，stdio 到达会立即唤醒 dispatcher。dispatcher 不放宽，因为当前收发互斥边界下会延迟并发写入并破坏可靠性测试。
 - **当前实现** 单实例按固定 window class 发现；再次启动只激活已有实例。安装器/卸载器可使用 `--shutdown-existing` 请求正常退出。
-- **当前实现** connectivity callback 只把 HWND 值作为 callback context，并向 UI 线程投递自定义消息；不跨线程借用 Rust 状态。注销失败不会跳过 runtime shutdown，且 10 分钟 fallback 仍覆盖 monitor 不可用。
+- **当前实现** connectivity callback 只把 HWND 值作为 callback context，并向 UI 线程投递自定义消息；不跨线程借用 Rust 状态。注销失败不会跳过 runtime shutdown，后续调度仍由当前刷新模式决定。
 - **当前实现** quota balloon 加入 `NIIF_RESPECT_QUIET_TIME | NIIF_NOSOUND`，让 Windows 安静时段/专注设置决定展示，并避免应用自行播放声音。
 - **当前实现** 卡片使用 normalized tooltip 作为动态窗口标题，提供 `Enter` 刷新、`Tab`/方向键焦点移动、`Space` 执行当前操作、`F10` 菜单和 `Esc` 关闭；标准 Win32 popup menu 是主要键盘/辅助技术命令面。
 - **当前实现（0.1.4）** 托盘使用独立的 `HWND_MESSAGE` 消息窗口作为 `NOTIFYICONDATAW.hWnd`。`NOTIFYICON_VERSION_4` 回调只取 `LOWORD(lParam)`，仅 `WM_LBUTTONUP` 投递一次 `WM_APP_TOGGLE_WINDOW`；右键通过独立消息投递菜单。主 UI 线程以 `desired_visible` 作为唯一显隐状态源，显示时再次单击隐藏、隐藏时单击显示。刷新、绘制、布局、DPI 和 `WM_ACTIVATE/WM_ACTIVATEAPP` 只记录或重绘，不自动隐藏，也没有失焦定时器或点击防抖。Explorer 仅在 `TaskbarCreated` 后重新执行 `NIM_DELETE → NIM_ADD → NIM_SETVERSION`，不改变显隐状态。
@@ -293,3 +295,13 @@ QuotaState:
 - `rateLimitsByLimitId` 可能包含多个未知 bucket；UI 设计前必须先验证 domain ordering 和命名策略。
 - 当前只在 Windows 11 10.0.26200 x64 做过手工托盘 smoke；Windows 10 与不同 DPI/多显示器组合仍需发布前验证。
 - 自绘 quota rows 没有逐项 UIA 节点；当前以动态聚合标题、键盘快捷键和标准系统菜单提供最低可访问路径。
+
+## 11. 0.2.0 提醒与刷新架构
+
+- `RefreshCoordinator` 是 Startup、Manual、CardOpened、Resume、NetworkRestored、RateLimitNotification 和 Scheduled 的唯一入口，维持单 in-flight，并以单调时钟安排自动区间、固定间隔和 1/2/5/15 分钟退避。
+- `ManualOnly` 只允许显式 Manual 主动读取；transport 仍初始化并监听推送。无可靠基线的稀疏推送不会被猜测为完整快照。
+- stale 门槛由纯函数计算：普通模式为 `max(15 分钟, 有效刷新间隔 × 2)`，ManualOnly 为 60 分钟；认证/兼容错误、刷新中和最近失败优先于 stale。
+- 提醒 reducer 只使用协议层验证后的原始 remaining percentage，跨越定义为 `previous > threshold && current <= threshold`。首次状态和新启用阈值只建基线，不补发历史通知。
+- `alert-state.json` 先于 Windows 通知原子写入，形成 at-most-once、优先防重复语义。通知系统失败允许漏发；产品不保证通知一定可见。
+- 周期比较使用 UTC。reset 时间需向后推进 `max(5 分钟, 窗口时长一半)`；仅缺少可靠时间时才使用“上升至少 50 点且达到 80%”的备用规则。
+- 稳定 `limit_id` 仅在内存中计算 SHA-256，磁盘保存的是本地伪匿名标识；原始 ID、账户信息和 limit name 均不持久化。

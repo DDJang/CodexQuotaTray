@@ -35,7 +35,12 @@ pub fn account_state(response: &AccountReadResponse) -> AccountState {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResetCreditsState {
-    UnavailableInSchema,
+    Unavailable,
+    Available {
+        available_count: i64,
+        detail_count: usize,
+        valid_expirations: Vec<i64>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +50,9 @@ pub struct QuotaWindow {
     pub source_slot: &'static str,
     pub used_percent: i64,
     pub remaining_percent: i64,
+    /// False when the server supplied an out-of-range value that was clamped only for display.
+    /// Alert evaluation must never use such a value.
+    pub percentage_valid: bool,
     pub window_duration_mins: Option<i64>,
     pub resets_at: Option<i64>,
 }
@@ -105,8 +113,31 @@ pub fn summarize_rate_limits(response: &RateLimitsReadResponse) -> QuotaSummary 
     QuotaSummary {
         windows,
         issues,
-        reset_credits: ResetCreditsState::UnavailableInSchema,
+        reset_credits: summarize_reset_credits(response),
         rate_limit_reached,
+    }
+}
+
+fn summarize_reset_credits(response: &RateLimitsReadResponse) -> ResetCreditsState {
+    let Some(summary) = response.rate_limit_reset_credits.as_ref() else {
+        return ResetCreditsState::Unavailable;
+    };
+    let detail_count = summary.credits.as_ref().map_or(0, Vec::len);
+    let mut valid_expirations = summary
+        .credits
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|credit| credit.expires_at)
+        .filter(|timestamp| {
+            *timestamp >= 0 && Local.timestamp_opt(*timestamp, 0).single().is_some()
+        })
+        .collect::<Vec<_>>();
+    valid_expirations.sort_unstable();
+    ResetCreditsState::Available {
+        available_count: summary.available_count.max(0),
+        detail_count,
+        valid_expirations,
     }
 }
 
@@ -172,6 +203,7 @@ fn append_window(
         });
     }
 
+    let percentage_valid = (0..=100).contains(&raw_used_percent);
     let used_percent = raw_used_percent.clamp(0, 100);
     windows.push(QuotaWindow {
         limit_id: effective_limit_id,
@@ -179,6 +211,7 @@ fn append_window(
         source_slot,
         used_percent,
         remaining_percent: 100 - used_percent,
+        percentage_valid,
         window_duration_mins: window.window_duration_mins,
         resets_at: window.resets_at,
     });

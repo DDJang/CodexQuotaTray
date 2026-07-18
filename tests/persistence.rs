@@ -5,10 +5,12 @@ use std::process;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use codex_quota_tray::persistence::{
-    AppSettings, PersistenceError, PersistencePaths, QuotaCacheStore, SettingsStore,
+    AlertStateStore, AppSettings, PersistedAlertState, PersistedAlertWindow, PersistenceError,
+    PersistencePaths, QuotaCacheStore, SettingsStore,
 };
 use codex_quota_tray::protocol::RateLimitsReadResponse;
 use codex_quota_tray::quota::AccountState;
+use codex_quota_tray::refresh::RefreshMode;
 use codex_quota_tray::state::{AppState, AppStateReducer, DataState, StateEvent};
 
 #[test]
@@ -19,10 +21,10 @@ fn settings_default_and_round_trip_are_bounded_and_forward_compatible() {
 
     let mut settings = AppSettings {
         start_with_windows: true,
-        fallback_refresh_minutes: 15,
+        refresh_mode: RefreshMode::Every15Minutes,
         ..AppSettings::default()
     };
-    settings.notifications.recovered = false;
+    settings.notifications.remaining_10_percent = false;
     store.save(&settings).unwrap();
     assert_eq!(store.load().unwrap(), settings);
 
@@ -35,6 +37,44 @@ fn settings_default_and_round_trip_are_bounded_and_forward_compatible() {
     )
     .unwrap();
     assert_eq!(store.load().unwrap(), settings);
+}
+
+#[test]
+fn alert_state_round_trip_is_versioned_and_pseudonymous() {
+    let fixture = PersistenceFixture::new("alert-state");
+    let store = AlertStateStore::new(fixture.paths.alert_state.clone());
+    let state = PersistedAlertState {
+        schema_version: 1,
+        baseline_thresholds: vec![50],
+        windows: vec![PersistedAlertWindow {
+            pseudonymous_key: format!("sha256:{}", "a".repeat(64)),
+            window_duration_mins: Some(10_080),
+            resets_at_utc: Some(1_800_000_000),
+            last_remaining_percent: 19,
+            handled_thresholds: vec![20],
+        }],
+    };
+    store.save(&state).unwrap();
+    assert_eq!(store.load().unwrap(), Some(state));
+    let persisted = fs::read_to_string(&fixture.paths.alert_state).unwrap();
+    assert!(!persisted.contains("limitId"));
+    assert!(persisted.contains("schemaVersion"));
+}
+
+#[test]
+fn legacy_refresh_and_notification_settings_migrate_once() {
+    let fixture = PersistenceFixture::new("migration");
+    fs::create_dir_all(&fixture.paths.directory).unwrap();
+    fs::write(&fixture.paths.settings, br#"{"fallbackRefreshMinutes":15,"notifications":{"remaining20Percent":false,"remaining5Percent":false,"exhausted":false,"recovered":false}}"#).unwrap();
+    let store = SettingsStore::new(fixture.paths.settings.clone());
+    let settings = store.load().unwrap();
+    assert_eq!(settings.refresh_mode, RefreshMode::Every15Minutes);
+    assert!(!settings.notifications.remaining_20_percent);
+    assert!(!settings.notifications.remaining_10_percent);
+    store.save(&settings).unwrap();
+    let saved = fs::read_to_string(&fixture.paths.settings).unwrap();
+    assert!(!saved.contains("fallbackRefreshMinutes"));
+    assert!(!saved.contains("remaining5Percent"));
 }
 
 #[test]

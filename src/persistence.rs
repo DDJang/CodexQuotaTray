@@ -6,14 +6,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::quota::{QuotaSummary, QuotaWindow, ResetCreditsState};
+use crate::refresh::RefreshMode;
 use crate::state::AppState;
 
 const FORMAT_VERSION: u32 = 1;
 const MAX_FILE_BYTES: u64 = 64 * 1024;
 const MAX_CACHED_WINDOWS: usize = 32;
+pub const ALERT_STATE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PersistenceError {
@@ -47,6 +49,7 @@ pub struct PersistencePaths {
     pub directory: PathBuf,
     pub settings: PathBuf,
     pub quota_cache: PathBuf,
+    pub alert_state: PathBuf,
 }
 
 impl PersistencePaths {
@@ -62,19 +65,20 @@ impl PersistencePaths {
         Self {
             settings: directory.join("settings.json"),
             quota_cache: directory.join("quota-cache.json"),
+            alert_state: directory.join("alert-state.json"),
             directory,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(default, rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub start_with_windows: bool,
     pub show_remaining_percent: bool,
     pub use_24_hour_time: bool,
     pub persist_quota_cache: bool,
-    pub fallback_refresh_minutes: u16,
+    pub refresh_mode: RefreshMode,
     pub refresh_on_network_restore: bool,
     pub notifications: NotificationSettings,
 }
@@ -86,7 +90,7 @@ impl Default for AppSettings {
             show_remaining_percent: true,
             use_24_hour_time: true,
             persist_quota_cache: true,
-            fallback_refresh_minutes: 10,
+            refresh_mode: RefreshMode::Auto,
             refresh_on_network_restore: true,
             notifications: NotificationSettings::default(),
         }
@@ -95,30 +99,193 @@ impl Default for AppSettings {
 
 impl AppSettings {
     pub fn validate(&self) -> Result<(), PersistenceError> {
-        if !(1..=60).contains(&self.fallback_refresh_minutes) {
-            return Err(PersistenceError::InvalidData);
-        }
         Ok(())
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(default, rename_all = "camelCase")]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct NotificationSettings {
+    pub remaining_50_percent: bool,
     pub remaining_20_percent: bool,
-    pub remaining_5_percent: bool,
-    pub exhausted: bool,
-    pub recovered: bool,
+    pub remaining_10_percent: bool,
 }
 
 impl Default for NotificationSettings {
     fn default() -> Self {
         Self {
+            remaining_50_percent: false,
             remaining_20_percent: true,
-            remaining_5_percent: true,
-            exhausted: true,
-            recovered: true,
+            remaining_10_percent: true,
         }
+    }
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct AppSettingsWire {
+    start_with_windows: bool,
+    show_remaining_percent: Option<bool>,
+    use_24_hour_time: Option<bool>,
+    persist_quota_cache: Option<bool>,
+    refresh_mode: Option<RefreshMode>,
+    fallback_refresh_minutes: Option<u16>,
+    refresh_on_network_restore: Option<bool>,
+    notifications: Option<NotificationSettings>,
+}
+
+impl<'de> Deserialize<'de> for AppSettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = AppSettingsWire::deserialize(deserializer)?;
+        if wire
+            .fallback_refresh_minutes
+            .is_some_and(|minutes| !(1..=60).contains(&minutes))
+        {
+            return Err(serde::de::Error::custom(
+                "legacy refresh interval was outside the supported range",
+            ));
+        }
+        let defaults = Self::default();
+        let refresh_mode = wire
+            .refresh_mode
+            .unwrap_or(match wire.fallback_refresh_minutes {
+                Some(5) => RefreshMode::Every5Minutes,
+                Some(15) => RefreshMode::Every15Minutes,
+                Some(30) => RefreshMode::Every30Minutes,
+                _ => RefreshMode::Auto,
+            });
+        Ok(Self {
+            start_with_windows: wire.start_with_windows,
+            show_remaining_percent: wire
+                .show_remaining_percent
+                .unwrap_or(defaults.show_remaining_percent),
+            use_24_hour_time: wire.use_24_hour_time.unwrap_or(defaults.use_24_hour_time),
+            persist_quota_cache: wire
+                .persist_quota_cache
+                .unwrap_or(defaults.persist_quota_cache),
+            refresh_mode,
+            refresh_on_network_restore: wire
+                .refresh_on_network_restore
+                .unwrap_or(defaults.refresh_on_network_restore),
+            notifications: wire.notifications.unwrap_or_default(),
+        })
+    }
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct NotificationSettingsWire {
+    remaining_50_percent: Option<bool>,
+    remaining_20_percent: Option<bool>,
+    remaining_10_percent: Option<bool>,
+    remaining_5_percent: Option<bool>,
+    exhausted: Option<bool>,
+    recovered: Option<bool>,
+}
+
+impl<'de> Deserialize<'de> for NotificationSettings {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let wire = NotificationSettingsWire::deserialize(deserializer)?;
+        let legacy = wire.remaining_5_percent.is_some()
+            || wire.exhausted.is_some()
+            || wire.recovered.is_some();
+        let remaining_20_percent = wire.remaining_20_percent.unwrap_or(true);
+        let remaining_10_percent = wire.remaining_10_percent.unwrap_or_else(|| {
+            if legacy {
+                wire.remaining_5_percent.unwrap_or(false) || wire.exhausted.unwrap_or(false)
+            } else {
+                true
+            }
+        });
+        Ok(Self {
+            remaining_50_percent: wire.remaining_50_percent.unwrap_or(false),
+            remaining_20_percent,
+            remaining_10_percent,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedAlertState {
+    pub schema_version: u32,
+    pub baseline_thresholds: Vec<u8>,
+    pub windows: Vec<PersistedAlertWindow>,
+}
+
+impl Default for PersistedAlertState {
+    fn default() -> Self {
+        Self {
+            schema_version: ALERT_STATE_SCHEMA_VERSION,
+            baseline_thresholds: Vec::new(),
+            windows: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PersistedAlertWindow {
+    pub pseudonymous_key: String,
+    pub window_duration_mins: Option<i64>,
+    pub resets_at_utc: Option<i64>,
+    pub last_remaining_percent: i64,
+    pub handled_thresholds: Vec<u8>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AlertStateStore {
+    path: PathBuf,
+}
+
+impl AlertStateStore {
+    pub fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    pub fn load(&self) -> Result<Option<PersistedAlertState>, PersistenceError> {
+        let state = read_json::<PersistedAlertState>(&self.path)?;
+        if let Some(state) = state.as_ref()
+            && (state.schema_version != ALERT_STATE_SCHEMA_VERSION
+                || state
+                    .baseline_thresholds
+                    .iter()
+                    .any(|threshold| !matches!(threshold, 10 | 20 | 50))
+                || state.windows.len() > MAX_CACHED_WINDOWS
+                || state.windows.iter().any(|window| {
+                    window.pseudonymous_key.is_empty()
+                        || window.pseudonymous_key.len() > 160
+                        || !(0..=100).contains(&window.last_remaining_percent)
+                        || window
+                            .handled_thresholds
+                            .iter()
+                            .any(|threshold| !matches!(threshold, 10 | 20 | 50))
+                }))
+        {
+            return Err(PersistenceError::InvalidData);
+        }
+        Ok(state)
+    }
+
+    pub fn save(&self, state: &PersistedAlertState) -> Result<(), PersistenceError> {
+        if state.schema_version != ALERT_STATE_SCHEMA_VERSION
+            || state.windows.len() > MAX_CACHED_WINDOWS
+        {
+            return Err(PersistenceError::InvalidData);
+        }
+        write_json(&self.path, state)
+    }
+
+    pub fn clear(&self) -> Result<(), PersistenceError> {
+        remove_if_exists(&self.path)?;
+        remove_if_exists(&backup_path(&self.path))?;
+        remove_if_exists(&temporary_path(&self.path))
     }
 }
 
@@ -248,7 +415,7 @@ impl CacheFile {
             summary: QuotaSummary {
                 windows,
                 issues: Vec::new(),
-                reset_credits: ResetCreditsState::UnavailableInSchema,
+                reset_credits: ResetCreditsState::Unavailable,
                 rate_limit_reached: false,
             },
             last_success_at: self.last_success_at,
@@ -298,6 +465,7 @@ impl CachedWindow {
             },
             used_percent: self.used_percent,
             remaining_percent: 100 - self.used_percent,
+            percentage_valid: true,
             window_duration_mins: self.window_duration_mins,
             resets_at: self.resets_at,
         })

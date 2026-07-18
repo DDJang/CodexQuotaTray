@@ -161,21 +161,21 @@ impl CardLayout {
         };
         let mut window_panels = Vec::with_capacity(window_count);
         for index in 0..window_count {
-            let top = 82 + index as i32 * 112;
-            window_panels.push(logical_rect(18, top, 382, top + 104));
+            let top = 82 + index as i32 * 96;
+            window_panels.push(logical_rect(18, top, 382, top + 88));
         }
         let last_panel_bottom = if window_count == 0 {
             82
         } else {
-            82 + (window_count as i32 - 1) * 112 + 104
+            82 + (window_count as i32 - 1) * 96 + 88
         };
-        let credits_top = last_panel_bottom + 10;
-        let credits_padding = scale(8);
+        let credits_top = last_panel_bottom + 8;
+        let credits_padding = scale(3);
         let credits_content_height = credits_line_height.max(credits_icon_size).max(1);
         let credits_height = credits_content_height + credits_padding * 2;
         let credits_bottom = credits_top
             + ((credits_height * i32::try_from(BASE_DPI).unwrap_or(96)
-                + i32::try_from(dpi / 2).unwrap_or(48))
+                + i32::try_from(dpi.saturating_sub(1)).unwrap_or(95))
                 / i32::try_from(dpi).unwrap_or(96));
         let warning_top = credits_bottom + 8;
         let warning = if show_warning {
@@ -198,7 +198,7 @@ impl CardLayout {
             bottom: icon_top + credits_icon_size,
         };
         let credits_text = RectI {
-            left: credits.left + credits_padding + credits_icon_size + scale(8),
+            left: credits.left + credits_padding + credits_icon_size + scale(6),
             top: credits.top + credits_padding,
             right: credits.right - credits_padding,
             bottom: credits.bottom - credits_padding,
@@ -490,7 +490,7 @@ mod tests {
             let line_height = scale_for_dpi(14, dpi);
             let icon_size = scale_for_dpi(16, dpi);
             let layout = CardLayout::new_with_metrics(dpi, 0, false, line_height, icon_size);
-            let padding = scale_for_dpi(8, dpi);
+            let padding = scale_for_dpi(3, dpi);
             let content_height = line_height.max(icon_size);
             assert!(layout.credits.height() >= content_height + padding * 2);
             assert!(

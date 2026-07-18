@@ -2,13 +2,14 @@
 
 CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过本机 `codex app-server` 显示 Codex 额度窗口、剩余百分比和重置时间。
 
-当前版本为 `0.1.4`，支持 Windows 10/11，使用 Rust 与原生 Win32/GDI 实现，不包含 Electron、WebView 或浏览器运行时。
+当前版本为 `0.2.0`，支持 Windows 10/11，使用 Rust 与原生 Win32/GDI 实现，不包含 Electron、WebView 或浏览器运行时。
 
 ## 功能边界
 
 - 动态展示 App Server 返回的全部额度窗口，不把 `primary` 或 `secondary` 固定解释为特定周期。
 - 展示剩余百分比、重置时间、倒计时以及 fresh、refreshing、stale、offline 等状态。
-- 支持手动刷新、10 分钟兜底刷新、系统恢复/网络恢复刷新和额度阈值提醒。
+- 支持自动、5/15/30 分钟和仅手动五种刷新模式；所有触发源由同一个单 in-flight 协调器管理。
+- 50%/20%/10% 剩余额度提醒可独立启用（默认关闭 50%，开启 20% 和 10%），跨重启优先防重复。
 - 使用 Codex CLI 已有的认证，不读取浏览器 Cookie、Token 文件、网页 DOM、对话或项目代码。
 - 当前 App Server schema 不提供权威的重置次数；应用明确显示“暂未提供”，不会从 `credits.balance` 猜测。
 - MVP 始终只读，不包含额度重置消费操作。
@@ -19,7 +20,7 @@ CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过�
 |---|---|
 | `src/` | App Server 管理、JSON-RPC、协议类型、额度模型、状态与 Win32 UI |
 | `tests/` | 完全离线的单元/集成测试和匿名协议 fixture |
-| `schemas/` | `codex-cli 0.137.0` 生成的协议基线与版本记录 |
+| `schemas/` | `codex-cli 0.144.5` 生成的协议基线与版本记录 |
 | `assets/` | 应用图标、manifest 和 Windows 资源定义 |
 | `scripts/` | 图标生成、ZIP/Inno Setup 打包及产物验证 |
 | `packaging/` | ZIP 包内使用的安装/卸载脚本 |
@@ -68,6 +69,8 @@ cargo build --release --bin codex-quota-tray-gui
 
 卡片聚焦时：`Enter` 刷新，`Tab`/方向键切换按钮，`Space` 执行，`F10` 打开菜单，`Esc` 隐藏。
 
+托盘菜单可调整“额度提醒”和“刷新间隔”。“仅手动”模式只在用户明确点击刷新时主动读取；启动、窗口打开、系统/网络恢复和周期调度均不会发起额度读取，但仍允许安全合并服务端主动推送。
+
 ## 打包
 
 生成并验证免管理员 ZIP 包：
@@ -87,8 +90,8 @@ pwsh -NoProfile -File .\scripts\package-inno.ps1
 
 ## 协议升级
 
-当前协议基线是 `codex-cli 0.137.0`。升级 Codex CLI 后需要重新生成 schema、更新 `schemas/CODEX_VERSION`、检查 schema diff，并补充匿名 fixture 回归测试：
+当前协议基线是 `codex-cli 0.144.5`。运行时通过实际初始化和 `account/rateLimits/read` 能力检测兼容性；较新的 CLI 版本本身不会触发界面错误。升级协议基线时需要重新生成 schema、更新 `schemas/CODEX_VERSION`、检查 schema diff，并补充匿名 fixture 回归测试：
 
 ```powershell
-codex app-server generate-json-schema --out schemas
+codex app-server generate-json-schema --out schemas/codex-0.144.5
 ```

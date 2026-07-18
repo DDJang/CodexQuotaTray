@@ -89,7 +89,10 @@ pub struct AppState {
     pub last_success_at: Option<i64>,
     pub last_attempt_at: Option<i64>,
     pub source_cli_version: Option<String>,
+    pub rate_limits_read_succeeded: bool,
+    pub reset_credits_field_present: bool,
     pub last_failure: Option<FailureKind>,
+    pub stale_after_secs: i64,
     pub warnings: Vec<WarningCode>,
 }
 
@@ -104,7 +107,10 @@ impl Default for AppState {
             last_success_at: None,
             last_attempt_at: None,
             source_cli_version: None,
+            rate_limits_read_succeeded: false,
+            reset_credits_field_present: false,
             last_failure: None,
+            stale_after_secs: STALE_AFTER_SECS,
             warnings: Vec::new(),
         }
     }
@@ -152,6 +158,10 @@ pub enum StateEvent {
         kind: FailureKind,
     },
     Tick {
+        now: i64,
+    },
+    StaleThresholdUpdated {
+        seconds: i64,
         now: i64,
     },
 }
@@ -238,6 +248,23 @@ impl AppStateReducer {
             }
             StateEvent::RefreshFailed { at, kind } => self.refresh_failed(at, kind),
             StateEvent::Tick { now } => self.tick(now),
+            StateEvent::StaleThresholdUpdated { seconds, now } => {
+                self.state.stale_after_secs = seconds.max(STALE_AFTER_SECS);
+                let stale = self.is_stale(now);
+                self.state.data = match self.state.data.clone() {
+                    DataState::Fresh | DataState::Stale => self.data_state_for_age(now),
+                    DataState::Refreshing {
+                        previous: StableDataState::Fresh | StableDataState::Stale,
+                    } => DataState::Refreshing {
+                        previous: if stale {
+                            StableDataState::Stale
+                        } else {
+                            StableDataState::Fresh
+                        },
+                    },
+                    other => other,
+                };
+            }
         }
         &self.state
     }
@@ -267,6 +294,8 @@ impl AppStateReducer {
         received_at: i64,
         source_cli_version: Option<String>,
     ) {
+        self.state.rate_limits_read_succeeded = true;
+        self.state.reset_credits_field_present = response.rate_limit_reset_credits.is_some();
         let summary = summarize_rate_limits(&response);
         if summary.windows.is_empty() {
             self.push_warning(WarningCode::IncompleteQuota);
@@ -289,6 +318,18 @@ impl AppStateReducer {
 
     fn patch_rate_limits(&mut self, patch: RateLimitSnapshot, received_at: i64) {
         let Some(current) = self.rate_limits.as_ref() else {
+            if patch_is_self_contained(&patch) {
+                self.replace_rate_limits(
+                    RateLimitsReadResponse {
+                        rate_limit_reset_credits: None,
+                        rate_limits: Some(patch),
+                        rate_limits_by_limit_id: None,
+                    },
+                    received_at,
+                    self.state.source_cli_version.clone(),
+                );
+                return;
+            }
             self.push_warning(WarningCode::PatchWithoutSnapshot);
             return;
         };
@@ -353,7 +394,7 @@ impl AppStateReducer {
     fn is_stale(&self, now: i64) -> bool {
         self.state
             .last_success_at
-            .is_some_and(|success| now.saturating_sub(success) >= STALE_AFTER_SECS)
+            .is_some_and(|success| now.saturating_sub(success) >= self.state.stale_after_secs)
     }
 
     fn push_warning(&mut self, warning: WarningCode) {
@@ -393,6 +434,17 @@ impl AppStateReducer {
             )
         });
     }
+}
+
+fn patch_is_self_contained(patch: &RateLimitSnapshot) -> bool {
+    [patch.primary.as_ref(), patch.secondary.as_ref()]
+        .into_iter()
+        .flatten()
+        .any(|window| {
+            window.used_percent.is_some()
+                && window.window_duration_mins.is_some_and(|value| value > 0)
+                && window.resets_at.is_some_and(|value| value > 0)
+        })
 }
 
 #[derive(Clone, Default)]

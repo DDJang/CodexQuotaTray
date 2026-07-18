@@ -1,180 +1,108 @@
 use codex_quota_tray::refresh::{
-    CompletionOutcome, CoordinatorAction, RefreshCoordinator, RefreshPolicy, RefreshReason,
-    RequestDecision,
+    CompletionOutcome, CoordinatorAction, RefreshCoordinator, RefreshMode, RefreshPolicy,
+    RefreshReason, RequestDecision, base_interval_secs, failure_backoff_secs, reason_allowed,
+    stale_after_secs,
 };
 
-fn started(decision: RequestDecision) -> codex_quota_tray::refresh::RefreshRequest {
-    let RequestDecision::Started(request) = decision else {
-        panic!("expected refresh to start");
-    };
-    request
+#[test]
+fn modes_and_dynamic_stale_thresholds_are_deterministic() {
+    assert_eq!(base_interval_secs(RefreshMode::Auto, None), Some(300));
+    assert_eq!(base_interval_secs(RefreshMode::Auto, Some(51)), Some(1_800));
+    assert_eq!(base_interval_secs(RefreshMode::Auto, Some(21)), Some(900));
+    assert_eq!(base_interval_secs(RefreshMode::Auto, Some(20)), Some(300));
+    assert_eq!(stale_after_secs(RefreshMode::Auto, Some(51), 0), 3_600);
+    assert_eq!(stale_after_secs(RefreshMode::ManualOnly, Some(1), 8), 3_600);
+    assert_eq!([1, 2, 3, 4].map(failure_backoff_secs), [60, 120, 300, 900]);
 }
 
 #[test]
-fn default_policy_matches_product_limits() {
-    let policy = RefreshPolicy::default();
-    assert_eq!(policy.minimum_interval_secs, 10);
-    assert_eq!(policy.fallback_interval_secs, 600);
-    assert_eq!(policy.request_timeout_secs, 15);
-}
-
-#[test]
-fn requests_are_unique_and_only_one_is_in_flight() {
-    let mut coordinator = RefreshCoordinator::default();
-    let first = started(coordinator.request(RefreshReason::Startup, 0).unwrap());
-    assert_eq!(first.id, 0);
-
-    for now in 1..=100 {
-        assert_eq!(
-            coordinator.request(RefreshReason::RateLimitNotification, now),
-            Ok(RequestDecision::Coalesced {
-                active_request_id: first.id
-            })
-        );
-        assert_eq!(coordinator.in_flight(), Some(first));
+fn manual_only_suppresses_every_reason_except_manual() {
+    for reason in [
+        RefreshReason::Startup,
+        RefreshReason::RateLimitNotification,
+        RefreshReason::Resume,
+        RefreshReason::NetworkRestored,
+        RefreshReason::CardOpened,
+        RefreshReason::Scheduled,
+    ] {
+        assert!(!reason_allowed(RefreshMode::ManualOnly, reason));
     }
+    assert!(reason_allowed(
+        RefreshMode::ManualOnly,
+        RefreshReason::Manual
+    ));
+    let mut coordinator =
+        RefreshCoordinator::new(RefreshPolicy::default(), RefreshMode::ManualOnly);
+    assert_eq!(
+        coordinator.request(RefreshReason::Startup, 0).unwrap(),
+        RequestDecision::Suppressed
+    );
 }
 
 #[test]
-fn coalesced_requests_keep_the_highest_priority_reason() {
-    let mut coordinator = RefreshCoordinator::default();
-    let first = started(coordinator.request(RefreshReason::Startup, 0).unwrap());
-    coordinator.request(RefreshReason::Fallback, 1).unwrap();
-    coordinator.request(RefreshReason::Manual, 2).unwrap();
-    coordinator
-        .request(RefreshReason::RateLimitNotification, 3)
-        .unwrap();
-    assert_eq!(coordinator.pending_reason(), Some(RefreshReason::Manual));
-
-    let (outcome, actions) = coordinator.complete(first.id, 10, true).unwrap();
-    assert_eq!(outcome, CompletionOutcome::Completed);
-    let [CoordinatorAction::Started(second)] = actions.as_slice() else {
-        panic!("coalesced request should start after minimum interval");
+fn coordinator_keeps_one_in_flight_and_unique_ids() {
+    let mut coordinator =
+        RefreshCoordinator::new(RefreshPolicy::new(1, 5).unwrap(), RefreshMode::Auto);
+    let first = match coordinator.request(RefreshReason::Startup, 0).unwrap() {
+        RequestDecision::Started(request) => request,
+        other => panic!("unexpected decision: {other:?}"),
     };
-    assert_eq!(second.id, 1);
-    assert_eq!(second.reason, RefreshReason::Manual);
-}
-
-#[test]
-fn minimum_interval_defers_manual_refresh_without_dropping_it() {
-    let mut coordinator = RefreshCoordinator::default();
-    let first = started(coordinator.request(RefreshReason::Startup, 0).unwrap());
-    coordinator.complete(first.id, 1, true).unwrap();
-
     assert_eq!(
-        coordinator.request(RefreshReason::Manual, 5),
-        Ok(RequestDecision::Deferred { not_before: 10 })
+        coordinator.request(RefreshReason::Manual, 0).unwrap(),
+        RequestDecision::Coalesced {
+            active_request_id: first.id
+        }
     );
-    assert!(coordinator.tick(9).unwrap().is_empty());
-    let actions = coordinator.tick(10).unwrap();
-    let [CoordinatorAction::Started(request)] = actions.as_slice() else {
-        panic!("deferred refresh should start at not_before");
+    let (_, actions) = coordinator.complete(first.id, 1, true).unwrap();
+    let second = match actions.as_slice() {
+        [CoordinatorAction::Started(request)] => *request,
+        other => panic!("unexpected actions: {other:?}"),
     };
-    assert_eq!(request.reason, RefreshReason::Manual);
-}
-
-#[test]
-fn network_restore_burst_is_coalesced_and_rate_limited() {
-    let mut coordinator = RefreshCoordinator::default();
-    let startup = started(coordinator.request(RefreshReason::Startup, 0).unwrap());
-    coordinator.complete(startup.id, 1, true).unwrap();
-
-    for now in 2..10 {
-        assert_eq!(
-            coordinator.request(RefreshReason::NetworkRestored, now),
-            Ok(RequestDecision::Deferred { not_before: 10 })
-        );
-        assert_eq!(
-            coordinator.pending_reason(),
-            Some(RefreshReason::NetworkRestored)
-        );
-    }
-
-    assert!(coordinator.tick(9).unwrap().is_empty());
-    let actions = coordinator.tick(10).unwrap();
-    let [CoordinatorAction::Started(restored)] = actions.as_slice() else {
-        panic!("one coalesced restore refresh should start after the minimum interval");
-    };
-    assert_eq!(restored.reason, RefreshReason::NetworkRestored);
-}
-
-#[test]
-fn request_timeout_clears_only_the_matching_in_flight_work() {
-    let mut coordinator = RefreshCoordinator::default();
-    let request = started(coordinator.request(RefreshReason::Startup, 100).unwrap());
-    assert!(coordinator.tick(114).unwrap().is_empty());
+    assert_ne!(first.id, second.id);
     assert_eq!(
-        coordinator.tick(115).unwrap(),
-        vec![CoordinatorAction::TimedOut(request)]
-    );
-    assert!(coordinator.in_flight().is_none());
-}
-
-#[test]
-fn unknown_or_duplicate_completion_does_not_mutate_active_request() {
-    let mut coordinator = RefreshCoordinator::default();
-    let request = started(coordinator.request(RefreshReason::Startup, 0).unwrap());
-    assert_eq!(
-        coordinator.complete(999, 1, true).unwrap(),
-        (CompletionOutcome::UnknownRequest, Vec::new())
-    );
-    assert_eq!(coordinator.in_flight(), Some(request));
-    assert_eq!(
-        coordinator.complete(request.id, 1, true).unwrap().0,
-        CompletionOutcome::Completed
-    );
-    assert_eq!(
-        coordinator.complete(request.id, 2, true).unwrap().0,
+        coordinator.complete(999, 2, true).unwrap().0,
         CompletionOutcome::UnknownRequest
     );
 }
 
 #[test]
-fn fallback_refresh_is_low_frequency() {
-    let mut coordinator = RefreshCoordinator::default();
-    let request = started(coordinator.request(RefreshReason::Startup, 0).unwrap());
-    coordinator.complete(request.id, 1, true).unwrap();
-
-    assert!(coordinator.tick(600).unwrap().is_empty());
-    let actions = coordinator.tick(601).unwrap();
-    let [CoordinatorAction::Started(fallback)] = actions.as_slice() else {
-        panic!("fallback should start ten minutes after last success");
+fn failure_backoff_resets_after_success_and_mode_updates_hot() {
+    let mut coordinator =
+        RefreshCoordinator::new(RefreshPolicy::new(1, 5).unwrap(), RefreshMode::Auto);
+    let request = match coordinator.request(RefreshReason::Manual, 0).unwrap() {
+        RequestDecision::Started(value) => value,
+        _ => unreachable!(),
     };
-    assert_eq!(fallback.reason, RefreshReason::Fallback);
+    coordinator.complete(request.id, 1, false).unwrap();
+    assert_eq!(coordinator.consecutive_failures(), 1);
+    coordinator.set_mode(RefreshMode::ManualOnly, 2);
+    assert_eq!(coordinator.mode(), RefreshMode::ManualOnly);
+    assert_eq!(coordinator.stale_after_secs(), 3_600);
 }
 
 #[test]
-fn virtual_24_hour_soak_never_has_more_than_one_request() {
-    let mut coordinator = RefreshCoordinator::default();
-    let startup = started(coordinator.request(RefreshReason::Startup, 0).unwrap());
-    coordinator.complete(startup.id, 0, true).unwrap();
-    let mut starts = 1_usize;
+fn explicit_manual_refresh_bypasses_idle_throttle_but_not_single_in_flight() {
+    let mut coordinator =
+        RefreshCoordinator::new(RefreshPolicy::new(10, 15).unwrap(), RefreshMode::Auto);
+    let startup = match coordinator.request(RefreshReason::Startup, 0).unwrap() {
+        RequestDecision::Started(request) => request,
+        other => panic!("unexpected decision: {other:?}"),
+    };
+    coordinator.complete(startup.id, 1, true).unwrap();
 
-    for now in 1..=24 * 60 * 60 {
-        let actions = coordinator.tick(now).unwrap();
-        for action in actions {
-            match action {
-                CoordinatorAction::Started(request) => {
-                    starts += 1;
-                    assert_eq!(coordinator.in_flight(), Some(request));
-                    assert_eq!(
-                        coordinator.complete(request.id, now, true).unwrap().0,
-                        CompletionOutcome::Completed
-                    );
-                }
-                CoordinatorAction::TimedOut(_) => panic!("instant completions must not time out"),
-            }
+    let manual = match coordinator.request(RefreshReason::Manual, 2).unwrap() {
+        RequestDecision::Started(request) => request,
+        other => panic!("manual refresh was unexpectedly throttled: {other:?}"),
+    };
+    assert_eq!(
+        coordinator.request(RefreshReason::Manual, 2).unwrap(),
+        RequestDecision::Coalesced {
+            active_request_id: manual.id
         }
-    }
-
-    assert_eq!(starts, 145);
-    assert!(coordinator.in_flight().is_none());
-    assert_eq!(coordinator.pending_reason(), None);
-    assert_eq!(coordinator.last_success_at(), Some(24 * 60 * 60));
-}
-
-#[test]
-fn invalid_refresh_policy_is_rejected() {
-    assert!(RefreshPolicy::new(0, 600, 15).is_err());
-    assert!(RefreshPolicy::new(601, 600, 15).is_err());
+    );
+    let (_, follow_up) = coordinator.complete(manual.id, 3, true).unwrap();
+    assert!(matches!(
+        follow_up.as_slice(),
+        [CoordinatorAction::Started(request)] if request.reason == RefreshReason::Manual
+    ));
 }

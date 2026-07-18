@@ -14,7 +14,8 @@ use codex_quota_tray::protocol::{
     rate_limits_read_params,
 };
 use codex_quota_tray::quota::{
-    AccountState, QuotaSummary, account_state, format_reset_time, summarize_rate_limits,
+    AccountState, QuotaSummary, ResetCreditsState, account_state, format_reset_time,
+    summarize_rate_limits,
 };
 use codex_quota_tray::supervisor::{
     AppServerSupervisor, RestartPolicy, SupervisorEvent, SupervisorReport,
@@ -309,10 +310,7 @@ fn run_session(client: &JsonRpcClient, watch_seconds: u64) -> Result<i32, Sessio
         return Ok(2);
     }
     print_summary("Rate limits", &summary);
-    println!(
-        "Reset credits: unavailable (codex-cli {} does not expose a reset-credit count)",
-        schema_codex_version()
-    );
+    print_reset_credits(&summary);
 
     if watch_seconds == 0 {
         println!("Update listener disabled by --watch-seconds 0.");
@@ -361,6 +359,25 @@ fn run_session(client: &JsonRpcClient, watch_seconds: u64) -> Result<i32, Sessio
     }
     println!("Update-listening window completed.");
     Ok(0)
+}
+
+fn print_reset_credits(summary: &QuotaSummary) {
+    match &summary.reset_credits {
+        ResetCreditsState::Unavailable => println!("Reset credits: unavailable for this account"),
+        ResetCreditsState::Available {
+            available_count,
+            detail_count,
+            valid_expirations,
+        } => {
+            println!("Reset credits: {available_count} available; {detail_count} detail rows");
+            if let Some(earliest) = valid_expirations.first() {
+                println!(
+                    "  earliest known expiry: {}",
+                    format_reset_time(Some(*earliest))
+                );
+            }
+        }
+    }
 }
 
 fn parse_result<T: serde::de::DeserializeOwned>(

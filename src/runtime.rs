@@ -19,8 +19,8 @@ use crate::protocol::{
 };
 use crate::quota::{AccountState, account_state};
 use crate::refresh::{
-    CoordinatorAction, RefreshCoordinator, RefreshPolicy, RefreshReason, RefreshRequest,
-    RequestDecision,
+    CoordinatorAction, RefreshCoordinator, RefreshMode, RefreshPolicy, RefreshReason,
+    RefreshRequest, RequestDecision,
 };
 use crate::state::{AppState, AppStateStore, FailureKind, StateEvent};
 use crate::supervisor::{AppServerSupervisor, RestartPolicy, SupervisorEvent, SupervisorReport};
@@ -32,6 +32,7 @@ pub struct RuntimeConfig {
     pub launch: AppServerLaunch,
     pub restart_policy: RestartPolicy,
     pub refresh_policy: RefreshPolicy,
+    pub refresh_mode: RefreshMode,
     pub poll_interval: Duration,
     pub expected_schema_version: String,
     pub quota_cache: Option<QuotaCacheStore>,
@@ -43,6 +44,7 @@ impl RuntimeConfig {
             launch: AppServerLaunch::codex(explicit_binary),
             restart_policy: RestartPolicy::default(),
             refresh_policy: RefreshPolicy::default(),
+            refresh_mode: RefreshMode::Auto,
             poll_interval: Duration::from_millis(250),
             expected_schema_version: schema_codex_version().to_owned(),
             quota_cache: None,
@@ -70,6 +72,7 @@ pub struct RuntimeReport {
 
 enum RuntimeCommand {
     Refresh(RefreshReason),
+    SetRefreshMode(RefreshMode),
     Shutdown,
 }
 
@@ -130,8 +133,26 @@ impl QuotaRuntime {
     }
 
     pub fn request_refresh(&self, reason: RefreshReason) -> Result<(), String> {
+        if reason == RefreshReason::Manual {
+            self.state
+                .dispatch(StateEvent::RefreshStarted { at: unix_now() });
+        }
         self.command_sender
             .send(RuntimeCommand::Refresh(reason))
+            .map_err(|_| {
+                if reason == RefreshReason::Manual {
+                    self.state.dispatch(StateEvent::RefreshFailed {
+                        at: unix_now(),
+                        kind: FailureKind::Transport,
+                    });
+                }
+                "quota runtime was not running".to_owned()
+            })
+    }
+
+    pub fn set_refresh_mode(&self, mode: RefreshMode) -> Result<(), String> {
+        self.command_sender
+            .send(RuntimeCommand::SetRefreshMode(mode))
             .map_err(|_| "quota runtime was not running".to_owned())
     }
 
@@ -186,13 +207,19 @@ fn runtime_worker(
     let mut supervisor =
         AppServerSupervisor::start(config.launch.clone(), config.restart_policy.clone())?;
     let started_at = Instant::now();
-    let mut coordinator = RefreshCoordinator::new(config.refresh_policy);
+    let mut coordinator = RefreshCoordinator::new(config.refresh_policy, config.refresh_mode);
+    dispatch_stale_threshold(&state, &coordinator);
     let mut counters = RuntimeCounters::new();
     counters.persistence_failures = initial_persistence_failures;
     let mut manual_pending = false;
 
     let exit_reason = 'runtime: loop {
-        match drain_waiting_commands(&command_receiver, &mut manual_pending) {
+        match drain_waiting_commands(
+            &command_receiver,
+            &mut manual_pending,
+            &mut coordinator,
+            monotonic_secs(started_at),
+        ) {
             CommandDisposition::Continue => {}
             CommandDisposition::Shutdown => break 'runtime RuntimeExitReason::ShutdownRequested,
         }
@@ -329,10 +356,19 @@ enum CommandDisposition {
 fn drain_waiting_commands(
     receiver: &Receiver<RuntimeCommand>,
     manual_pending: &mut bool,
+    coordinator: &mut RefreshCoordinator,
+    now: u64,
 ) -> CommandDisposition {
     loop {
         match receiver.try_recv() {
-            Ok(RuntimeCommand::Refresh(_)) => *manual_pending = true,
+            Ok(RuntimeCommand::Refresh(reason)) => {
+                if crate::refresh::reason_allowed(coordinator.mode(), reason) {
+                    *manual_pending = true;
+                }
+            }
+            Ok(RuntimeCommand::SetRefreshMode(mode)) => {
+                coordinator.set_mode(mode, now);
+            }
             Ok(RuntimeCommand::Shutdown) | Err(TryRecvError::Disconnected) => {
                 return CommandDisposition::Shutdown;
             }
@@ -381,9 +417,8 @@ fn drive_connection(
                         at: unix_now(),
                         kind: FailureKind::Timeout,
                     });
-                    let (_, follow_up) =
-                        coordinator.complete(request.id, monotonic_secs(started_at), false)?;
-                    actions.extend(follow_up);
+                    let _ = request;
+                    dispatch_stale_threshold(state, coordinator);
                 }
             }
         }
@@ -394,6 +429,10 @@ fn drive_connection(
                     actions,
                     coordinator.request(reason, monotonic_secs(started_at))?,
                 ),
+                Ok(RuntimeCommand::SetRefreshMode(mode)) => {
+                    coordinator.set_mode(mode, monotonic_secs(started_at));
+                    dispatch_stale_threshold(state, coordinator);
+                }
                 Ok(RuntimeCommand::Shutdown) | Err(TryRecvError::Disconnected) => {
                     return Ok(ConnectionDisposition::Shutdown);
                 }
@@ -519,7 +558,19 @@ fn execute_refresh(
     };
 
     let succeeded = result.is_ok();
+    if succeeded {
+        let remaining = state.snapshot().quota.as_ref().and_then(|quota| {
+            quota
+                .windows
+                .iter()
+                .filter(|window| window.percentage_valid)
+                .map(|window| window.remaining_percent)
+                .min()
+        });
+        coordinator.set_remaining_percent(remaining);
+    }
     let (_, follow_up) = coordinator.complete(request.id, monotonic_secs(started_at), succeeded)?;
+    dispatch_stale_threshold(state, coordinator);
     if succeeded {
         counters.refresh_successes += 1;
         return Ok(RefreshDisposition::Continue(follow_up.into()));
@@ -599,6 +650,13 @@ fn persist_snapshot(state: &AppStateStore, config: &RuntimeConfig, counters: &mu
 
 fn monotonic_secs(started_at: Instant) -> u64 {
     started_at.elapsed().as_secs()
+}
+
+fn dispatch_stale_threshold(state: &AppStateStore, coordinator: &RefreshCoordinator) {
+    state.dispatch(StateEvent::StaleThresholdUpdated {
+        seconds: coordinator.stale_after_secs().min(i64::MAX as u64) as i64,
+        now: unix_now(),
+    });
 }
 
 fn unix_now() -> i64 {

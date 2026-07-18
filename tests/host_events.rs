@@ -1,67 +1,57 @@
-use codex_quota_tray::host_events::{CARD_OPEN_REFRESH_AGE_SECS, HostEvent, refresh_reason};
-use codex_quota_tray::refresh::RefreshReason;
+use codex_quota_tray::host_events::{HostEvent, refresh_reason};
+use codex_quota_tray::refresh::{RefreshMode, RefreshReason};
 
 #[test]
-fn visible_card_and_resume_map_to_bounded_refresh_reasons() {
+fn all_host_events_obey_refresh_mode() {
+    let events = [
+        HostEvent::CardOpened {
+            last_success_age_secs: None,
+        },
+        HostEvent::SessionResumed,
+        HostEvent::NetworkConnectivityChanged {
+            internet_available: true,
+        },
+    ];
+    for event in events {
+        assert_eq!(
+            refresh_reason(event, true, RefreshMode::ManualOnly, 3_600),
+            None
+        );
+    }
     assert_eq!(
         refresh_reason(
             HostEvent::CardOpened {
-                last_success_age_secs: None,
+                last_success_age_secs: Some(120)
             },
             true,
+            RefreshMode::Auto,
+            3_600
         ),
         Some(RefreshReason::CardOpened)
     );
     assert_eq!(
-        refresh_reason(
-            HostEvent::CardOpened {
-                last_success_age_secs: Some(CARD_OPEN_REFRESH_AGE_SECS - 1),
-            },
-            true,
-        ),
-        None
-    );
-    assert_eq!(
-        refresh_reason(
-            HostEvent::CardOpened {
-                last_success_age_secs: Some(CARD_OPEN_REFRESH_AGE_SECS),
-            },
-            true,
-        ),
-        Some(RefreshReason::CardOpened)
-    );
-    assert_eq!(
-        refresh_reason(HostEvent::SessionResumed, true),
+        refresh_reason(HostEvent::SessionResumed, true, RefreshMode::Auto, 3_600),
         Some(RefreshReason::Resume)
     );
-}
-
-#[test]
-fn only_restored_internet_connectivity_requests_a_refresh() {
     assert_eq!(
         refresh_reason(
             HostEvent::NetworkConnectivityChanged {
-                internet_available: false,
+                internet_available: true
             },
             true,
-        ),
-        None
-    );
-    assert_eq!(
-        refresh_reason(
-            HostEvent::NetworkConnectivityChanged {
-                internet_available: true,
-            },
-            true,
+            RefreshMode::Auto,
+            3_600
         ),
         Some(RefreshReason::NetworkRestored)
     );
     assert_eq!(
         refresh_reason(
             HostEvent::NetworkConnectivityChanged {
-                internet_available: true,
+                internet_available: false
             },
-            false,
+            true,
+            RefreshMode::Auto,
+            3_600
         ),
         None
     );

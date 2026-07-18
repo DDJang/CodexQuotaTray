@@ -203,6 +203,8 @@ public static class CodexQuotaTrayResourceProbe {
     $dataDir = Join-Path $env:LOCALAPPDATA "CodexQuotaTray"
     New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $dataDir "quota-cache.json") -Value "synthetic-test-data"
+    Set-Content -LiteralPath (Join-Path $dataDir "settings.json") -Value "synthetic-test-data"
+    Set-Content -LiteralPath (Join-Path $dataDir "alert-state.json") -Value "synthetic-test-data"
     & (Join-Path $installDir "uninstall.ps1") -RunRegistryPath $registryPath
     Assert-True (-not (Test-Path -LiteralPath $installDir)) "uninstaller left the install directory"
     Assert-True (-not (Test-Path -LiteralPath $dataDir)) "uninstaller left user data by default"
@@ -214,11 +216,15 @@ public static class CodexQuotaTrayResourceProbe {
     & (Join-Path $expanded "install.ps1") -NoLaunch -RunRegistryPath $registryPath
     New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $dataDir "settings.json") -Value "synthetic-test-data"
+    Set-Content -LiteralPath (Join-Path $dataDir "quota-cache.json") -Value "synthetic-test-data"
+    Set-Content -LiteralPath (Join-Path $dataDir "alert-state.json") -Value "synthetic-test-data"
     & (Join-Path $installDir "uninstall.ps1") -KeepUserData -RunRegistryPath $registryPath
     Assert-True (-not (Test-Path -LiteralPath $installDir)) `
         "keep-user-data uninstall left the install directory"
     Assert-True (Test-Path -LiteralPath $dataDir -PathType Container) `
         "keep-user-data uninstall removed user data"
+    Assert-True (Test-Path -LiteralPath (Join-Path $dataDir "alert-state.json")) `
+        "keep-user-data uninstall removed alert state"
     Remove-Item -LiteralPath $dataDir -Recurse -Force
 
     [pscustomobject]@{

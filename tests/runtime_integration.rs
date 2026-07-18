@@ -12,7 +12,7 @@ use codex_quota_tray::app_server::AppServerLaunch;
 use codex_quota_tray::compatibility::VersionCompatibility;
 use codex_quota_tray::persistence::QuotaCacheStore;
 use codex_quota_tray::quota::{QuotaSummary, QuotaWindow, ResetCreditsState};
-use codex_quota_tray::refresh::{RefreshPolicy, RefreshReason};
+use codex_quota_tray::refresh::{RefreshMode, RefreshPolicy, RefreshReason};
 use codex_quota_tray::runtime::{QuotaRuntime, RuntimeConfig, RuntimeExitReason, RuntimeReport};
 use codex_quota_tray::state::{AppState, DataState, ProcessState, StableDataState, WarningCode};
 use codex_quota_tray::supervisor::RestartPolicy;
@@ -64,6 +64,24 @@ fn startup_projects_a_fresh_snapshot_and_shutdown_is_idempotent() {
 }
 
 #[test]
+fn manual_only_initializes_transport_without_an_active_startup_read() {
+    let _guard = runtime_test_guard();
+    let fixture = RuntimeFixture::new("steady");
+    let mut config = fixture.config();
+    config.refresh_mode = RefreshMode::ManualOnly;
+    let mut runtime = QuotaRuntime::start(config).unwrap();
+    wait_for_state(&runtime, |state| {
+        matches!(state.process, ProcessState::Ready { .. })
+    });
+    thread::sleep(Duration::from_millis(250));
+    assert_eq!(read_counter(&fixture.read_counter), 0);
+    runtime.request_refresh(RefreshReason::Manual).unwrap();
+    wait_for_counter(&fixture.read_counter, 1);
+    wait_for_state(&runtime, |state| state.data == DataState::Fresh);
+    assert_clean_shutdown(&runtime.shutdown().unwrap());
+}
+
+#[test]
 fn manual_refresh_burst_is_bounded_to_active_and_one_pending() {
     let _guard = runtime_test_guard();
     let fixture = RuntimeFixture::new("steady");
@@ -71,17 +89,18 @@ fn manual_refresh_burst_is_bounded_to_active_and_one_pending() {
     wait_for_state(&runtime, |state| state.data == DataState::Fresh);
     wait_for_counter(&fixture.read_counter, 1);
 
-    for _ in 0..8 {
+    runtime.request_refresh(RefreshReason::Manual).unwrap();
+    assert!(matches!(
+        runtime.snapshot().data,
+        DataState::Refreshing { .. }
+    ));
+    for _ in 1..8 {
         runtime.request_refresh(RefreshReason::Manual).unwrap();
     }
 
     wait_for_counter(&fixture.read_counter, 2);
-    thread::sleep(Duration::from_millis(1_250));
-    let reads = read_counter(&fixture.read_counter);
+    let (reads, _) = wait_for_stable_reads_and_state(&runtime, &fixture.read_counter);
     assert!((2..=3).contains(&reads));
-    wait_for_state(&runtime, |state| {
-        state.data == DataState::Fresh && used_percent(state) == Some(19 + reads as i64)
-    });
 
     let report = runtime.shutdown().unwrap();
     assert_eq!(report.refresh_successes, reads as usize);
@@ -133,7 +152,7 @@ fn child_exit_preserves_then_replaces_quota_after_supervised_recovery() {
 }
 
 #[test]
-fn schema_mismatch_is_explicit_but_read_only_quota_remains_best_effort() {
+fn newer_cli_is_diagnostic_only_when_rate_limits_capability_succeeds() {
     let _guard = runtime_test_guard();
     let fixture = RuntimeFixture::new("version-mismatch");
     let mut runtime = QuotaRuntime::start(fixture.config()).unwrap();
@@ -141,7 +160,7 @@ fn schema_mismatch_is_explicit_but_read_only_quota_remains_best_effort() {
     let snapshot = wait_for_state(&runtime, |state| state.data == DataState::Fresh);
     assert_eq!(
         snapshot.compatibility,
-        VersionCompatibility::Mismatch {
+        VersionCompatibility::Match {
             schema_version: "0.137.0".to_owned(),
             runtime_version: "0.999.0".to_owned(),
         }
@@ -375,7 +394,8 @@ impl RuntimeFixture {
                 Duration::from_millis(5),
             )
             .unwrap(),
-            refresh_policy: RefreshPolicy::new(1, 60, 5).unwrap(),
+            refresh_policy: RefreshPolicy::new(1, 5).unwrap(),
+            refresh_mode: codex_quota_tray::refresh::RefreshMode::Auto,
             poll_interval: Duration::from_millis(10),
             expected_schema_version: "0.137.0".to_owned(),
             quota_cache: None,
@@ -402,11 +422,12 @@ fn cached_state(used_percent: i64) -> AppState {
                 source_slot: "primary",
                 used_percent,
                 remaining_percent: 100 - used_percent,
+                percentage_valid: true,
                 window_duration_mins: Some(10_080),
                 resets_at: Some(4_102_444_800),
             }],
             issues: Vec::new(),
-            reset_credits: ResetCreditsState::UnavailableInSchema,
+            reset_credits: ResetCreditsState::Unavailable,
             rate_limit_reached: false,
         }),
         last_success_at: Some(1_700_000_000),
@@ -436,6 +457,30 @@ fn wait_for_counter(path: &Path, expected: u64) {
         assert!(
             Instant::now() < deadline,
             "timed out waiting for read count"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn wait_for_stable_reads_and_state(runtime: &QuotaRuntime, path: &Path) -> (u64, AppState) {
+    let deadline = Instant::now() + TEST_TIMEOUT;
+    loop {
+        let reads = read_counter(path);
+        let state = runtime.snapshot();
+        if state.data == DataState::Fresh && used_percent(&state) == Some(19 + reads as i64) {
+            thread::sleep(Duration::from_millis(100));
+            let stable_reads = read_counter(path);
+            let stable_state = runtime.snapshot();
+            if stable_reads == reads
+                && stable_state.data == DataState::Fresh
+                && used_percent(&stable_state) == Some(19 + stable_reads as i64)
+            {
+                return (stable_reads, stable_state);
+            }
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed out waiting for refresh reads and projected state to settle"
         );
         thread::sleep(Duration::from_millis(10));
     }

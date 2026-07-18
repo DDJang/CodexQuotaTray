@@ -6,28 +6,27 @@ use std::ptr::null_mut;
 use std::sync::OnceLock;
 #[cfg(debug_assertions)]
 use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(debug_assertions)]
-use std::time::Instant;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use windows::Win32::Foundation::{
-    COLORREF, CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, GetLastError, HANDLE, HINSTANCE,
-    HWND, LPARAM, LRESULT, POINT, RECT, WAIT_OBJECT_0, WPARAM,
+    COLORREF, CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, GetLastError, GlobalFree, HANDLE,
+    HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WAIT_OBJECT_0, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, CLIP_DEFAULT_PRECIS, CreateCompatibleBitmap, CreateCompatibleDC,
     CreateFontW, CreateRoundRectRgn, CreateSolidBrush, DEFAULT_CHARSET, DEFAULT_PITCH,
-    DRAW_TEXT_FORMAT, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_RIGHT, DT_SINGLELINE, DT_VCENTER,
-    DeleteDC, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FONT_QUALITY, FW_NORMAL, FW_SEMIBOLD,
-    FillRect, FillRgn, FrameRgn, GetMonitorInfoW, GetTextMetricsW, HDC, HGDIOBJ, InvalidateRect,
-    MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, OUT_DEFAULT_PRECIS, PAINTSTRUCT,
-    SRCCOPY, SelectObject, SetBkMode, SetTextColor, TEXTMETRICW, TRANSPARENT, UpdateWindow,
+    DRAW_TEXT_FORMAT, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_RIGHT, DT_SINGLELINE,
+    DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, EndPaint, FF_DONTCARE, FONT_QUALITY, FW_NORMAL,
+    FW_SEMIBOLD, FillRect, FillRgn, FrameRgn, GetMonitorInfoW, GetTextMetricsW, HDC, HGDIOBJ,
+    InvalidateRect, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, OUT_DEFAULT_PRECIS,
+    PAINTSTRUCT, SRCCOPY, SelectObject, SetBkMode, SetTextColor, TEXTMETRICW, TRANSPARENT,
+    UpdateWindow,
 };
 use windows::Win32::Graphics::GdiPlus::{
     FillModeAlternate, GdipAddPathArc, GdipAddPathLine, GdipClosePathFigure, GdipCreateFromHDC,
     GdipCreatePath, GdipCreatePen1, GdipCreateSolidFill, GdipDeleteBrush, GdipDeleteGraphics,
-    GdipDeletePath, GdipDeletePen, GdipDrawEllipse, GdipDrawLine, GdipDrawPath, GdipFillEllipse,
-    GdipFillPath, GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusShutdown, GdiplusStartup,
+    GdipDeletePath, GdipDeletePen, GdipDrawEllipse, GdipDrawLine, GdipDrawPath, GdipFillPath,
+    GdipSetPixelOffsetMode, GdipSetSmoothingMode, GdiplusShutdown, GdiplusStartup,
     GdiplusStartupInput, GdiplusStartupOutput, GpBrush, GpGraphics, GpPath, GpPen, Ok as GdiPlusOk,
     PixelOffsetModeHalf, SmoothingModeAntiAlias8x8, UnitPixel,
 };
@@ -37,9 +36,13 @@ use windows::Win32::NetworkManagement::IpHelper::{
 use windows::Win32::Networking::WinSock::{
     NL_NETWORK_CONNECTIVITY_HINT, NetworkConnectivityLevelHintInternetAccess,
 };
+use windows::Win32::System::DataExchange::{
+    CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
+};
 #[cfg(debug_assertions)]
 use windows::Win32::System::Diagnostics::Debug::OutputDebugStringW;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
 use windows::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_SZ,
     RegCloseKey, RegCreateKeyExW, RegDeleteValueW, RegGetValueW, RegSetValueExW,
@@ -50,33 +53,38 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
 use windows::Win32::UI::Shell::{
     NIF_GUID, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_ERROR, NIIF_INFO,
     NIIF_NOSOUND, NIIF_RESPECT_QUIET_TIME, NIIF_WARNING, NIM_ADD, NIM_DELETE, NIM_MODIFY,
-    NIM_SETVERSION, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW, ShellExecuteW,
+    NIM_SETVERSION, NIN_BALLOONUSERCLICK, NOTIFYICON_VERSION_4, NOTIFYICONDATAW, Shell_NotifyIconW,
+    ShellExecuteW,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, CW_USEDEFAULT, CreatePopupMenu,
     CreateWindowExW, DefWindowProcW, DestroyIcon, DestroyMenu, DestroyWindow, FindWindowW,
     GWLP_USERDATA, GetClientRect, GetCursorPos, GetForegroundWindow, GetMessageW,
     GetWindowThreadProcessId, HICON, HMENU, HWND_MESSAGE, HWND_TOPMOST, ICON_BIG, ICON_SMALL,
-    IDC_ARROW, IsIconic, IsWindowVisible, KillTimer, LoadCursorW, MF_CHECKED, MF_SEPARATOR,
-    MF_STRING, MSG, PBT_APMRESUMEAUTOMATIC, PostMessageW, PostQuitMessage, RegisterClassExW,
-    RegisterWindowMessageW, SC_MINIMIZE, SM_CXICON, SM_CXSMICON, SW_HIDE, SW_SHOWNOACTIVATE,
-    SW_SHOWNORMAL, SWP_NOACTIVATE, SendMessageW, SetForegroundWindow, SetTimer, SetWindowLongPtrW,
-    SetWindowPos, SetWindowTextW, ShowWindow, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
-    WM_ACTIVATE, WM_ACTIVATEAPP, WM_APP, WM_CLOSE, WM_DESTROY, WM_DPICHANGED, WM_ENDSESSION,
-    WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT,
-    WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETICON, WM_SIZE, WM_SYSCOMMAND,
-    WM_TIMER, WNDCLASSEXW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    IDC_ARROW, IsIconic, IsWindowVisible, KillTimer, LoadCursorW, MF_CHECKED, MF_POPUP,
+    MF_SEPARATOR, MF_STRING, MSG, PBT_APMRESUMEAUTOMATIC, PostMessageW, PostQuitMessage,
+    RegisterClassExW, RegisterWindowMessageW, SC_MINIMIZE, SM_CXICON, SM_CXSMICON, SW_HIDE,
+    SW_SHOWNOACTIVATE, SW_SHOWNORMAL, SWP_NOACTIVATE, SendMessageW, SetForegroundWindow, SetTimer,
+    SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    TrackPopupMenu, WM_ACTIVATE, WM_ACTIVATEAPP, WM_APP, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
+    WM_ENDSESSION, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY,
+    WM_PAINT, WM_POWERBROADCAST, WM_QUERYENDSESSION, WM_RBUTTONUP, WM_SETICON, WM_SIZE,
+    WM_SYSCOMMAND, WM_TIMER, WNDCLASSEXW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_POPUP,
 };
 use windows::core::{GUID, PCWSTR, w};
 
 use crate::alerts::{AlertKind, AlertTracker, QuotaAlert};
+use crate::compatibility::schema_codex_version;
 use crate::host_events::{HostEvent, refresh_reason};
-use crate::persistence::{AppSettings, PersistencePaths, QuotaCacheStore, SettingsStore};
+use crate::persistence::{
+    AlertStateStore, AppSettings, PersistencePaths, QuotaCacheStore, SettingsStore,
+};
 use crate::quota::{QuotaSummary, QuotaWindow, ResetCreditsState};
-use crate::refresh::{RefreshPolicy, RefreshReason};
+use crate::refresh::{RefreshMode, RefreshPolicy, RefreshReason};
 use crate::runtime::{QuotaRuntime, RuntimeConfig};
-use crate::state::{AppState, AuthState, DataState};
-use crate::ui_model::{TrayIconState, TrayView, ViewPreferences, project_tray_view};
+use crate::state::{AppState, AuthState, DataState, ProcessState};
+use crate::ui_model::{StatusTone, TrayView, ViewPreferences, project_tray_view};
 use crate::windows_visuals::{
     CardLayout, InteractionTarget, bottom_right_popup_origin, configure_window_chrome,
     ensure_per_monitor_v2, icon_resource_size_for_target, load_app_icon, monitor_effective_dpi,
@@ -98,12 +106,23 @@ const TRAY_ID: u32 = 0x5143_5452;
 const TRAY_GUID: GUID = GUID::from_u128(0x8f4f2c19_0c4c_4e1b_8f5c_50d0f1a4a77d);
 const TIMER_ID: usize = 1;
 const TIMER_MILLIS: u32 = 30_000;
+const REFRESH_STATUS_TIMER_ID: usize = 2;
+const REFRESH_STATUS_TIMER_MILLIS: u32 = 100;
+const MINIMUM_MANUAL_FEEDBACK: Duration = Duration::from_millis(300);
 const CMD_REFRESH: usize = 1001;
 const CMD_OPEN_USAGE: usize = 1002;
 const CMD_TOGGLE_CACHE: usize = 1003;
-const CMD_TOGGLE_NOTIFICATIONS: usize = 1004;
 const CMD_TOGGLE_STARTUP: usize = 1005;
 const CMD_CLEAR_CACHE: usize = 1006;
+const CMD_ALERT_50: usize = 1010;
+const CMD_ALERT_20: usize = 1011;
+const CMD_ALERT_10: usize = 1012;
+const CMD_REFRESH_AUTO: usize = 1020;
+const CMD_REFRESH_5: usize = 1021;
+const CMD_REFRESH_15: usize = 1022;
+const CMD_REFRESH_30: usize = 1023;
+const CMD_REFRESH_MANUAL: usize = 1024;
+const CMD_COPY_DIAGNOSTICS: usize = 1030;
 const CMD_EXIT: usize = 1099;
 const KEY_ESCAPE: usize = 0x1b;
 const KEY_RETURN: usize = 0x0d;
@@ -312,7 +331,8 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
         return Ok(());
     }
 
-    let (settings, settings_store, cache_store, settings_warning) = load_persistence(options.demo);
+    let (settings, settings_store, cache_store, alert_state_store, alert_tracker, settings_warning) =
+        load_persistence(options.demo);
     let source = if options.demo {
         StateSource::Demo {
             state: demo_state(0),
@@ -320,8 +340,8 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
         }
     } else {
         let mut config = RuntimeConfig::codex(options.codex_bin);
-        config.refresh_policy =
-            RefreshPolicy::new(10, u64::from(settings.fallback_refresh_minutes) * 60, 15)?;
+        config.refresh_policy = RefreshPolicy::new(10, 15)?;
+        config.refresh_mode = settings.refresh_mode;
         config.quota_cache = cache_store.clone();
         StateSource::Runtime(QuotaRuntime::start(config)?)
     };
@@ -342,7 +362,8 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
         settings,
         settings_store,
         cache_store,
-        alert_tracker: AlertTracker::new(),
+        alert_state_store,
+        alert_tracker,
         view: None,
         tray_added: false,
         settings_warning,
@@ -352,6 +373,9 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
         pressed: InteractionTarget::None,
         focus: InteractionTarget::Refresh,
         tracking_mouse: false,
+        manual_refresh_started: None,
+        initial_sync_pending: true,
+        refresh_status_timer_running: false,
         desired_visible: false,
         class_icon_big,
         class_icon_small,
@@ -482,6 +506,7 @@ unsafe fn run_inner(options: WindowsTrayOptions) -> Result<(), String> {
 
     // SAFETY: Timer and tray icon belong to this context/window.
     let _ = unsafe { KillTimer(Some(hwnd), TIMER_ID) };
+    let _ = unsafe { KillTimer(Some(hwnd), REFRESH_STATUS_TIMER_ID) };
     context.delete_tray_icon();
     if let Some(tray_message_hwnd) = context.tray_message_hwnd.take() {
         // SAFETY: The message-only window is owned by this UI thread and has no visible surface.
@@ -500,6 +525,7 @@ struct AppContext {
     settings: AppSettings,
     settings_store: Option<SettingsStore>,
     cache_store: Option<QuotaCacheStore>,
+    alert_state_store: Option<AlertStateStore>,
     alert_tracker: AlertTracker,
     view: Option<TrayView>,
     tray_added: bool,
@@ -510,6 +536,9 @@ struct AppContext {
     pressed: InteractionTarget,
     focus: InteractionTarget,
     tracking_mouse: bool,
+    manual_refresh_started: Option<Instant>,
+    initial_sync_pending: bool,
+    refresh_status_timer_running: bool,
     desired_visible: bool,
     class_icon_big: HICON,
     class_icon_small: HICON,
@@ -553,6 +582,13 @@ impl StateSource {
                 }
                 Ok(())
             }
+        }
+    }
+
+    fn set_refresh_mode(&mut self, mode: RefreshMode) -> Result<(), String> {
+        match self {
+            Self::Runtime(runtime) => runtime.set_refresh_mode(mode),
+            Self::Demo { .. } => Ok(()),
         }
     }
 }
@@ -651,15 +687,52 @@ impl AppContext {
 
     fn refresh_projection(&mut self) -> Result<(), String> {
         let state = self.source.snapshot();
-        let view = project_tray_view(&state, unix_now(), self.preferences());
+        let mut view = project_tray_view(&state, unix_now(), self.preferences());
+        let runtime_refreshing = matches!(state.data, DataState::Refreshing { .. });
+        let manual_feedback = self.manual_refresh_started.is_some_and(|started| {
+            should_show_manual_refresh_feedback(started.elapsed(), runtime_refreshing)
+        });
+        if manual_feedback {
+            view.status_line = "正在刷新…".to_owned();
+            view.status_tone = StatusTone::Refreshing;
+            view.refresh_label = "正在刷新…".to_owned();
+            view.can_refresh = false;
+        } else if self.manual_refresh_started.is_some() && !runtime_refreshing {
+            self.manual_refresh_started = None;
+        }
+        if self.initial_sync_pending && initial_sync_is_complete(&state, self.settings.refresh_mode)
+        {
+            self.initial_sync_pending = false;
+        }
+        if refresh_status_poll_required(
+            self.initial_sync_pending,
+            runtime_refreshing,
+            manual_feedback,
+        ) {
+            self.ensure_refresh_status_timer();
+        } else {
+            self.stop_refresh_status_timer();
+        }
         if matches!(state.data, DataState::Fresh)
             && let Some(quota) = state.quota.as_ref()
         {
-            for alert in self
+            let observation = self
                 .alert_tracker
-                .observe(quota, &self.settings.notifications)
-            {
-                self.show_alert(&alert)?;
+                .observe(quota, &self.settings.notifications);
+            let state_saved = if observation.changed {
+                self.save_alert_state().is_ok()
+            } else {
+                true
+            };
+            if state_saved {
+                for alert in observation.alerts {
+                    // At-most-once is deliberate: state is durable before asking Windows to show
+                    // the notification. A Shell failure may lose a notification but never repeats
+                    // it on the next projection.
+                    let _ = self.show_alert(&alert);
+                }
+            } else {
+                self.settings_warning = true;
             }
         }
         let changed = self.view.as_ref() != Some(&view);
@@ -677,6 +750,54 @@ impl AppContext {
             }
         }
         Ok(())
+    }
+
+    fn begin_manual_refresh_feedback(&mut self) {
+        self.manual_refresh_started = Some(Instant::now());
+        self.ensure_refresh_status_timer();
+    }
+
+    fn ensure_refresh_status_timer(&mut self) {
+        if self.refresh_status_timer_running {
+            return;
+        }
+        if let Some(hwnd) = self.hwnd {
+            // SAFETY: The window and timer ID are application-owned. This temporary poll exists
+            // only while a manual refresh is active; the 30-second idle timer remains unchanged.
+            if unsafe {
+                SetTimer(
+                    Some(hwnd),
+                    REFRESH_STATUS_TIMER_ID,
+                    REFRESH_STATUS_TIMER_MILLIS,
+                    None,
+                )
+            } == 0
+            {
+                debug_log("refresh status timer could not be started");
+            } else {
+                self.refresh_status_timer_running = true;
+            }
+        }
+    }
+
+    fn stop_refresh_status_timer(&mut self) {
+        if !self.refresh_status_timer_running {
+            return;
+        }
+        if let Some(hwnd) = self.hwnd {
+            // SAFETY: This app-owned timer is stopped only on its UI thread.
+            let _ = unsafe { KillTimer(Some(hwnd), REFRESH_STATUS_TIMER_ID) };
+        }
+        self.refresh_status_timer_running = false;
+    }
+
+    fn save_alert_state(&self) -> Result<(), String> {
+        let Some(store) = self.alert_state_store.as_ref() else {
+            return Ok(());
+        };
+        store
+            .save(&self.alert_tracker.snapshot())
+            .map_err(|error| format!("could not save alert state: {error}"))
     }
 
     fn add_tray_icon(&mut self) -> Result<(), String> {
@@ -784,25 +905,20 @@ impl AppContext {
             return Ok(());
         }
         let (title, body, icon) = match alert.kind {
-            AlertKind::Remaining20 => (
-                "Codex 额度剩余 20%",
-                format!("{} 已进入注意区间。", alert.window_name),
-                NIIF_WARNING,
-            ),
-            AlertKind::Remaining5 => (
-                "Codex 额度剩余 5%",
-                format!("{} 即将耗尽。", alert.window_name),
-                NIIF_WARNING,
-            ),
-            AlertKind::Exhausted => (
-                "Codex 额度已耗尽",
-                format!("{} 等待服务端窗口恢复。", alert.window_name),
-                NIIF_ERROR,
-            ),
-            AlertKind::Recovered => (
-                "Codex 额度已恢复",
-                format!("{} 已进入新的可用窗口。", alert.window_name),
+            AlertKind::Remaining50 => (
+                "Codex 额度提醒",
+                format!("{} 剩余 {}%。", alert.window_name, alert.remaining_percent),
                 NIIF_INFO,
+            ),
+            AlertKind::Remaining20 => (
+                "Codex 额度提醒",
+                format!("{} 剩余 {}%。", alert.window_name, alert.remaining_percent),
+                NIIF_WARNING,
+            ),
+            AlertKind::Remaining10 => (
+                "Codex 额度提醒",
+                format!("{} 剩余 {}%。", alert.window_name, alert.remaining_percent),
+                NIIF_ERROR,
             ),
         };
         let mut data = self.tray_data(NIF_INFO | NIF_GUID)?;
@@ -897,6 +1013,53 @@ impl AppContext {
         append_menu(menu, MF_STRING, CMD_REFRESH, w!("刷新"))?;
         append_menu(menu, MF_STRING, CMD_OPEN_USAGE, w!("打开官方 Usage"))?;
         append_menu(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
+        let alerts = unsafe { CreatePopupMenu() }.map_err(win_error("create alert menu"))?;
+        for (enabled, id, label) in [
+            (
+                self.settings.notifications.remaining_50_percent,
+                CMD_ALERT_50,
+                w!("剩余 50%"),
+            ),
+            (
+                self.settings.notifications.remaining_20_percent,
+                CMD_ALERT_20,
+                w!("剩余 20%"),
+            ),
+            (
+                self.settings.notifications.remaining_10_percent,
+                CMD_ALERT_10,
+                w!("剩余 10%"),
+            ),
+        ] {
+            append_menu(alerts, checked(enabled), id, label)?;
+        }
+        append_menu(menu, MF_POPUP, alerts.0 as usize, w!("额度提醒"))?;
+        let refresh_modes =
+            unsafe { CreatePopupMenu() }.map_err(win_error("create refresh menu"))?;
+        for (mode, id, label) in [
+            (RefreshMode::Auto, CMD_REFRESH_AUTO, w!("自动")),
+            (RefreshMode::Every5Minutes, CMD_REFRESH_5, w!("每 5 分钟")),
+            (
+                RefreshMode::Every15Minutes,
+                CMD_REFRESH_15,
+                w!("每 15 分钟"),
+            ),
+            (
+                RefreshMode::Every30Minutes,
+                CMD_REFRESH_30,
+                w!("每 30 分钟"),
+            ),
+            (RefreshMode::ManualOnly, CMD_REFRESH_MANUAL, w!("仅手动")),
+        ] {
+            append_menu(
+                refresh_modes,
+                checked(self.settings.refresh_mode == mode),
+                id,
+                label,
+            )?;
+        }
+        append_menu(menu, MF_POPUP, refresh_modes.0 as usize, w!("刷新间隔"))?;
+        append_menu(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
         append_menu(
             menu,
             checked(self.settings.persist_quota_cache),
@@ -905,17 +1068,12 @@ impl AppContext {
         )?;
         append_menu(
             menu,
-            checked(notifications_enabled(&self.settings)),
-            CMD_TOGGLE_NOTIFICATIONS,
-            w!("启用额度提醒"),
-        )?;
-        append_menu(
-            menu,
             checked(self.settings.start_with_windows),
             CMD_TOGGLE_STARTUP,
             w!("开机启动"),
         )?;
         append_menu(menu, MF_STRING, CMD_CLEAR_CACHE, w!("清除本地额度缓存"))?;
+        append_menu(menu, MF_STRING, CMD_COPY_DIAGNOSTICS, w!("复制诊断信息"))?;
         append_menu(menu, MF_SEPARATOR, 0, PCWSTR::null())?;
         append_menu(menu, MF_STRING, CMD_EXIT, w!("退出"))?;
 
@@ -945,7 +1103,11 @@ impl AppContext {
         match command {
             0 => Ok(()),
             CMD_REFRESH => {
+                if self.view.as_ref().is_some_and(|view| !view.can_refresh) {
+                    return Ok(());
+                }
                 self.source.refresh(RefreshReason::Manual)?;
+                self.begin_manual_refresh_feedback();
                 self.refresh_projection()
             }
             CMD_OPEN_USAGE => open_usage_page(),
@@ -963,14 +1125,14 @@ impl AppContext {
                 }
                 self.save_settings()
             }
-            CMD_TOGGLE_NOTIFICATIONS => {
-                let enabled = !notifications_enabled(&self.settings);
-                self.settings.notifications.remaining_20_percent = enabled;
-                self.settings.notifications.remaining_5_percent = enabled;
-                self.settings.notifications.exhausted = enabled;
-                self.settings.notifications.recovered = enabled;
-                self.save_settings()
-            }
+            CMD_ALERT_50 => self.toggle_alert_threshold(50),
+            CMD_ALERT_20 => self.toggle_alert_threshold(20),
+            CMD_ALERT_10 => self.toggle_alert_threshold(10),
+            CMD_REFRESH_AUTO => self.change_refresh_mode(RefreshMode::Auto),
+            CMD_REFRESH_5 => self.change_refresh_mode(RefreshMode::Every5Minutes),
+            CMD_REFRESH_15 => self.change_refresh_mode(RefreshMode::Every15Minutes),
+            CMD_REFRESH_30 => self.change_refresh_mode(RefreshMode::Every30Minutes),
+            CMD_REFRESH_MANUAL => self.change_refresh_mode(RefreshMode::ManualOnly),
             CMD_TOGGLE_STARTUP => {
                 let enabled = !self.settings.start_with_windows;
                 set_start_with_windows(enabled)?;
@@ -985,12 +1147,53 @@ impl AppContext {
                 }
                 Ok(())
             }
+            CMD_COPY_DIAGNOSTICS => copy_diagnostics(&self.source.snapshot()),
             CMD_EXIT => {
                 // SAFETY: Destroying the app-owned window triggers orderly WM_DESTROY cleanup.
                 unsafe { DestroyWindow(self.hwnd()?) }.map_err(win_error("close tray window"))
             }
             _ => Ok(()),
         }
+    }
+
+    fn toggle_alert_threshold(&mut self, threshold: u8) -> Result<(), String> {
+        let current = match threshold {
+            50 => self.settings.notifications.remaining_50_percent,
+            20 => self.settings.notifications.remaining_20_percent,
+            10 => self.settings.notifications.remaining_10_percent,
+            _ => return Ok(()),
+        };
+        if !current {
+            let quota = self.source.snapshot().quota;
+            if self
+                .alert_tracker
+                .enable_threshold(threshold, quota.as_ref())
+            {
+                self.save_alert_state()?;
+            }
+        }
+        match threshold {
+            50 => self.settings.notifications.remaining_50_percent = !current,
+            20 => self.settings.notifications.remaining_20_percent = !current,
+            10 => self.settings.notifications.remaining_10_percent = !current,
+            _ => {}
+        }
+        self.save_settings()
+    }
+
+    fn change_refresh_mode(&mut self, mode: RefreshMode) -> Result<(), String> {
+        if self.settings.refresh_mode == mode {
+            return Ok(());
+        }
+        let previous = self.settings.refresh_mode;
+        self.source.set_refresh_mode(mode)?;
+        self.settings.refresh_mode = mode;
+        if let Err(error) = self.save_settings() {
+            self.settings.refresh_mode = previous;
+            let _ = self.source.set_refresh_mode(previous);
+            return Err(error);
+        }
+        self.refresh_projection()
     }
 
     fn save_settings(&mut self) -> Result<(), String> {
@@ -1016,7 +1219,13 @@ impl AppContext {
     }
 
     fn handle_host_event(&mut self, event: HostEvent) -> Result<(), String> {
-        let Some(reason) = refresh_reason(event, self.settings.refresh_on_network_restore) else {
+        let state = self.source.snapshot();
+        let Some(reason) = refresh_reason(
+            event,
+            self.settings.refresh_on_network_restore,
+            self.settings.refresh_mode,
+            state.stale_after_secs.max(0) as u64,
+        ) else {
             return Ok(());
         };
         self.source.refresh(reason)
@@ -1104,6 +1313,14 @@ unsafe extern "system" fn tray_message_proc(
                         PostMessageW(Some(main_hwnd), SHOW_MENU_MESSAGE, WPARAM(0), LPARAM(0))
                     };
                 }
+                event if event == NIN_BALLOONUSERCLICK => {
+                    let Some(main_hwnd) = context.hwnd else {
+                        return LRESULT(0);
+                    };
+                    let _ = unsafe {
+                        PostMessageW(Some(main_hwnd), SHOW_CARD_MESSAGE, WPARAM(0), LPARAM(0))
+                    };
+                }
                 _ => {
                     debug_log(&format!("tray event ignored event={event}"));
                 }
@@ -1170,6 +1387,12 @@ unsafe extern "system" fn window_proc(
             LRESULT(0)
         }
         WM_TIMER if wparam.0 == TIMER_ID => {
+            if let Some(context) = context {
+                let _ = context.refresh_projection();
+            }
+            LRESULT(0)
+        }
+        WM_TIMER if wparam.0 == REFRESH_STATUS_TIMER_ID => {
             if let Some(context) = context {
                 let _ = context.refresh_projection();
             }
@@ -1464,6 +1687,7 @@ unsafe fn paint_card_surface(
     }
     let body = create_font(layout.dpi, 11, FW_NORMAL.0 as i32, w!("Segoe UI"));
     let small = create_font(layout.dpi, 10, FW_NORMAL.0 as i32, w!("Segoe UI"));
+    let credit = create_font(layout.dpi, 10, FW_SEMIBOLD.0 as i32, w!("Segoe UI"));
     let title = create_font(
         layout.dpi,
         14,
@@ -1485,12 +1709,39 @@ unsafe fn paint_card_surface(
     if let Some(view) = context.view.as_ref() {
         unsafe { SelectObject(dc, HGDIOBJ(title.0)) };
         draw_text(dc, &view.title, layout.title.to_win32(), rgb(23, 33, 43));
+        if let Some(badge) = view.plan_badge.as_deref() {
+            let title_width = measure_text_width(dc, &view.title);
+            unsafe { SelectObject(dc, HGDIOBJ(small.0)) };
+            let badge_width = measure_text_width(dc, badge) + scale_for_dpi(18, layout.dpi);
+            let badge_left = (layout.title.left + title_width + scale_for_dpi(10, layout.dpi))
+                .min(layout.title.right - badge_width);
+            let badge_rect = crate::windows_visuals::RectI {
+                left: badge_left,
+                top: layout.title.top + scale_for_dpi(3, layout.dpi),
+                right: badge_left + badge_width,
+                bottom: layout.title.bottom - scale_for_dpi(3, layout.dpi),
+            };
+            rounded_fill(
+                dc,
+                badge_rect,
+                badge_rect.height() / 2,
+                rgb(226, 247, 240),
+                context.gdiplus.as_ref(),
+            );
+            draw_text_with_format(
+                dc,
+                badge,
+                badge_rect.to_win32(),
+                rgb(10, 118, 87),
+                DT_CENTER | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS,
+            );
+        }
         unsafe { SelectObject(dc, HGDIOBJ(small.0)) };
         draw_text(
             dc,
             &view.status_line,
             layout.status.to_win32(),
-            state_text_color(view.icon),
+            status_text_color(view.status_tone),
         );
 
         for (window, panel) in view.windows.iter().take(3).zip(&layout.window_panels) {
@@ -1516,15 +1767,28 @@ unsafe fn paint_card_surface(
             unsafe { SelectObject(dc, HGDIOBJ(percent.0)) };
             draw_text_with_format(
                 dc,
-                &window.percent_label,
+                &window.percent_value,
                 rect(
                     panel.right - scale_for_dpi(150, layout.dpi),
                     panel.top + scale_for_dpi(3, layout.dpi),
-                    panel.right - scale_for_dpi(14, layout.dpi),
+                    panel.right - scale_for_dpi(56, layout.dpi),
                     panel.top + scale_for_dpi(38, layout.dpi),
                 ),
                 severity_color(window.remaining_percent),
                 DT_RIGHT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS,
+            );
+            unsafe { SelectObject(dc, HGDIOBJ(small.0)) };
+            draw_text_with_format(
+                dc,
+                &window.percent_suffix,
+                rect(
+                    panel.right - scale_for_dpi(54, layout.dpi),
+                    panel.top + scale_for_dpi(8, layout.dpi),
+                    panel.right - scale_for_dpi(14, layout.dpi),
+                    panel.top + scale_for_dpi(36, layout.dpi),
+                ),
+                severity_color(window.remaining_percent),
+                DT_RIGHT | DT_SINGLELINE | DT_VCENTER,
             );
             let rail = crate::windows_visuals::RectI {
                 left: panel.left + scale_for_dpi(14, layout.dpi),
@@ -1542,39 +1806,19 @@ unsafe fn paint_card_surface(
             unsafe { SelectObject(dc, HGDIOBJ(small.0)) };
             draw_text(
                 dc,
-                &window.reset_countdown,
+                &window.reset_line,
                 rect(
                     panel.left + scale_for_dpi(14, layout.dpi),
                     panel.top + scale_for_dpi(55, layout.dpi),
                     panel.right - scale_for_dpi(14, layout.dpi),
-                    panel.top + scale_for_dpi(77, layout.dpi),
+                    panel.bottom - scale_for_dpi(7, layout.dpi),
                 ),
                 rgb(71, 85, 105),
             );
-            if !window.reset_at_label.is_empty() {
-                draw_text(
-                    dc,
-                    &window.reset_at_label,
-                    rect(
-                        panel.left + scale_for_dpi(14, layout.dpi),
-                        panel.top + scale_for_dpi(78, layout.dpi),
-                        panel.right - scale_for_dpi(14, layout.dpi),
-                        panel.bottom - scale_for_dpi(7, layout.dpi),
-                    ),
-                    rgb(100, 116, 139),
-                );
-            }
         }
 
-        rounded_fill(
-            dc,
-            layout.credits,
-            scale_for_dpi(12, layout.dpi),
-            rgb(238, 242, 246),
-            context.gdiplus.as_ref(),
-        );
-        unsafe { SelectObject(dc, HGDIOBJ(small.0)) };
-        draw_info_icon(
+        unsafe { SelectObject(dc, HGDIOBJ(credit.0)) };
+        draw_clock_icon(
             dc,
             layout.credits_icon,
             rgb(100, 116, 139),
@@ -1603,7 +1847,7 @@ unsafe fn paint_card_surface(
             layout.dpi,
             context.gdiplus.as_ref(),
             ButtonPresentation {
-                label: "刷新",
+                label: &view.refresh_label,
                 primary: false,
             },
         );
@@ -1622,7 +1866,7 @@ unsafe fn paint_card_surface(
     }
     unsafe {
         SelectObject(dc, previous_font);
-        for font in [body, small, title, percent] {
+        for font in [body, small, credit, title, percent] {
             let _ = DeleteObject(HGDIOBJ(font.0));
         }
     }
@@ -1813,6 +2057,16 @@ fn draw_text_with_format(
         SetTextColor(dc, color);
         DrawTextW(dc, &mut wide, &mut area, format);
     }
+}
+
+fn measure_text_width(dc: HDC, text: &str) -> i32 {
+    let mut wide = text.encode_utf16().collect::<Vec<_>>();
+    let mut area = RECT::default();
+    // SAFETY: DT_CALCRECT only updates the supplied rectangle and does not paint.
+    unsafe {
+        DrawTextW(dc, &mut wide, &mut area, DT_CALCRECT | DT_SINGLELINE);
+    }
+    area.right.saturating_sub(area.left).max(0)
 }
 
 fn fill(dc: windows::Win32::Graphics::Gdi::HDC, area: &RECT, color: COLORREF) {
@@ -2036,21 +2290,21 @@ fn draw_progress_bar(
     }
 }
 
-fn draw_info_icon(
+fn draw_clock_icon(
     dc: HDC,
     area: crate::windows_visuals::RectI,
     color: COLORREF,
     gdiplus: Option<&GdiPlusSession>,
 ) {
     if let Some(gdiplus) = gdiplus {
-        let _ = draw_info_icon_gdiplus(dc, area, color, gdiplus);
+        let _ = draw_clock_icon_gdiplus(dc, area, color, gdiplus);
     }
     // GDI+ is present on supported Windows versions. If it cannot initialize (for example in a
     // constrained remote session), leave the strip text-only rather than reintroducing a legacy
     // shell bitmap with a mismatched visual style.
 }
 
-fn draw_info_icon_gdiplus(
+fn draw_clock_icon_gdiplus(
     dc: HDC,
     area: crate::windows_visuals::RectI,
     color: COLORREF,
@@ -2077,34 +2331,27 @@ fn draw_info_icon_gdiplus(
             return false;
         }
         let center_x = left + size / 2.0;
+        let center_y = top + size / 2.0;
         let _ = GdipDrawEllipse(graphics, pen, left, top, size, size);
         let _ = GdipDrawLine(
             graphics,
             pen,
             center_x,
-            top + size * 0.42,
+            top + size * 0.24,
             center_x,
-            top + size * 0.76,
+            center_y,
         );
-
-        let dot = (size * 0.13).max(1.0);
-        let mut brush = null_mut();
-        let brush_ok =
-            GdipCreateSolidFill(to_argb(color), &mut brush) == GdiPlusOk && !brush.is_null();
-        if brush_ok {
-            let _ = GdipFillEllipse(
-                graphics,
-                brush.cast::<GpBrush>(),
-                center_x - dot / 2.0,
-                top + size * 0.22,
-                dot,
-                dot,
-            );
-            let _ = GdipDeleteBrush(brush.cast::<GpBrush>());
-        }
+        let _ = GdipDrawLine(
+            graphics,
+            pen,
+            center_x,
+            center_y,
+            left + size * 0.72,
+            top + size * 0.62,
+        );
         let _ = GdipDeletePen(pen);
         let _ = GdipDeleteGraphics(graphics);
-        brush_ok
+        true
     }
 }
 
@@ -2164,13 +2411,13 @@ fn severity_color(remaining: i64) -> COLORREF {
     }
 }
 
-fn state_text_color(state: TrayIconState) -> COLORREF {
+fn status_text_color(state: StatusTone) -> COLORREF {
     match state {
-        TrayIconState::Normal => rgb(22, 140, 103),
-        TrayIconState::Caution => rgb(180, 83, 9),
-        TrayIconState::Critical | TrayIconState::Exhausted => rgb(190, 58, 52),
-        TrayIconState::Refreshing => rgb(37, 99, 235),
-        TrayIconState::Offline => rgb(100, 116, 139),
+        StatusTone::Success => rgb(22, 140, 103),
+        StatusTone::Warning => rgb(180, 83, 9),
+        StatusTone::Error => rgb(190, 58, 52),
+        StatusTone::Refreshing => rgb(37, 99, 235),
+        StatusTone::Neutral => rgb(71, 85, 105),
     }
 }
 
@@ -2348,13 +2595,29 @@ fn load_persistence(
     AppSettings,
     Option<SettingsStore>,
     Option<QuotaCacheStore>,
+    Option<AlertStateStore>,
+    AlertTracker,
     bool,
 ) {
     if demo {
-        return (AppSettings::default(), None, None, false);
+        return (
+            AppSettings::default(),
+            None,
+            None,
+            None,
+            AlertTracker::new(),
+            false,
+        );
     }
     let Ok(paths) = PersistencePaths::local_default() else {
-        return (AppSettings::default(), None, None, true);
+        return (
+            AppSettings::default(),
+            None,
+            None,
+            None,
+            AlertTracker::new(),
+            true,
+        );
     };
     let settings_store = SettingsStore::new(paths.settings);
     let (mut settings, warning) = match settings_store.load() {
@@ -2364,14 +2627,20 @@ fn load_persistence(
     settings.start_with_windows = start_with_windows_enabled();
     let cache = QuotaCacheStore::new(paths.quota_cache);
     cache.set_enabled(settings.persist_quota_cache);
-    (settings, Some(settings_store), Some(cache), warning)
-}
-
-fn notifications_enabled(settings: &AppSettings) -> bool {
-    settings.notifications.remaining_20_percent
-        || settings.notifications.remaining_5_percent
-        || settings.notifications.exhausted
-        || settings.notifications.recovered
+    let alert_store = AlertStateStore::new(paths.alert_state);
+    let (alert_tracker, alert_warning) = match alert_store.load() {
+        Ok(Some(state)) => (AlertTracker::from_persisted(state), false),
+        Ok(None) => (AlertTracker::new(), false),
+        Err(_) => (AlertTracker::new(), true),
+    };
+    (
+        settings,
+        Some(settings_store),
+        Some(cache),
+        Some(alert_store),
+        alert_tracker,
+        warning || alert_warning,
+    )
 }
 
 fn set_start_with_windows(enabled: bool) -> Result<(), String> {
@@ -2498,7 +2767,7 @@ fn demo_state(step: usize) -> AppState {
                 ),
             ],
             issues: Vec::new(),
-            reset_credits: ResetCreditsState::UnavailableInSchema,
+            reset_credits: ResetCreditsState::Unavailable,
             rate_limit_reached: false,
         }),
         last_success_at: Some(now),
@@ -2519,6 +2788,7 @@ fn demo_window(
         source_slot,
         used_percent: 100 - remaining,
         remaining_percent: remaining,
+        percentage_valid: true,
         window_duration_mins: Some(duration),
         resets_at: Some(resets_at),
     }
@@ -2542,6 +2812,88 @@ fn unix_now() -> i64 {
         .unwrap_or(0)
 }
 
+fn copy_diagnostics(state: &AppState) -> Result<(), String> {
+    let diagnostics = diagnostics_text(state);
+    let mut wide = diagnostics.encode_utf16().collect::<Vec<_>>();
+    wide.push(0);
+    // SAFETY: The movable allocation remains owned locally until SetClipboardData succeeds;
+    // after that call Windows owns it. Clipboard access is confined to the UI thread.
+    unsafe {
+        OpenClipboard(None).map_err(win_error("open clipboard"))?;
+        let result = (|| {
+            EmptyClipboard().map_err(win_error("empty clipboard"))?;
+            let allocation = GlobalAlloc(GMEM_MOVEABLE, wide.len() * size_of::<u16>())
+                .map_err(win_error("allocate clipboard text"))?;
+            let destination = GlobalLock(allocation).cast::<u16>();
+            if destination.is_null() {
+                let _ = GlobalFree(Some(allocation));
+                return Err("native Windows operation failed: lock clipboard text".to_owned());
+            }
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), destination, wide.len());
+            let _ = GlobalUnlock(allocation);
+            if SetClipboardData(13, Some(HANDLE(allocation.0))).is_err() {
+                let _ = GlobalFree(Some(allocation));
+                return Err("native Windows operation failed: set clipboard text".to_owned());
+            }
+            Ok(())
+        })();
+        let close = CloseClipboard().map_err(win_error("close clipboard"));
+        result.and(close)
+    }
+}
+
+fn diagnostics_text(state: &AppState) -> String {
+    let initialized = matches!(state.process, crate::state::ProcessState::Ready { .. });
+    let (available_count, detail_count) =
+        match state.quota.as_ref().map(|quota| &quota.reset_credits) {
+            Some(ResetCreditsState::Available {
+                available_count,
+                detail_count,
+                ..
+            }) => (available_count.to_string(), detail_count.to_string()),
+            Some(ResetCreditsState::Unavailable) | None => {
+                ("不可用".to_owned(), "不可用".to_owned())
+            }
+        };
+    format!(
+        "CodexQuotaTray: {}\r\nCodex CLI: {}\r\n协议基线: {}\r\nApp Server 已初始化: {}\r\naccount/rateLimits/read 成功: {}\r\nrateLimitResetCredits 字段存在: {}\r\navailableCount: {}\r\ncredits 明细条数: {}\r\n最近刷新 UTC 秒: {}\r\n",
+        env!("CARGO_PKG_VERSION"),
+        state.source_cli_version.as_deref().unwrap_or("未报告"),
+        schema_codex_version(),
+        yes_no(initialized),
+        yes_no(state.rate_limits_read_succeeded),
+        yes_no(state.reset_credits_field_present),
+        available_count,
+        detail_count,
+        state
+            .last_success_at
+            .map_or_else(|| "无".to_owned(), |value| value.to_string()),
+    )
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value { "是" } else { "否" }
+}
+
+fn should_show_manual_refresh_feedback(elapsed: Duration, runtime_refreshing: bool) -> bool {
+    runtime_refreshing || elapsed < MINIMUM_MANUAL_FEEDBACK
+}
+
+fn initial_sync_is_complete(state: &AppState, mode: RefreshMode) -> bool {
+    state.last_success_at.is_some()
+        || state.last_failure.is_some()
+        || !matches!(state.auth, AuthState::Unknown)
+        || (mode == RefreshMode::ManualOnly && matches!(state.process, ProcessState::Ready { .. }))
+}
+
+fn refresh_status_poll_required(
+    initial_sync_pending: bool,
+    runtime_refreshing: bool,
+    manual_feedback: bool,
+) -> bool {
+    initial_sync_pending || runtime_refreshing || manual_feedback
+}
+
 fn win_error(operation: &'static str) -> impl FnOnce(windows::core::Error) -> String {
     move |_| format!("native Windows operation failed: {operation}")
 }
@@ -2551,10 +2903,15 @@ mod tests {
     use std::path::Path;
 
     use super::{
-        point_size_to_pixels, rgb, severity_color, startup_command_matches, state_text_color,
-        tray_event_from_lparam, tray_event_is_toggle,
+        diagnostics_text, initial_sync_is_complete, point_size_to_pixels,
+        refresh_status_poll_required, rgb, severity_color, should_show_manual_refresh_feedback,
+        startup_command_matches, status_text_color, tray_event_from_lparam, tray_event_is_toggle,
     };
-    use crate::ui_model::TrayIconState;
+    use crate::quota::{QuotaSummary, ResetCreditsState};
+    use crate::refresh::RefreshMode;
+    use crate::state::{AppState, ProcessState};
+    use crate::ui_model::StatusTone;
+    use std::time::Duration;
     use windows::Win32::Foundation::LPARAM;
     use windows::Win32::UI::Shell::NIN_SELECT;
     use windows::Win32::UI::WindowsAndMessaging::{WM_LBUTTONDOWN, WM_LBUTTONUP};
@@ -2587,11 +2944,11 @@ mod tests {
     #[test]
     fn light_theme_state_colors_remain_semantically_distinct() {
         let colors = [
-            state_text_color(TrayIconState::Normal),
-            state_text_color(TrayIconState::Caution),
-            state_text_color(TrayIconState::Critical),
-            state_text_color(TrayIconState::Refreshing),
-            state_text_color(TrayIconState::Offline),
+            status_text_color(StatusTone::Success),
+            status_text_color(StatusTone::Warning),
+            status_text_color(StatusTone::Error),
+            status_text_color(StatusTone::Refreshing),
+            status_text_color(StatusTone::Neutral),
         ];
         for (index, color) in colors.iter().enumerate() {
             assert!(colors[..index].iter().all(|previous| previous != color));
@@ -2627,5 +2984,61 @@ mod tests {
         assert!(desired_visible);
         desired_visible = !desired_visible;
         assert!(!desired_visible);
+    }
+
+    #[test]
+    fn diagnostics_are_bounded_and_exclude_reset_credit_identity() {
+        let state = AppState {
+            source_cli_version: Some("0.144.5".to_owned()),
+            rate_limits_read_succeeded: true,
+            reset_credits_field_present: true,
+            quota: Some(QuotaSummary {
+                windows: Vec::new(),
+                issues: Vec::new(),
+                reset_credits: ResetCreditsState::Available {
+                    available_count: 2,
+                    detail_count: 1,
+                    valid_expirations: vec![1_800_000_000],
+                },
+                rate_limit_reached: false,
+            }),
+            ..AppState::default()
+        };
+        let text = diagnostics_text(&state);
+        assert!(text.contains("availableCount: 2"));
+        assert!(text.contains("credits 明细条数: 1"));
+        for forbidden in ["token", "email", "account ID", "credit ID", "limit ID"] {
+            assert!(!text.contains(forbidden));
+        }
+    }
+
+    #[test]
+    fn manual_refresh_feedback_is_immediate_but_not_an_idle_timer() {
+        assert!(should_show_manual_refresh_feedback(Duration::ZERO, false));
+        assert!(should_show_manual_refresh_feedback(
+            Duration::from_secs(8),
+            true
+        ));
+        assert!(!should_show_manual_refresh_feedback(
+            Duration::from_millis(301),
+            false
+        ));
+    }
+
+    #[test]
+    fn startup_and_runtime_refreshes_poll_only_until_state_is_terminal() {
+        assert!(refresh_status_poll_required(true, false, false));
+        assert!(refresh_status_poll_required(false, true, false));
+        assert!(!refresh_status_poll_required(false, false, false));
+
+        let ready_manual = AppState {
+            process: ProcessState::Ready { generation: 0 },
+            ..AppState::default()
+        };
+        assert!(initial_sync_is_complete(
+            &ready_manual,
+            RefreshMode::ManualOnly
+        ));
+        assert!(!initial_sync_is_complete(&ready_manual, RefreshMode::Auto));
     }
 }

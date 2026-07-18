@@ -1,25 +1,32 @@
+use serde::{Deserialize, Serialize};
+
+pub const MINIMUM_STALE_SECS: u64 = 15 * 60;
+pub const MANUAL_ONLY_STALE_SECS: u64 = 60 * 60;
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum RefreshMode {
+    #[default]
+    Auto,
+    Every5Minutes,
+    Every15Minutes,
+    Every30Minutes,
+    ManualOnly,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RefreshPolicy {
     pub minimum_interval_secs: u64,
-    pub fallback_interval_secs: u64,
     pub request_timeout_secs: u64,
 }
 
 impl RefreshPolicy {
-    pub fn new(
-        minimum_interval_secs: u64,
-        fallback_interval_secs: u64,
-        request_timeout_secs: u64,
-    ) -> Result<Self, String> {
-        if minimum_interval_secs == 0 || fallback_interval_secs == 0 || request_timeout_secs == 0 {
-            return Err("refresh intervals and timeout must be positive".to_owned());
-        }
-        if minimum_interval_secs > fallback_interval_secs {
-            return Err("minimum refresh interval must not exceed fallback interval".to_owned());
+    pub fn new(minimum_interval_secs: u64, request_timeout_secs: u64) -> Result<Self, String> {
+        if minimum_interval_secs == 0 || request_timeout_secs == 0 {
+            return Err("refresh interval and timeout must be positive".to_owned());
         }
         Ok(Self {
             minimum_interval_secs,
-            fallback_interval_secs,
             request_timeout_secs,
         })
     }
@@ -29,7 +36,6 @@ impl Default for RefreshPolicy {
     fn default() -> Self {
         Self {
             minimum_interval_secs: 10,
-            fallback_interval_secs: 10 * 60,
             request_timeout_secs: 15,
         }
     }
@@ -43,7 +49,7 @@ pub enum RefreshReason {
     Resume,
     NetworkRestored,
     CardOpened,
-    Fallback,
+    Scheduled,
 }
 
 impl RefreshReason {
@@ -55,8 +61,70 @@ impl RefreshReason {
             Self::NetworkRestored => 4,
             Self::RateLimitNotification => 3,
             Self::CardOpened => 2,
-            Self::Fallback => 1,
+            Self::Scheduled => 1,
         }
+    }
+}
+
+pub fn reason_allowed(mode: RefreshMode, reason: RefreshReason) -> bool {
+    mode != RefreshMode::ManualOnly || reason == RefreshReason::Manual
+}
+
+pub fn base_interval_secs(mode: RefreshMode, remaining_percent: Option<i64>) -> Option<u64> {
+    match mode {
+        RefreshMode::Auto => Some(match remaining_percent {
+            Some(value) if value > 50 => 30 * 60,
+            Some(value) if value > 20 => 15 * 60,
+            Some(_) | None => 5 * 60,
+        }),
+        RefreshMode::Every5Minutes => Some(5 * 60),
+        RefreshMode::Every15Minutes => Some(15 * 60),
+        RefreshMode::Every30Minutes => Some(30 * 60),
+        RefreshMode::ManualOnly => None,
+    }
+}
+
+pub fn failure_backoff_secs(consecutive_failures: u32) -> u64 {
+    match consecutive_failures {
+        0 | 1 => 60,
+        2 => 2 * 60,
+        3 => 5 * 60,
+        _ => 15 * 60,
+    }
+}
+
+pub fn effective_interval_secs(
+    mode: RefreshMode,
+    remaining_percent: Option<i64>,
+    consecutive_failures: u32,
+) -> u64 {
+    if mode == RefreshMode::ManualOnly {
+        return MANUAL_ONLY_STALE_SECS;
+    }
+    let base = base_interval_secs(mode, remaining_percent).unwrap_or(5 * 60);
+    if consecutive_failures == 0 {
+        return base;
+    }
+    let backoff = failure_backoff_secs(consecutive_failures);
+    if mode == RefreshMode::Auto {
+        backoff
+    } else {
+        base.max(backoff)
+    }
+}
+
+pub fn stale_after_secs(
+    mode: RefreshMode,
+    remaining_percent: Option<i64>,
+    consecutive_failures: u32,
+) -> u64 {
+    if mode == RefreshMode::ManualOnly {
+        MANUAL_ONLY_STALE_SECS
+    } else {
+        MINIMUM_STALE_SECS.max(
+            effective_interval_secs(mode, remaining_percent, consecutive_failures)
+                .saturating_mul(2),
+        )
     }
 }
 
@@ -73,6 +141,7 @@ pub enum RequestDecision {
     Started(RefreshRequest),
     Coalesced { active_request_id: u64 },
     Deferred { not_before: u64 },
+    Suppressed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,41 +159,61 @@ pub enum CompletionOutcome {
 #[derive(Debug, Clone)]
 pub struct RefreshCoordinator {
     policy: RefreshPolicy,
+    mode: RefreshMode,
     next_id: u64,
     in_flight: Option<RefreshRequest>,
     pending_reason: Option<RefreshReason>,
     last_started_at: Option<u64>,
-    last_success_at: Option<u64>,
+    next_scheduled_at: Option<u64>,
+    remaining_percent: Option<i64>,
+    consecutive_failures: u32,
 }
 
 impl RefreshCoordinator {
-    pub fn new(policy: RefreshPolicy) -> Self {
+    pub fn new(policy: RefreshPolicy, mode: RefreshMode) -> Self {
         Self {
             policy,
+            mode,
             next_id: 0,
             in_flight: None,
             pending_reason: None,
             last_started_at: None,
-            last_success_at: None,
+            next_scheduled_at: None,
+            remaining_percent: None,
+            consecutive_failures: 0,
         }
     }
 
     pub fn request(&mut self, reason: RefreshReason, now: u64) -> Result<RequestDecision, String> {
+        if !reason_allowed(self.mode, reason) {
+            return Ok(RequestDecision::Suppressed);
+        }
         if let Some(active) = self.in_flight {
             self.merge_pending(reason);
             return Ok(RequestDecision::Coalesced {
                 active_request_id: active.id,
             });
         }
-
-        if let Some(not_before) = self.not_before()
+        if reason != RefreshReason::Manual
+            && let Some(not_before) = self.not_before()
             && now < not_before
         {
             self.merge_pending(reason);
             return Ok(RequestDecision::Deferred { not_before });
         }
-
         self.start(reason, now).map(RequestDecision::Started)
+    }
+
+    pub fn set_mode(&mut self, mode: RefreshMode, now: u64) {
+        self.mode = mode;
+        self.pending_reason = self
+            .pending_reason
+            .filter(|reason| reason_allowed(mode, *reason));
+        self.reanchor_schedule(now);
+    }
+
+    pub fn set_remaining_percent(&mut self, remaining_percent: Option<i64>) {
+        self.remaining_percent = remaining_percent.filter(|value| (0..=100).contains(value));
     }
 
     pub fn complete(
@@ -139,11 +228,13 @@ impl RefreshCoordinator {
         if active.id != request_id {
             return Ok((CompletionOutcome::UnknownRequest, Vec::new()));
         }
-
         self.in_flight = None;
         if succeeded {
-            self.last_success_at = Some(now);
+            self.consecutive_failures = 0;
+        } else {
+            self.consecutive_failures = self.consecutive_failures.saturating_add(1);
         }
+        self.reanchor_schedule(now);
         let actions = self.start_due_work(now)?;
         Ok((CompletionOutcome::Completed, actions))
     }
@@ -154,9 +245,10 @@ impl RefreshCoordinator {
             && now >= active.deadline
         {
             self.in_flight = None;
+            self.consecutive_failures = self.consecutive_failures.saturating_add(1);
+            self.reanchor_schedule(now);
             actions.push(CoordinatorAction::TimedOut(active));
         }
-
         actions.extend(self.start_due_work(now)?);
         Ok(actions)
     }
@@ -169,34 +261,49 @@ impl RefreshCoordinator {
         self.pending_reason
     }
 
-    pub fn last_success_at(&self) -> Option<u64> {
-        self.last_success_at
+    pub fn mode(&self) -> RefreshMode {
+        self.mode
+    }
+
+    pub fn consecutive_failures(&self) -> u32 {
+        self.consecutive_failures
+    }
+
+    pub fn effective_interval_secs(&self) -> u64 {
+        effective_interval_secs(self.mode, self.remaining_percent, self.consecutive_failures)
+    }
+
+    pub fn stale_after_secs(&self) -> u64 {
+        stale_after_secs(self.mode, self.remaining_percent, self.consecutive_failures)
     }
 
     fn start_due_work(&mut self, now: u64) -> Result<Vec<CoordinatorAction>, String> {
         if self.in_flight.is_some() {
             return Ok(Vec::new());
         }
-
         let reason = if let Some(reason) = self.pending_reason {
             Some(reason)
-        } else if self
-            .fallback_anchor()
-            .is_some_and(|last| now.saturating_sub(last) >= self.policy.fallback_interval_secs)
+        } else if self.next_scheduled_at.is_some_and(|due| now >= due)
+            && self.mode != RefreshMode::ManualOnly
         {
-            Some(RefreshReason::Fallback)
+            Some(RefreshReason::Scheduled)
         } else {
             None
         };
         let Some(reason) = reason else {
             return Ok(Vec::new());
         };
-
-        if self.not_before().is_some_and(|not_before| now < not_before) {
+        if !reason_allowed(self.mode, reason) {
+            self.pending_reason = None;
             return Ok(Vec::new());
         }
-
+        if reason != RefreshReason::Manual
+            && self.not_before().is_some_and(|not_before| now < not_before)
+        {
+            return Ok(Vec::new());
+        }
         self.pending_reason = None;
+        self.next_scheduled_at = None;
         Ok(vec![CoordinatorAction::Started(self.start(reason, now)?)])
     }
 
@@ -222,16 +329,20 @@ impl RefreshCoordinator {
             .map(|last| last.saturating_add(self.policy.minimum_interval_secs))
     }
 
-    fn fallback_anchor(&self) -> Option<u64> {
-        match (self.last_started_at, self.last_success_at) {
-            (Some(started), Some(success)) => Some(started.max(success)),
-            (Some(started), None) => Some(started),
-            (None, Some(success)) => Some(success),
-            (None, None) => None,
-        }
+    fn reanchor_schedule(&mut self, now: u64) {
+        self.next_scheduled_at = base_interval_secs(self.mode, self.remaining_percent).map(|_| {
+            now.saturating_add(effective_interval_secs(
+                self.mode,
+                self.remaining_percent,
+                self.consecutive_failures,
+            ))
+        });
     }
 
     fn merge_pending(&mut self, reason: RefreshReason) {
+        if !reason_allowed(self.mode, reason) {
+            return;
+        }
         self.pending_reason = match self.pending_reason {
             Some(current) if current.priority() >= reason.priority() => Some(current),
             _ => Some(reason),
@@ -241,6 +352,6 @@ impl RefreshCoordinator {
 
 impl Default for RefreshCoordinator {
     fn default() -> Self {
-        Self::new(RefreshPolicy::default())
+        Self::new(RefreshPolicy::default(), RefreshMode::default())
     }
 }

@@ -1,239 +1,138 @@
-use codex_quota_tray::compatibility::VersionCompatibility;
 use codex_quota_tray::quota::{QuotaSummary, QuotaWindow, ResetCreditsState};
-use codex_quota_tray::state::{AppState, AuthState, DataState, ProcessState, StableDataState};
-use codex_quota_tray::ui_model::{TrayIconState, ViewPreferences, project_tray_view};
-
-const NOW: i64 = 1_700_000_000;
+use codex_quota_tray::state::{AppState, AuthState, DataState, FailureKind};
+use codex_quota_tray::ui_model::{
+    ResetCreditViewState, StatusTone, ViewPreferences, project_tray_view,
+};
 
 #[test]
-fn weekly_window_is_named_by_duration_and_projects_remaining_percentage() {
-    let state = state_with_windows(DataState::Fresh, vec![window(28, Some(10_080))]);
-    let view = project_tray_view(&state, NOW, ViewPreferences::default());
-
-    assert_eq!(view.icon, TrayIconState::Normal);
-    assert_eq!(view.windows[0].name, "7 天额度");
-    assert_eq!(view.windows[0].percent_label, "72% 剩余");
-    assert_eq!(view.windows[0].progress_percent, 72);
-    assert_eq!(view.title, "Codex 用量 · Plus");
-    assert!(view.status_line.starts_with("● 已更新 · "));
-    assert!(view.windows[0].reset_countdown.contains("后重置"));
-    assert!(view.windows[0].reset_countdown.contains(' '));
-    assert!(view.windows[0].reset_at_label.contains('月'));
-    assert!(view.tooltip.contains("72%"));
-    assert!(view.reset_credits.contains("暂未提供"));
-    assert!(!view.reset_credits.contains("App Server"));
-    assert!(!view.reset_credits.contains("0 次"));
+fn title_badge_and_percentage_are_separate_display_fields() {
+    let state = state_at(72, 1_700_090_000, 1_700_000_000);
+    let view = project_tray_view(&state, 1_700_000_100, ViewPreferences::default());
+    assert_eq!(view.title, "Codex 用量");
+    assert_eq!(view.plan_badge.as_deref(), Some("Plus"));
+    assert_eq!(view.windows[0].percent_value, "72%");
+    assert_eq!(view.windows[0].percent_suffix, "剩余");
+    assert!(view.windows[0].reset_line.contains("重置 · 还有"));
+    assert!(view.reset_credits.starts_with("重置卡 2 张"));
+    assert!(matches!(
+        view.reset_credit_state,
+        ResetCreditViewState::CompleteDetails { count: 2, .. }
+    ));
 }
 
 #[test]
-fn threshold_icons_have_distinct_semantic_states() {
-    for (remaining, expected) in [
-        (21, TrayIconState::Normal),
-        (20, TrayIconState::Caution),
-        (5, TrayIconState::Critical),
-        (0, TrayIconState::Exhausted),
-    ] {
-        let state = state_with_windows(DataState::Fresh, vec![window(100 - remaining, Some(300))]);
-        assert_eq!(
-            project_tray_view(&state, NOW, ViewPreferences::default()).icon,
-            expected
-        );
-    }
-}
-
-#[test]
-fn refreshing_preserves_windows_and_stale_or_offline_is_visibly_deemphasized() {
-    let refreshing = state_with_windows(
-        DataState::Refreshing {
-            previous: StableDataState::Fresh,
-        },
-        vec![window(30, Some(300))],
-    );
-    let view = project_tray_view(&refreshing, NOW, ViewPreferences::default());
-    assert_eq!(view.icon, TrayIconState::Refreshing);
-    assert_eq!(view.windows.len(), 1);
-    assert!(view.status.contains("保留上次数据"));
-    assert!(!view.can_refresh);
-
-    for data in [DataState::Stale, DataState::Offline] {
-        let state = state_with_windows(data, vec![window(30, Some(300))]);
-        let view = project_tray_view(&state, NOW, ViewPreferences::default());
-        assert_eq!(view.icon, TrayIconState::Offline);
-        assert_eq!(view.windows.len(), 1);
-    }
-}
-
-#[test]
-fn missing_window_and_reset_time_are_not_rendered_as_full_quota() {
-    let state = state_with_windows(DataState::Unavailable, Vec::new());
-    let view = project_tray_view(&state, NOW, ViewPreferences::default());
-    assert_eq!(view.windows, Vec::new());
-    assert_eq!(view.icon, TrayIconState::Offline);
-    assert!(!view.tooltip.contains("100%"));
-
-    let mut no_reset = window(40, Some(300));
-    no_reset.resets_at = None;
-    let state = state_with_windows(DataState::Fresh, vec![no_reset]);
-    let view = project_tray_view(&state, NOW, ViewPreferences::default());
-    assert_eq!(view.windows[0].reset_countdown, "未提供重置时间");
-    assert!(view.windows[0].reset_at_label.is_empty());
-}
-
-#[test]
-fn unauthenticated_and_non_chatgpt_modes_are_actionable_without_fake_quota() {
-    for (auth, expected) in [
-        (AuthState::Unauthenticated, "尚未登录"),
-        (AuthState::ApiKey, "API Key"),
-        (AuthState::Bedrock, "Bedrock"),
-    ] {
-        let state = AppState {
-            auth,
-            data: DataState::Unavailable,
-            ..AppState::default()
-        };
-        let view = project_tray_view(&state, NOW, ViewPreferences::default());
-        assert!(view.status.contains(expected));
-        assert!(view.status_line.contains(expected));
-        assert!(view.windows.is_empty());
-        assert!(!view.tooltip.contains("100%"));
-    }
-}
-
-#[test]
-fn used_percentage_and_twelve_hour_preferences_only_change_presentation() {
-    let state = state_with_windows(DataState::Fresh, vec![window(28, Some(300))]);
+fn display_preference_does_not_change_original_remaining() {
+    let state = state_at(72, 1_700_090_000, 1_700_000_000);
     let view = project_tray_view(
         &state,
-        NOW,
+        1_700_000_100,
         ViewPreferences {
             show_remaining_percent: false,
-            use_24_hour_time: false,
+            use_24_hour_time: true,
         },
     );
-    assert_eq!(view.windows[0].percent_label, "28% 已用");
-    assert_eq!(view.windows[0].progress_percent, 28);
-    assert!(
-        view.windows[0].reset_at_label.contains("AM")
-            || view.windows[0].reset_at_label.contains("PM")
-    );
+    assert_eq!(view.windows[0].percent_value, "28%");
+    assert_eq!(view.windows[0].percent_suffix, "已用");
+    assert_eq!(view.windows[0].remaining_percent, 72);
 }
 
 #[test]
-fn failed_app_server_and_backoff_have_actionable_status_without_fake_quota() {
-    let failed = AppState {
-        process: ProcessState::Failed,
-        data: DataState::Unavailable,
-        ..AppState::default()
+fn status_priority_refresh_failure_stale_then_fresh() {
+    let mut state = state_at(72, 1_700_090_000, 1_700_000_000);
+    let fresh = project_tray_view(&state, 1_700_000_100, ViewPreferences::default());
+    assert_eq!(fresh.status_tone, StatusTone::Success);
+    assert!(fresh.status_line.contains("更新于"));
+
+    state.data = DataState::Stale;
+    let stale = project_tray_view(&state, 1_700_004_000, ViewPreferences::default());
+    assert_eq!(stale.status_tone, StatusTone::Warning);
+    assert!(stale.status_line.contains("过期"));
+
+    state.last_failure = Some(FailureKind::Timeout);
+    let failed = project_tray_view(&state, 1_700_004_000, ViewPreferences::default());
+    assert_eq!(failed.refresh_label, "重试");
+    assert_eq!(failed.status_line, "! 请求超时，显示上次数据");
+
+    state.data = DataState::Refreshing {
+        previous: codex_quota_tray::state::StableDataState::Stale,
     };
-    let failed_view = project_tray_view(&failed, NOW, ViewPreferences::default());
-    assert!(failed_view.status.contains("Codex CLI 已安装"));
-    assert!(!failed_view.tooltip.contains("100%"));
-
-    let mut backoff = state_with_windows(DataState::Offline, vec![window(40, Some(300))]);
-    backoff.process = ProcessState::Backoff { attempt: 2 };
-    let backoff_view = project_tray_view(&backoff, NOW, ViewPreferences::default());
-    assert!(backoff_view.status.contains("有限重试"));
-    assert_eq!(backoff_view.windows.len(), 1);
+    let refreshing = project_tray_view(&state, 1_700_004_000, ViewPreferences::default());
+    assert_eq!(refreshing.status_line, "正在刷新…");
+    assert_eq!(refreshing.refresh_label, "正在刷新…");
+    assert!(!refreshing.can_refresh);
 }
 
 #[test]
-fn schema_mismatch_is_visible_without_exposing_raw_user_agent() {
-    let mut state = state_with_windows(DataState::Fresh, vec![window(28, Some(300))]);
-    state.compatibility = VersionCompatibility::Mismatch {
-        schema_version: "0.137.0".to_owned(),
-        runtime_version: "0.138.0".to_owned(),
-    };
-    let view = project_tray_view(&state, NOW, ViewPreferences::default());
-    assert!(view.status.contains("0.138.0"));
-    assert!(view.status.contains("0.137.0"));
-    assert!(view.status.contains("只读兼容模式"));
-    assert!(!view.status.contains("userAgent"));
-}
-
-#[test]
-fn explicit_server_limit_reached_overrides_nonzero_percentage_without_guessing_a_window() {
-    let mut state = state_with_windows(DataState::Fresh, vec![window(40, Some(300))]);
-    state.quota.as_mut().unwrap().rate_limit_reached = true;
-
-    let view = project_tray_view(&state, NOW, ViewPreferences::default());
-    assert_eq!(view.icon, TrayIconState::Exhausted);
-    assert!(view.status.contains("服务报告"));
-    assert!(view.tooltip.contains("已达到限制"));
-    assert_eq!(view.windows[0].remaining_percent, 60);
-}
-
-#[test]
-fn projection_stays_equal_between_countdown_boundaries() {
-    let state = state_with_windows(DataState::Fresh, vec![window(40, Some(300))]);
-    let initial = project_tray_view(&state, NOW, ViewPreferences::default());
-    let five_seconds_later = project_tray_view(&state, NOW + 5, ViewPreferences::default());
-    let one_minute_later = project_tray_view(&state, NOW + 60, ViewPreferences::default());
-
-    assert_eq!(initial, five_seconds_later);
-    assert_ne!(
-        initial.windows[0].reset_countdown,
-        one_minute_later.windows[0].reset_countdown
-    );
-}
-
-#[test]
-fn countdown_keeps_nonzero_days_hours_and_minutes() {
-    let cases = [
-        (6 * 24 * 60 * 60 + 60 * 60 + 2 * 60, "6天 1小时 2分钟后重置"),
-        (5 * 60 * 60 + 23 * 60, "5小时 23分钟后重置"),
-        (23 * 60, "23分钟后重置"),
-        (0, "即将重置"),
-    ];
-    for (remaining, expected) in cases {
-        let mut quota_window = window(28, Some(300));
-        quota_window.resets_at = Some(NOW + remaining);
-        let state = state_with_windows(DataState::Fresh, vec![quota_window]);
-        let view = project_tray_view(&state, NOW, ViewPreferences::default());
-        assert_eq!(view.windows[0].reset_countdown, expected);
+fn reset_relative_precision_matches_boundaries() {
+    let now = 1_700_000_000;
+    for (seconds, expected) in [
+        (6 * 86_400 + 23 * 3_600 + 42 * 60, "6天23小时"),
+        (5 * 3_600 + 23 * 60, "5小时23分钟"),
+        (23 * 60, "23分钟"),
+    ] {
+        let view = project_tray_view(
+            &state_at(50, now + seconds, now),
+            now,
+            ViewPreferences::default(),
+        );
+        assert!(view.windows[0].reset_line.contains(expected));
     }
+    let expired = project_tray_view(&state_at(50, now, now), now, ViewPreferences::default());
+    assert!(expired.windows[0].reset_line.contains("等待额度数据更新"));
 }
 
 #[test]
-fn status_line_distinguishes_refreshing_and_failure_without_duplicate_last_updated_text() {
-    let refreshing = state_with_windows(
-        DataState::Refreshing {
-            previous: StableDataState::Fresh,
-        },
-        vec![window(30, Some(300))],
-    );
-    let refreshing_view = project_tray_view(&refreshing, NOW, ViewPreferences::default());
-    assert_eq!(refreshing_view.status_line, "正在更新…");
+fn reset_credit_view_states_use_authoritative_count_and_local_expiry() {
+    let mut state = state_at(80, 1_800_000_000, 1_700_000_000);
+    state.quota.as_mut().unwrap().reset_credits = ResetCreditsState::Available {
+        available_count: 3,
+        detail_count: 1,
+        valid_expirations: vec![1_800_000_000],
+    };
+    let partial = project_tray_view(&state, 1_700_000_100, ViewPreferences::default());
+    assert!(matches!(
+        partial.reset_credit_state,
+        ResetCreditViewState::PartialDetails {
+            count: 3,
+            detail_count: 1,
+            ..
+        }
+    ));
+    assert!(partial.reset_credits.contains("最近已知"));
 
-    let failed = state_with_windows(DataState::Offline, vec![window(30, Some(300))]);
-    let failed_view = project_tray_view(&failed, NOW, ViewPreferences::default());
-    assert_eq!(failed_view.status_line, "● 更新失败 · 点击刷新重试");
+    state.quota.as_mut().unwrap().reset_credits = ResetCreditsState::Unavailable;
+    let unavailable = project_tray_view(&state, 1_700_000_100, ViewPreferences::default());
+    assert_eq!(unavailable.status_line, "⚠ 部分额度信息暂不可用");
+    assert_eq!(unavailable.status_tone, StatusTone::Warning);
+    assert_eq!(unavailable.reset_credits, "当前账户未提供重置卡信息");
 }
 
-fn state_with_windows(data: DataState, windows: Vec<QuotaWindow>) -> AppState {
+fn state_at(remaining: i64, resets_at: i64, updated_at: i64) -> AppState {
     AppState {
         auth: AuthState::Authenticated {
             plan_type: Some("plus".to_owned()),
         },
-        data,
+        data: DataState::Fresh,
         quota: Some(QuotaSummary {
-            windows,
-            issues: Vec::new(),
-            reset_credits: ResetCreditsState::UnavailableInSchema,
+            windows: vec![QuotaWindow {
+                limit_id: Some("fixture".to_owned()),
+                limit_name: None,
+                source_slot: "primary",
+                used_percent: 100 - remaining,
+                remaining_percent: remaining,
+                percentage_valid: true,
+                window_duration_mins: Some(10_080),
+                resets_at: Some(resets_at),
+            }],
+            issues: vec![],
+            reset_credits: ResetCreditsState::Available {
+                available_count: 2,
+                detail_count: 2,
+                valid_expirations: vec![resets_at + 86_400, resets_at + 172_800],
+            },
             rate_limit_reached: false,
         }),
-        last_success_at: Some(NOW - 30),
+        last_success_at: Some(updated_at),
         ..AppState::default()
-    }
-}
-
-fn window(used_percent: i64, duration: Option<i64>) -> QuotaWindow {
-    QuotaWindow {
-        limit_id: None,
-        limit_name: None,
-        source_slot: "primary",
-        used_percent,
-        remaining_percent: 100 - used_percent,
-        window_duration_mins: duration,
-        resets_at: Some(NOW + (6 * 24 + 2) * 60 * 60),
     }
 }

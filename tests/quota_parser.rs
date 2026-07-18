@@ -71,10 +71,7 @@ fn primary_can_be_a_weekly_window() {
     assert_eq!(summary.windows[0].window_duration_mins, Some(10_080));
     assert_eq!(summary.windows[0].remaining_percent, 72);
     assert_eq!(summary.windows[0].display_name(), "7-day quota");
-    assert_eq!(
-        summary.reset_credits,
-        ResetCreditsState::UnavailableInSchema
-    );
+    assert_eq!(summary.reset_credits, ResetCreditsState::Unavailable);
 }
 
 #[test]
@@ -118,6 +115,7 @@ fn out_of_range_percentage_is_clamped_with_warning() {
     let summary = summarize_rate_limits(&response);
     assert_eq!(summary.windows[0].used_percent, 100);
     assert_eq!(summary.windows[0].remaining_percent, 0);
+    assert!(!summary.windows[0].percentage_valid);
     assert_eq!(summary.issues.len(), 1);
 }
 
@@ -178,4 +176,100 @@ fn outgoing_messages_are_read_only_and_match_schema() {
     let serialized = serde_json::to_string(&(methods, account_read_params())).unwrap();
     assert!(!serialized.contains("consume"));
     assert!(!serialized.contains("token"));
+}
+
+fn response_with_reset_credits(value: Value) -> RateLimitsReadResponse {
+    serde_json::from_value(json!({
+        "rateLimits": {
+            "primary": { "usedPercent": 20, "windowDurationMins": 10080 }
+        },
+        "rateLimitResetCredits": value
+    }))
+    .unwrap()
+}
+
+#[test]
+fn reset_credit_presence_count_and_partial_details_are_distinct() {
+    let missing: RateLimitsReadResponse = serde_json::from_value(json!({
+        "rateLimits": { "primary": { "usedPercent": 20 } }
+    }))
+    .unwrap();
+    assert_eq!(
+        summarize_rate_limits(&missing).reset_credits,
+        ResetCreditsState::Unavailable
+    );
+
+    let empty = response_with_reset_credits(json!({ "availableCount": 0, "credits": [] }));
+    assert!(matches!(
+        summarize_rate_limits(&empty).reset_credits,
+        ResetCreditsState::Available {
+            available_count: 0,
+            ..
+        }
+    ));
+
+    let count_only = response_with_reset_credits(json!({ "availableCount": 3, "credits": null }));
+    assert!(matches!(
+        summarize_rate_limits(&count_only).reset_credits,
+        ResetCreditsState::Available {
+            available_count: 3,
+            detail_count: 0,
+            ..
+        }
+    ));
+
+    let partial = response_with_reset_credits(json!({
+        "availableCount": 3,
+        "credits": [{
+            "id": "never-persist-or-display",
+            "resetType": "codexRateLimits",
+            "status": "available",
+            "grantedAt": 1_700_000_000,
+            "expiresAt": 1_800_000_000,
+            "title": null,
+            "description": null
+        }]
+    }));
+    assert!(matches!(
+        summarize_rate_limits(&partial).reset_credits,
+        ResetCreditsState::Available {
+            available_count: 3,
+            detail_count: 1,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn invalid_reset_credit_expiry_is_ignored_without_rejecting_the_response() {
+    let response = response_with_reset_credits(json!({
+        "availableCount": 2,
+        "credits": [
+            { "expiresAt": null },
+            { "expiresAt": "invalid" }
+        ]
+    }));
+    assert!(matches!(summarize_rate_limits(&response).reset_credits,
+        ResetCreditsState::Available { valid_expirations, .. } if valid_expirations.is_empty()));
+}
+
+#[test]
+fn sparse_notification_preserves_full_read_reset_credit_snapshot() {
+    let mut response = response_with_reset_credits(json!({
+        "availableCount": 2,
+        "credits": [{ "expiresAt": 1_800_000_000 }]
+    }));
+    let notification: AccountRateLimitsUpdatedNotification = serde_json::from_value(json!({
+        "rateLimits": { "primary": { "usedPercent": 25 } }
+    }))
+    .unwrap();
+    response.merge_sparse_notification(notification.rate_limits);
+    assert_eq!(
+        response
+            .rate_limit_reset_credits
+            .as_ref()
+            .unwrap()
+            .available_count,
+        2
+    );
 }

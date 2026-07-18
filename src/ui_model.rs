@@ -1,8 +1,7 @@
-use chrono::{Local, TimeZone};
+use chrono::{Datelike, Local, TimeZone};
 
-use crate::compatibility::VersionCompatibility;
-use crate::quota::QuotaWindow;
-use crate::state::{AppState, AuthState, DataState, ProcessState};
+use crate::quota::{QuotaWindow, ResetCreditsState};
+use crate::state::{AppState, AuthState, DataState, FailureKind, ProcessState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayIconState {
@@ -12,6 +11,15 @@ pub enum TrayIconState {
     Exhausted,
     Refreshing,
     Offline,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusTone {
+    Success,
+    Warning,
+    Error,
+    Refreshing,
+    Neutral,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,20 +42,67 @@ pub struct TrayView {
     pub icon: TrayIconState,
     pub tooltip: String,
     pub title: String,
+    pub plan_badge: Option<String>,
     pub status: String,
     pub status_line: String,
+    pub status_tone: StatusTone,
     pub windows: Vec<QuotaWindowView>,
     pub reset_credits: String,
+    pub reset_credit_state: ResetCreditViewState,
+    pub refresh_label: String,
     pub can_refresh: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResetCreditViewState {
+    Unavailable,
+    Empty,
+    CountOnly {
+        count: i64,
+    },
+    PartialDetails {
+        count: i64,
+        detail_count: usize,
+        earliest_expires_at: i64,
+    },
+    CompleteDetails {
+        count: i64,
+        earliest_expires_at: i64,
+    },
+}
+
+impl ResetCreditViewState {
+    pub fn text(&self) -> String {
+        match self {
+            Self::Unavailable => "当前账户未提供重置卡信息".to_owned(),
+            Self::Empty => "暂无可用重置卡".to_owned(),
+            Self::CountOnly { count } => format!("重置卡 {count} 张 · 到期时间未提供"),
+            Self::PartialDetails {
+                count,
+                earliest_expires_at,
+                ..
+            } => format!(
+                "重置卡 {count} 张 · 最近已知 {}到期",
+                format_credit_expiry(*earliest_expires_at)
+            ),
+            Self::CompleteDetails {
+                count,
+                earliest_expires_at,
+            } => format!(
+                "重置卡 {count} 张 · 最早 {}到期",
+                format_credit_expiry(*earliest_expires_at)
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuotaWindowView {
     pub name: String,
-    pub percent_label: String,
+    pub percent_value: String,
+    pub percent_suffix: String,
     pub progress_percent: u8,
-    pub reset_countdown: String,
-    pub reset_at_label: String,
+    pub reset_line: String,
     pub remaining_percent: i64,
 }
 
@@ -66,53 +121,51 @@ pub fn project_tray_view(state: &AppState, now: i64, preferences: ViewPreference
     let icon = icon_state(state, &windows);
     let status = status_text(state);
     let tooltip = tooltip_text(state, &windows, &status);
-    let status_line = status_line(state, preferences);
+    let (status_line, status_tone) = projected_status(state, now, preferences);
+    let refreshing = matches!(state.data, DataState::Refreshing { .. });
+    let failed = state.last_failure.is_some();
+    let reset_credit_state = project_reset_credits(state);
 
     TrayView {
         icon,
         tooltip,
-        title: account_title(&state.auth),
+        title: "Codex 用量".to_owned(),
+        plan_badge: plan_badge(&state.auth),
         status,
         status_line,
+        status_tone,
         windows,
-        reset_credits: "当前服务端暂未提供重置次数".to_owned(),
-        can_refresh: !matches!(state.data, DataState::Refreshing { .. }),
+        reset_credits: reset_credit_state.text(),
+        reset_credit_state,
+        refresh_label: if refreshing {
+            "正在刷新…".to_owned()
+        } else if failed {
+            "重试".to_owned()
+        } else {
+            "刷新".to_owned()
+        },
+        can_refresh: !refreshing,
     }
 }
 
 fn project_window(window: &QuotaWindow, now: i64, preferences: ViewPreferences) -> QuotaWindowView {
-    let display_percent = if preferences.show_remaining_percent {
-        window.remaining_percent
+    let (display_percent, percent_suffix, progress_percent) = if preferences.show_remaining_percent
+    {
+        (window.remaining_percent, "剩余", window.remaining_percent)
     } else {
-        window.used_percent
+        (window.used_percent, "已用", window.used_percent)
     };
-    let percent_label = if preferences.show_remaining_percent {
-        format!("{display_percent}% 剩余")
-    } else {
-        format!("{display_percent}% 已用")
-    };
-    let progress_percent = if preferences.show_remaining_percent {
-        window.remaining_percent
-    } else {
-        window.used_percent
-    }
-    .clamp(0, 100) as u8;
-    let (reset_countdown, reset_at_label) = window.resets_at.map_or_else(
-        || ("未提供重置时间".to_owned(), String::new()),
-        |timestamp| {
-            (
-                format_countdown(timestamp, now),
-                format_reset_time(timestamp, preferences),
-            )
-        },
+    let reset_line = window.resets_at.map_or_else(
+        || "未提供重置时间".to_owned(),
+        |timestamp| format_reset_line(timestamp, now, preferences),
     );
 
     QuotaWindowView {
         name: window_display_name(window),
-        percent_label,
-        progress_percent,
-        reset_countdown,
-        reset_at_label,
+        percent_value: format!("{display_percent}%"),
+        percent_suffix: percent_suffix.to_owned(),
+        progress_percent: progress_percent.clamp(0, 100) as u8,
+        reset_line,
         remaining_percent: window.remaining_percent,
     }
 }
@@ -136,11 +189,10 @@ fn icon_state(state: &AppState, windows: &[QuotaWindowView]) -> TrayIconState {
     {
         return TrayIconState::Exhausted;
     }
-    let minimum = windows.iter().map(|window| window.remaining_percent).min();
-    match minimum {
+    match windows.iter().map(|window| window.remaining_percent).min() {
         Some(0) => TrayIconState::Exhausted,
-        Some(1..=5) => TrayIconState::Critical,
-        Some(6..=20) => TrayIconState::Caution,
+        Some(1..=19) => TrayIconState::Critical,
+        Some(20..=50) => TrayIconState::Caution,
         Some(_) => TrayIconState::Normal,
         None => TrayIconState::Offline,
     }
@@ -158,64 +210,104 @@ fn tooltip_text(state: &AppState, windows: &[QuotaWindowView], status: &str) -> 
             format!("{short_name} {}%", window.remaining_percent)
         })
         .collect::<Vec<_>>();
-    parts.push(
-        if matches!(state.data, DataState::Fresh)
-            && state
-                .quota
-                .as_ref()
-                .is_some_and(|quota| quota.rate_limit_reached)
-        {
-            "服务端报告已达到限制".to_owned()
-        } else if matches!(state.data, DataState::Fresh) {
-            "重置次数不可用".to_owned()
-        } else {
-            status.to_owned()
-        },
-    );
+    parts.push(status.to_owned());
     format!("Codex：{}", parts.join(" · "))
 }
 
-fn account_title(auth: &AuthState) -> String {
+fn plan_badge(auth: &AuthState) -> Option<String> {
     match auth {
-        AuthState::Authenticated { plan_type } => plan_type.as_ref().map_or_else(
-            || "Codex 用量".to_owned(),
-            |plan| format!("Codex 用量 · {}", display_plan_name(plan)),
-        ),
-        AuthState::ApiKey => "Codex · API Key 计费".to_owned(),
-        AuthState::Bedrock => "Codex · Amazon Bedrock".to_owned(),
-        _ => "Codex 用量".to_owned(),
+        AuthState::Authenticated { plan_type } => plan_type.as_deref().map(display_plan_name),
+        AuthState::ApiKey => Some("API Key".to_owned()),
+        AuthState::Bedrock => Some("Bedrock".to_owned()),
+        _ => None,
     }
 }
 
-fn display_plan_name(plan: &str) -> &str {
+fn display_plan_name(plan: &str) -> String {
     if plan.eq_ignore_ascii_case("plus") {
-        "Plus"
+        "Plus".to_owned()
     } else {
-        plan
+        plan.to_owned()
     }
 }
 
-fn status_line(state: &AppState, preferences: ViewPreferences) -> String {
-    if !matches!(&state.auth, AuthState::Authenticated { .. })
-        || !matches!(
-            &state.compatibility,
-            VersionCompatibility::Unknown | VersionCompatibility::Match { .. }
-        )
-    {
-        return status_text(state);
+fn projected_status(
+    state: &AppState,
+    now: i64,
+    preferences: ViewPreferences,
+) -> (String, StatusTone) {
+    if matches!(
+        &state.auth,
+        AuthState::Unauthenticated
+            | AuthState::ApiKey
+            | AuthState::Bedrock
+            | AuthState::Unsupported(_)
+    ) {
+        return (status_text(state), StatusTone::Error);
     }
-    match &state.data {
-        DataState::Refreshing { .. } => "正在更新…".to_owned(),
-        DataState::Fresh => state.last_success_at.map_or_else(
-            || "● 已更新".to_owned(),
-            |timestamp| format!("● 已更新 · {}", format_status_time(timestamp, preferences)),
-        ),
-        DataState::Empty if matches!(state.auth, AuthState::Unknown) => "正在连接…".to_owned(),
-        DataState::Empty => "● 更新失败 · 点击刷新重试".to_owned(),
-        DataState::Stale | DataState::Offline | DataState::Unavailable => {
-            "● 更新失败 · 点击刷新重试".to_owned()
+    if matches!(state.data, DataState::Refreshing { .. }) {
+        return ("正在刷新…".to_owned(), StatusTone::Refreshing);
+    }
+    if let Some(failure) = state.last_failure {
+        return (failure_status(failure), StatusTone::Error);
+    }
+    if reset_credit_information_is_partial(state) && matches!(state.data, DataState::Fresh) {
+        return ("⚠ 部分额度信息暂不可用".to_owned(), StatusTone::Warning);
+    }
+    let stale = state
+        .last_success_at
+        .is_some_and(|last| now.saturating_sub(last) >= state.stale_after_secs.max(15 * 60))
+        || matches!(state.data, DataState::Stale);
+    if stale {
+        let suffix = state.last_success_at.map_or_else(String::new, |timestamp| {
+            format!(
+                " · 更新于 {}",
+                format_status_time(timestamp, now, preferences)
+            )
+        });
+        return (format!("▲ 数据已过期{suffix}"), StatusTone::Warning);
+    }
+    if matches!(state.data, DataState::Fresh) {
+        return (
+            state.last_success_at.map_or_else(
+                || "● 已更新".to_owned(),
+                |timestamp| {
+                    format!(
+                        "● 更新于 {}",
+                        format_status_time(timestamp, now, preferences)
+                    )
+                },
+            ),
+            StatusTone::Success,
+        );
+    }
+    (status_text(state), StatusTone::Neutral)
+}
+
+fn reset_credit_information_is_partial(state: &AppState) -> bool {
+    match state.quota.as_ref().map(|quota| &quota.reset_credits) {
+        Some(ResetCreditsState::Unavailable) => true,
+        Some(ResetCreditsState::Available {
+            available_count,
+            detail_count,
+            valid_expirations,
+        }) => {
+            *available_count > 0
+                && (valid_expirations.is_empty() || *detail_count < *available_count as usize)
         }
+        None => false,
     }
+}
+
+fn failure_status(kind: FailureKind) -> String {
+    match kind {
+        FailureKind::Transport => "! 连接失败，显示上次数据",
+        FailureKind::Timeout => "! 请求超时，显示上次数据",
+        FailureKind::Rpc => "! 服务端返回错误，显示上次数据",
+        FailureKind::Protocol => "! 响应格式不兼容，显示上次数据",
+        FailureKind::IncompleteData => "! 额度数据不完整，显示上次数据",
+    }
+    .to_owned()
 }
 
 fn status_text(state: &AppState) -> String {
@@ -229,21 +321,6 @@ fn status_text(state: &AppState) -> String {
 }
 
 fn status_text_for_supported_account(state: &AppState) -> String {
-    match &state.compatibility {
-        VersionCompatibility::Mismatch {
-            schema_version,
-            runtime_version,
-        } => {
-            return format!(
-                "Codex CLI {runtime_version} 与协议基线 {schema_version} 不匹配；只读兼容模式"
-            );
-        }
-        VersionCompatibility::Unreported { .. } => {
-            return "无法确认 Codex CLI 版本；只读兼容模式".to_owned();
-        }
-        VersionCompatibility::Unknown | VersionCompatibility::Match { .. } => {}
-    }
-
     match state.process {
         ProcessState::Failed if state.quota.is_some() => {
             return "Codex App Server 已停止；显示上次数据".to_owned();
@@ -256,14 +333,8 @@ fn status_text_for_supported_account(state: &AppState) -> String {
         }
         _ => {}
     }
-
     match state.data {
-        DataState::Fresh
-            if state
-                .quota
-                .as_ref()
-                .is_some_and(|quota| quota.rate_limit_reached) =>
-        {
+        DataState::Fresh if state.quota.as_ref().is_some_and(|q| q.rate_limit_reached) => {
             "Codex 服务报告当前额度已达到限制".to_owned()
         }
         DataState::Empty if matches!(state.auth, AuthState::Unknown) => {
@@ -278,66 +349,91 @@ fn status_text_for_supported_account(state: &AppState) -> String {
     }
 }
 
-fn format_local_time(timestamp: i64, preferences: ViewPreferences) -> String {
-    format_with_pattern(timestamp, preferences, "%m-%d %H:%M", "%m-%d %I:%M %p")
+fn project_reset_credits(state: &AppState) -> ResetCreditViewState {
+    match state.quota.as_ref().map(|quota| &quota.reset_credits) {
+        Some(ResetCreditsState::Available {
+            available_count: 0, ..
+        }) => ResetCreditViewState::Empty,
+        Some(ResetCreditsState::Available {
+            available_count,
+            detail_count,
+            valid_expirations,
+        }) => {
+            let Some(earliest_expires_at) = valid_expirations.first().copied() else {
+                return ResetCreditViewState::CountOnly {
+                    count: *available_count,
+                };
+            };
+            if *detail_count == *available_count as usize {
+                ResetCreditViewState::CompleteDetails {
+                    count: *available_count,
+                    earliest_expires_at,
+                }
+            } else {
+                ResetCreditViewState::PartialDetails {
+                    count: *available_count,
+                    detail_count: *detail_count,
+                    earliest_expires_at,
+                }
+            }
+        }
+        Some(ResetCreditsState::Unavailable) | None => ResetCreditViewState::Unavailable,
+    }
 }
 
-fn format_status_time(timestamp: i64, preferences: ViewPreferences) -> String {
-    format_local_time(timestamp, preferences)
-}
-
-fn format_reset_time(timestamp: i64, preferences: ViewPreferences) -> String {
-    format_with_pattern(
-        timestamp,
-        preferences,
-        "%m月%d日 %H:%M",
-        "%m月%d日 %I:%M %p",
+fn format_credit_expiry(timestamp: i64) -> String {
+    Local.timestamp_opt(timestamp, 0).single().map_or_else(
+        || "未知时间".to_owned(),
+        |value| value.format("%-m月%-d日").to_string(),
     )
 }
 
-fn format_with_pattern(
-    timestamp: i64,
-    preferences: ViewPreferences,
-    twenty_four_hour: &str,
-    twelve_hour: &str,
-) -> String {
+fn format_status_time(timestamp: i64, now: i64, preferences: ViewPreferences) -> String {
     let Some(value) = Local.timestamp_opt(timestamp, 0).single() else {
         return "无效时间".to_owned();
     };
-    if preferences.use_24_hour_time {
-        value.format(twenty_four_hour).to_string()
-    } else {
-        value.format(twelve_hour).to_string()
+    let same_day = Local.timestamp_opt(now, 0).single().is_some_and(|current| {
+        (value.year(), value.ordinal()) == (current.year(), current.ordinal())
+    });
+    match (same_day, preferences.use_24_hour_time) {
+        (true, true) => value.format("%H:%M").to_string(),
+        (true, false) => value.format("%I:%M %p").to_string(),
+        (false, true) => value.format("%m-%d %H:%M").to_string(),
+        (false, false) => value.format("%m-%d %I:%M %p").to_string(),
     }
 }
 
-fn format_countdown(timestamp: i64, now: i64) -> String {
+fn format_reset_line(timestamp: i64, now: i64, preferences: ViewPreferences) -> String {
+    let Some(value) = Local.timestamp_opt(timestamp, 0).single() else {
+        return "无效重置时间".to_owned();
+    };
+    let absolute = if preferences.use_24_hour_time {
+        value.format("%-m月%-d日 %H:%M").to_string()
+    } else {
+        value.format("%-m月%-d日 %I:%M %p").to_string()
+    };
     let remaining = timestamp.saturating_sub(now);
     if remaining <= 0 {
-        return "即将重置".to_owned();
+        return format!("{absolute} 重置 · 等待额度数据更新");
     }
-    let minutes = (remaining + 59) / 60;
-    let days = minutes / (24 * 60);
-    let hours = (minutes % (24 * 60)) / 60;
-    let minutes = minutes % 60;
-    let mut parts = Vec::with_capacity(3);
-    if days > 0 {
-        parts.push(format!("{days}天"));
-    }
-    if hours > 0 {
-        parts.push(format!("{hours}小时"));
-    }
-    if minutes > 0 {
-        parts.push(format!("{minutes}分钟"));
-    }
-    format!("{}后重置", parts.join(" "))
+    let total_minutes = (remaining + 59) / 60;
+    let days = total_minutes / 1_440;
+    let hours = (total_minutes % 1_440) / 60;
+    let minutes = total_minutes % 60;
+    let relative = if days > 0 {
+        format!("{days}天{hours}小时")
+    } else if hours > 0 {
+        format!("{hours}小时{minutes}分钟")
+    } else {
+        format!("{minutes}分钟")
+    };
+    format!("{absolute} 重置 · 还有 {relative}")
 }
 
 pub fn window_display_name(window: &QuotaWindow) -> String {
     if let Some(name) = window.limit_name.as_deref().filter(|name| !name.is_empty()) {
         return name.to_owned();
     }
-
     match window.window_duration_mins {
         Some(300) => "5 小时额度".to_owned(),
         Some(10_080) => "7 天额度".to_owned(),

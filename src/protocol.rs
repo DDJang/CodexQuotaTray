@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 
 pub const INITIALIZE_METHOD: &str = "initialize";
@@ -35,8 +35,38 @@ pub struct AccountInfo {
 #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct RateLimitsReadResponse {
+    pub rate_limit_reset_credits: Option<RateLimitResetCreditsSummary>,
     pub rate_limits: Option<RateLimitSnapshot>,
     pub rate_limits_by_limit_id: Option<BTreeMap<String, RateLimitSnapshot>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitResetCreditsSummary {
+    pub available_count: i64,
+    pub credits: Option<Vec<RateLimitResetCredit>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitResetCredit {
+    pub id: Option<String>,
+    pub reset_type: Option<String>,
+    pub status: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_i64_lenient")]
+    pub granted_at: Option<i64>,
+    #[serde(default, deserialize_with = "deserialize_optional_i64_lenient")]
+    pub expires_at: Option<i64>,
+    pub title: Option<String>,
+    pub description: Option<String>,
+}
+
+fn deserialize_optional_i64_lenient<'de, D>(deserializer: D) -> Result<Option<i64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| value.as_i64()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -18,12 +18,12 @@ The output is `dist\CodexQuotaTray-<version>-win-x64.zip`. The script runs locke
 pwsh -NoProfile -File .\scripts\package-inno.ps1 -Cargo C:\Users\<user>\.cargo\bin\cargo.exe
 ```
 
-输出为 `dist-inno\CodexQuotaTray-<version>-setup.exe`。安装器使用 per-user 模式，不请求管理员权限；默认创建开始菜单快捷方式并勾选 HKCU 登录启动。升级和卸载前会调用 `--shutdown-existing`，不强杀托盘进程。卸载器删除程序文件和启动项，但保留 `%LOCALAPPDATA%\CodexQuotaTray` 设置/缓存，避免意外丢失用户数据。构建脚本会在调用 Inno Setup 前执行 `scripts\verify-pe-icon.ps1`，从 Release EXE 的 `RT_GROUP_ICON #101` 验证嵌入图标尺寸与子资源。
+输出为 `dist-inno\CodexQuotaTray-<version>-setup.exe`。安装器使用 per-user 模式，不请求管理员权限；默认创建开始菜单快捷方式并勾选 HKCU 登录启动。升级和卸载前会调用 `--shutdown-existing`，不强杀托盘进程。卸载器默认删除程序文件、启动项以及 `%LOCALAPPDATA%\CodexQuotaTray` 下的设置、额度缓存和提醒防重复状态；交互卸载可选择保留，静默卸载使用 `/KEEPUSERDATA` 显式保留。该语义与 ZIP 卸载器的默认删除和 `-KeepUserData` 保留一致。构建脚本会在调用 Inno Setup 前执行 `scripts\verify-pe-icon.ps1`，从 Release EXE 的 `RT_GROUP_ICON #101` 验证嵌入图标尺寸与子资源。
 
 Install for the current user:
 
 ```powershell
-Expand-Archive .\CodexQuotaTray-0.1.4-win-x64.zip .\CodexQuotaTray
+Expand-Archive .\CodexQuotaTray-0.2.0-win-x64.zip .\CodexQuotaTray
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\CodexQuotaTray\install.ps1 -StartWithWindows
 ```
 
@@ -44,5 +44,5 @@ No signing or publishing step is automated in this repository because the requir
 - Automated: locked release build, repository-path redaction, manifest verification, install, same-version overwrite/upgrade, isolated start-with-Windows registry value, shortcut creation, uninstall, default user-data removal, `-KeepUserData` preservation, size, and package-content checks.
 - Completed manually: Windows 11 10.0.26200 x64 tray/runtime smoke.
 - Required before public release: Windows 10 x64 install/upgrade/uninstall/tray smoke; Windows 11 stable-channel smoke; 100/125/150/200% DPI and multi-monitor positioning; signed artifact verification; real official Usage navigation.
-- UI 0.1.4 validation additionally checks `RT_MANIFEST #1`, `RT_GROUP_ICON #101` and its 16/20/24/32/48/256 frames, effective Per-Monitor V2 process awareness, target-monitor window DPI, transparent rounded icon corners, opaque ClearType Natural rendering, light theme contrast, independent message-window tray toggling, taskbar-safe lower-right positioning, Windows 11 DWM corners, hover/pressed/focus states, and dynamic zero-to-three-window layouts.
+- UI 0.2.0 validation additionally checks `RT_MANIFEST #1`, `RT_GROUP_ICON #101` and its 16/20/24/32/48/256 frames, effective Per-Monitor V2 process awareness, target-monitor window DPI, compact status/badge layout, opaque ClearType Natural rendering, light theme contrast, independent message-window tray toggling, taskbar-safe lower-right positioning, Windows 11 DWM corners, hover/pressed/focus states, and dynamic zero-to-three-window layouts.
 - Stability: the completed extended run lasted 21 hours 11 minutes and ended on explicit user instruction, with no restart, warning, or orphan process observed. It is local MVP evidence, not a completed 24-hour or seven-day release-quality run.

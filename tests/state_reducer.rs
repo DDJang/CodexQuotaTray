@@ -261,3 +261,15 @@ fn state_store_returns_owned_snapshots() {
     assert_eq!(returned.process, ProcessState::Starting { generation: 4 });
     assert_eq!(store.snapshot(), returned);
 }
+
+#[test]
+fn increasing_dynamic_stale_threshold_restores_a_still_valid_snapshot() {
+    let mut reducer = fresh_reducer(100);
+    reducer.reduce(StateEvent::Tick { now: 1_000 });
+    assert_eq!(reducer.state().data, DataState::Stale);
+    reducer.reduce(StateEvent::StaleThresholdUpdated {
+        seconds: 3_600,
+        now: 1_000,
+    });
+    assert_eq!(reducer.state().data, DataState::Fresh);
+}

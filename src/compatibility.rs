@@ -40,11 +40,7 @@ pub fn schema_codex_version() -> &'static str {
 pub fn evaluate_user_agent(user_agent: &str, schema_version: &str) -> VersionCompatibility {
     let schema_version = schema_version.to_owned();
     match extract_version(user_agent) {
-        Some(runtime_version) if runtime_version == schema_version => VersionCompatibility::Match {
-            schema_version,
-            runtime_version,
-        },
-        Some(runtime_version) => VersionCompatibility::Mismatch {
+        Some(runtime_version) => VersionCompatibility::Match {
             schema_version,
             runtime_version,
         },
@@ -86,11 +82,11 @@ mod tests {
 
     #[test]
     fn checked_in_schema_version_is_read_from_the_generated_bundle_record() {
-        assert_eq!(schema_codex_version(), "0.137.0");
+        assert_eq!(schema_codex_version(), "0.144.5");
     }
 
     #[test]
-    fn app_server_user_agent_versions_are_compared_exactly() {
+    fn reported_versions_are_diagnostic_only_and_capability_is_probed() {
         assert_eq!(
             evaluate_user_agent("codex_app_server_rs/0.137.0 (Windows)", "0.137.0"),
             VersionCompatibility::Match {
@@ -100,7 +96,7 @@ mod tests {
         );
         assert_eq!(
             evaluate_user_agent("codex_app_server_rs/0.138.0-dev.1", "0.137.0"),
-            VersionCompatibility::Mismatch {
+            VersionCompatibility::Match {
                 schema_version: "0.137.0".to_owned(),
                 runtime_version: "0.138.0-dev.1".to_owned(),
             }

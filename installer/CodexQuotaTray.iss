@@ -3,7 +3,7 @@
 ; from the locked release build rather than checked into the installer source.
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.1.4"
+  #define MyAppVersion "0.2.0"
 #endif
 #ifndef SourceDir
   #define SourceDir ".."
@@ -69,6 +69,41 @@ Filename: "{app}\codex-quota-tray-gui.exe"; Parameters: "--shutdown-existing"; R
 Type: filesandordirs; Name: "{app}"
 
 [Code]
+var
+  KeepUserData: Boolean;
+
+function HasKeepUserDataParam(): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/KEEPUSERDATA') = 0 then begin
+      Result := True;
+      exit;
+    end;
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  KeepUserData := HasKeepUserDataParam();
+  if (not KeepUserData) and (not UninstallSilent) then
+    KeepUserData := SuppressibleMsgBox(
+      '是否保留 CodexQuotaTray 的设置、额度缓存和提醒防重复状态？' + #13#10 +
+      '选择“否”将执行默认卸载并删除全部用户数据。',
+      mbConfirmation,
+      MB_YESNO,
+      IDNO
+    ) = IDYES;
+  Result := True;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if (CurUninstallStep = usPostUninstall) and (not KeepUserData) then
+    DelTree(ExpandConstant('{localappdata}\CodexQuotaTray'), True, True, True);
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ExitCode: Integer;
