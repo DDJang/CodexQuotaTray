@@ -1,12 +1,43 @@
 # CodexQuotaTray
 
-CodexQuotaTray is a read-only Rust client for the Codex App Server. It includes the P0 command-line probe, the long-running P1 service core, and a native Win32 tray host. It never implements reset-credit consumption.
+CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过本机 `codex app-server` 显示 Codex 额度窗口、剩余百分比和重置时间。
 
-Version 0.1.4 adds a light, modern quota card: status is plain semantic text (no status badge), the tray icon toggles the card on repeated clicks, and the card is anchored to the lower-right of the active monitor work area above the taskbar. The UI remains opaque Win32/GDI with Per-Monitor V2 and no WebView, Electron, Chromium, or Windows App SDK runtime.
+当前版本为 `0.1.4`，支持 Windows 10/11，使用 Rust 与原生 Win32/GDI 实现，不包含 Electron、WebView 或浏览器运行时。
 
-The quota card is intentionally compact: its text-only header combines update state and time, each quota panel prioritizes remaining percentage followed by countdown and reset date, and unavailable reset-credit information is shown as a low-emphasis notice. The embedded icon remains DPI-aware for the window and notification area; the popup deliberately omits a decorative title icon so its header stays crisp and aligned. The default `Plus` label and Chinese action text are presentation-only changes; refresh, Usage navigation, tray commands, settings, and cache behavior remain unchanged.
+## 功能边界
 
-## Build and test
+- 动态展示 App Server 返回的全部额度窗口，不把 `primary` 或 `secondary` 固定解释为特定周期。
+- 展示剩余百分比、重置时间、倒计时以及 fresh、refreshing、stale、offline 等状态。
+- 支持手动刷新、10 分钟兜底刷新、系统恢复/网络恢复刷新和额度阈值提醒。
+- 使用 Codex CLI 已有的认证，不读取浏览器 Cookie、Token 文件、网页 DOM、对话或项目代码。
+- 当前 App Server schema 不提供权威的重置次数；应用明确显示“暂未提供”，不会从 `credits.balance` 猜测。
+- MVP 始终只读，不包含额度重置消费操作。
+
+## 项目结构
+
+| 路径 | 职责 |
+|---|---|
+| `src/` | App Server 管理、JSON-RPC、协议类型、额度模型、状态与 Win32 UI |
+| `tests/` | 完全离线的单元/集成测试和匿名协议 fixture |
+| `schemas/` | `codex-cli 0.137.0` 生成的协议基线与版本记录 |
+| `assets/` | 应用图标、manifest 和 Windows 资源定义 |
+| `scripts/` | 图标生成、ZIP/Inno Setup 打包及产物验证 |
+| `packaging/` | ZIP 包内使用的安装/卸载脚本 |
+| `installer/` | Inno Setup 安装器定义 |
+| `docs/` | 产品、技术、协议、发布、隐私与依赖文档 |
+| `examples/` | 有限时、脱敏的 runtime soak 工具 |
+
+文档入口：
+
+- [产品需求](docs/PRD.md)
+- [技术设计](docs/TECH_DESIGN.md)
+- [App Server 协议契约](docs/API_CONTRACT.md)
+- [路线图](docs/ROADMAP.md)
+- [构建与发布](docs/RELEASE.md)
+- [隐私说明](docs/PRIVACY.md)
+- [依赖与许可证](docs/DEPENDENCIES.md)
+
+## 构建与测试
 
 ```powershell
 cargo fmt --all -- --check
@@ -16,106 +47,48 @@ cargo test --all-targets
 git diff --check
 ```
 
-Parser tests use only anonymized files under `tests/fixtures`; they do not start Codex or contact a real account.
+测试使用 `tests/fixtures` 下的匿名数据，不需要真实 Codex 账户。
 
-## Build the Windows package
+## 运行托盘应用
 
-P4 produces a per-user, no-admin ZIP package from the locked dependency graph:
-
-```powershell
-pwsh -NoProfile -File .\scripts\package.ps1 -Cargo C:\Users\<user>\.cargo\bin\cargo.exe
-pwsh -NoProfile -File .\scripts\test-package.ps1 -Cargo C:\Users\<user>\.cargo\bin\cargo.exe
-```
-
-The artifact is written to `dist\CodexQuotaTray-<version>-win-x64.zip`. The smoke script verifies the package allowlist and dependency notices, rejects a tampered file, and exercises isolated install, in-place upgrade, start-with-Windows registration, default data removal, and `-KeepUserData` uninstall. Current local packages are unsigned developer builds; read [the release guide](docs/RELEASE.md), [privacy notice](docs/PRIVACY.md), and [dependency inventory](docs/DEPENDENCIES.md) before distribution.
-
-正式 Windows 安装器使用 Inno Setup 7 生成。先安装 Inno Setup 7，再执行：
-
-```powershell
-pwsh -NoProfile -File .\scripts\package-inno.ps1 -Cargo C:\Users\<user>\.cargo\bin\cargo.exe
-```
-
-`package-inno.ps1` validates the final Release PE before invoking Inno Setup. To verify a
-binary independently, run:
-
-```powershell
-pwsh -NoProfile -File .\scripts\verify-pe-icon.ps1 `
-  -Executable .\target\release\codex-quota-tray-gui.exe
-```
-
-安装器输出到 `dist-inno\CodexQuotaTray-<version>-setup.exe`，默认安装到当前用户的 `%LOCALAPPDATA%\Programs\CodexQuotaTray`，并默认勾选登录 Windows 自动启动。Inno Setup 卸载器会先请求程序正常退出、移除开机启动项和安装文件；额度设置与缓存保留在 `%LOCALAPPDATA%\CodexQuotaTray`，需要保留用户数据，避免卸载误删配置。
-
-如果要卸载此前由旧版 PowerShell 安装脚本安装的版本，可执行：
-
-```powershell
-powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\CodexQuotaTray\uninstall.ps1"
-# 保留设置和额度缓存：
-# powershell -ExecutionPolicy Bypass -File "$env:LOCALAPPDATA\Programs\CodexQuotaTray\uninstall.ps1" -KeepUserData
-```
-
-## Run the Windows tray
-
-Debug builds default to deterministic demo data, so UI work never needs a live account:
+Debug 构建默认使用确定性的演示数据：
 
 ```powershell
 cargo run --bin codex-quota-tray-gui -- --demo
 ```
 
-A release build starts the real read-only runtime and discovers `codex.cmd`, `codex.exe`, or `codex`:
+Release 构建使用本机 Codex CLI：
 
 ```powershell
 cargo build --release --bin codex-quota-tray-gui
 .\target\release\codex-quota-tray-gui.exe
 ```
 
-Use `--codex-bin PATH` to override discovery. The tray menu provides refresh, the official Usage link, non-sensitive cache, quota reminders, start-with-Windows, cache clearing, and exit. An installer or script can request the existing instance's normal cleanup path with:
+可用 `--codex-bin PATH` 指定 Codex 可执行文件。安装或卸载时可用 `--shutdown-existing` 请求现有实例正常退出。
+
+卡片聚焦时：`Enter` 刷新，`Tab`/方向键切换按钮，`Space` 执行，`F10` 打开菜单，`Esc` 隐藏。
+
+## 打包
+
+生成并验证免管理员 ZIP 包：
 
 ```powershell
-.\target\release\codex-quota-tray-gui.exe --shutdown-existing
+pwsh -NoProfile -File .\scripts\package.ps1
+pwsh -NoProfile -File .\scripts\test-package.ps1
 ```
 
-The control command waits up to 10 seconds for the existing process and its App Server tree to
-finish normal cleanup, and returns a nonzero exit code instead of reporting success early.
-
-Keyboard access while the card is focused: `Enter` refreshes, `Tab`/arrow keys move focus, `Space` activates the focused action, `F10` opens the system menu, and `Esc` hides the card. The release executable contains no WebView, Electron, or Chromium runtime.
-
-`Tab`, Left, or Right changes the focused footer action; `Space` activates it. Rebuild the checked-in rounded preview and multi-resolution icon from `assets/app-icon-source.png` with `powershell -File .\scripts\generate-icon.ps1`; the generator validates transparent corners, an opaque center, and all nine ICO frames.
-
-Card-open for missing or at least 60-second-old data, Windows resume, and restored system connectivity are routed through the same coordinator as manual and App Server events. Event bursts remain subject to the 10-second minimum interval and single in-flight request, while a 10-minute fallback works even when no system or App Server notification arrives. Quota notifications ask Windows to respect quiet time and never play application sound.
-
-## Run the spike
+安装 Inno Setup 7 后生成正式安装器格式：
 
 ```powershell
-cargo run -- --watch-seconds 10
+pwsh -NoProfile -File .\scripts\package-inno.ps1
 ```
 
-If Codex cannot be discovered automatically:
+产物写入被 Git 忽略的 `dist/` 或 `dist-inno/`，不应直接提交到源码仓库。当前产物未签名，只能标记为 developer build；发布前请阅读 [发布指南](docs/RELEASE.md)。
+
+## 协议升级
+
+当前协议基线是 `codex-cli 0.137.0`。升级 Codex CLI 后需要重新生成 schema、更新 `schemas/CODEX_VERSION`、检查 schema diff，并补充匿名 fixture 回归测试：
 
 ```powershell
-cargo run -- --codex-bin C:\path\to\codex.exe --watch-seconds 10
-```
-
-The spike starts `codex app-server --stdio`, completes the initialization handshake, reads account and rate-limit state, listens for sparse rate-limit updates, then closes stdin and waits for the child to exit. It never prints raw protocol messages or account email data.
-
-## Run the long-lived runtime soak
-
-The finite soak harness exercises the production supervisor/runtime path and prints only normalized state plus aggregate counters:
-
-```powershell
-cargo run --example runtime_soak -- --seconds 300 --sample-seconds 30
-```
-
-For the 24-hour P1 gate, use `--seconds 86400`. Let the finite run complete so the harness can close stdin, reap the child, and report forced terminations. The harness never prints percentages, raw responses, email, account identifiers, or tokens.
-
-## Local settings and cache
-
-The persistence adapters use `%LOCALAPPDATA%\CodexQuotaTray\settings.json` and `quota-cache.json`. The tray enables its non-sensitive cache by default for immediate card display; the menu can disable and delete it at any time. The runtime writes only when that host setting is enabled. The cache contains only used percentage, window duration, reset time, last-success time, and the parsed CLI version. It excludes account/authentication data, plan type, limit identifiers/names, and raw protocol data. A restored cache is always marked stale until a live read succeeds.
-
-## Regenerate schemas
-
-```powershell
-codex --version
 codex app-server generate-json-schema --out schemas
 ```
-
-Update `schemas/CODEX_VERSION` at the same time. The checked-in schemas represent the stable API of `codex-cli 0.137.0`; the runtime compares this record with the version advertised by the initialized App Server and exposes match, mismatch, or unreported as normalized state.

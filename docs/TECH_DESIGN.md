@@ -1,15 +1,15 @@
 # CodexQuotaTray 技术设计
 
-文档状态：P0 已验证；P1 后台核心已实现并执行 24 小时 gate；P2 Win32 host 已实现、验收中
+文档状态：只读 MVP、Win32 host 与本地打包已实现；公开发布 gate 尚未全部满足
 协议基线：`codex-cli 0.137.0` stable App Server schema
-最后更新：2026-07-15
+最后更新：2026-07-18
 
 ## 1. 事实、要求与设计决定
 
 本文使用以下标签，避免把未来方案误写成 App Server 保证：
 
 - **已确认**：由 0.137.0 生成 schema、P0 脱敏实跑或已通过测试直接证明。
-- **当前实现**：P0 Rust spike 已采用的行为，但不代表服务端协议承诺。
+- **当前实现**：当前代码和测试采用的行为，但不代表服务端协议承诺。
 - **拟议设计**：后续里程碑应实现的架构选择，必须经过对应里程碑评审。
 - **产品要求**：来自 `PRD.md` 或 `AGENTS.md`，可能受协议能力限制。
 
@@ -66,7 +66,7 @@ JsonlTransport ──► JsonRpcClient ──► ProtocolDecoder ──► Quota
                                             │
                          ┌──────────────────┴──────────────────┐
                          ▼                                     ▼
-                 NonSensitiveCache                    Future UI/Notifications
+                 NonSensitiveCache                    Win32 UI/Notifications
 ```
 
 ### 4.1 组件职责
@@ -76,7 +76,7 @@ JsonlTransport ──► JsonRpcClient ──► ProtocolDecoder ──► Quota
 - **当前实现 — `json_rpc`**：生成连接内唯一 ID，维护多个 pending request，按 ID 分派乱序响应，区分成功、错误、通知和脱敏诊断，并统一处理请求超时与 stdout EOF。
 - **当前实现 — `protocol`**：只定义握手、账户读取、额度读取及更新通知所需 wire types。
 - **当前实现 — `quota`**：优先读取多 bucket 视图，将窗口归一化为与 `primary`/`secondary` 语义无关的 domain model。
-- **当前实现 — CLI orchestration**：通过 `json_rpc` 发起请求、消费通知，并负责人类可读输出和退出码。
+- **当前实现 — CLI probe**：通过 `json_rpc` 发起有限时只读探测、消费通知，并负责人类可读输出和退出码；生产托盘使用 `runtime`。
 - **当前实现 — `state`**：纯 `AppStateReducer` 是唯一状态转换入口，线程安全内存 store 返回 owned snapshot；UI 不得直接消费 wire JSON。
 - **当前实现 — `runtime`**：把 supervisor 连接代次、握手、并发只读 RPC、refresh coordinator、稀疏通知和 reducer 串为一个长期后台 worker；公开接口只暴露 normalized snapshot、刷新触发和幂等 shutdown report。
 - **当前实现 — `persistence`**：settings 与 quota cache 分文件；cache 只保存匿名窗口数字和版本 provenance，恢复为 stale，I/O/corruption 只产生匿名 warning。
@@ -109,7 +109,7 @@ Stopped → Starting → Handshaking → Ready → Stopping → Stopped
 
 ### 5.3 正常运行与退出
 
-- **当前实现** P0 首次快照完成后按 CLI 参数限时监听通知。
+- **当前实现** CLI probe 在首次快照完成后按参数限时监听通知；生产托盘由长期 `runtime` 维护连接。
 - **当前实现** supervisor 同一时间只维持一个 App Server 子进程；重启后发布新连接代次，旧 JSON-RPC pending 不跨进程重放。
 - **已确认** P0 关闭 stdin 后子进程在三秒内自然退出，退出码为 0。
 - **当前实现** 三秒后仍未退出才 kill 并 wait；强制终止被视为清理失败。
@@ -261,7 +261,7 @@ QuotaState:
 
 ### 9.1 已有覆盖
 
-- **已确认** 11 个 fixture/parser 测试、7 个 JSON-RPC fake transport 测试、2 个 backoff 单元测试、9 个 fake-process supervisor 测试、9 个 reducer 测试、10 个 refresh coordinator 测试、3 个 version compatibility 单元测试、1 个 startup command 单元测试、7 个 persistence 测试、8 个 runtime fake-process 测试、10 个 UI projection 测试、6 个 alert 测试和 2 个 host-event 测试完全离线通过。
+- **已确认** parser、JSON-RPC、supervisor、state reducer、refresh coordinator、version compatibility、persistence、runtime、UI projection、alert 和 host-event 测试完全离线运行；准确数量以当前 `cargo test --all-targets` 输出为准。
 - 覆盖 ChatGPT、API Key、Bedrock、未登录、single/dual/multi bucket、未知时长、缺失字段、越界百分比、malformed JSON 和稀疏合并。
 - JSON-RPC 测试覆盖唯一 ID、多个 pending、乱序响应、RPC error、通知、timeout、EOF、未知/重复 ID、null result、非法 JSON 和非法 envelope。
 - supervisor 测试覆盖非零退出恢复、restart budget、启动失败、显式恢复、stderr flood、正常 EOF、强制回收、幂等 shutdown，以及命令 shim 退出后仍持有 transport pipe 的后代进程树回收。
