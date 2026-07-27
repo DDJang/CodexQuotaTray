@@ -1,0 +1,48 @@
+<Window
+    x:Class="CodexQuotaTray.App.Views.SettingsWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="CodexQuotaTray 设置">
+    <ScrollViewer x:Name="SettingsRoot">
+        <StackPanel Padding="24" Spacing="14" MaxWidth="520">
+            <TextBlock Text="设置" FontSize="28" FontWeight="SemiBold" />
+            <TextBlock Text="设置、额度缓存和提醒防重复状态仅保存在当前用户目录。" TextWrapping="Wrap" Opacity="0.72" />
+
+            <ToggleSwitch Header="开机启动" IsOn="{Binding StartWithWindows, Mode=TwoWay}" />
+            <ToggleSwitch Header="显示剩余百分比" IsOn="{Binding ShowRemainingPercent, Mode=TwoWay}" />
+            <ToggleSwitch Header="使用 24 小时制" IsOn="{Binding Use24HourTime, Mode=TwoWay}" />
+            <ToggleSwitch Header="保存额度缓存" IsOn="{Binding PersistQuotaCache, Mode=TwoWay}" />
+            <ToggleSwitch Header="网络恢复后刷新" IsOn="{Binding RefreshOnNetworkRestore, Mode=TwoWay}" />
+            <ToggleSwitch Header="静默启动" IsOn="{Binding SilentStartup, Mode=TwoWay}" />
+
+            <ComboBox Header="刷新模式" ItemsSource="{Binding RefreshModes}" SelectedItem="{Binding SelectedRefreshMode, Mode=TwoWay}" />
+            <ComboBox Header="主题" ItemsSource="{Binding ThemeModes}" SelectedItem="{Binding SelectedThemeMode, Mode=TwoWay}" />
+
+            <TextBlock Text="额度提醒" FontSize="16" FontWeight="SemiBold" Margin="0,8,0,0" />
+            <CheckBox Content="剩余 50%" IsChecked="{Binding NotifyRemaining50, Mode=TwoWay}" />
+            <CheckBox Content="剩余 20%" IsChecked="{Binding NotifyRemaining20, Mode=TwoWay}" />
+            <CheckBox Content="剩余 10%" IsChecked="{Binding NotifyRemaining10, Mode=TwoWay}" />
+
+            <Grid ColumnSpacing="8" Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Content="打开数据目录" Command="{Binding OpenDataDirectoryCommand}" />
+                <Button Grid.Column="1" Content="导入 WinUI 预览版数据" Command="{Binding ImportProductionDataCommand}" />
+                <Button Grid.Column="2" Content="清除额度缓存" Command="{Binding ClearQuotaCacheCommand}" />
+            </Grid>
+
+            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+            <Grid ColumnSpacing="8" HorizontalAlignment="Right">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <Button Content="恢复默认设置" Command="{Binding ResetCommand}" />
+                <Button Grid.Column="1" Content="保存" Style="{StaticResource AccentButtonStyle}" Command="{Binding SaveCommand}" />
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

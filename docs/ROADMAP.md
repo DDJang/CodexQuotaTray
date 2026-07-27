@@ -83,6 +83,15 @@
 
 优先完成 Windows 10/DPI/多显示器验证；准备公开发布时再接入组织控制的签名与七天 soak。不要自动发布未签名产物，也不要自动恢复已结束的旧 soak。
 
+## WinUI 3 渐进迁移（进行中）
+
+- **阶段 1，已实现**：在独立 `winui/` 目录交付静态 WinUI 原型、纯展示 Core、Light/Dark/HighContrast 资源、Acrylic/Mica/opaque 降级和隔离的托盘/窗口生命周期。Rust 正式入口、安装器和用户数据不变。
+- **阶段 2，已实现**：加入真实只读 App Server 进程、JSONL dispatcher、额度/重置卡规范化、fake server 和失败保留旧数据。
+- **阶段 3，已实现代码基线**：加入唯一刷新协调器、稀疏通知合并、兼容设置/缓存/alert state、阈值提醒、设置页、独立启动项以及恢复/网络事件。预览版默认数据目录与 Rust 正式版隔离。
+- **阶段 4，正式交付候选已实现**：WinUI 0.3.0 使用正式身份与兼容数据目录，完成 self-contained x64 发布及 Inno 封装；公开发布仍需签名、Windows 10/11、DPI/多显示器和长期资源门禁。
+
+详细门禁见 `docs/WINUI_MIGRATION.md`。
+
 ## P5：0.2.0 小而美升级（已实现）
 
 - 紧凑标题、动态套餐 Badge、明确状态语义、单行重置信息与自适应 DPI 布局；

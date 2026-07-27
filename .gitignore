@@ -5,6 +5,9 @@ dist-inno/
 build/
 coverage/
 target/
+**/bin/
+**/obj/
+winui/publish/
 
 # Environment files and local configuration
 .env

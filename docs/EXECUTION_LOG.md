@@ -1,5 +1,13 @@
 # Execution Log
 
+## 2026-07-19 — WinUI Phase 3 runtime baseline
+
+- Added the single `QuotaRuntimeService`, refresh policy/backoff/stale calculation, sparse App Server notification merge, camelCase settings/cache/alert persistence, 50/20/10 threshold reducer, settings window, preview startup registration, tray quick actions, resume and IP Helper network events.
+- Preview data remains isolated in `%LOCALAPPDATA%\CodexQuotaTray-WinUI-Preview`; explicit production import validates and copies supported documents without modifying the Rust source directory.
+- .NET Release build completed with zero warnings. C# tests: 69 total, 68 passed, one opt-in real-account resource smoke skipped. Rust regression: 101 passed. Formatting, strict Clippy and `git diff --check` passed.
+- A four-second Release `--demo` sample observed approximately 176.89 MiB working set, 857 handles, 29 threads and 0.89 CPU seconds. The launched process was stopped; the immediate process-count check raced with shutdown, and a subsequent check confirmed no remaining preview process.
+- Successful real-account 50-refresh and five-minute Phase 3 soak remain blocked because the installed `0.145.0-alpha.18` App Server returns `-32600` for `account/rateLimits/read`; no repeated real-account reads were attempted.
+
 ## 2026-07-17 — Popup header icon removal
 
 - Removed the decorative application icon from the popup header after manual DPI checks showed
@@ -689,3 +697,11 @@ Do not resume the stopped soak automatically. Before a public release, execute t
 - `availableCount` is authoritative; optional detail rows are used only for local-time expiry summaries. Reset-credit IDs and raw responses are never logged, displayed, copied or persisted.
 - Replaced exact CLI-version gating with actual initialize/read capability results. Sparse rate-limit notifications retain the most recent full-read reset-credit snapshot.
 - Added a compact reset-card UI state line and a bounded, privacy-reviewed “复制诊断信息” tray command.
+# 2026-07-19 — WinUI 0.3.0 正式交付候选
+
+- 正式程序集、单实例键、托盘 GUID、启动项和数据目录与既有产品身份对齐；保留 `--isolated-preview-data` 供无污染 smoke。
+- `--shutdown-existing` 同时支持无运行实例时快速退出，以及通过 AppLifecycle 激活已有实例并正常关闭。
+- 修正 `.cmd` CLI 的 `cmd.exe /d /s /c` 参数构造，并优先发现 `%APPDATA%\npm\codex.cmd`；使用 Codex CLI 0.144.5 完成一次真实只读读取。
+- 生成 518 文件、约 218.96 MiB 的 self-contained x64 发布目录；排除 PDB 后，Inno Setup 7 成功生成 63,819,710 字节的 `CodexQuotaTray-0.3.0-setup.exe`，SHA-256 为 `ECDA14711A1080BFBAD2578D7925FBB84463E5C6C1CB16AE3CDE964FA06E8AEA`。
+- 免安装 ZIP 为 92,713,546 字节，SHA-256 为 `5031E2C74418BF68C1A1C58721837DA032801DEB3558E95B7C8E3E8472688C8C`；递归清单覆盖全部文件且包内不含 PDB。
+- 自包含 EXE smoke：读取后产生兼容额度缓存，工作集约 179.18 MiB；`--shutdown-existing` 返回 0 且主进程退出。

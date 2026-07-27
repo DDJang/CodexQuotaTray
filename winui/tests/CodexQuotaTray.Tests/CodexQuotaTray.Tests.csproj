@@ -1,0 +1,21 @@
+<Project Sdk="MSTest.Sdk/4.3.2">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CodexQuotaTray.Core\CodexQuotaTray.Core.csproj" />
+    <ProjectReference Include="..\CodexQuotaTray.FakeAppServer\CodexQuotaTray.FakeAppServer.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\src\CodexQuotaTray.App\Themes\Colors.xaml" Link="Themes\Colors.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\fixtures\*.json" Link="Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="CopyFakeAppServer" AfterTargets="Build">
+    <ItemGroup>
+      <FakeServerFiles Include="..\CodexQuotaTray.FakeAppServer\bin\$(Configuration)\net10.0\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FakeServerFiles)" DestinationFolder="$(OutDir)FakeAppServer\%(RecursiveDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

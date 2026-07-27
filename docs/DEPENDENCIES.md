@@ -1,5 +1,11 @@
 # Dependency and license inventory
 
+## WinUI 0.3.0 runtime
+
+正式 WinUI 入口使用 .NET SDK 10.0.302、Microsoft.WindowsAppSDK 2.2.0 与 CommunityToolkit.Mvvm 8.4.2；测试使用 MSTest.Sdk 4.3.2。版本由 `winui/global.json` 与 `winui/Directory.Packages.props` 固定。Windows App SDK、CommunityToolkit.Mvvm 和 MSTest 均按各自随包许可证分发；自包含目录还包含 .NET runtime 文件。发布不引入 WebView、浏览器、遥测后端或独立服务进程。
+
+## Rust 回归基线
+
 Target snapshot: `x86_64-pc-windows-msvc`, Cargo.lock for CodexQuotaTray 0.2.0, generated from `cargo metadata --locked --offline --filter-platform x86_64-pc-windows-msvc` on 2026-07-18.
 
 The release package contains a generated `THIRD_PARTY_NOTICES.txt` assembled from every dependency's checked-out license files. Build-only procedural macro crates are included here because they participate in producing the binary even when they are not linked at runtime.

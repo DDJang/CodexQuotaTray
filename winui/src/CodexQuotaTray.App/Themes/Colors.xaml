@@ -1,0 +1,63 @@
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#D9F6F8FA" />
+            <SolidColorBrush x:Key="CardSurfaceBrush" Color="#DFFFFFFF" />
+            <SolidColorBrush x:Key="CardBorderBrush" Color="#66CBD5DF" />
+            <SolidColorBrush x:Key="PrimaryTextBrush" Color="#17212B" />
+            <SolidColorBrush x:Key="SecondaryTextBrush" Color="#526477" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#5CD5DEE7" />
+            <SolidColorBrush x:Key="TrackBrush" Color="#DDE5EB" />
+            <SolidColorBrush x:Key="AccentQuotaBrush" Color="#168C67" />
+            <SolidColorBrush x:Key="WarningQuotaBrush" Color="#B45309" />
+            <SolidColorBrush x:Key="CriticalQuotaBrush" Color="#BE3A34" />
+            <SolidColorBrush x:Key="UnavailableQuotaBrush" Color="#718096" />
+            <SolidColorBrush x:Key="SuccessStatusBrush" Color="#168C67" />
+            <SolidColorBrush x:Key="RefreshingStatusBrush" Color="#356A96" />
+            <SolidColorBrush x:Key="WarningStatusBrush" Color="#A65B12" />
+            <SolidColorBrush x:Key="ErrorStatusBrush" Color="#B33832" />
+            <SolidColorBrush x:Key="NeutralStatusBrush" Color="#526477" />
+            <SolidColorBrush x:Key="BadgeSurfaceBrush" Color="#DCF3EC" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#D91B222B" />
+            <SolidColorBrush x:Key="CardSurfaceBrush" Color="#C928323D" />
+            <SolidColorBrush x:Key="CardBorderBrush" Color="#66748796" />
+            <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F3F6F8" />
+            <SolidColorBrush x:Key="SecondaryTextBrush" Color="#B6C2CF" />
+            <SolidColorBrush x:Key="DividerBrush" Color="#52748796" />
+            <SolidColorBrush x:Key="TrackBrush" Color="#45515E" />
+            <SolidColorBrush x:Key="AccentQuotaBrush" Color="#38D6A5" />
+            <SolidColorBrush x:Key="WarningQuotaBrush" Color="#F2A444" />
+            <SolidColorBrush x:Key="CriticalQuotaBrush" Color="#FF7A73" />
+            <SolidColorBrush x:Key="UnavailableQuotaBrush" Color="#9AA8B6" />
+            <SolidColorBrush x:Key="SuccessStatusBrush" Color="#38D6A5" />
+            <SolidColorBrush x:Key="RefreshingStatusBrush" Color="#83B9E6" />
+            <SolidColorBrush x:Key="WarningStatusBrush" Color="#F2A444" />
+            <SolidColorBrush x:Key="ErrorStatusBrush" Color="#FF7A73" />
+            <SolidColorBrush x:Key="NeutralStatusBrush" Color="#B6C2CF" />
+            <SolidColorBrush x:Key="BadgeSurfaceBrush" Color="#38394B48" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="WindowSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="CardSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="CardBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="PrimaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="DividerBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="TrackBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+            <SolidColorBrush x:Key="AccentQuotaBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="WarningQuotaBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="CriticalQuotaBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="UnavailableQuotaBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SuccessStatusBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="RefreshingStatusBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="WarningStatusBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="ErrorStatusBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="NeutralStatusBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="BadgeSurfaceBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

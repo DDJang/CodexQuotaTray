@@ -25,6 +25,16 @@
 
 本设计同时覆盖已实现的 Windows 托盘 host、弹出卡片、系统提醒、最小设置和开机启动边界。任何 reset-credit 展示推断或消费操作仍不在范围内。
 
+### 2.1 WinUI 迁移隔离边界
+
+第三阶段预览版以 `QuotaRuntimeService` 作为唯一运行时所有者。Startup、Manual、CardOpened、Resume、NetworkRestored、Scheduled 和 App Server 推送补读均进入同一 `RefreshCoordinator`；任何 XAML、托盘或 host event 回调都不能直接读取协议。默认持久化目录为 `%LOCALAPPDATA%\CodexQuotaTray-WinUI-Preview`，正式 Rust 目录只可显式只读导入。
+
+App Server 的 `account/rateLimits/updated` 作为稀疏 patch：存在基线时只覆盖非空字段，通知未携带重置卡字段时保留完整读取快照；没有基线且 patch 不能独立规范化时不更新 UI，只请求受协调器约束的补读。ManualOnly 会抑制该补读，但仍允许安全的完整推送更新。
+
+提醒 reducer 只使用可靠的原始 remaining percentage。窗口稳定 ID 持久化为带 `sha256:` 前缀的本地伪匿名标识，原始 limit ID 不进入文件；通知按“更新状态、原子保存、请求 Windows 通知”执行，语义为 at-most-once 而非保证可见。
+
+`winui/` 是第二阶段并行预览，不是正式入口。Core 已接入只读 stdio JSONL App Server、ID 路由、超时/取消、DTO、规范化和展示投影；App 默认读取一次真实额度，`--demo` 才使用静态数据。预览拥有独立进程名、单实例键和托盘 GUID，不访问正式用户目录，也不接入自动刷新、提醒、缓存、启动项或安装器。完整模块映射和替换门禁见 `docs/WINUI_MIGRATION.md`。
+
 ## 3. P0 已确认的协议行为
 
 ### 3.1 Transport 与握手

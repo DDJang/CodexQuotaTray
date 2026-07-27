@@ -1,9 +1,10 @@
 [CmdletBinding()]
 param(
-    [string]$Cargo = "cargo",
+    [string]$DotNet = "dotnet",
     [string]$Iscc = "",
     [string]$OutputDirectory = "",
-    [string]$TargetDirectory = ""
+    [string]$PublishDirectory = "",
+    [switch]$SkipPublish
 )
 
 Set-StrictMode -Version Latest
@@ -19,10 +20,10 @@ $outputRoot = if ($OutputDirectory) {
 } else {
     Join-Path $repoRoot "dist-inno"
 }
-$targetRoot = if ($TargetDirectory) {
-    Get-FullPath $TargetDirectory
+$publishRoot = if ($PublishDirectory) {
+    Get-FullPath $PublishDirectory
 } else {
-    Join-Path $repoRoot "target"
+    Join-Path $repoRoot "target\winui-publish"
 }
 
 if (-not $Iscc) {
@@ -45,25 +46,23 @@ if (-not $Iscc -or -not (Test-Path -LiteralPath $Iscc -PathType Leaf)) {
 
 Push-Location $repoRoot
 try {
-    $metadataText = & $Cargo metadata --format-version 1 --locked --offline --filter-platform x86_64-pc-windows-msvc
-    if ($LASTEXITCODE -ne 0) { throw "cargo metadata failed" }
-    $metadata = $metadataText | ConvertFrom-Json
-    $rootPackage = $metadata.packages | Where-Object { $_.id -eq $metadata.resolve.root }
-    if (-not $rootPackage) { throw "could not find the root Cargo package" }
-    $version = [string]$rootPackage.version
+    $project = Join-Path $repoRoot "winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj"
+    [xml]$projectXml = Get-Content -LiteralPath $project -Raw
+    $version = [string]$projectXml.Project.PropertyGroup.Version
+    if (-not $version) { throw "WinUI application version is missing" }
 
-    $remapFlag = "--remap-path-prefix=$repoRoot=."
-    & $Cargo rustc --release --target-dir $targetRoot --locked --offline --bin codex-quota-tray-gui -- $remapFlag
-    if ($LASTEXITCODE -ne 0) { throw "release build failed" }
+    if (-not $SkipPublish) {
+        & (Join-Path $repoRoot "scripts\publish-winui.ps1") -DotNet $DotNet -OutputDirectory $publishRoot
+    }
 
-    $binaryPath = Join-Path $targetRoot "release\codex-quota-tray-gui.exe"
+    $binaryPath = Join-Path $publishRoot "codex-quota-tray-gui.exe"
+    if (-not (Test-Path -LiteralPath $binaryPath -PathType Leaf)) { throw "WinUI publish output is missing" }
     $resourceVerifier = Join-Path $repoRoot "scripts\verify-pe-icon.ps1"
-    & $resourceVerifier -Executable $binaryPath | Format-Table -AutoSize
-    if ($LASTEXITCODE -ne 0) { throw "release PE icon resource verification failed" }
+    & $resourceVerifier -Executable $binaryPath -GroupIconId 32512 | Format-Table -AutoSize
 
     New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
     $iss = Join-Path $repoRoot "installer\CodexQuotaTray.iss"
-    & $Iscc $iss "/DMyAppVersion=$version" "/DSourceDir=$repoRoot" "/DOutputDir=$outputRoot" "/DBinaryPath=$binaryPath"
+    & $Iscc $iss "/DMyAppVersion=$version" "/DSourceDir=$repoRoot" "/DOutputDir=$outputRoot" "/DPublishDir=$publishRoot"
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
 
     $artifact = Join-Path $outputRoot "CodexQuotaTray-$version-setup.exe"

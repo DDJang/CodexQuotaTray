@@ -2,7 +2,7 @@
 
 CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过本机 `codex app-server` 显示 Codex 额度窗口、剩余百分比和重置时间。
 
-当前版本为 `0.2.0`，支持 Windows 10/11，使用 Rust 与原生 Win32/GDI 实现，不包含 Electron、WebView 或浏览器运行时。
+当前交付候选版本为 `0.3.0`，支持 Windows 10/11，正式入口已迁移到 C# + WinUI 3；Rust/Win32 实现继续保留为回归基线。本项目不使用 Electron、WebView 或浏览器运行时。
 
 ## 功能边界
 
@@ -27,6 +27,7 @@ CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过�
 | `installer/` | Inno Setup 安装器定义 |
 | `docs/` | 产品、技术、协议、发布、隐私与依赖文档 |
 | `examples/` | 有限时、脱敏的 runtime soak 工具 |
+| `winui/` | WinUI 3 正式入口、Core 运行时、设置、提醒与离线测试 |
 
 文档入口：
 
@@ -37,6 +38,9 @@ CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过�
 - [构建与发布](docs/RELEASE.md)
 - [隐私说明](docs/PRIVACY.md)
 - [依赖与许可证](docs/DEPENDENCIES.md)
+- [WinUI 3 渐进迁移](docs/WINUI_MIGRATION.md)
+
+`winui/` 是 0.3.0 正式交付候选入口，默认只读连接本机 App Server，并复用 `%LOCALAPPDATA%\CodexQuotaTray` 的兼容设置、缓存与提醒状态。其构建说明见 [WinUI README](winui/README.md)。
 
 ## 构建与测试
 
@@ -58,11 +62,11 @@ Debug 构建默认使用确定性的演示数据：
 cargo run --bin codex-quota-tray-gui -- --demo
 ```
 
-Release 构建使用本机 Codex CLI：
+WinUI Release 构建使用本机 Codex CLI：
 
 ```powershell
-cargo build --release --bin codex-quota-tray-gui
-.\target\release\codex-quota-tray-gui.exe
+pwsh -NoProfile -File .\scripts\publish-winui.ps1
+.\target\winui-publish\codex-quota-tray-gui.exe
 ```
 
 可用 `--codex-bin PATH` 指定 Codex 可执行文件。安装或卸载时可用 `--shutdown-existing` 请求现有实例正常退出。
@@ -73,20 +77,15 @@ cargo build --release --bin codex-quota-tray-gui
 
 ## 打包
 
-生成并验证免管理员 ZIP 包：
-
-```powershell
-pwsh -NoProfile -File .\scripts\package.ps1
-pwsh -NoProfile -File .\scripts\test-package.ps1
-```
-
-安装 Inno Setup 7 后生成正式安装器格式：
+安装 Inno Setup 7 后生成 WinUI 自包含的 per-user 安装器：
 
 ```powershell
 pwsh -NoProfile -File .\scripts\package-inno.ps1
 ```
 
-产物写入被 Git 忽略的 `dist/` 或 `dist-inno/`，不应直接提交到源码仓库。当前产物未签名，只能标记为 developer build；发布前请阅读 [发布指南](docs/RELEASE.md)。
+需要免安装归档时运行 `scripts\package-winui.ps1`；它会生成递归 SHA-256 清单并排除 PDB。
+
+产物写入被 Git 忽略的 `dist-inno/`，不应提交源码仓库。安装器保留原 AppId、安装路径、升级关闭和 KeepUserData 语义。当前产物未签名，只能标记为 developer build；发布前请阅读 [发布指南](docs/RELEASE.md)。
 
 ## 协议升级
 
