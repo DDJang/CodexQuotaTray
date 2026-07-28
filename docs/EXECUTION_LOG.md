@@ -705,3 +705,17 @@ Do not resume the stopped soak automatically. Before a public release, execute t
 - 生成 518 文件、约 218.96 MiB 的 self-contained x64 发布目录；排除 PDB 后，Inno Setup 7 成功生成 63,819,710 字节的 `CodexQuotaTray-0.3.0-setup.exe`，SHA-256 为 `ECDA14711A1080BFBAD2578D7925FBB84463E5C6C1CB16AE3CDE964FA06E8AEA`。
 - 免安装 ZIP 为 92,713,546 字节，SHA-256 为 `5031E2C74418BF68C1A1C58721837DA032801DEB3558E95B7C8E3E8472688C8C`；递归清单覆盖全部文件且包内不含 PDB。
 - 自包含 EXE smoke：读取后产生兼容额度缓存，工作集约 179.18 MiB；`--shutdown-existing` 返回 0 且主进程退出。
+# 2026-07-19 — WinUI 0.3.1 托盘与 Acrylic 修复
+
+- 托盘回调迁移到 `HWND_MESSAGE`，新增隐藏广播观察窗口、四次有界注册、Explorer 恢复和失败可访问降级。
+- 删除窗口数量高度公式，改用 XAML 实际测量；窗口仅在工作区不足时启用滚动。
+- 根层改为透明，主题切换为蓝色半透明 Acrylic 卡片、矢量额度图标和紧凑底栏；未新增任务/token 数据源。
+- Release 构建 0 警告、0 错误；C# 离线测试增至 70 通过、1 个显式 live smoke 跳过。
+
+# 2026-07-28 — WinUI 0.3.2 托盘、圆角与毛玻璃修复
+
+- 定位到 `Shell_NotifyIconGetRect` 在 UI 线程注册路径中造成 UI/Shell 相互等待，注册状态会永久停在 `RetryPending`。注册路径不再同步查询矩形，位置查询改为后台缓存。
+- 托盘回调改由独立隐藏工具窗口承载，启动时清理旧 host 项并以稳定产品 GUID、固定 `uID`、`NIM_ADD`、`NIM_SETVERSION` 重新注册；Explorer 重建不改变面板显隐。
+- 保留无标题栏的系统细边框，启用 DWM 圆角，并把 XAML 外框圆角从 24 DIP 收敛到 12 DIP，消除四角双重曲率。
+- 使用官方 `DesktopAcrylicController` 设置低 TintOpacity 与适度 LuminosityOpacity，同时降低外层和卡片遮罩不透明度；实机截图可见桌面色块透过并被模糊。
+- 本地 smoke 验证两个连续 `WM_LBUTTONUP` 回调得到 `visible → hidden → visible`；Release 构建 0 警告、0 错误，C# 测试 70 通过、1 个显式 live smoke 跳过。

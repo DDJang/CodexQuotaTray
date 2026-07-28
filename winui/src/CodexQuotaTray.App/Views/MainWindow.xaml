@@ -5,167 +5,193 @@
     xmlns:core="using:CodexQuotaTray.Core.Models"
     xmlns:local="using:CodexQuotaTray.App"
     Title="CodexQuotaTray">
-    <Grid x:Name="ContentRoot" Background="{ThemeResource WindowSurfaceBrush}">
+    <Grid x:Name="ContentRoot" Background="Transparent">
         <Grid.Resources>
             <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
             <local:QuotaToneBrushConverter x:Key="QuotaToneBrushConverter" />
             <local:StatusToneBrushConverter x:Key="StatusToneBrushConverter" />
         </Grid.Resources>
-        <ScrollViewer
-            HorizontalScrollBarVisibility="Disabled"
-            VerticalScrollBarVisibility="Auto"
-            VerticalScrollMode="Auto">
-            <StackPanel Padding="24,20,24,18" Spacing="16">
-                <Grid ColumnSpacing="12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
+
+        <Border
+            Background="{ThemeResource WindowSurfaceBrush}"
+            BorderBrush="{ThemeResource WindowBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="12">
+            <ScrollViewer
+                x:Name="PanelScroller"
+                HorizontalScrollBarVisibility="Disabled"
+                VerticalScrollBarVisibility="Auto"
+                VerticalScrollMode="Auto">
+                <StackPanel x:Name="PanelContent" Padding="22,18,22,16" Spacing="14">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <Border
+                            Width="34"
+                            Height="34"
+                            Background="{ThemeResource AccentIconSurfaceBrush}"
+                            CornerRadius="17"
+                            VerticalAlignment="Top">
+                            <FontIcon
+                                FontFamily="Segoe Fluent Icons"
+                                FontSize="17"
+                                Foreground="{ThemeResource AccentQuotaBrush}"
+                                Glyph="&#xE9D9;"
+                                AutomationProperties.Name="额度仪表" />
+                        </Border>
+
+                        <StackPanel Grid.Column="1" Spacing="3">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Style="{StaticResource TitleTextStyle}" Text="{Binding Title}" />
+                                <Border
+                                    Padding="8,3"
+                                    Background="{ThemeResource BadgeSurfaceBrush}"
+                                    CornerRadius="8"
+                                    VerticalAlignment="Center"
+                                    Visibility="{Binding HasPlanBadge, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <TextBlock
+                                        FontSize="11"
+                                        FontWeight="SemiBold"
+                                        Foreground="{ThemeResource AccentQuotaBrush}"
+                                        Text="{Binding PlanBadge}" />
+                                </Border>
+                            </StackPanel>
+                            <TextBlock
+                                MaxLines="2"
+                                FontSize="12"
+                                Foreground="{Binding StatusTone, Converter={StaticResource StatusToneBrushConverter}}"
+                                Text="{Binding StatusText}"
+                                TextTrimming="CharacterEllipsis"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <Button
+                            Grid.Column="2"
+                            Style="{StaticResource RoundIconButtonStyle}"
+                            Command="{Binding RefreshCommand}"
+                            AutomationProperties.Name="刷新额度"
+                            ToolTipService.ToolTip="刷新额度">
+                            <Grid>
+                                <FontIcon
+                                    FontSize="16"
+                                    Glyph="&#xE72C;"
+                                    Visibility="{Binding IsRefreshing, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=Inverse}" />
+                                <ProgressRing
+                                    Width="18"
+                                    Height="18"
+                                    IsActive="{Binding IsRefreshing}"
+                                    Visibility="{Binding IsRefreshing, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            </Grid>
+                        </Button>
+                    </Grid>
 
                     <Border
-                        Width="32"
-                        Height="32"
-                        CornerRadius="9"
-                        VerticalAlignment="Top">
-                        <Image
-                            Source="/Assets/AppIcon.png"
-                            Stretch="Uniform"
-                            AutomationProperties.Name="CodexQuotaTray 应用图标" />
+                        x:Name="TrayFailureBanner"
+                        Padding="12,9"
+                        Background="{ThemeResource WarningSurfaceBrush}"
+                        BorderBrush="{ThemeResource WarningStatusBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Visibility="Collapsed">
+                        <TextBlock
+                            FontSize="12"
+                            Foreground="{ThemeResource WarningStatusBrush}"
+                            Text="⚠ 托盘图标初始化失败，请重新启动应用或从窗口退出。"
+                            TextWrapping="Wrap" />
                     </Border>
 
-                    <StackPanel Grid.Column="1" Spacing="3">
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Style="{StaticResource TitleTextStyle}" Text="{Binding Title}" />
-                            <Border
-                                Padding="8,3"
-                                Background="{ThemeResource BadgeSurfaceBrush}"
-                                CornerRadius="8"
-                                VerticalAlignment="Center"
-                                Visibility="{Binding HasPlanBadge, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                <TextBlock
-                                    FontSize="11"
-                                    FontWeight="SemiBold"
-                                    Foreground="{ThemeResource AccentQuotaBrush}"
-                                    Text="{Binding PlanBadge}" />
-                            </Border>
-                        </StackPanel>
+                    <Border
+                        Padding="18,7"
+                        Background="{ThemeResource BadgeSurfaceBrush}"
+                        CornerRadius="10"
+                        Visibility="{Binding IsPrototype, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <TextBlock
-                            FontSize="12"
-                            Foreground="{Binding StatusTone, Converter={StaticResource StatusToneBrushConverter}}"
-                            Text="{Binding StatusText}"
-                            TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
+                            FontSize="11"
+                            Foreground="{ThemeResource SecondaryTextBrush}"
+                            Text="静态演示 · 未连接真实账户"
+                            TextAlignment="Center" />
+                    </Border>
 
-                    <Button
-                        Grid.Column="2"
-                        Style="{StaticResource RoundIconButtonStyle}"
-                        Command="{Binding RefreshCommand}"
-                        AutomationProperties.Name="刷新额度"
-                        ToolTipService.ToolTip="刷新额度">
-                        <Grid>
-                            <FontIcon
-                                FontSize="16"
-                                Glyph="&#xE72C;"
-                                Visibility="{Binding IsRefreshing, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=Inverse}" />
-                            <ProgressRing
-                                Width="18"
-                                Height="18"
-                                IsActive="{Binding IsRefreshing}"
-                                Visibility="{Binding IsRefreshing, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                        </Grid>
-                    </Button>
-                </Grid>
-
-                <Border
-                    Padding="18,7"
-                    Background="{ThemeResource BadgeSurfaceBrush}"
-                    CornerRadius="10"
-                    Visibility="{Binding IsPrototype, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <TextBlock
-                        FontSize="11"
-                        Foreground="{ThemeResource SecondaryTextBrush}"
-                        Text="静态 WinUI 原型 · 未连接真实账户或本地配置"
-                        TextAlignment="Center" />
-                </Border>
-
-                <Border
-                    Padding="20,6"
-                    Background="{ThemeResource CardSurfaceBrush}"
-                    BorderBrush="{ThemeResource CardBorderBrush}"
-                    BorderThickness="1"
-                    CornerRadius="22"
-                    Visibility="{Binding HasWindows, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <ItemsRepeater ItemsSource="{Binding Windows}">
-                        <ItemsRepeater.ItemTemplate>
-                            <DataTemplate x:DataType="core:QuotaWindowView">
-                                <StackPanel Padding="0,14" Spacing="10">
-                                    <Grid>
-                                        <TextBlock
-                                            Style="{StaticResource QuotaNameTextStyle}"
-                                            Text="{Binding Name}" />
-                                        <TextBlock
-                                            HorizontalAlignment="Right"
+                    <Border
+                        Padding="18,5"
+                        Background="{ThemeResource CardSurfaceBrush}"
+                        BorderBrush="{ThemeResource CardBorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="22"
+                        Visibility="{Binding HasWindows, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <ItemsRepeater ItemsSource="{Binding Windows}">
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="core:QuotaWindowView">
+                                    <StackPanel Padding="0,13" Spacing="9">
+                                        <Grid>
+                                            <TextBlock Style="{StaticResource QuotaNameTextStyle}" Text="{Binding Name}" />
+                                            <TextBlock
+                                                HorizontalAlignment="Right"
+                                                Foreground="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}"
+                                                Style="{StaticResource QuotaPercentTextStyle}"
+                                                Text="{Binding PercentText}" />
+                                        </Grid>
+                                        <ProgressBar
+                                            Maximum="100"
+                                            Value="{Binding DisplayPercent}"
                                             Foreground="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}"
-                                            Style="{StaticResource QuotaPercentTextStyle}"
-                                            Text="{Binding PercentText}" />
-                                    </Grid>
-                                    <ProgressBar
-                                        Maximum="100"
-                                        Value="{Binding DisplayPercent}"
-                                        Foreground="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}"
-                                        Style="{StaticResource QuotaProgressStyle}" />
-                                    <Grid ColumnSpacing="12">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" />
-                                            <ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock
-                                            Foreground="{ThemeResource PrimaryTextBrush}"
-                                            FontSize="13"
-                                            Text="{Binding ResetRelative}" />
-                                        <TextBlock
-                                            Grid.Column="1"
-                                            HorizontalAlignment="Right"
-                                            Style="{StaticResource SecondaryTextStyle}"
-                                            Text="{Binding ResetAt}" />
-                                    </Grid>
-                                    <Border
-                                        Height="1"
-                                        Background="{ThemeResource DividerBrush}"
-                                        AutomationProperties.AccessibilityView="Raw" />
-                                </StackPanel>
-                            </DataTemplate>
-                        </ItemsRepeater.ItemTemplate>
-                    </ItemsRepeater>
-                </Border>
+                                            Style="{StaticResource QuotaProgressStyle}" />
+                                        <Grid ColumnSpacing="12">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock
+                                                Foreground="{ThemeResource SecondaryTextBrush}"
+                                                FontSize="12"
+                                                Text="{Binding ResetRelative}" />
+                                            <TextBlock
+                                                Grid.Column="1"
+                                                HorizontalAlignment="Right"
+                                                Style="{StaticResource SecondaryTextStyle}"
+                                                Text="{Binding ResetAt}" />
+                                        </Grid>
+                                        <Border
+                                            Height="1"
+                                            Background="{ThemeResource DividerBrush}"
+                                            AutomationProperties.AccessibilityView="Raw" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </Border>
 
-                <Grid ColumnSpacing="12">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <FontIcon
-                            FontSize="15"
-                            Foreground="{ThemeResource SecondaryTextBrush}"
-                            Glyph="&#xE823;" />
-                        <TextBlock
-                            VerticalAlignment="Center"
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <FontIcon
+                                FontSize="14"
+                                Foreground="{ThemeResource SecondaryTextBrush}"
+                                Glyph="&#xE823;" />
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                FontSize="12"
+                                Foreground="{ThemeResource SecondaryTextBrush}"
+                                Text="{Binding ResetCredits.Summary}"
+                                TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <HyperlinkButton
+                            Grid.Column="1"
+                            Padding="6,3"
+                            Command="{Binding OpenUsageCommand}"
+                            Content="官方用量 ↗"
                             FontSize="12"
-                            Foreground="{ThemeResource SecondaryTextBrush}"
-                            Text="{Binding ResetCredits.Summary}"
-                            TextTrimming="CharacterEllipsis" />
-                    </StackPanel>
-                    <HyperlinkButton
-                        Grid.Column="1"
-                        Padding="8,4"
-                        Command="{Binding OpenUsageCommand}"
-                        Content="官方用量页面 ↗"
-                        FontSize="12"
-                        AutomationProperties.Name="打开官方用量页面" />
-                </Grid>
-            </StackPanel>
-        </ScrollViewer>
+                            AutomationProperties.Name="打开官方用量页面" />
+                    </Grid>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
     </Grid>
 </Window>

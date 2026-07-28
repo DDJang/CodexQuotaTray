@@ -11,18 +11,25 @@ internal sealed class WindowPlacementService
     internal void ResizeAndPlace(
         AppWindow appWindow,
         double rasterizationScale,
-        int windowCount,
+        double measuredContentHeightDips,
         Rectangle? trayRectangle)
     {
         var scale = Math.Max(1.0, rasterizationScale);
         var width = PopupPlacement.DipsToPixels(420, scale);
-        var heightDips = PopupPlacement.ContentHeightDips(windowCount);
-        var height = PopupPlacement.DipsToPixels(heightDips, scale);
-        appWindow.ResizeClient(new SizeInt32(width, height));
-
         var anchor = trayRectangle ?? CursorAnchor();
         var workArea = GetWorkArea(anchor);
         var margin = PopupPlacement.DipsToPixels(8, scale);
+        var height = PopupPlacement.ContentHeightPixels(
+            measuredContentHeightDips,
+            scale,
+            workArea.Height,
+            8);
+        var requestedSize = new SizeInt32(width, height);
+        if (appWindow.ClientSize.Width != requestedSize.Width || appWindow.ClientSize.Height != requestedSize.Height)
+        {
+            appWindow.ResizeClient(requestedSize);
+        }
+
         var location = trayRectangle is { } tray
             ? PopupPlacement.PlaceNearTray(tray, workArea, new Size(width, height), margin)
             : PopupPlacement.PlaceAtBottomRight(workArea, new Size(width, height), margin);

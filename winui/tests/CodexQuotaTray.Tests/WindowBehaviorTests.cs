@@ -67,14 +67,20 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
-    public void ContentHeight_IsCompactAndContentDrivenForZeroToThreeWindows()
+    public void ContentHeight_UsesMeasuredContentAndClampsOnlyToWorkArea()
     {
-        var heights = Enumerable.Range(0, 4).Select(PopupPlacement.ContentHeightDips).ToArray();
+        Assert.AreEqual(286, PopupPlacement.ContentHeightPixels(286, 1, 1080));
+        Assert.AreEqual(358, PopupPlacement.ContentHeightPixels(286, 1.25, 1350));
+        Assert.AreEqual(1050, PopupPlacement.ContentHeightPixels(900, 1.5, 1080, 10));
+    }
 
-        Assert.AreEqual(270, heights[0]);
-        Assert.IsTrue(heights.SequenceEqual(heights.OrderBy(value => value)));
-        Assert.IsTrue(heights.Zip(heights.Skip(1), (left, right) => right > left).All(value => value));
-        Assert.IsLessThanOrEqualTo(520, heights[^1]);
+    [TestMethod]
+    public void TrayRegistration_UsesFiniteRetries()
+    {
+        CollectionAssert.AreEqual(new[] { 0, 250, 500, 1000 }, TrayRegistrationPolicy.RetryDelaysMilliseconds.ToArray());
+        Assert.AreEqual(TrayRegistrationState.Registered, TrayRegistrationPolicy.StateAfterAttempt(true, 1));
+        Assert.AreEqual(TrayRegistrationState.RetryPending, TrayRegistrationPolicy.StateAfterAttempt(false, 3));
+        Assert.AreEqual(TrayRegistrationState.Failed, TrayRegistrationPolicy.StateAfterAttempt(false, 4));
     }
 
     [DataRow(true, true, false, false, BackdropKind.Opaque)]

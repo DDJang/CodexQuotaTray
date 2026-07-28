@@ -1,6 +1,6 @@
 # WinUI 3 渐进迁移
 
-状态：第四阶段 0.3.0 正式交付候选已实现；Rust 源码仍保留作回归基线  
+状态：第四阶段 0.3.2 正式交付候选已实现；Rust 源码仍保留作回归基线
 目标 SDK：.NET `10.0.302`、Windows App SDK `2.2.0`  
 更新日期：2026-07-19
 
@@ -46,7 +46,7 @@
 
 ## 4. 隐私与兼容门禁
 
-- 0.3.0 默认读写兼容的 `%LOCALAPPDATA%\CodexQuotaTray`。开发 smoke 可使用 `--isolated-preview-data`，不会触碰正式数据。
+- 0.3.2 默认读写兼容的 `%LOCALAPPDATA%\CodexQuotaTray`。开发 smoke 可使用 `--isolated-preview-data`，不会触碰正式数据。
 - 第二阶段前，不创建仅占位的 App Server、持久化或提醒实现。
 - C# 持久化必须逐字段兼容现有 camelCase 格式，并保留未知字段的安全降级行为。
 - 不持久化 token、邮箱、账户 ID、原始 limit ID、重置卡 ID 或原始协议响应。
@@ -84,7 +84,7 @@
 - Rust 源码尚未删除，并继续参与所有回归检查；这不影响安装器使用 C# 正式入口。
 - 预览版通知继续使用 `NIF_INFO`，不承诺操作系统一定展示；状态保存成功但通知失败时允许漏发，以防重复为优先。
 - 自动测试验证纯逻辑和主题资源完整性；100%–200% DPI、透明效果开关、高对比度、Explorer 重启和视觉截图仍需要在对应 Windows 环境人工 smoke。
-- 本地 0.3.0 安装器未签名；公开分发仍需 Authenticode/Trusted Signing 与 Windows 10/11 完整矩阵。
+- 本地安装器未签名；公开分发仍需 Authenticode/Trusted Signing 与 Windows 10/11 完整矩阵。
 
 ## 7. 本机测量
 

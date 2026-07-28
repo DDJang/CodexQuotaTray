@@ -6,6 +6,10 @@
         <Setter Property="Height" Value="36" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="CornerRadius" Value="18" />
+        <Setter Property="Background" Value="{ThemeResource CardSurfaceBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource AccentQuotaBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource CardBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>

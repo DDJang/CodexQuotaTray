@@ -1,5 +1,6 @@
 using System.Drawing;
 using CodexQuotaTray.App.Services;
+using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.Core.Presentation;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -16,6 +17,8 @@ public sealed partial class MainWindow : Window
     private readonly WindowVisibilityController visibility = new();
     private readonly AppWindow appWindow;
     private bool exiting;
+    private bool trayAvailable = true;
+    private bool positionQueued;
 
     public MainWindow(MainViewModel viewModel)
     {
@@ -35,10 +38,16 @@ public sealed partial class MainWindow : Window
             presenter.IsMinimizable = false;
             presenter.SetBorderAndTitleBar(true, false);
         }
+        var cornerPreference = NativeMethods.DwmWindowCornerPreferenceRound;
+        _ = NativeMethods.DwmSetWindowAttribute(
+            hwnd,
+            NativeMethods.DwmwaWindowCornerPreference,
+            ref cornerPreference,
+            sizeof(int));
 
         appWindow.Closing += OnClosing;
         Activated += OnActivated;
-        ContentRoot.SizeChanged += (_, _) => PositionIfVisible();
+        PanelContent.SizeChanged += (_, _) => QueuePositionIfVisible();
     }
 
     internal Func<Rectangle?> TrayRectangleProvider { get; set; } = static () => null;
@@ -46,6 +55,8 @@ public sealed partial class MainWindow : Window
     internal bool IsDesiredVisible => visibility.DesiredVisible;
 
     internal event EventHandler? PanelShown;
+
+    internal event EventHandler? ExitRequested;
 
     internal void TogglePanel()
     {
@@ -75,6 +86,22 @@ public sealed partial class MainWindow : Window
     {
         exiting = true;
         visibility.Hide();
+        backdrop.Dispose();
+    }
+
+    internal void SetTrayAvailable(bool available)
+    {
+        trayAvailable = available;
+        TrayFailureBanner.Visibility = available ? Visibility.Collapsed : Visibility.Visible;
+        appWindow.IsShownInSwitchers = !available;
+        if (!available)
+        {
+            ShowPanel();
+        }
+        else
+        {
+            QueuePositionIfVisible();
+        }
     }
 
     private void ShowPanelCore()
@@ -85,25 +112,42 @@ public sealed partial class MainWindow : Window
         PanelShown?.Invoke(this, EventArgs.Empty);
     }
 
-    internal void ApplyTheme(ThemeMode mode) => ContentRoot.RequestedTheme = mode switch
+    internal void ApplyTheme(ThemeMode mode)
     {
-        ThemeMode.Light => ElementTheme.Light,
-        ThemeMode.Dark => ElementTheme.Dark,
-        _ => ElementTheme.Default,
-    };
-
-    private void PositionIfVisible()
-    {
-        if (visibility.DesiredVisible)
+        ContentRoot.RequestedTheme = mode switch
         {
-            Position();
+            ThemeMode.Light => ElementTheme.Light,
+            ThemeMode.Dark => ElementTheme.Dark,
+            _ => ElementTheme.Default,
+        };
+        _ = backdrop.Apply(this);
+    }
+
+    private void QueuePositionIfVisible()
+    {
+        if (!visibility.DesiredVisible || positionQueued)
+        {
+            return;
         }
+
+        positionQueued = true;
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            positionQueued = false;
+            if (visibility.DesiredVisible)
+            {
+                Position();
+            }
+        });
     }
 
     private void Position()
     {
         var scale = ContentRoot.XamlRoot?.RasterizationScale ?? 1.0;
-        placement.ResizeAndPlace(appWindow, scale, viewModel.Windows.Count, TrayRectangleProvider());
+        var measureWidth = PanelContent.ActualWidth > 1 ? PanelContent.ActualWidth : 418;
+        PanelContent.Measure(new Windows.Foundation.Size(measureWidth, double.PositiveInfinity));
+        var measuredHeight = Math.Max(1, PanelContent.DesiredSize.Height + 2);
+        placement.ResizeAndPlace(appWindow, scale, measuredHeight, TrayRectangleProvider());
     }
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
@@ -115,6 +159,13 @@ public sealed partial class MainWindow : Window
     {
         if (exiting)
         {
+            return;
+        }
+
+        if (!trayAvailable)
+        {
+            args.Cancel = true;
+            ExitRequested?.Invoke(this, EventArgs.Empty);
             return;
         }
 

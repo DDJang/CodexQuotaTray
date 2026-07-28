@@ -98,7 +98,10 @@ public partial class App : Application
         // failure can never strand the model in its initial connecting state.
         initializationTask = InitializeStateAsync(stateProvider, viewModel, uiDispatcher, lifetime.Token);
 
-        var clipboard = new DiagnosticsClipboardService(diagnostics);
+        var clipboard = new DiagnosticsClipboardService(new DelegateDiagnosticTextProvider(() => string.Join(
+            Environment.NewLine,
+            diagnostics.CreateDiagnosticText(),
+            trayIcon?.CreateDiagnosticText() ?? "托盘注册状态: NotStarted")));
         var summaryClipboard = new DiagnosticsClipboardService(new DelegateDiagnosticTextProvider(viewModel.CreateQuotaSummary));
         trayIcon = new TrayIconService(
             uiDispatcher,
@@ -116,7 +119,29 @@ public partial class App : Application
             ToggleAlert,
             ToggleStartup,
             ExitApplication);
-        trayIcon.Start();
+        trayIcon.RegistrationStateChanged += (_, state) =>
+        {
+            _ = uiDispatcher.TryEnqueue(() =>
+            {
+                if (state == CodexQuotaTray.Core.Models.TrayRegistrationState.Registered)
+                {
+                    mainWindow?.SetTrayAvailable(true);
+                }
+                else if (state == CodexQuotaTray.Core.Models.TrayRegistrationState.Failed)
+                {
+                    mainWindow?.SetTrayAvailable(false);
+                }
+            });
+        };
+        try
+        {
+            trayIcon.Start();
+        }
+        catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Tray initialization failed: {error.GetType().Name}");
+            mainWindow.SetTrayAvailable(false);
+        }
         if (pendingNotificationSink is not null)
         {
             pendingNotificationSink.Tray = trayIcon;
@@ -129,6 +154,7 @@ public partial class App : Application
                 _ = runtime.RequestAsync(RefreshReason.CardOpened, lifetime.Token);
             }
         };
+        mainWindow.ExitRequested += (_, _) => ExitApplication();
 
         hostEvents = new HostEventService(() => RequestRuntimeRefresh(RefreshReason.NetworkRestored));
         hostEvents.Start();
@@ -203,7 +229,7 @@ public partial class App : Application
         var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
         {
             Title = "CodexQuotaTray WinUI",
-            Content = "0.3.0\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
+            Content = "0.3.2\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
             CloseButtonText = "关闭",
             XamlRoot = mainWindow?.Content.XamlRoot,
         };

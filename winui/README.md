@@ -1,6 +1,8 @@
 # CodexQuotaTray WinUI 3
 
-这是 CodexQuotaTray 0.3.0 的 WinUI 3 正式交付候选。默认模式连接本机 Codex App Server 并读取真实额度；`--demo` 只用于开发演示。
+这是 CodexQuotaTray 0.3.2 的 WinUI 3 正式交付候选。默认模式连接本机 Codex App Server 并读取真实额度；`--demo` 只用于开发演示。
+
+0.3.2 使用独立隐藏的 Win32 工具窗口承载托盘回调、Explorer 重启和系统恢复广播；Shell 注册只在 UI 线程执行 `NIM_ADD` 与 `NIM_SETVERSION`，托盘矩形查询移到后台，避免 UI/Shell 相互等待。面板高度来自 XAML 实际内容测量；视觉使用可调蓝色 Desktop Acrylic，并在 Mica/不透明环境安全降级。
 
 ## 安全边界
 

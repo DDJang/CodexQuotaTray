@@ -1,6 +1,6 @@
 # Dependency and license inventory
 
-## WinUI 0.3.0 runtime
+## WinUI 0.3.2 runtime
 
 正式 WinUI 入口使用 .NET SDK 10.0.302、Microsoft.WindowsAppSDK 2.2.0 与 CommunityToolkit.Mvvm 8.4.2；测试使用 MSTest.Sdk 4.3.2。版本由 `winui/global.json` 与 `winui/Directory.Packages.props` 固定。Windows App SDK、CommunityToolkit.Mvvm 和 MSTest 均按各自随包许可证分发；自包含目录还包含 .NET runtime 文件。发布不引入 WebView、浏览器、遥测后端或独立服务进程。
 

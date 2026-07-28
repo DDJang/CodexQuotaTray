@@ -318,7 +318,7 @@ public sealed class AppServerPhase2Tests
         return new CodexAppServerClient(new CodexClientOptions(
             executable,
             ["--mode", mode],
-            VersionTimeout: TimeSpan.FromSeconds(1),
+            VersionTimeout: TimeSpan.FromSeconds(5),
             InitializeTimeout: initializeTimeout ?? TimeSpan.FromSeconds(1),
             RequestTimeout: requestTimeout ?? TimeSpan.FromSeconds(1),
             ShutdownTimeout: TimeSpan.FromMilliseconds(300)));

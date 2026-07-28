@@ -315,3 +315,17 @@ QuotaState:
 - `alert-state.json` 先于 Windows 通知原子写入，形成 at-most-once、优先防重复语义。通知系统失败允许漏发；产品不保证通知一定可见。
 - 周期比较使用 UTC。reset 时间需向后推进 `max(5 分钟, 窗口时长一半)`；仅缺少可靠时间时才使用“上升至少 50 点且达到 80%”的备用规则。
 - 稳定 `limit_id` 仅在内存中计算 SHA-256，磁盘保存的是本地伪匿名标识；原始 ID、账户信息和 limit name 均不持久化。
+# WinUI 0.3.1 托盘与面板边界
+
+- `NOTIFYICONDATA.hWnd` 指向 message-only HWND；另一个永不显示的 tool window 只接收 `TaskbarCreated` 与系统电源广播。两者共享同一窗口过程，但只有托盘回调窗口参与通知区身份。
+- 托盘注册使用有限重试并公开匿名状态。最终失败时主窗口进入任务栏/Alt+Tab 降级模式，关闭窗口退出进程，避免形成不可访问的后台实例。
+- 面板宽度保持 420 DIP，高度由根 XAML 内容的 `DesiredSize` 决定；仅当内容高于工作区时裁剪并滚动。物理尺寸变化前先比较当前 client size，防止布局反馈循环。
+- Desktop Acrylic 是首选背景，XAML 根层透明；额度表面只使用半透明主题资源。Mica 和不透明背景是功能等价的视觉降级。
+
+# WinUI 0.3.2 托盘、圆角与 Acrylic 修复
+
+- 托盘回调使用独立、隐藏且不进入任务切换器的顶层工具窗口。它与主 WinUI 窗口生命周期分离，同时接收 `TaskbarCreated`。
+- 注册路径只执行旧项清理、`NIM_ADD` 和 `NIM_SETVERSION`。`Shell_NotifyIconGetRect` 不得在 UI 线程同步调用；图标位置由后台任务缓存，失败时面板定位回退到工作区右下角。
+- 稳定产品 GUID 与固定 `uID` 继续用于通知区域身份；一次 `WM_LBUTTONUP` 只通过 Dispatcher 翻转一次 `desiredVisible`。
+- 原生窗口保留无标题栏的系统细边框，并请求 DWM 圆角；XAML 外框使用匹配的 12 DIP 圆角，避免系统曲率与 24 DIP 自绘曲率叠加。
+- Windows 11 使用 `DesktopAcrylicController`，显式设置低 TintOpacity 和适度 LuminosityOpacity；根表面与额度卡仅叠加低透明度颜色。禁用透明、高对比度或不支持 Acrylic 时仍按 Acrylic → Mica → 不透明背景降级。

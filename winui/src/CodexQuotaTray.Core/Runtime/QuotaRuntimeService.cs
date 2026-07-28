@@ -476,7 +476,7 @@ public sealed class QuotaRuntimeService :
         var value = client?.Diagnostics ?? lastDiagnostics;
         return string.Join(
             Environment.NewLine,
-            "CodexQuotaTray WinUI: 0.3.0",
+            "CodexQuotaTray WinUI: 0.3.2",
             $"Codex CLI found: {value.CliFound}",
             $"Codex CLI version: {value.CliVersion ?? "unreported"}",
             $"App Server started: {value.AppServerStarted}",

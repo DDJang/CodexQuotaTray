@@ -17,7 +17,7 @@ internal sealed class DemoStateProvider : IUiStateProvider, IDiagnosticTextProvi
         return CreateState();
     }
 
-    public string CreateDiagnosticText() => PrototypeDiagnostics.Create("0.3.0", Environment.Version.ToString());
+    public string CreateDiagnosticText() => PrototypeDiagnostics.Create("0.3.2", Environment.Version.ToString());
 
     private AppUiState CreateState()
     {

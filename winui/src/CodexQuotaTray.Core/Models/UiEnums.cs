@@ -40,6 +40,14 @@ public enum BackdropKind
     Opaque,
 }
 
+public enum TrayRegistrationState
+{
+    NotStarted,
+    RetryPending,
+    Registered,
+    Failed,
+}
+
 public enum TrayEdge
 {
     Left,

@@ -35,8 +35,16 @@ public static class PopupPlacement
     public static int DipsToPixels(double dips, double scale) =>
         checked((int)Math.Round(dips * Math.Max(1.0, scale), MidpointRounding.AwayFromZero));
 
-    public static int ContentHeightDips(int windowCount) =>
-        Math.Clamp(220 + (Math.Clamp(windowCount, 0, 3) * 94), 270, 520);
+    public static int ContentHeightPixels(
+        double measuredHeightDips,
+        double scale,
+        int workAreaHeightPixels,
+        double marginDips = 8)
+    {
+        var desired = DipsToPixels(Math.Max(1, measuredHeightDips), scale);
+        var margin = DipsToPixels(marginDips, scale);
+        return Math.Clamp(desired, 1, Math.Max(1, workAreaHeightPixels - (margin * 2)));
+    }
 
     public static Models.TrayEdge NearestEdge(Rectangle tray, Rectangle workArea)
     {
