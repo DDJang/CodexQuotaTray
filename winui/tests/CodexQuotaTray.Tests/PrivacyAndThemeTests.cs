@@ -38,6 +38,7 @@ public sealed class PrivacyAndThemeTests
         Assert.IsTrue(dictionaries.ContainsKey("Light"));
         Assert.IsTrue(dictionaries.ContainsKey("Dark"));
         Assert.IsTrue(dictionaries.ContainsKey("HighContrast"));
+        Assert.IsTrue(dictionaries["Light"].Contains("TertiaryTextBrush"));
         CollectionAssert.AreEquivalent(dictionaries["Light"].ToArray(), dictionaries["Dark"].ToArray());
         CollectionAssert.AreEquivalent(dictionaries["Light"].ToArray(), dictionaries["HighContrast"].ToArray());
     }

@@ -14,8 +14,8 @@
         <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
     <Style x:Key="QuotaProgressStyle" TargetType="ProgressBar">
-        <Setter Property="Height" Value="7" />
-        <Setter Property="CornerRadius" Value="4" />
+        <Setter Property="Height" Value="10" />
+        <Setter Property="CornerRadius" Value="5" />
         <Setter Property="Background" Value="{ThemeResource TrackBrush}" />
     </Style>
 </ResourceDictionary>

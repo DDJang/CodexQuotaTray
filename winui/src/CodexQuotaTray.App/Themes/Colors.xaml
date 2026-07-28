@@ -9,6 +9,7 @@
             <SolidColorBrush x:Key="CardBorderBrush" Color="#52B8CAE0" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="#17212B" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="#526477" />
+            <SolidColorBrush x:Key="TertiaryTextBrush" Color="#7B8999" />
             <SolidColorBrush x:Key="DividerBrush" Color="#5CD5DEE7" />
             <SolidColorBrush x:Key="TrackBrush" Color="#A9C0D0E4" />
             <SolidColorBrush x:Key="AccentQuotaBrush" Color="#087BE8" />
@@ -32,6 +33,7 @@
             <SolidColorBrush x:Key="CardBorderBrush" Color="#527D94B2" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F3F6F8" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="#B6C2CF" />
+            <SolidColorBrush x:Key="TertiaryTextBrush" Color="#92A2B3" />
             <SolidColorBrush x:Key="DividerBrush" Color="#52748796" />
             <SolidColorBrush x:Key="TrackBrush" Color="#45515E" />
             <SolidColorBrush x:Key="AccentQuotaBrush" Color="#5AAEFF" />
@@ -55,6 +57,7 @@
             <SolidColorBrush x:Key="CardBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="TertiaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="DividerBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="TrackBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
             <SolidColorBrush x:Key="AccentQuotaBrush" Color="{ThemeResource SystemColorHighlightColor}" />

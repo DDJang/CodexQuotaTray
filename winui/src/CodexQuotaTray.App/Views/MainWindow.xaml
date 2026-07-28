@@ -18,8 +18,8 @@
                 HorizontalScrollBarVisibility="Disabled"
                 VerticalScrollBarVisibility="Auto"
                 VerticalScrollMode="Auto">
-                <StackPanel x:Name="PanelContent" Padding="22,18,22,16" Spacing="14">
-                    <Grid ColumnSpacing="12">
+                <StackPanel x:Name="PanelContent" Padding="18,14,18,10" Spacing="10">
+                    <Grid ColumnSpacing="10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -28,50 +28,41 @@
                         <Grid
                             x:Name="HeaderDragRegion"
                             Background="Transparent"
-                            ColumnSpacing="12">
+                            ColumnSpacing="8"
+                            VerticalAlignment="Center">
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
 
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Style="{StaticResource TitleTextStyle}"
+                                Text="{Binding Title}" />
                             <Border
-                                Width="34"
-                                Height="34"
-                                Background="{ThemeResource AccentIconSurfaceBrush}"
-                                CornerRadius="17"
-                                VerticalAlignment="Top">
-                                <FontIcon
-                                    FontFamily="Segoe Fluent Icons"
-                                    FontSize="17"
-                                    Foreground="{ThemeResource AccentQuotaBrush}"
-                                    Glyph="&#xE9D9;"
-                                    AutomationProperties.Name="额度仪表" />
-                            </Border>
-
-                            <StackPanel Grid.Column="1" Spacing="3">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Style="{StaticResource TitleTextStyle}" Text="{Binding Title}" />
-                                    <Border
-                                        Padding="8,3"
-                                        Background="{ThemeResource BadgeSurfaceBrush}"
-                                        CornerRadius="8"
-                                        VerticalAlignment="Center"
-                                        Visibility="{Binding HasPlanBadge, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                        <TextBlock
-                                            FontSize="11"
-                                            FontWeight="SemiBold"
-                                            Foreground="{ThemeResource AccentQuotaBrush}"
-                                            Text="{Binding PlanBadge}" />
-                                    </Border>
-                                </StackPanel>
+                                Grid.Column="1"
+                                Padding="8,3"
+                                Background="{ThemeResource BadgeSurfaceBrush}"
+                                CornerRadius="9"
+                                VerticalAlignment="Center"
+                                Visibility="{Binding HasPlanBadge, Converter={StaticResource BooleanToVisibilityConverter}}">
                                 <TextBlock
-                                    MaxLines="2"
-                                    FontSize="12"
-                                    Foreground="{Binding StatusTone, Converter={StaticResource StatusToneBrushConverter}}"
-                                    Text="{Binding StatusText}"
-                                    TextTrimming="CharacterEllipsis"
-                                    TextWrapping="Wrap" />
-                            </StackPanel>
+                                    FontSize="11"
+                                    FontWeight="SemiBold"
+                                    Foreground="{ThemeResource AccentQuotaBrush}"
+                                    Text="{Binding PlanBadge}" />
+                            </Border>
+                            <TextBlock
+                                Grid.Column="2"
+                                MaxLines="2"
+                                VerticalAlignment="Center"
+                                FontSize="12"
+                                Foreground="{Binding StatusTone, Converter={StaticResource StatusToneBrushConverter}}"
+                                Text="{Binding StatusText}"
+                                TextTrimming="CharacterEllipsis"
+                                TextWrapping="Wrap"
+                                ToolTipService.ToolTip="{Binding StatusText}" />
                         </Grid>
 
                         <Button
@@ -122,16 +113,16 @@
                     </Border>
 
                     <Border
-                        Padding="18,5"
+                        Padding="16,4"
                         Background="{ThemeResource CardSurfaceBrush}"
                         BorderBrush="{ThemeResource CardBorderBrush}"
                         BorderThickness="1"
-                        CornerRadius="22"
+                        CornerRadius="18"
                         Visibility="{Binding HasWindows, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <ItemsRepeater ItemsSource="{Binding Windows}">
                             <ItemsRepeater.ItemTemplate>
                                 <DataTemplate x:DataType="core:QuotaWindowView">
-                                    <StackPanel Padding="0,13" Spacing="9">
+                                    <StackPanel Padding="0,11" Spacing="8">
                                         <Grid>
                                             <TextBlock Style="{StaticResource QuotaNameTextStyle}" Text="{Binding Name}" />
                                             <TextBlock
@@ -145,20 +136,27 @@
                                             Value="{Binding DisplayPercent}"
                                             Foreground="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}"
                                             Style="{StaticResource QuotaProgressStyle}" />
-                                        <Grid ColumnSpacing="12">
+                                        <Grid ColumnSpacing="4">
                                             <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="*" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock
-                                                Foreground="{ThemeResource SecondaryTextBrush}"
+                                                Foreground="{ThemeResource PrimaryTextBrush}"
                                                 FontSize="12"
                                                 Text="{Binding ResetRelative}" />
                                             <TextBlock
                                                 Grid.Column="1"
-                                                HorizontalAlignment="Right"
-                                                Style="{StaticResource SecondaryTextStyle}"
-                                                Text="{Binding ResetAt}" />
+                                                Foreground="{ThemeResource TertiaryTextBrush}"
+                                                FontSize="12"
+                                                Text="·" />
+                                            <TextBlock
+                                                Grid.Column="2"
+                                                Foreground="{ThemeResource TertiaryTextBrush}"
+                                                FontSize="12"
+                                                Text="{Binding ResetAt}"
+                                                TextTrimming="CharacterEllipsis" />
                                         </Grid>
                                     </StackPanel>
                                 </DataTemplate>
@@ -171,7 +169,7 @@
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                             <FontIcon
                                 FontSize="14"
                                 Foreground="{ThemeResource SecondaryTextBrush}"
@@ -185,7 +183,8 @@
                         </StackPanel>
                         <HyperlinkButton
                             Grid.Column="1"
-                            Padding="6,3"
+                            MinHeight="24"
+                            Padding="4,1"
                             Command="{Binding OpenUsageCommand}"
                             Content="官方用量 ↗"
                             FontSize="12"

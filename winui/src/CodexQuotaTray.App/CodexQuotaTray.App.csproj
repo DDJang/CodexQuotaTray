@@ -5,7 +5,7 @@
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <AssemblyName>codex-quota-tray-gui</AssemblyName>
     <RootNamespace>CodexQuotaTray.App</RootNamespace>
-    <Version>0.3.5</Version>
+    <Version>0.4.0</Version>
     <ApplicationIcon>..\..\..\assets\app-icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>

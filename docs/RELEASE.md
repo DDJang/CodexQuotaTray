@@ -2,7 +2,7 @@
 
 ## Artifact
 
-0.3.5 uses a per-user, no-admin Inno Setup installer containing the folder-based, self-contained x64 WinUI application. The older Rust ZIP workflow remains only as a regression and rollback baseline.
+0.4.0 uses a per-user, no-admin Inno Setup installer containing the folder-based, self-contained x64 WinUI application. The older Rust ZIP workflow remains only as a regression and rollback baseline.
 
 Build it from a clean checkout with the locked dependency graph:
 
@@ -45,5 +45,5 @@ No signing or publishing step is automated in this repository because the requir
 - Completed manually: Windows 11 10.0.26200 x64 tray/runtime smoke.
 - Required before public release: Windows 10 x64 install/upgrade/uninstall/tray smoke; Windows 11 stable-channel smoke; 100/125/150/200% DPI and multi-monitor positioning; signed artifact verification; real official Usage navigation.
 - UI 0.2.0 validation additionally checks `RT_MANIFEST #1`, `RT_GROUP_ICON #101` and its 16/20/24/32/48/256 frames, effective Per-Monitor V2 process awareness, target-monitor window DPI, compact status/badge layout, opaque ClearType Natural rendering, light theme contrast, independent message-window tray toggling, taskbar-safe lower-right positioning, Windows 11 DWM corners, hover/pressed/focus states, and dynamic zero-to-three-window layouts.
-- WinUI 0.3.5 发布验证使用 .NET host 的 `RT_GROUP_ICON #32512`，确认 16/20/24/32/40/48/64/128/256 帧，并执行 `test-winui-tray.ps1` 验证 Explorer 图标矩形和 100 次显隐切换。
+- WinUI 0.4.0 发布验证使用 .NET host 的 `RT_GROUP_ICON #32512`，确认 16/20/24/32/40/48/64/128/256 帧，并执行 `test-winui-tray.ps1` 验证 Explorer 图标矩形和 100 次显隐切换。
 - Stability: the completed extended run lasted 21 hours 11 minutes and ended on explicit user instruction, with no restart, warning, or orphan process observed. It is local MVP evidence, not a completed 24-hour or seven-day release-quality run.

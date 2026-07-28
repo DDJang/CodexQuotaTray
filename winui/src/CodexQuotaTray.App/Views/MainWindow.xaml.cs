@@ -151,7 +151,7 @@ public sealed partial class MainWindow : Window
         var scale = ContentRoot.XamlRoot?.RasterizationScale ?? 1.0;
         var measureWidth = PanelContent.ActualWidth > 1 ? PanelContent.ActualWidth : 418;
         PanelContent.Measure(new Windows.Foundation.Size(measureWidth, double.PositiveInfinity));
-        var measuredHeight = Math.Max(1, PanelContent.DesiredSize.Height + 2);
+        var measuredHeight = Math.Max(1, Math.Ceiling(PanelContent.DesiredSize.Height));
         if (hasSessionPosition)
         {
             placement.ResizeAndKeepPosition(appWindow, scale, measuredHeight);

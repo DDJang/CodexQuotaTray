@@ -96,7 +96,7 @@ public sealed class LiveQuotaStateProvider : IUiStateProvider, IDiagnosticTextPr
         var value = client?.Diagnostics ?? lastDiagnostics;
         return string.Join(
             Environment.NewLine,
-            "CodexQuotaTray: 0.3.5",
+            "CodexQuotaTray: 0.4.0",
             $"Codex CLI found: {value.CliFound}",
             $"Codex CLI version: {value.CliVersion ?? "unreported"}",
             $"App Server started: {value.AppServerStarted}",
