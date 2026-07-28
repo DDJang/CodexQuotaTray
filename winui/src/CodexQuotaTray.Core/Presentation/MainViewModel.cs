@@ -98,6 +98,7 @@ public sealed partial class MainViewModel : ObservableObject
         StatusText = state.StatusText;
         StatusTone = state.StatusTone;
         ResetCredits = state.ResetCredits;
+        IsRefreshing = state.IsRefreshing;
         IsPrototype = state.IsPrototype;
         Windows.Clear();
         foreach (var window in state.Windows)

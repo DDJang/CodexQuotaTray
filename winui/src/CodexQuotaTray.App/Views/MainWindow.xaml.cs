@@ -19,7 +19,6 @@ public sealed partial class MainWindow : Window
     private bool exiting;
     private bool trayAvailable = true;
     private bool positionQueued;
-    private bool clampQueued;
     private bool hasSessionPosition;
 
     public MainWindow(MainViewModel viewModel)
@@ -52,7 +51,6 @@ public sealed partial class MainWindow : Window
             sizeof(int));
 
         appWindow.Closing += OnClosing;
-        appWindow.Changed += OnAppWindowChanged;
         Activated += OnActivated;
         PanelContent.SizeChanged += (_, _) => QueuePositionIfVisible();
     }
@@ -167,28 +165,6 @@ public sealed partial class MainWindow : Window
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         _ = backdrop.Apply(this);
-    }
-
-    private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
-    {
-        if (!args.DidPositionChange || !hasSessionPosition || clampQueued)
-        {
-            return;
-        }
-
-        clampQueued = true;
-        if (!DispatcherQueue.TryEnqueue(() =>
-            {
-                clampQueued = false;
-                if (hasSessionPosition)
-                {
-                    var scale = ContentRoot.XamlRoot?.RasterizationScale ?? 1.0;
-                    placement.ClampCurrentPosition(appWindow, scale);
-                }
-            }))
-        {
-            clampQueued = false;
-        }
     }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)

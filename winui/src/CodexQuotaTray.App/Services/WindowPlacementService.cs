@@ -32,30 +32,13 @@ internal sealed class WindowPlacementService
         var current = appWindow.Position;
         var anchor = new Rectangle(current.X, current.Y, Math.Max(1, appWindow.Size.Width), Math.Max(1, appWindow.Size.Height));
         var workArea = GetWorkArea(anchor);
-        var (size, margin) = Resize(appWindow, rasterizationScale, measuredContentHeightDips, workArea);
+        var (size, _) = Resize(appWindow, rasterizationScale, measuredContentHeightDips, workArea);
         var location = PopupPlacement.ClampToWorkArea(
             new Point(current.X, current.Y),
             workArea,
             size,
-            margin);
+            0);
         appWindow.Move(new PointInt32(location.X, location.Y));
-    }
-
-    internal void ClampCurrentPosition(AppWindow appWindow, double rasterizationScale)
-    {
-        var current = appWindow.Position;
-        var size = new Size(Math.Max(1, appWindow.Size.Width), Math.Max(1, appWindow.Size.Height));
-        var workArea = GetWorkArea(new Rectangle(current.X, current.Y, size.Width, size.Height));
-        var margin = PopupPlacement.DipsToPixels(8, rasterizationScale);
-        var location = PopupPlacement.ClampToWorkArea(
-            new Point(current.X, current.Y),
-            workArea,
-            size,
-            margin);
-        if (location.X != current.X || location.Y != current.Y)
-        {
-            appWindow.Move(new PointInt32(location.X, location.Y));
-        }
     }
 
     private static (Size Size, int Margin) Resize(

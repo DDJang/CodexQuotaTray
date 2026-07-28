@@ -734,3 +734,9 @@ Do not resume the stopped soak automatically. Before a public release, execute t
 - 外轮廓改为 DWM 标准圆角，标题简化为“Codex”，并移除额度重置行下方的分隔线。
 - 额度强调色按原始剩余比例划分为大于 50% 绿色、20%–50% 琥珀色、低于 20% 红色；过期或无效数据保持灰色。
 - WinUI Release 构建 0 警告、0 错误；C# 测试 78 通过、1 个显式 live smoke 跳过；Rust 格式、严格 Clippy 和全部测试通过。
+
+# 2026-07-28 — WinUI 0.3.5 自动刷新反馈与拖动修复
+
+- `MainViewModel` 现在完整应用运行时的 `IsRefreshing`，自动、定时、窗口打开和系统恢复刷新都会同步切换右上角 `ProgressRing` 并禁用重复刷新。
+- 删除拖动过程中的逐帧 `AppWindow.Move` 校正，消除窗口靠近任务栏时应用定位与系统拖动竞争造成的回弹和闪烁。
+- 初次显示仍保留托盘边距；隐藏后重开或内容重排仅在位置超出工作区时以零边距校正，允许窗口与任务栏上沿贴齐。

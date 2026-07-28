@@ -96,7 +96,7 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
                         {
                             name = "codex_quota_tray_winui",
                             title = "CodexQuotaTray WinUI",
-                            version = "0.3.4",
+                            version = "0.3.5",
                         },
                     },
                     options.EffectiveInitializeTimeout,

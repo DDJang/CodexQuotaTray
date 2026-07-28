@@ -1,8 +1,8 @@
 # CodexQuotaTray WinUI 3
 
-这是 CodexQuotaTray 0.3.4 的 WinUI 3 正式交付候选。默认模式连接本机 Codex App Server 并读取真实额度；`--demo` 只用于开发演示。
+这是 CodexQuotaTray 0.3.5 的 WinUI 3 正式交付候选。默认模式连接本机 Codex App Server 并读取真实额度；`--demo` 只用于开发演示。
 
-0.3.4 使用 message-only HWND 承载托盘回调，另一个隐藏 tool window 接收 Explorer 重建和系统恢复广播。Shell P/Invoke 显式绑定 `Shell_NotifyIconW`/`Shell_NotifyIconGetRect`，只有 Explorer 返回非空图标矩形后才视为注册成功。窗口外轮廓只由 DWM 圆角裁剪，XAML 不再叠加第二套圆角；窗口置顶并可从标题区拖动，本次运行内保留最后位置。视觉继续使用蓝色 Desktop Acrylic，并在 Mica/不透明环境安全降级。
+0.3.5 使用 message-only HWND 承载托盘回调，另一个隐藏 tool window 接收 Explorer 重建和系统恢复广播。Shell P/Invoke 显式绑定 `Shell_NotifyIconW`/`Shell_NotifyIconGetRect`，只有 Explorer 返回非空图标矩形后才视为注册成功。窗口外轮廓只由 DWM 圆角裁剪，XAML 不再叠加第二套圆角；窗口置顶并可从标题区自由拖动，本次运行内保留最后位置。自动刷新与手动刷新共用同一按钮忙碌状态。视觉继续使用蓝色 Desktop Acrylic，并在 Mica/不透明环境安全降级。
 
 ## 安全边界
 

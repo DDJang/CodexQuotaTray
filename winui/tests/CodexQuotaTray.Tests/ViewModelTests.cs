@@ -73,6 +73,46 @@ public sealed class ViewModelTests
         await Task.CompletedTask;
     }
 
+    [TestMethod]
+    public void ApplySnapshot_SynchronizesAutomaticRefreshStateAndCommand()
+    {
+        var viewModel = new MainViewModel(
+            new StubProvider(new AppUiState(
+                "Codex",
+                null,
+                "● 已更新",
+                StatusTone.Success,
+                [],
+                new ResetCreditViewState(ResetCreditKind.Unavailable))),
+            new StubNavigation());
+        var refreshing = new AppUiState(
+            "Codex",
+            "Plus",
+            "正在获取额度…",
+            StatusTone.Refreshing,
+            [],
+            new ResetCreditViewState(ResetCreditKind.Unavailable),
+            IsRefreshing: true,
+            IsPrototype: false);
+
+        viewModel.ApplySnapshot(refreshing);
+
+        Assert.IsTrue(viewModel.IsRefreshing);
+        Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
+        Assert.AreEqual("正在获取额度…", viewModel.StatusText);
+
+        viewModel.ApplySnapshot(refreshing with
+        {
+            StatusText = "● 更新于 14:30",
+            StatusTone = StatusTone.Success,
+            IsRefreshing = false,
+        });
+
+        Assert.IsFalse(viewModel.IsRefreshing);
+        Assert.IsTrue(viewModel.RefreshCommand.CanExecute(null));
+        Assert.AreEqual("● 更新于 14:30", viewModel.StatusText);
+    }
+
     private sealed class StubProvider(AppUiState state) : IUiStateProvider
     {
         public ValueTask<AppUiState> GetSnapshotAsync(CancellationToken cancellationToken) =>

@@ -93,6 +93,19 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
+    public void Placement_AllowsRememberedPositionToTouchTaskbarWorkAreaEdge()
+    {
+        var workArea = Rectangle.FromLTRB(0, 0, 1920, 1040);
+        var popup = new Size(420, 470);
+        var location = new Point(1500, 570);
+
+        var result = PopupPlacement.ClampToWorkArea(location, workArea, popup, margin: 0);
+
+        Assert.AreEqual(location, result);
+        Assert.AreEqual(workArea.Bottom, result.Y + popup.Height);
+    }
+
+    [TestMethod]
     public void ContentHeight_UsesMeasuredContentAndClampsOnlyToWorkArea()
     {
         Assert.AreEqual(286, PopupPlacement.ContentHeightPixels(286, 1, 1080));
