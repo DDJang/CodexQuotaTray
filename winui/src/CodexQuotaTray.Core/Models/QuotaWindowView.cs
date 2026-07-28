@@ -49,8 +49,8 @@ public static class QuotaTonePolicy
 
         return remainingPercent switch
         {
-            <= 10 => QuotaTone.Critical,
-            <= 20 => QuotaTone.Warning,
+            < 20 => QuotaTone.Critical,
+            <= 50 => QuotaTone.Warning,
             _ => QuotaTone.Accent,
         };
     }

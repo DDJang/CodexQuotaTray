@@ -19,6 +19,8 @@ public sealed partial class MainWindow : Window
     private bool exiting;
     private bool trayAvailable = true;
     private bool positionQueued;
+    private bool clampQueued;
+    private bool hasSessionPosition;
 
     public MainWindow(MainViewModel viewModel)
     {
@@ -33,11 +35,15 @@ public sealed partial class MainWindow : Window
         appWindow.IsShownInSwitchers = false;
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
+            presenter.IsAlwaysOnTop = true;
             presenter.IsResizable = false;
             presenter.IsMaximizable = false;
             presenter.IsMinimizable = false;
             presenter.SetBorderAndTitleBar(true, false);
         }
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(HeaderDragRegion);
+
         var cornerPreference = NativeMethods.DwmWindowCornerPreferenceRound;
         _ = NativeMethods.DwmSetWindowAttribute(
             hwnd,
@@ -46,6 +52,7 @@ public sealed partial class MainWindow : Window
             sizeof(int));
 
         appWindow.Closing += OnClosing;
+        appWindow.Changed += OnAppWindowChanged;
         Activated += OnActivated;
         PanelContent.SizeChanged += (_, _) => QueuePositionIfVisible();
     }
@@ -147,12 +154,41 @@ public sealed partial class MainWindow : Window
         var measureWidth = PanelContent.ActualWidth > 1 ? PanelContent.ActualWidth : 418;
         PanelContent.Measure(new Windows.Foundation.Size(measureWidth, double.PositiveInfinity));
         var measuredHeight = Math.Max(1, PanelContent.DesiredSize.Height + 2);
-        placement.ResizeAndPlace(appWindow, scale, measuredHeight, TrayRectangleProvider());
+        if (hasSessionPosition)
+        {
+            placement.ResizeAndKeepPosition(appWindow, scale, measuredHeight);
+            return;
+        }
+
+        placement.ResizeAndPlaceInitial(appWindow, scale, measuredHeight, TrayRectangleProvider());
+        hasSessionPosition = true;
     }
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         _ = backdrop.Apply(this);
+    }
+
+    private void OnAppWindowChanged(AppWindow sender, AppWindowChangedEventArgs args)
+    {
+        if (!args.DidPositionChange || !hasSessionPosition || clampQueued)
+        {
+            return;
+        }
+
+        clampQueued = true;
+        if (!DispatcherQueue.TryEnqueue(() =>
+            {
+                clampQueued = false;
+                if (hasSessionPosition)
+                {
+                    var scale = ContentRoot.XamlRoot?.RasterizationScale ?? 1.0;
+                    placement.ClampCurrentPosition(appWindow, scale);
+                }
+            }))
+        {
+            clampQueued = false;
+        }
     }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)

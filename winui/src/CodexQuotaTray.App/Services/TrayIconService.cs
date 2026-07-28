@@ -49,17 +49,22 @@ internal sealed class TrayIconService : IDisposable
     private readonly Action<int> toggleAlert;
     private readonly Action toggleStartup;
     private readonly Action exitApplication;
-    private const string TrayWindowClassName = "CodexQuotaTray.Tray.Window";
+    private const string TrayCallbackWindowClassName = "CodexQuotaTray.Tray.CallbackWindow";
+    private const string TrayBroadcastWindowClassName = "CodexQuotaTray.Tray.BroadcastWindow";
     private IntPtr instance;
-    private IntPtr window;
+    private IntPtr callbackWindow;
+    private IntPtr broadcastWindow;
     private IntPtr icon;
     private uint taskbarCreatedMessage;
-    private bool added;
+    private volatile bool added;
     private bool disposed;
-    private int retryLoopRunning;
     private readonly CancellationTokenSource retryLifetime = new();
     private readonly object iconRectGate = new();
     private Rectangle? cachedIconRect;
+    private int registrationGeneration;
+    private int registrationAttempt;
+    private int lastExplorerResult;
+    private bool explorerConfirmed;
 
     internal TrayRegistrationState RegistrationState { get; private set; } = TrayRegistrationState.NotStarted;
 
@@ -106,27 +111,36 @@ internal sealed class TrayIconService : IDisposable
     internal void Start()
     {
         instance = NativeMethods.GetModuleHandle(null);
-        var windowClass = new NativeMethods.WindowClassEx
+        RegisterWindowClass(TrayCallbackWindowClassName);
+        RegisterWindowClass(TrayBroadcastWindowClassName);
+
+        // The notification icon callback HWND is message-only. It cannot take focus,
+        // appear in Alt+Tab, or accidentally become a second application window.
+        callbackWindow = NativeMethods.CreateWindowEx(
+            0,
+            TrayCallbackWindowClassName,
+            TrayCallbackWindowClassName,
+            NativeMethods.WsPopup,
+            0,
+            0,
+            0,
+            0,
+            NativeMethods.HwndMessage,
+            IntPtr.Zero,
+            instance,
+            IntPtr.Zero);
+        if (callbackWindow == IntPtr.Zero)
         {
-            Size = (uint)Marshal.SizeOf<NativeMethods.WindowClassEx>(),
-            WindowProcedure = SharedWindowProcedure,
-            Instance = instance,
-            ClassName = TrayWindowClassName,
-        };
-        if (NativeMethods.RegisterClassEx(ref windowClass) == 0)
-        {
-            throw LastWin32("register tray message window");
+            throw LastWin32("create tray callback window");
         }
 
-        // Shell_NotifyIcon accepts an HWND_MESSAGE on most systems, but some
-        // Explorer builds accept NIM_ADD without actually surfacing an icon.
-        // A hidden top-level tool window is still independent from the WinUI
-        // panel and reliably receives both tray callbacks and TaskbarCreated.
-        window = NativeMethods.CreateWindowEx(
+        // Message-only windows do not receive broadcast messages. Keep a separate,
+        // never-shown tool window for TaskbarCreated and power notifications.
+        broadcastWindow = NativeMethods.CreateWindowEx(
             NativeMethods.WsExToolWindow,
-            TrayWindowClassName,
-            TrayWindowClassName,
-            0,
+            TrayBroadcastWindowClassName,
+            TrayBroadcastWindowClassName,
+            NativeMethods.WsPopup,
             0,
             0,
             0,
@@ -135,23 +149,40 @@ internal sealed class TrayIconService : IDisposable
             IntPtr.Zero,
             instance,
             IntPtr.Zero);
-        if (window == IntPtr.Zero)
+        if (broadcastWindow == IntPtr.Zero)
         {
-            throw LastWin32("create tray callback window");
+            throw LastWin32("create tray broadcast window");
         }
 
-        Instances.Add(window, this);
+        Instances.Add(callbackWindow, this);
+        Instances.Add(broadcastWindow, this);
         taskbarCreatedMessage = NativeMethods.RegisterWindowMessage("TaskbarCreated");
-        var dpi = NativeMethods.GetDpiForSystem();
-        var width = Math.Max(16, NativeMethods.GetSystemMetricsForDpi(NativeMethods.SmCxSmallIcon, dpi));
-        var height = Math.Max(16, NativeMethods.GetSystemMetricsForDpi(NativeMethods.SmCySmallIcon, dpi));
-        icon = NativeMethods.LoadImage(instance, new IntPtr(32512), NativeMethods.ImageIcon, width, height, 0);
-        if (icon == IntPtr.Zero)
+        var executable = Environment.ProcessPath;
+        var smallIcons = new IntPtr[1];
+        if (string.IsNullOrWhiteSpace(executable)
+            || NativeMethods.ExtractIconEx(executable, 0, null, smallIcons, 1) != 1
+            || smallIcons[0] == IntPtr.Zero)
         {
-            throw LastWin32("load the embedded tray icon");
+            throw LastWin32("extract the embedded tray icon");
         }
 
+        icon = smallIcons[0];
         BeginRegistration();
+    }
+
+    private void RegisterWindowClass(string className)
+    {
+        var windowClass = new NativeMethods.WindowClassEx
+        {
+            Size = (uint)Marshal.SizeOf<NativeMethods.WindowClassEx>(),
+            WindowProcedure = SharedWindowProcedure,
+            Instance = instance,
+            ClassName = className,
+        };
+        if (NativeMethods.RegisterClassEx(ref windowClass) == 0)
+        {
+            throw LastWin32($"register {className}");
+        }
     }
 
     internal Rectangle? TryGetIconRect()
@@ -169,48 +200,110 @@ internal sealed class TrayIconService : IDisposable
 
     private void BeginRegistration()
     {
-        if (disposed || Interlocked.CompareExchange(ref retryLoopRunning, 1, 0) != 0)
+        if (disposed)
         {
             return;
         }
 
+        registrationGeneration++;
+        registrationAttempt = 0;
+        explorerConfirmed = false;
+        added = false;
         SetRegistrationState(TrayRegistrationState.RetryPending, null);
-        _ = RegisterWithRetryAsync(retryLifetime.Token);
+        ScheduleRegistrationAttempt(registrationGeneration);
     }
 
-    private async Task RegisterWithRetryAsync(CancellationToken cancellationToken)
+    private void ScheduleRegistrationAttempt(int generation)
     {
+        if (disposed || generation != registrationGeneration)
+        {
+            return;
+        }
+
         var delays = TrayRegistrationPolicy.RetryDelaysMilliseconds;
+        if (registrationAttempt >= delays.Count)
+        {
+            SetRegistrationState(TrayRegistrationState.Failed, LastRegistrationError);
+            return;
+        }
+
+        var attempt = registrationAttempt++;
+        if (delays[attempt] == 0)
+        {
+            RunRegistrationAttempt(generation, attempt + 1);
+            return;
+        }
+
+        _ = DelayThenEnqueueAsync(
+            delays[attempt],
+            generation,
+            () => RunRegistrationAttempt(generation, attempt + 1));
+    }
+
+    private void RunRegistrationAttempt(int generation, int attemptNumber)
+    {
+        if (disposed || generation != registrationGeneration)
+        {
+            return;
+        }
+
+        _ = AddAndVerifyAsync(generation, attemptNumber, retryLifetime.Token);
+    }
+
+    private async Task AddAndVerifyAsync(
+        int generation,
+        int attemptNumber,
+        CancellationToken cancellationToken)
+    {
+        (bool succeeded, int error) addResult;
         try
         {
-            for (var index = 0; index < delays.Count; index++)
-            {
-                var delay = delays[index];
-                if (delay != 0)
+            addResult = await Task.Run(
+                () =>
                 {
-                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-                }
-
-                if (TryAddIcon(out var error))
-                {
-                    SetRegistrationState(TrayRegistrationPolicy.StateAfterAttempt(true, index + 1), null);
-                    return;
-                }
-
-                LastRegistrationError = error;
-            }
-
-            SetRegistrationState(
-                TrayRegistrationPolicy.StateAfterAttempt(false, delays.Count),
-                LastRegistrationError);
+                    var succeeded = TryAddIcon(out var error);
+                    return (succeeded, error);
+                },
+                cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+            return;
         }
-        finally
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
-            Interlocked.Exchange(ref retryLoopRunning, 0);
+            _ = dispatcher.TryEnqueue(() =>
+            {
+                if (disposed || generation != registrationGeneration)
+                {
+                    return;
+                }
+
+                LastRegistrationError = error.HResult;
+                SetRegistrationState(
+                    TrayRegistrationPolicy.StateAfterAttempt(false, attemptNumber),
+                    LastRegistrationError);
+                ScheduleRegistrationAttempt(generation);
+            });
+            return;
         }
+
+        if (!addResult.succeeded)
+        {
+            _ = dispatcher.TryEnqueue(() =>
+            {
+                if (disposed || generation != registrationGeneration)
+                {
+                    return;
+                }
+
+                LastRegistrationError = addResult.error;
+                ScheduleRegistrationAttempt(generation);
+            });
+            return;
+        }
+
+        await VerifyExplorerRegistrationAsync(generation, attemptNumber, cancellationToken).ConfigureAwait(false);
     }
 
     private bool TryAddIcon(out int error)
@@ -236,36 +329,100 @@ internal sealed class TrayIconService : IDisposable
         }
 
         added = true;
-        QueueIconRectRefresh();
         return true;
     }
 
-    private void QueueIconRectRefresh()
+    private async Task VerifyExplorerRegistrationAsync(
+        int generation,
+        int attemptNumber,
+        CancellationToken cancellationToken)
     {
-        _ = Task.Run(() =>
+        try
         {
-            if (disposed || !added)
+            foreach (var delay in TrayRegistrationPolicy.VerificationDelaysMilliseconds)
             {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                if (disposed || generation != registrationGeneration)
+                {
+                    return;
+                }
+
+                var identifier = new NativeMethods.NotifyIconIdentifier
+                {
+                    Size = (uint)Marshal.SizeOf<NativeMethods.NotifyIconIdentifier>(),
+                    Window = callbackWindow,
+                    Id = TrayId,
+                    GuidItem = TrayGuid,
+                };
+                var result = NativeMethods.ShellNotifyIconGetRect(ref identifier, out var rect);
+                lastExplorerResult = result;
+                if (!TrayRegistrationPolicy.IsExplorerConfirmationSuccessful(
+                        result,
+                        rect.Left,
+                        rect.Top,
+                        rect.Right,
+                        rect.Bottom))
+                {
+                    continue;
+                }
+
+                _ = dispatcher.TryEnqueue(() =>
+                {
+                    if (disposed || generation != registrationGeneration)
+                    {
+                        return;
+                    }
+
+                    lock (iconRectGate)
+                    {
+                        cachedIconRect = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+                    }
+
+                    explorerConfirmed = true;
+                    SetRegistrationState(
+                        TrayRegistrationPolicy.StateAfterAttempt(true, attemptNumber),
+                        null);
+                });
                 return;
             }
 
-            var identifier = new NativeMethods.NotifyIconIdentifier
+            _ = dispatcher.TryEnqueue(() =>
             {
-                Size = (uint)Marshal.SizeOf<NativeMethods.NotifyIconIdentifier>(),
-                Window = window,
-                Id = TrayId,
-                GuidItem = TrayGuid,
-            };
-            if (NativeMethods.ShellNotifyIconGetRect(ref identifier, out var rect) < 0)
+                if (disposed || generation != registrationGeneration)
+                {
+                    return;
+                }
+
+                DeleteIcon();
+                LastRegistrationError = lastExplorerResult;
+                SetRegistrationState(
+                    TrayRegistrationPolicy.StateAfterAttempt(false, attemptNumber),
+                    LastRegistrationError);
+                ScheduleRegistrationAttempt(generation);
+            });
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private async Task DelayThenEnqueueAsync(int delay, int generation, Action action)
+    {
+        try
+        {
+            if (delay > 0)
             {
-                return;
+                await Task.Delay(delay, retryLifetime.Token).ConfigureAwait(false);
             }
 
-            lock (iconRectGate)
+            if (!disposed && generation == registrationGeneration)
             {
-                cachedIconRect = Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+                _ = dispatcher.TryEnqueue(() => action());
             }
-        });
+        }
+        catch (OperationCanceledException) when (retryLifetime.IsCancellationRequested)
+        {
+        }
     }
 
     private void SetRegistrationState(TrayRegistrationState state, int? error)
@@ -278,7 +435,7 @@ internal sealed class TrayIconService : IDisposable
     private NativeMethods.NotifyIconData CreateData() => new()
     {
         Size = (uint)Marshal.SizeOf<NativeMethods.NotifyIconData>(),
-        Window = window,
+        Window = callbackWindow,
         Id = TrayId,
         Flags = NativeMethods.NifMessage
             | NativeMethods.NifIcon
@@ -293,19 +450,21 @@ internal sealed class TrayIconService : IDisposable
         GuidItem = TrayGuid,
     };
 
-    private void HandleMessage(uint message, UIntPtr wParam, IntPtr lParam)
+    private void HandleMessage(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
     {
-        if (message == NativeMethods.WmPowerBroadcast
+        if (hwnd == broadcastWindow
+            && message == NativeMethods.WmPowerBroadcast
             && unchecked((uint)wParam.ToUInt64()) == NativeMethods.PbtApmResumeAutomatic)
         {
             _ = dispatcher.TryEnqueue(() => resume());
             return;
         }
 
-        if (message == taskbarCreatedMessage)
+        if (hwnd == broadcastWindow && message == taskbarCreatedMessage)
         {
             TaskbarCreatedObserved = true;
             added = false;
+            explorerConfirmed = false;
             lock (iconRectGate)
             {
                 cachedIconRect = null;
@@ -314,7 +473,7 @@ internal sealed class TrayIconService : IDisposable
             return;
         }
 
-        if (message != NativeMethods.TrayCallbackMessage)
+        if (hwnd != callbackWindow || message != NativeMethods.TrayCallbackMessage)
         {
             return;
         }
@@ -361,16 +520,16 @@ internal sealed class TrayIconService : IDisposable
             _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, AboutCommand, "关于");
             _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, ExitCommand, "退出 CodexQuotaTray");
             _ = NativeMethods.GetCursorPos(out var point);
-            _ = NativeMethods.SetForegroundWindow(window);
+            _ = NativeMethods.SetForegroundWindow(broadcastWindow);
             var command = unchecked((uint)NativeMethods.TrackPopupMenu(
                 menu,
                 NativeMethods.TpmRightButton | NativeMethods.TpmReturnCommand | NativeMethods.TpmNonotify,
                 point.X,
                 point.Y,
                 0,
-                window,
+                broadcastWindow,
                 IntPtr.Zero));
-            _ = NativeMethods.PostMessage(window, NativeMethods.WmNull, UIntPtr.Zero, IntPtr.Zero);
+            _ = NativeMethods.PostMessage(broadcastWindow, NativeMethods.WmNull, UIntPtr.Zero, IntPtr.Zero);
             if (command == OpenCommand)
             {
                 showWindow();
@@ -502,13 +661,17 @@ internal sealed class TrayIconService : IDisposable
         Environment.NewLine,
         $"托盘注册状态: {RegistrationState}",
         $"托盘注册错误: {(LastRegistrationError?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none")}",
+        "托盘回调宿主: HWND_MESSAGE",
+        "广播宿主: hidden tool window",
+        $"Explorer 实际确认: {explorerConfirmed}",
+        $"Explorer GetRect HRESULT: 0x{unchecked((uint)lastExplorerResult):X8}",
         $"Explorer 重建已观察: {TaskbarCreatedObserved}");
 
     private static IntPtr WindowProcedure(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
     {
         if (Instances.TryGetValue(hwnd, out var service))
         {
-            service.HandleMessage(message, wParam, lParam);
+            service.HandleMessage(hwnd, message, wParam, lParam);
         }
 
         return NativeMethods.DefWindowProc(hwnd, message, wParam, lParam);
@@ -523,18 +686,21 @@ internal sealed class TrayIconService : IDisposable
 
         disposed = true;
         retryLifetime.Cancel();
-        if (added)
+        registrationGeneration++;
+        DeleteIcon();
+
+        if (callbackWindow != IntPtr.Zero)
         {
-            var data = CreateData();
-            _ = NativeMethods.ShellNotifyIcon(NativeMethods.NimDelete, ref data);
-            added = false;
+            Instances.Remove(callbackWindow);
+            _ = NativeMethods.DestroyWindow(callbackWindow);
+            callbackWindow = IntPtr.Zero;
         }
 
-        if (window != IntPtr.Zero)
+        if (broadcastWindow != IntPtr.Zero)
         {
-            Instances.Remove(window);
-            _ = NativeMethods.DestroyWindow(window);
-            window = IntPtr.Zero;
+            Instances.Remove(broadcastWindow);
+            _ = NativeMethods.DestroyWindow(broadcastWindow);
+            broadcastWindow = IntPtr.Zero;
         }
 
         if (icon != IntPtr.Zero)
@@ -545,7 +711,8 @@ internal sealed class TrayIconService : IDisposable
 
         if (instance != IntPtr.Zero)
         {
-            _ = NativeMethods.UnregisterClass(TrayWindowClassName, instance);
+            _ = NativeMethods.UnregisterClass(TrayCallbackWindowClassName, instance);
+            _ = NativeMethods.UnregisterClass(TrayBroadcastWindowClassName, instance);
             instance = IntPtr.Zero;
         }
 
@@ -555,4 +722,21 @@ internal sealed class TrayIconService : IDisposable
 
     private static Win32Exception LastWin32(string operation) =>
         new(Marshal.GetLastWin32Error(), $"Could not {operation}.");
+
+    private void DeleteIcon()
+    {
+        if (!added || callbackWindow == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var data = CreateData();
+        _ = NativeMethods.ShellNotifyIcon(NativeMethods.NimDelete, ref data);
+        added = false;
+        explorerConfirmed = false;
+        lock (iconRectGate)
+        {
+            cachedIconRect = null;
+        }
+    }
 }

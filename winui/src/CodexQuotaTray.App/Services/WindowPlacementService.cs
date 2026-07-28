@@ -8,16 +8,64 @@ namespace CodexQuotaTray.App.Services;
 
 internal sealed class WindowPlacementService
 {
-    internal void ResizeAndPlace(
+    internal void ResizeAndPlaceInitial(
         AppWindow appWindow,
         double rasterizationScale,
         double measuredContentHeightDips,
         Rectangle? trayRectangle)
     {
-        var scale = Math.Max(1.0, rasterizationScale);
-        var width = PopupPlacement.DipsToPixels(420, scale);
         var anchor = trayRectangle ?? CursorAnchor();
         var workArea = GetWorkArea(anchor);
+        var (size, margin) = Resize(appWindow, rasterizationScale, measuredContentHeightDips, workArea);
+
+        var location = trayRectangle is { } tray
+            ? PopupPlacement.PlaceNearTray(tray, workArea, size, margin)
+            : PopupPlacement.PlaceAtBottomRight(workArea, size, margin);
+        appWindow.Move(new PointInt32(location.X, location.Y));
+    }
+
+    internal void ResizeAndKeepPosition(
+        AppWindow appWindow,
+        double rasterizationScale,
+        double measuredContentHeightDips)
+    {
+        var current = appWindow.Position;
+        var anchor = new Rectangle(current.X, current.Y, Math.Max(1, appWindow.Size.Width), Math.Max(1, appWindow.Size.Height));
+        var workArea = GetWorkArea(anchor);
+        var (size, margin) = Resize(appWindow, rasterizationScale, measuredContentHeightDips, workArea);
+        var location = PopupPlacement.ClampToWorkArea(
+            new Point(current.X, current.Y),
+            workArea,
+            size,
+            margin);
+        appWindow.Move(new PointInt32(location.X, location.Y));
+    }
+
+    internal void ClampCurrentPosition(AppWindow appWindow, double rasterizationScale)
+    {
+        var current = appWindow.Position;
+        var size = new Size(Math.Max(1, appWindow.Size.Width), Math.Max(1, appWindow.Size.Height));
+        var workArea = GetWorkArea(new Rectangle(current.X, current.Y, size.Width, size.Height));
+        var margin = PopupPlacement.DipsToPixels(8, rasterizationScale);
+        var location = PopupPlacement.ClampToWorkArea(
+            new Point(current.X, current.Y),
+            workArea,
+            size,
+            margin);
+        if (location.X != current.X || location.Y != current.Y)
+        {
+            appWindow.Move(new PointInt32(location.X, location.Y));
+        }
+    }
+
+    private static (Size Size, int Margin) Resize(
+        AppWindow appWindow,
+        double rasterizationScale,
+        double measuredContentHeightDips,
+        Rectangle workArea)
+    {
+        var scale = Math.Max(1.0, rasterizationScale);
+        var width = PopupPlacement.DipsToPixels(420, scale);
         var margin = PopupPlacement.DipsToPixels(8, scale);
         var height = PopupPlacement.ContentHeightPixels(
             measuredContentHeightDips,
@@ -30,10 +78,9 @@ internal sealed class WindowPlacementService
             appWindow.ResizeClient(requestedSize);
         }
 
-        var location = trayRectangle is { } tray
-            ? PopupPlacement.PlaceNearTray(tray, workArea, new Size(width, height), margin)
-            : PopupPlacement.PlaceAtBottomRight(workArea, new Size(width, height), margin);
-        appWindow.Move(new PointInt32(location.X, location.Y));
+        return (
+            new Size(Math.Max(1, appWindow.Size.Width), Math.Max(1, appWindow.Size.Height)),
+            margin);
     }
 
     private static Rectangle CursorAnchor()

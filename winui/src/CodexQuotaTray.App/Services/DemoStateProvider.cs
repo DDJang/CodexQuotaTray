@@ -17,14 +17,14 @@ internal sealed class DemoStateProvider : IUiStateProvider, IDiagnosticTextProvi
         return CreateState();
     }
 
-    public string CreateDiagnosticText() => PrototypeDiagnostics.Create("0.3.2", Environment.Version.ToString());
+    public string CreateDiagnosticText() => PrototypeDiagnostics.Create("0.3.4", Environment.Version.ToString());
 
     private AppUiState CreateState()
     {
         var now = DateTime.Now;
         var firstRemaining = Math.Max(0, 64 - refreshCount);
         return new AppUiState(
-            "Codex 用量",
+            "Codex",
             "PLUS",
             $"● 示例数据 · 更新于 {now:HH:mm}",
             StatusTone.Success,

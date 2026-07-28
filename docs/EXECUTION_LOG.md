@@ -719,3 +719,18 @@ Do not resume the stopped soak automatically. Before a public release, execute t
 - 保留无标题栏的系统细边框，启用 DWM 圆角，并把 XAML 外框圆角从 24 DIP 收敛到 12 DIP，消除四角双重曲率。
 - 使用官方 `DesktopAcrylicController` 设置低 TintOpacity 与适度 LuminosityOpacity，同时降低外层和卡片遮罩不透明度；实机截图可见桌面色块透过并被模糊。
 - 本地 smoke 验证两个连续 `WM_LBUTTONUP` 回调得到 `visible → hidden → visible`；Release 构建 0 警告、0 错误，C# 测试 70 通过、1 个显式 live smoke 跳过。
+
+# 2026-07-28 — WinUI 0.3.3 托盘导出名与单一圆角修复
+
+- 实机确认 0.3.2 的 callback HWND 存在，但 Explorer 对产品 GUID 返回 `E_FAIL`；通知区设置已为显示，排除隐藏菜单和旧安装包。
+- 根因是 C# P/Invoke 名称缺少 Shell API 的下划线，后台任务发生未观察的 `EntryPointNotFoundException`。现已显式绑定 `Shell_NotifyIconW` 与 `Shell_NotifyIconGetRect`。
+- callback 改为 message-only HWND，广播由独立 tool window 接收；Explorer 返回非空矩形后才标记 Registered。真实 Shell smoke 返回有效矩形并通过 100 次显示/隐藏循环。
+- XAML 根层移除独立外框圆角和描边，窗口只使用 DWM 小圆角，消除双重曲率。
+
+# 2026-07-28 — WinUI 0.3.4 窗口交互与额度配色
+
+- 主面板改为置顶窗口，定位与拖动均使用显示器工作区和真实窗口外框约束，避免进入任务栏区域。
+- 标题区域支持自由拖动；托盘隐藏后再次打开保留本次运行的位置，重启后仍从托盘附近开始。
+- 外轮廓改为 DWM 标准圆角，标题简化为“Codex”，并移除额度重置行下方的分隔线。
+- 额度强调色按原始剩余比例划分为大于 50% 绿色、20%–50% 琥珀色、低于 20% 红色；过期或无效数据保持灰色。
+- WinUI Release 构建 0 警告、0 错误；C# 测试 78 通过、1 个显式 live smoke 跳过；Rust 格式、严格 Clippy 和全部测试通过。

@@ -11,7 +11,7 @@ public sealed class ViewModelTests
     {
         var viewModel = new MainViewModel(
             new StubProvider(new AppUiState(
-                "Codex 用量",
+                "Codex",
                 null,
                 "正在连接",
                 StatusTone.Refreshing,
@@ -37,7 +37,7 @@ public sealed class ViewModelTests
             .Select(index => QuotaWindowView.Demo($"窗口 {index}", 80, "1小时后重置", "12:00"))
             .ToArray();
         var provider = new StubProvider(new AppUiState(
-            "Codex 用量",
+            "Codex",
             count == 0 ? null : "Plus",
             "● 静态测试",
             StatusTone.Success,
@@ -59,7 +59,7 @@ public sealed class ViewModelTests
         var navigation = new StubNavigation();
         var viewModel = new MainViewModel(
             new StubProvider(new AppUiState(
-                "Codex 用量",
+                "Codex",
                 null,
                 "无数据",
                 StatusTone.Neutral,

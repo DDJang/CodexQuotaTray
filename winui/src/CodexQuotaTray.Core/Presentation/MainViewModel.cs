@@ -11,7 +11,7 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IExternalNavigation navigation;
 
     [ObservableProperty]
-    private string title = "Codex 用量";
+    private string title = "Codex";
 
     [ObservableProperty]
     private string? planBadge;

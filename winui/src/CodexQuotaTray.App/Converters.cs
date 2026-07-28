@@ -13,7 +13,7 @@ public sealed class QuotaToneBrushConverter : IValueConverter
             QuotaTone.Warning => "WarningQuotaBrush",
             QuotaTone.Critical => "CriticalQuotaBrush",
             QuotaTone.Unavailable => "UnavailableQuotaBrush",
-            _ => "AccentQuotaBrush",
+            _ => "HealthyQuotaBrush",
         });
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>

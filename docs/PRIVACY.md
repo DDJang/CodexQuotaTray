@@ -13,7 +13,7 @@ CodexQuotaTray is a local, read-only companion for the installed Codex CLI. It h
 
 Settings, the optional quota cache, and the reminder de-duplication state are stored under `%LOCALAPPDATA%\CodexQuotaTray`.
 
-WinUI 0.3.2 uses the same `%LOCALAPPDATA%\CodexQuotaTray` schema so an in-place upgrade preserves supported settings, quota cache and alert de-duplication state. The development-only `--isolated-preview-data` switch uses `%LOCALAPPDATA%\CodexQuotaTray-WinUI-Preview`.
+WinUI 0.3.3 uses the same `%LOCALAPPDATA%\CodexQuotaTray` schema so an in-place upgrade preserves supported settings, quota cache and alert de-duplication state. The development-only `--isolated-preview-data` switch uses `%LOCALAPPDATA%\CodexQuotaTray-WinUI-Preview`.
 
 The settings file can contain display preferences, refresh interval, reminder switches, the non-sensitive cache switch, and start-with-Windows preference. The non-sensitive cache is enabled by default for immediate card display and can be disabled from the tray menu. It is limited to percentages, window duration, reset time, last-success time, source slot, and the parsed Codex CLI version.
 

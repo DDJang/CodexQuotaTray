@@ -66,6 +66,32 @@ public sealed class WindowBehaviorTests
         Assert.AreEqual(TrayEdge.Bottom, PopupPlacement.NearestEdge(new Rectangle(800, 1016, 24, 24), work));
     }
 
+    [DataRow(100, 100, 0, 0, 1920, 1040, 420, 470, 8, 100, 100)]
+    [DataRow(1700, 900, 0, 0, 1920, 1040, 420, 470, 8, 1492, 562)]
+    [DataRow(-2200, -400, -1920, -200, 0, 880, 420, 470, 8, -1912, -192)]
+    [TestMethod]
+    public void Placement_ClampsRememberedPositionInsideWorkArea(
+        int x,
+        int y,
+        int left,
+        int top,
+        int right,
+        int bottom,
+        int width,
+        int height,
+        int margin,
+        int expectedX,
+        int expectedY)
+    {
+        var result = PopupPlacement.ClampToWorkArea(
+            new Point(x, y),
+            Rectangle.FromLTRB(left, top, right, bottom),
+            new Size(width, height),
+            margin);
+
+        Assert.AreEqual(new Point(expectedX, expectedY), result);
+    }
+
     [TestMethod]
     public void ContentHeight_UsesMeasuredContentAndClampsOnlyToWorkArea()
     {
@@ -78,9 +104,29 @@ public sealed class WindowBehaviorTests
     public void TrayRegistration_UsesFiniteRetries()
     {
         CollectionAssert.AreEqual(new[] { 0, 250, 500, 1000 }, TrayRegistrationPolicy.RetryDelaysMilliseconds.ToArray());
+        CollectionAssert.AreEqual(new[] { 250, 500, 1000, 2000 }, TrayRegistrationPolicy.VerificationDelaysMilliseconds.ToArray());
         Assert.AreEqual(TrayRegistrationState.Registered, TrayRegistrationPolicy.StateAfterAttempt(true, 1));
         Assert.AreEqual(TrayRegistrationState.RetryPending, TrayRegistrationPolicy.StateAfterAttempt(false, 3));
         Assert.AreEqual(TrayRegistrationState.Failed, TrayRegistrationPolicy.StateAfterAttempt(false, 4));
+    }
+
+    [DataRow(0, 10, 20, 26, 36, true)]
+    [DataRow(1, -40, 1000, -16, 1024, true)]
+    [DataRow(unchecked((int)0x80004005), 10, 20, 26, 36, false)]
+    [DataRow(0, 10, 20, 10, 36, false)]
+    [DataRow(0, 10, 20, 26, 20, false)]
+    [TestMethod]
+    public void TrayRegistration_RequiresExplorerConfirmedNonEmptyRectangle(
+        int result,
+        int left,
+        int top,
+        int right,
+        int bottom,
+        bool expected)
+    {
+        Assert.AreEqual(
+            expected,
+            TrayRegistrationPolicy.IsExplorerConfirmationSuccessful(result, left, top, right, bottom));
     }
 
     [DataRow(true, true, false, false, BackdropKind.Opaque)]

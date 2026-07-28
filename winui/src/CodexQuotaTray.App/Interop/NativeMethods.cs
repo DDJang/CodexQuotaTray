@@ -24,9 +24,6 @@ internal static class NativeMethods
     internal const uint WmPowerBroadcast = 0x0218;
     internal const uint PbtApmResumeAutomatic = 0x0012;
     internal const uint NotifyIconVersion4 = 4;
-    internal const uint ImageIcon = 1;
-    internal const int SmCxSmallIcon = 49;
-    internal const int SmCySmallIcon = 50;
     internal const uint MfString = 0x00000000;
     internal const uint MfChecked = 0x00000008;
     internal const uint MfPopup = 0x00000010;
@@ -35,8 +32,10 @@ internal static class NativeMethods
     internal const uint TpmNonotify = 0x0080;
     internal const uint MonitorDefaultToNearest = 0x00000002;
     internal const uint WsExToolWindow = 0x00000080;
+    internal const uint WsPopup = 0x80000000;
     internal const int DwmwaWindowCornerPreference = 33;
     internal const int DwmWindowCornerPreferenceRound = 2;
+    internal static readonly IntPtr HwndMessage = new(-3);
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate IntPtr WindowProcedure(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
@@ -136,21 +135,6 @@ internal static class NativeMethods
         IntPtr instance,
         IntPtr parameter);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    internal static extern IntPtr LoadImage(
-        IntPtr instance,
-        IntPtr name,
-        uint type,
-        int desiredWidth,
-        int desiredHeight,
-        uint loadFlags);
-
-    [DllImport("user32.dll")]
-    internal static extern uint GetDpiForSystem();
-
-    [DllImport("user32.dll")]
-    internal static extern int GetSystemMetricsForDpi(int index, uint dpi);
-
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool DestroyWindow(IntPtr hwnd);
@@ -164,11 +148,15 @@ internal static class NativeMethods
     [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern uint RegisterWindowMessage(string name);
 
-    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    [DllImport(
+        "shell32.dll",
+        EntryPoint = "Shell_NotifyIconW",
+        CharSet = CharSet.Unicode,
+        SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool ShellNotifyIcon(uint message, ref NotifyIconData data);
 
-    [DllImport("shell32.dll")]
+    [DllImport("shell32.dll", EntryPoint = "Shell_NotifyIconGetRect")]
     internal static extern int ShellNotifyIconGetRect(ref NotifyIconIdentifier identifier, out NativeRect iconLocation);
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]

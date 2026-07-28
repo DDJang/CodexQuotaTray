@@ -32,6 +32,17 @@ public static class PopupPlacement
             Math.Max(workArea.Left, workArea.Right - popup.Width - margin),
             Math.Max(workArea.Top, workArea.Bottom - popup.Height - margin));
 
+    public static Point ClampToWorkArea(Point location, Rectangle workArea, Size popup, int margin)
+    {
+        var left = workArea.Left + margin;
+        var top = workArea.Top + margin;
+        var right = Math.Max(left, workArea.Right - popup.Width - margin);
+        var bottom = Math.Max(top, workArea.Bottom - popup.Height - margin);
+        return new Point(
+            Math.Clamp(location.X, left, right),
+            Math.Clamp(location.Y, top, bottom));
+    }
+
     public static int DipsToPixels(double dips, double scale) =>
         checked((int)Math.Round(dips * Math.Max(1.0, scale), MidpointRounding.AwayFromZero));
 

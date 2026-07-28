@@ -208,7 +208,7 @@ public sealed class QuotaViewProjector(TimeProvider timeProvider, TimeZoneInfo t
         var resetCredits = snapshot.ResetCredits.EarliestKnownExpiry is { } expiry
             ? snapshot.ResetCredits with { ExpiryLabel = TimeZoneInfo.ConvertTime(expiry, timeZone).ToString("M月d日") }
             : snapshot.ResetCredits;
-        return new AppUiState("Codex 用量", snapshot.PlanType, status, tone, windows, resetCredits, IsPrototype: false);
+        return new AppUiState("Codex", snapshot.PlanType, status, tone, windows, resetCredits, IsPrototype: false);
     }
 
     private QuotaWindowView ProjectWindow(

@@ -6,10 +6,10 @@ namespace CodexQuotaTray.Tests;
 public sealed class QuotaPresentationTests
 {
     [DataRow(100, false, true, QuotaTone.Accent)]
-    [DataRow(21, false, true, QuotaTone.Accent)]
+    [DataRow(51, false, true, QuotaTone.Accent)]
+    [DataRow(50, false, true, QuotaTone.Warning)]
     [DataRow(20, false, true, QuotaTone.Warning)]
-    [DataRow(11, false, true, QuotaTone.Warning)]
-    [DataRow(10, false, true, QuotaTone.Critical)]
+    [DataRow(19, false, true, QuotaTone.Critical)]
     [DataRow(0, false, true, QuotaTone.Critical)]
     [DataRow(50, true, true, QuotaTone.Unavailable)]
     [DataRow(50, false, false, QuotaTone.Unavailable)]

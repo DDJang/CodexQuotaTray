@@ -329,3 +329,10 @@ QuotaState:
 - 稳定产品 GUID 与固定 `uID` 继续用于通知区域身份；一次 `WM_LBUTTONUP` 只通过 Dispatcher 翻转一次 `desiredVisible`。
 - 原生窗口保留无标题栏的系统细边框，并请求 DWM 圆角；XAML 外框使用匹配的 12 DIP 圆角，避免系统曲率与 24 DIP 自绘曲率叠加。
 - Windows 11 使用 `DesktopAcrylicController`，显式设置低 TintOpacity 和适度 LuminosityOpacity；根表面与额度卡仅叠加低透明度颜色。禁用透明、高对比度或不支持 Acrylic 时仍按 Acrylic → Mica → 不透明背景降级。
+
+# WinUI 0.3.3 托盘注册与单一窗口轮廓
+
+- 托盘 callback 使用 message-only HWND，广播使用独立隐藏 tool window；只有 callback HWND 写入 `NOTIFYICONDATA.hWnd`。
+- P/Invoke 必须显式绑定 Shell 的真实导出 `Shell_NotifyIconW` 与 `Shell_NotifyIconGetRect`。`NIM_ADD/NIM_SETVERSION` 成功后仍需由 Explorer 返回非空图标矩形，才进入 Registered。
+- 产品 HICON 从当前 EXE 的 PE 图标组提取。失败或 Explorer 拒绝时执行有限重试，最终失败保持主窗口和任务栏降级入口可访问。
+- 主窗口的外轮廓由 DWM `DWMWCP_ROUNDSMALL` 唯一裁剪；XAML 根层只绘制半透明表面，不绘制第二套外框圆角或描边。

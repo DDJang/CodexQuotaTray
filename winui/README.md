@@ -1,8 +1,8 @@
 # CodexQuotaTray WinUI 3
 
-这是 CodexQuotaTray 0.3.2 的 WinUI 3 正式交付候选。默认模式连接本机 Codex App Server 并读取真实额度；`--demo` 只用于开发演示。
+这是 CodexQuotaTray 0.3.4 的 WinUI 3 正式交付候选。默认模式连接本机 Codex App Server 并读取真实额度；`--demo` 只用于开发演示。
 
-0.3.2 使用独立隐藏的 Win32 工具窗口承载托盘回调、Explorer 重启和系统恢复广播；Shell 注册只在 UI 线程执行 `NIM_ADD` 与 `NIM_SETVERSION`，托盘矩形查询移到后台，避免 UI/Shell 相互等待。面板高度来自 XAML 实际内容测量；视觉使用可调蓝色 Desktop Acrylic，并在 Mica/不透明环境安全降级。
+0.3.4 使用 message-only HWND 承载托盘回调，另一个隐藏 tool window 接收 Explorer 重建和系统恢复广播。Shell P/Invoke 显式绑定 `Shell_NotifyIconW`/`Shell_NotifyIconGetRect`，只有 Explorer 返回非空图标矩形后才视为注册成功。窗口外轮廓只由 DWM 圆角裁剪，XAML 不再叠加第二套圆角；窗口置顶并可从标题区拖动，本次运行内保留最后位置。视觉继续使用蓝色 Desktop Acrylic，并在 Mica/不透明环境安全降级。
 
 ## 安全边界
 
@@ -27,6 +27,12 @@ dotnet restore CodexQuotaTray.WinUI.sln --configfile NuGet.Config
 dotnet format CodexQuotaTray.WinUI.sln --verify-no-changes --no-restore
 dotnet build CodexQuotaTray.WinUI.sln -c Release -p:Platform=x64 --no-restore
 dotnet test CodexQuotaTray.WinUI.sln -c Release --no-build
+```
+
+真实通知区域 smoke：
+
+```powershell
+.\scripts\test-winui-tray.ps1 -Executable <published-exe> -Cycles 100
 ```
 
 普通启动后创建独立托盘并按刷新模式工作；传入 `--demo` 才使用静态数据：
