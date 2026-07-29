@@ -2,15 +2,15 @@
 
 ## Artifact
 
-0.4.2 uses a per-user, no-admin Inno Setup installer containing the folder-based, self-contained x64 WinUI application. Its client height is derived from the actual bottom edge of the final visible action row instead of the ScrollViewer viewport, and its DWM/card/progress geometry uses a coordinated rounded hierarchy. The older Rust ZIP workflow remains only as a regression and rollback baseline.
+0.4.2 uses a per-user, no-admin Inno Setup installer containing the folder-based, self-contained x64 WinUI application. Its client height is derived from the actual bottom edge of the final visible action row instead of the ScrollViewer viewport, and its DWM/card/progress geometry uses a coordinated rounded hierarchy. The former Rust ZIP workflow is available only through the `archive/rust-win32-final` Git tag and is not part of the current branch.
 
-Build it from a clean checkout with the locked dependency graph:
+生成 WinUI 便携 ZIP：
 
 ```powershell
-pwsh -NoProfile -File .\scripts\package.ps1 -Cargo C:\Users\<user>\.cargo\bin\cargo.exe
+pwsh -NoProfile -File .\scripts\package-winui.ps1
 ```
 
-The output is `dist\CodexQuotaTray-<version>-win-x64.zip`. The script runs locked release compilation through `cargo rustc`, remaps the local repository path in the final crate, uses the checked-in Cargo.lock, restricts metadata to `x86_64-pc-windows-msvc`, verifies that every dependency has license material, and writes `MANIFEST.sha256` before compression. This is a repeatable build procedure, not a claim of bit-for-bit reproducibility: ZIP metadata and the local Rust toolchain can change artifact bytes and therefore the archive hash.
+输出为 `dist\CodexQuotaTray-<version>-win-x64.zip`。该 ZIP 是免安装便携归档，包含完整 WinUI 自包含发布目录、项目说明、隐私说明、依赖清单和递归 SHA-256 manifest；不包含旧 Rust 版的 `install.ps1` 或 `uninstall.ps1`。
 
 正式发行安装器需要本机安装 Inno Setup 7（`ISCC.exe`）。构建命令：
 
@@ -20,14 +20,7 @@ pwsh -NoProfile -File .\scripts\package-inno.ps1 -DotNet C:\path\to\dotnet.exe
 
 输出为 `dist-inno\CodexQuotaTray-<version>-setup.exe`。脚本先执行 `publish-winui.ps1`，再把完整自包含目录递归加入安装器。安装器使用 per-user 模式，不请求管理员权限；默认创建开始菜单快捷方式并勾选 HKCU 登录启动。升级和卸载前会调用 `--shutdown-existing`，不强杀托盘进程。卸载器默认删除程序文件、启动项以及 `%LOCALAPPDATA%\CodexQuotaTray` 下的设置、额度缓存和提醒防重复状态；交互卸载可选择保留，静默卸载使用 `/KEEPUSERDATA` 显式保留。
 
-Install for the current user:
-
-```powershell
-Expand-Archive .\CodexQuotaTray-0.2.0-win-x64.zip .\CodexQuotaTray
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\CodexQuotaTray\install.ps1 -StartWithWindows
-```
-
-The install location is `%LOCALAPPDATA%\Programs\CodexQuotaTray`. Running the installer again performs an in-place upgrade after requesting normal shutdown of the existing instance. Uninstall with the installed `uninstall.ps1`; user data is deleted unless `-KeepUserData` is supplied.
+当前用户安装、升级和卸载由 Inno Setup 产物负责。安装位置为 `%LOCALAPPDATA%\Programs\CodexQuotaTray`；再次运行安装器会先请求现有实例正常退出并执行原位升级。交互卸载可选择保留用户数据，静默卸载使用 `/KEEPUSERDATA` 显式保留。
 
 ## Signing strategy
 
@@ -41,9 +34,8 @@ No signing or publishing step is automated in this repository because the requir
 
 ## Validation matrix
 
-- Automated: locked release build, repository-path redaction, manifest verification, install, same-version overwrite/upgrade, isolated start-with-Windows registry value, shortcut creation, uninstall, default user-data removal, `-KeepUserData` preservation, size, and package-content checks.
+- Automated: WinUI restore/build/test, self-contained publish, ZIP manifest generation, PE icon verification and Inno Setup compilation.
 - Completed manually: Windows 11 10.0.26200 x64 tray/runtime smoke.
 - Required before public release: Windows 10 x64 install/upgrade/uninstall/tray smoke; Windows 11 stable-channel smoke; 100/125/150/200% DPI and multi-monitor positioning; signed artifact verification; real official Usage navigation.
-- UI 0.2.0 validation additionally checks `RT_MANIFEST #1`, `RT_GROUP_ICON #101` and its 16/20/24/32/48/256 frames, effective Per-Monitor V2 process awareness, target-monitor window DPI, compact status/badge layout, opaque ClearType Natural rendering, light theme contrast, independent message-window tray toggling, taskbar-safe lower-right positioning, Windows 11 DWM corners, hover/pressed/focus states, and dynamic zero-to-three-window layouts.
 - WinUI 0.4.0 发布验证使用 .NET host 的 `RT_GROUP_ICON #32512`，确认 16/20/24/32/40/48/64/128/256 帧，并执行 `test-winui-tray.ps1` 验证 Explorer 图标矩形和 100 次显隐切换。
-- Stability: the completed extended run lasted 21 hours 11 minutes and ended on explicit user instruction, with no restart, warning, or orphan process observed. It is local MVP evidence, not a completed 24-hour or seven-day release-quality run.
+- Rust 版 21 小时 11 分稳定性记录仅属于归档基线，不能替代 WinUI 的长期稳定性验证。

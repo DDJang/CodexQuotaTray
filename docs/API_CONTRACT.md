@@ -356,7 +356,7 @@ windows[]:
 
 ## 8. Versioning and change control
 
-1. `schemas/CODEX_VERSION` 必须与生成 schema 的 CLI 版本一致。
+1. `schemas/CODEX_VERSION` 必须与生成 schema 的 CLI 版本一致；该文件是审计基线，不是 WinUI 运行时依赖。
 2. CLI 升级时在独立变更中重新生成 stable schema。
 3. 对 schema bundle 执行 diff，重点审查本合同列出的五个 message types。
 4. 更新 wire types、fixtures、API contract 和 parser tests。

@@ -7,6 +7,7 @@ coverage/
 target/
 **/bin/
 **/obj/
+**/TestResults/
 winui/publish/
 
 # Environment files and local configuration

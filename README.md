@@ -2,7 +2,7 @@
 
 CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过本机 `codex app-server` 显示 Codex 额度窗口、剩余百分比和重置时间。
 
-当前交付候选版本为 `0.4.2`，支持 Windows 10/11，正式入口使用 C# + WinUI 3；Rust/Win32 实现继续保留为回归基线。本项目不使用 Electron、WebView 或浏览器运行时。
+当前交付候选版本为 `0.4.2`，支持 Windows 10/11，正式入口使用 C# + WinUI 3。旧 Rust/Win32 实现已归档到 `archive/rust-win32-final`，不再保留在当前开发分支。本项目不使用 Electron、WebView 或浏览器运行时。
 
 ## 功能边界
 
@@ -18,15 +18,11 @@ CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过�
 
 | 路径 | 职责 |
 |---|---|
-| `src/` | App Server 管理、JSON-RPC、协议类型、额度模型、状态与 Win32 UI |
-| `tests/` | 完全离线的单元/集成测试和匿名协议 fixture |
 | `schemas/` | `codex-cli 0.144.5` 生成的协议基线与版本记录 |
-| `assets/` | 应用图标、manifest 和 Windows 资源定义 |
+| `assets/` | WinUI 与安装器共用的应用图标 |
 | `scripts/` | 图标生成、ZIP/Inno Setup 打包及产物验证 |
-| `packaging/` | ZIP 包内使用的安装/卸载脚本 |
 | `installer/` | Inno Setup 安装器定义 |
 | `docs/` | 产品、技术、协议、发布、隐私与依赖文档 |
-| `examples/` | 有限时、脱敏的 runtime soak 工具 |
 | `winui/` | WinUI 3 正式入口、Core 运行时、设置、提醒与离线测试 |
 
 文档入口：
@@ -38,29 +34,22 @@ CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过�
 - [构建与发布](docs/RELEASE.md)
 - [隐私说明](docs/PRIVACY.md)
 - [依赖与许可证](docs/DEPENDENCIES.md)
-- [WinUI 3 渐进迁移](docs/WINUI_MIGRATION.md)
+- [Rust/Win32 归档说明](docs/LEGACY_RUST_WIN32.md)
 
 `winui/` 是 0.4.2 正式交付候选入口，默认只读连接本机 App Server，并复用 `%LOCALAPPDATA%\CodexQuotaTray` 的兼容设置、缓存与提醒状态。其构建说明见 [WinUI README](winui/README.md)。
 
 ## 构建与测试
 
 ```powershell
-cargo fmt --all -- --check
-cargo check --all-targets
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets
+dotnet restore .\winui\CodexQuotaTray.WinUI.sln --configfile .\winui\NuGet.Config
+dotnet build .\winui\CodexQuotaTray.WinUI.sln -c Release -p:Platform=x64
+dotnet test .\winui\tests\CodexQuotaTray.Tests\CodexQuotaTray.Tests.csproj -c Release -p:Platform=x64
 git diff --check
 ```
 
-测试使用 `tests/fixtures` 下的匿名数据，不需要真实 Codex 账户。
+测试使用 `winui/tests/fixtures` 下的匿名数据和 fake App Server，不需要真实 Codex 账户。标记为 live smoke 的测试需要显式启用。
 
 ## 运行托盘应用
-
-Debug 构建默认使用确定性的演示数据：
-
-```powershell
-cargo run --bin codex-quota-tray-gui -- --demo
-```
 
 WinUI Release 构建使用本机 Codex CLI：
 
@@ -83,7 +72,7 @@ pwsh -NoProfile -File .\scripts\publish-winui.ps1
 pwsh -NoProfile -File .\scripts\package-inno.ps1
 ```
 
-需要免安装归档时运行 `scripts\package-winui.ps1`；它会生成递归 SHA-256 清单并排除 PDB。
+需要免安装归档时可独立运行 `scripts\package-winui.ps1`；它会生成递归 SHA-256 清单并排除 PDB。Inno 安装器直接读取 `target\winui-publish`，不依赖该 ZIP。
 
 产物写入被 Git 忽略的 `dist-inno/`，不应提交源码仓库。安装器保留原 AppId、安装路径、升级关闭和 KeepUserData 语义。当前产物未签名，只能标记为 developer build；发布前请阅读 [发布指南](docs/RELEASE.md)。
 

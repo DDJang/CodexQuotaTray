@@ -1,72 +1,36 @@
 # Dependency and license inventory
 
-## WinUI 0.3.3 runtime
+状态：当前 WinUI 3 构建
+最后更新：2026-07-29
 
-正式 WinUI 入口使用 .NET SDK 10.0.302、Microsoft.WindowsAppSDK 2.2.0 与 CommunityToolkit.Mvvm 8.4.2；测试使用 MSTest.Sdk 4.3.2。版本由 `winui/global.json` 与 `winui/Directory.Packages.props` 固定。Windows App SDK、CommunityToolkit.Mvvm 和 MSTest 均按各自随包许可证分发；自包含目录还包含 .NET runtime 文件。发布不引入 WebView、浏览器、遥测后端或独立服务进程。
+## 工具链
 
-## Rust 回归基线
+- .NET SDK `10.0.302`，由 `winui/global.json` 固定；
+- Windows x64 / `win-x64`；
+- Inno Setup 7，仅用于生成 per-user 安装器。
 
-Target snapshot: `x86_64-pc-windows-msvc`, Cargo.lock for CodexQuotaTray 0.2.0, generated from `cargo metadata --locked --offline --filter-platform x86_64-pc-windows-msvc` on 2026-07-18.
+## 直接 NuGet 依赖
 
-The release package contains a generated `THIRD_PARTY_NOTICES.txt` assembled from every dependency's checked-out license files. Build-only procedural macro crates are included here because they participate in producing the binary even when they are not linked at runtime.
+版本由 `winui/Directory.Packages.props` 固定：
 
-| Package | Version | License expression | Repository |
-|---|---:|---|---|
-| autocfg | 1.5.1 | Apache-2.0 OR MIT | https://github.com/cuviper/autocfg |
-| block-buffer | 0.10.4 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils |
-| cc | 1.2.67 | MIT OR Apache-2.0 | https://github.com/rust-lang/cc-rs |
-| cfg-if | 1.0.4 | MIT OR Apache-2.0 | https://github.com/rust-lang/cfg-if |
-| cpufeatures | 0.2.17 | MIT OR Apache-2.0 | https://github.com/RustCrypto/utils |
-| crypto-common | 0.1.7 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits |
-| chrono | 0.4.45 | MIT OR Apache-2.0 | https://github.com/chronotope/chrono |
-| embed-resource | 3.0.11 | MIT | https://github.com/nabijaczleweli/rust-embed-resource |
-| digest | 0.10.7 | MIT OR Apache-2.0 | https://github.com/RustCrypto/traits |
-| equivalent | 1.0.2 | Apache-2.0 OR MIT | https://github.com/indexmap-rs/equivalent |
-| find-msvc-tools | 0.1.9 | MIT OR Apache-2.0 | https://github.com/rust-lang/cc-rs |
-| generic-array | 0.14.7 | MIT | https://github.com/fizyk20/generic-array.git |
-| hashbrown | 0.17.1 | MIT OR Apache-2.0 | https://github.com/rust-lang/hashbrown |
-| indexmap | 2.14.0 | Apache-2.0 OR MIT | https://github.com/indexmap-rs/indexmap |
-| itoa | 1.0.18 | MIT OR Apache-2.0 | https://github.com/dtolnay/itoa |
-| libc | 0.2.186 | MIT OR Apache-2.0 | https://github.com/rust-lang/libc |
-| memchr | 2.8.3 | Unlicense OR MIT | https://github.com/BurntSushi/memchr |
-| num-traits | 0.2.19 | MIT OR Apache-2.0 | https://github.com/rust-num/num-traits |
-| proc-macro2 | 1.0.106 | MIT OR Apache-2.0 | https://github.com/dtolnay/proc-macro2 |
-| quote | 1.0.46 | MIT OR Apache-2.0 | https://github.com/dtolnay/quote |
-| rustc_version | 0.4.1 | MIT OR Apache-2.0 | https://github.com/djc/rustc-version-rs |
-| semver | 1.0.28 | MIT OR Apache-2.0 | https://github.com/dtolnay/semver |
-| serde | 1.0.228 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
-| serde_core | 1.0.228 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
-| serde_derive | 1.0.228 | MIT OR Apache-2.0 | https://github.com/serde-rs/serde |
-| serde_json | 1.0.150 | MIT OR Apache-2.0 | https://github.com/serde-rs/json |
-| sha2 | 0.10.9 | MIT OR Apache-2.0 | https://github.com/RustCrypto/hashes |
-| serde_spanned | 1.1.1 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
-| shlex | 2.0.1 | MIT OR Apache-2.0 | https://github.com/comex/rust-shlex |
-| syn | 2.0.119 | MIT OR Apache-2.0 | https://github.com/dtolnay/syn |
-| toml | 1.1.3+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
-| toml_datetime | 1.1.1+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
-| toml_parser | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
-| toml_writer | 1.1.2+spec-1.1.0 | MIT OR Apache-2.0 | https://github.com/toml-rs/toml |
-| typenum | 1.20.1 | MIT OR Apache-2.0 | https://github.com/paholg/typenum |
-| unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | https://github.com/dtolnay/unicode-ident |
-| vswhom | 0.1.0 | MIT | https://github.com/nabijaczleweli/vswhom.rs |
-| vswhom-sys | 0.1.3 | MIT | https://github.com/nabijaczleweli/vswhom-sys.rs |
-| version_check | 0.9.5 | MIT/Apache-2.0 | https://github.com/SergioBenitez/version_check |
-| windows | 0.62.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows_x86_64_msvc | 0.52.6 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-collections | 0.3.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-core | 0.62.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-future | 0.3.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-implement | 0.60.2 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-interface | 0.59.3 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-link | 0.2.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-numerics | 0.3.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-result | 0.4.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-strings | 0.5.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-sys | 0.59.0 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-targets | 0.52.6 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| windows-threading | 0.2.1 | MIT OR Apache-2.0 | https://github.com/microsoft/windows-rs |
-| winnow | 1.0.4 | MIT | https://github.com/winnow-rs/winnow |
-| winreg | 0.55.0 | MIT | https://github.com/gentoo90/winreg-rs |
-| zmij | 1.0.23 | MIT | https://github.com/dtolnay/zmij |
+| Package | Version | 用途 |
+|---|---:|---|
+| Microsoft.WindowsAppSDK | 2.2.0 | WinUI 3、窗口与 Windows App SDK 运行时 |
+| CommunityToolkit.Mvvm | 8.4.2 | Core view model 与 MVVM 基础 |
+| MSTest.Sdk | 4.3.2 | 测试项目 SDK |
 
-The project itself is MIT licensed. This inventory is not a substitute for the full notices bundled with a release artifact.
+自包含发布目录还包括 .NET runtime、Windows App SDK 的 native/runtime 文件及其传递依赖。实际发布许可证集合应以干净 restore 后的 `project.assets.json`、NuGet 包许可证和最终 publish 内容为准。
+
+## 产品边界
+
+- 应用不嵌入浏览器 UI，不使用 WebView 展示额度；
+- 不引入遥测后端或独立账户服务；
+- `codex app-server` 是由应用启动和回收的外部受控子进程；
+- 旧 Rust/Cargo 依赖不属于当前构建，其完整历史位于 `archive/rust-win32-final`。
+
+## 发布要求
+
+- 发布前审查所有直接和传递依赖的许可证；
+- 自包含目录中的许可证材料必须与实际打包内容一致；
+- 签名凭据不得进入仓库；
+- 安装器直接读取 `target/winui-publish/`，不以便携 ZIP 为输入。
