@@ -152,7 +152,8 @@ public sealed partial class MainWindow : Window
         var scale = ContentRoot.XamlRoot?.RasterizationScale ?? 1.0;
         PanelContent.InvalidateMeasure();
         PanelContent.Measure(new Windows.Foundation.Size(PanelWidthDips, double.PositiveInfinity));
-        var measuredHeight = Math.Max(1, Math.Ceiling(PanelContent.DesiredSize.Height));
+        var fallbackHeight = Math.Max(1, Math.Ceiling(PanelContent.DesiredSize.Height));
+        var measuredHeight = MeasureVisibleContentHeight(fallbackHeight);
         if (hasSessionPosition)
         {
             placement.ResizeAndKeepPosition(appWindow, scale, measuredHeight);
@@ -161,6 +162,31 @@ public sealed partial class MainWindow : Window
 
         placement.ResizeAndPlaceInitial(appWindow, scale, measuredHeight, TrayRectangleProvider());
         hasSessionPosition = true;
+    }
+
+    private double MeasureVisibleContentHeight(double fallbackHeight)
+    {
+        if (FooterRow.ActualHeight <= 0)
+        {
+            return fallbackHeight;
+        }
+
+        try
+        {
+            var footerTop = FooterRow
+                .TransformToVisual(PanelContent)
+                .TransformPoint(new Windows.Foundation.Point(0, 0))
+                .Y;
+            return PopupPlacement.NaturalContentHeight(
+                footerTop,
+                FooterRow.ActualHeight,
+                PanelContent.Padding.Bottom,
+                fallbackHeight);
+        }
+        catch (InvalidOperationException)
+        {
+            return fallbackHeight;
+        }
     }
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)

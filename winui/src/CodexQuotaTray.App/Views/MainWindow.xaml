@@ -170,7 +170,7 @@
                         </ItemsRepeater>
                     </Border>
 
-                    <Grid ColumnSpacing="12">
+                    <Grid x:Name="FooterRow" ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />

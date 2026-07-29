@@ -114,6 +114,13 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
+    public void NaturalContentHeight_UsesLastVisibleBottomInsteadOfInflatedViewport()
+    {
+        Assert.AreEqual(210, PopupPlacement.NaturalContentHeight(176, 24, 10, 260));
+        Assert.AreEqual(260, PopupPlacement.NaturalContentHeight(double.NaN, 24, 10, 260));
+    }
+
+    [TestMethod]
     public void ClientResize_DeduplicatesOnlyTheSamePendingPhysicalSize()
     {
         Assert.IsTrue(PopupPlacement.ShouldResizeClient(840, 760, 840, 520, null, null));

@@ -753,3 +753,9 @@ Do not resume the stopped soak automatically. Before a public release, execute t
 - 外窗口继续由 DWM `ROUND` 单独裁剪，主额度卡片调整为 12 DIP 圆角；原生进度条增厚为 12 DIP，并使用 6 DIP 胶囊半径。
 - `ScrollViewer` 与自然内容容器固定顶部对齐；内容使用稳定的 420 DIP 客户区宽度和无限高度重新测量，不再把旧视口高度反馈给窗口。
 - 客户区 resize 记录最近一次物理目标尺寸并去重，内容缩短时仍会请求更小高度，重复布局不会形成 `SizeChanged` 循环。
+
+# 2026-07-29 — WinUI 0.4.2 底部可见边界修复
+
+- 确认 `ScrollViewer` 在部分实际布局中仍会让 `PanelContent.DesiredSize` 保留旧视口高度，导致重置卡操作行下方出现额外空白。
+- 窗口高度改为使用最后可见 footer 行的真实底边加 10 DIP 设计内边距；布局尚未完成时才回退到自然 `DesiredSize`。
+- Release Demo 视觉 smoke 确认底部只保留设计边距；新增纯函数测试防止旧视口高度再次进入客户区高度。

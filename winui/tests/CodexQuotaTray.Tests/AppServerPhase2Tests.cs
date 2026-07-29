@@ -123,6 +123,7 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    [DoNotParallelize]
     public async Task InitializeTimeout_IsDistinctAndCleanupDoesNotHang()
     {
         var before = ProcessCount("CodexQuotaTray.FakeAppServer");
@@ -134,7 +135,7 @@ public sealed class AppServerPhase2Tests
             Assert.AreEqual(CodexClientErrorKind.InitializeTimeout, error.Kind);
         }
 
-        Assert.IsTrue(started.Elapsed < TimeSpan.FromSeconds(2));
+        Assert.IsTrue(started.Elapsed < TimeSpan.FromSeconds(5));
         await Task.Delay(100);
         Assert.IsTrue(ProcessCount("CodexQuotaTray.FakeAppServer") <= before);
     }

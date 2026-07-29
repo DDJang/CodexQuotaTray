@@ -57,6 +57,18 @@ public static class PopupPlacement
         return Math.Clamp(desired, 1, Math.Max(1, workAreaHeightPixels - (margin * 2)));
     }
 
+    public static double NaturalContentHeight(
+        double lastVisibleTop,
+        double lastVisibleHeight,
+        double bottomPadding,
+        double fallbackHeight)
+    {
+        var visibleBottom = lastVisibleTop + lastVisibleHeight + Math.Max(0, bottomPadding);
+        return double.IsFinite(visibleBottom) && visibleBottom > 0
+            ? Math.Ceiling(visibleBottom)
+            : Math.Max(1, Math.Ceiling(fallbackHeight));
+    }
+
     public static bool ShouldResizeClient(
         int currentWidth,
         int currentHeight,
