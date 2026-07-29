@@ -69,13 +69,13 @@ API Key 和 Bedrock 模式不得显示虚假的 ChatGPT 套餐额度。
 4. 系统从睡眠恢复；
 5. 网络恢复；
 6. 卡片打开且数据缺失或至少 60 秒未更新；
-7. 无事件时每 10 分钟兜底刷新。
+7. 无事件时按 Auto、固定 5/15/30 分钟或 ManualOnly 策略调度；所有触发源服从同一单 in-flight 协调器。
 
-任意时刻最多一个 refresh 正在执行；主动请求最小间隔为 10 秒，失败采用有界退避。
+任意时刻最多一个 refresh 正在执行；自动、通知和系统事件触发的主动请求最小间隔为 10 秒，用户显式手动刷新在没有 in-flight 时立即执行，失败采用有界退避。
 
 ### 3.4 提醒
 
-每个窗口分别支持剩余 20%、5%、耗尽和进入新周期后的恢复提醒。
+每个窗口分别支持剩余 50%、20% 和 10% 阈值提醒；提醒使用持久化防重复状态，新启用阈值和首次安装不追溯。
 
 - 首次快照只建立基线，不弹通知；
 - 同一窗口、同一周期、同一阈值只提醒一次；
@@ -92,7 +92,7 @@ API Key 和 Bedrock 模式不得显示虚假的 ChatGPT 套餐额度。
 
 ## 4. 重置次数能力边界
 
-产品最初设想从 `rateLimitResetCredits.availableCount` 展示可用重置次数，但当前验证的 `codex-cli 0.137.0` stable/experimental schema 均未提供该字段，也没有 reset-credit consume 方法。
+`codex-cli 0.144.5` 已在只读 `account/rateLimits/read` 响应中提供 `rateLimitResetCredits.availableCount` 和可选明细。产品只展示数量与到期摘要；仍不实现、序列化或调用任何重置卡消费方法。
 
 现有 `credits { hasCredits, unlimited, balance }` 是通用 credits 状态，不是重置次数。当前要求是：
 
@@ -157,7 +157,7 @@ Codex CLI 负责认证。本应用只通过子进程 stdio 接收响应，原始
 - **AC-04 缺失字段**：缺失窗口或字段不显示为 0/100，malformed response 不导致 panic。
 - **AC-05 失败保留**：刷新失败保留最后有效快照，15 分钟后转 stale。
 - **AC-06 认证隔离**：未登录、API Key、Bedrock 不展示旧 ChatGPT quota。
-- **AC-07 提醒去重**：首次跨过 20%、5%或耗尽阈值各提醒一次，新周期重新激活。
+- **AC-07 提醒去重**：按 `previous > threshold && current <= threshold` 跨过 50%、20% 或 10% 时提醒；同周期 at-most-once，新周期重新激活。
 - **AC-08 重置次数**：当前 schema 缺少权威字段时显示 unavailable，不显示 0 次。
 - **AC-09 只读安全**：任何 UI 操作都不发送额度重置消费或其他账户写请求。
 - **AC-10 资源约束**：后台无高频网络轮询、持续动画或明显空闲 CPU 占用。
@@ -170,3 +170,10 @@ Codex CLI 负责认证。本应用只通过子进程 stdio 接收响应，原始
 - 100/125/150/200% DPI 和多显示器矩阵；
 - 组织控制的代码签名与 provenance；
 - 单独安排的七天稳定性测试。
+
+## 11. 0.2.0 验收补充
+
+- 动态 stale：普通模式为 `max(15 分钟, 有效刷新间隔 × 2)`，仅手动模式为 60 分钟，刷新中与最近失败优先显示。
+- 提醒语义：只用有效原始 remaining，按 50/20/10 严格跨越并跨重启 at-most-once；首次安装和新启用阈值不追溯。
+- ManualOnly：除用户显式刷新外不主动读取，仍可监听并安全合并完整服务端推送。
+- 数据删除：默认卸载删除 settings、quota cache 和 alert state；显式保留全部；关闭额度缓存只删除 quota cache。

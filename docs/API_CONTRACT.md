@@ -1,7 +1,7 @@
 # Codex App Server API Contract
 
-合同状态：0.137.0 已验证子集
-Schema source：`schemas/` 目录的 stable generator 输出
+合同状态：0.144.5 已验证子集
+Schema source：`schemas/codex-0.144.5/` 的 stable generator 输出
 适用范围：CodexQuotaTray 只读额度客户端
 
 ## 1. 合同解释规则
@@ -9,7 +9,7 @@ Schema source：`schemas/` 目录的 stable generator 输出
 - **Confirmed** 表示生成 schema 或 P0 实跑已验证。
 - **Client policy** 表示 CodexQuotaTray 的本地约束，不代表 App Server 的全局能力。
 - 生成 schema 是 wire shape 的权威来源；本文只描述应用使用的最小子集。
-- 未出现在 0.137.0 schema 中的字段或方法不得由客户端猜测。
+- 未出现在 0.144.5 schema 中的字段或方法不得由客户端猜测。
 - 服务端新增未知字段必须忽略；已知必填字段缺失必须产生 protocol error，不能补默认业务值。
 
 ## 2. Transport contract
@@ -119,7 +119,7 @@ platformOs: string
 { "method": "initialized" }
 ```
 
-**Confirmed** 0.137.0 `ClientNotification` schema 只要求 `method`。P0 采用无 `params` 形式并成功完成后续请求。
+**Confirmed** 0.144.5 `ClientNotification` schema 只要求 `method`。客户端采用无 `params` 形式并成功完成后续请求。
 
 ### 3.3 account/read
 
@@ -172,9 +172,16 @@ Account.type:
 ```text
 rateLimits: RateLimitSnapshot                         required
 rateLimitsByLimitId: map<string, RateLimitSnapshot>? optional/null
+rateLimitResetCredits: RateLimitResetCreditsSummary? optional/null
 ```
 
 `rateLimits` 是 confirmed legacy single-bucket view；`rateLimitsByLimitId` 是 confirmed multi-bucket view。
+
+`rateLimitResetCredits.availableCount` 是可用重置卡数量的权威值，绝不以 `credits.length` 代替。`credits` 可为 null，并可能只返回部分明细。每条明细包含 opaque `id`、`resetType`、`status`、`grantedAt`，以及可空的 `expiresAt`、`title`、`description`。客户端不显示、记录或持久化 reset-credit ID；无效到期时间只被忽略，不能使整个额度响应崩溃。
+
+`account/rateLimits/updated` 是稀疏额度窗口通知，不包含顶层重置卡摘要。客户端合并通知时必须保留最近一次完整 `account/rateLimits/read` 得到的 `rateLimitResetCredits` 快照。
+
+版本字符串只进入脱敏诊断。兼容性由 `initialize` 和 `account/rateLimits/read` 的实际结果判定；较新的 CLI 版本不构成错误。初始化失败、RPC method not found 或关键结构无法解析才进入协议/能力失败状态。
 
 `RateLimitSnapshot` 的全部业务字段在 schema 中均可缺失：
 
@@ -349,7 +356,7 @@ windows[]:
 
 ## 8. Versioning and change control
 
-1. `schemas/CODEX_VERSION` 必须与生成 schema 的 CLI 版本一致。
+1. `schemas/CODEX_VERSION` 必须与生成 schema 的 CLI 版本一致；该文件是审计基线，不是 WinUI 运行时依赖。
 2. CLI 升级时在独立变更中重新生成 stable schema。
 3. 对 schema bundle 执行 diff，重点审查本合同列出的五个 message types。
 4. 更新 wire types、fixtures、API contract 和 parser tests。

@@ -1,0 +1,1 @@
+{"rateLimits":{"planType":"legacy","primary":{"usedPercent":99,"windowDurationMins":60}},"rateLimitsByLimitId":{"b":{"limitId":"[REDACTED-B]","planType":"team","primary":{"usedPercent":80,"windowDurationMins":10080}},"a":{"limitId":"[REDACTED-A]","planType":"team","primary":{"usedPercent":10,"windowDurationMins":300},"secondary":{"usedPercent":120,"windowDurationMins":1440}}}}

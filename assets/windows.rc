@@ -1,6 +1,0 @@
-#define IDI_APP_ICON 101
-
-IDI_APP_ICON ICON "app-icon.ico"
-// RT_MANIFEST is numeric resource type 24. Use the number directly so the
-// resource compiler cannot treat an undefined RT_MANIFEST token as a custom type.
-1 24 "app.manifest"
