@@ -17,8 +17,14 @@
                 x:Name="PanelScroller"
                 HorizontalScrollBarVisibility="Disabled"
                 VerticalScrollBarVisibility="Auto"
+                VerticalAlignment="Top"
+                VerticalContentAlignment="Top"
                 VerticalScrollMode="Auto">
-                <StackPanel x:Name="PanelContent" Padding="18,14,18,10" Spacing="10">
+                <StackPanel
+                    x:Name="PanelContent"
+                    Padding="18,14,18,10"
+                    Spacing="10"
+                    VerticalAlignment="Top">
                     <Grid ColumnSpacing="10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
@@ -117,7 +123,7 @@
                         Background="{ThemeResource CardSurfaceBrush}"
                         BorderBrush="{ThemeResource CardBorderBrush}"
                         BorderThickness="1"
-                        CornerRadius="18"
+                        CornerRadius="12"
                         Visibility="{Binding HasWindows, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <ItemsRepeater ItemsSource="{Binding Windows}">
                             <ItemsRepeater.ItemTemplate>

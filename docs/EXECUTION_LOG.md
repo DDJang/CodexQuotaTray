@@ -747,3 +747,9 @@ Do not resume the stopped soak automatically. Before a public release, execute t
 - 窗口高度继续由 XAML `DesiredSize` 驱动，并减少根面板底部内边距、区块间距和卡片内部空白。
 - 原生进度条加粗为 10 DIP，并按高度一半设置胶囊圆角；额度卡片、Badge 和按钮采用一致的圆角层级。
 - 相对重置时间与具体日期合并为左对齐单行，日期使用新增的弱化文字资源，三个主题字典保持资源一致。
+
+# 2026-07-29 — WinUI 0.4.1 圆角协调与自然高度修复
+
+- 外窗口继续由 DWM `ROUND` 单独裁剪，主额度卡片调整为 12 DIP 圆角；原生进度条增厚为 12 DIP，并使用 6 DIP 胶囊半径。
+- `ScrollViewer` 与自然内容容器固定顶部对齐；内容使用稳定的 420 DIP 客户区宽度和无限高度重新测量，不再把旧视口高度反馈给窗口。
+- 客户区 resize 记录最近一次物理目标尺寸并去重，内容缩短时仍会请求更小高度，重复布局不会形成 `SizeChanged` 循环。

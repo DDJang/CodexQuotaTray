@@ -114,6 +114,15 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
+    public void ClientResize_DeduplicatesOnlyTheSamePendingPhysicalSize()
+    {
+        Assert.IsTrue(PopupPlacement.ShouldResizeClient(840, 760, 840, 520, null, null));
+        Assert.IsFalse(PopupPlacement.ShouldResizeClient(840, 760, 840, 520, 840, 520));
+        Assert.IsTrue(PopupPlacement.ShouldResizeClient(840, 760, 840, 480, 840, 520));
+        Assert.IsFalse(PopupPlacement.ShouldResizeClient(840, 520, 840, 520, null, null));
+    }
+
+    [TestMethod]
     public void TrayRegistration_UsesFiniteRetries()
     {
         CollectionAssert.AreEqual(new[] { 0, 250, 500, 1000 }, TrayRegistrationPolicy.RetryDelaysMilliseconds.ToArray());

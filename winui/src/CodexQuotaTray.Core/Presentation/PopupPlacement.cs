@@ -57,6 +57,22 @@ public static class PopupPlacement
         return Math.Clamp(desired, 1, Math.Max(1, workAreaHeightPixels - (margin * 2)));
     }
 
+    public static bool ShouldResizeClient(
+        int currentWidth,
+        int currentHeight,
+        int requestedWidth,
+        int requestedHeight,
+        int? lastRequestedWidth,
+        int? lastRequestedHeight)
+    {
+        if (currentWidth == requestedWidth && currentHeight == requestedHeight)
+        {
+            return false;
+        }
+
+        return lastRequestedWidth != requestedWidth || lastRequestedHeight != requestedHeight;
+    }
+
     public static Models.TrayEdge NearestEdge(Rectangle tray, Rectangle workArea)
     {
         var centerX = tray.Left + (tray.Width / 2);

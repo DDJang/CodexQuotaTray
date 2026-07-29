@@ -2,7 +2,7 @@
 
 ## Artifact
 
-0.4.0 uses a per-user, no-admin Inno Setup installer containing the folder-based, self-contained x64 WinUI application. The older Rust ZIP workflow remains only as a regression and rollback baseline.
+0.4.1 uses a per-user, no-admin Inno Setup installer containing the folder-based, self-contained x64 WinUI application. Its content-driven client height no longer retains a previous ScrollViewer viewport, and its DWM/card/progress geometry uses a coordinated rounded hierarchy. The older Rust ZIP workflow remains only as a regression and rollback baseline.
 
 Build it from a clean checkout with the locked dependency graph:
 

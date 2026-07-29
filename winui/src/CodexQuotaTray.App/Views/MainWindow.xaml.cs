@@ -11,6 +11,7 @@ namespace CodexQuotaTray.App.Views;
 
 public sealed partial class MainWindow : Window
 {
+    private const double PanelWidthDips = 420;
     private readonly MainViewModel viewModel;
     private readonly WindowPlacementService placement = new();
     private readonly BackdropService backdrop = new();
@@ -149,8 +150,8 @@ public sealed partial class MainWindow : Window
     private void Position()
     {
         var scale = ContentRoot.XamlRoot?.RasterizationScale ?? 1.0;
-        var measureWidth = PanelContent.ActualWidth > 1 ? PanelContent.ActualWidth : 418;
-        PanelContent.Measure(new Windows.Foundation.Size(measureWidth, double.PositiveInfinity));
+        PanelContent.InvalidateMeasure();
+        PanelContent.Measure(new Windows.Foundation.Size(PanelWidthDips, double.PositiveInfinity));
         var measuredHeight = Math.Max(1, Math.Ceiling(PanelContent.DesiredSize.Height));
         if (hasSessionPosition)
         {

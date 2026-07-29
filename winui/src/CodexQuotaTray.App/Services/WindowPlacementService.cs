@@ -8,6 +8,8 @@ namespace CodexQuotaTray.App.Services;
 
 internal sealed class WindowPlacementService
 {
+    private SizeInt32? lastRequestedClientSize;
+
     internal void ResizeAndPlaceInitial(
         AppWindow appWindow,
         double rasterizationScale,
@@ -41,7 +43,7 @@ internal sealed class WindowPlacementService
         appWindow.Move(new PointInt32(location.X, location.Y));
     }
 
-    private static (Size Size, int Margin) Resize(
+    private (Size Size, int Margin) Resize(
         AppWindow appWindow,
         double rasterizationScale,
         double measuredContentHeightDips,
@@ -56,9 +58,20 @@ internal sealed class WindowPlacementService
             workArea.Height,
             8);
         var requestedSize = new SizeInt32(width, height);
-        if (appWindow.ClientSize.Width != requestedSize.Width || appWindow.ClientSize.Height != requestedSize.Height)
+        if (PopupPlacement.ShouldResizeClient(
+            appWindow.ClientSize.Width,
+            appWindow.ClientSize.Height,
+            requestedSize.Width,
+            requestedSize.Height,
+            lastRequestedClientSize?.Width,
+            lastRequestedClientSize?.Height))
         {
+            lastRequestedClientSize = requestedSize;
             appWindow.ResizeClient(requestedSize);
+            if (appWindow.ClientSize.Width != requestedSize.Width || appWindow.ClientSize.Height != requestedSize.Height)
+            {
+                lastRequestedClientSize = null;
+            }
         }
 
         return (
