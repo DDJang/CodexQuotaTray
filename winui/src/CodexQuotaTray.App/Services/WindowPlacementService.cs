@@ -75,7 +75,7 @@ internal sealed class WindowPlacementService
         }
 
         return (
-            new Size(Math.Max(1, appWindow.Size.Width), Math.Max(1, appWindow.Size.Height)),
+            new Size(requestedSize.Width, requestedSize.Height),
             margin);
     }
 

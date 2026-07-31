@@ -115,6 +115,10 @@ public sealed partial class MainWindow : Window
         Position();
         Activate();
         appWindow.Show();
+        // The first measure can still see the hidden window's old ScrollViewer
+        // viewport. Re-measure after the window is shown so the client height is
+        // based on the actual footer boundary instead of that stale viewport.
+        QueuePositionIfVisible();
         PanelShown?.Invoke(this, EventArgs.Empty);
     }
 
@@ -152,6 +156,7 @@ public sealed partial class MainWindow : Window
         var scale = ContentRoot.XamlRoot?.RasterizationScale ?? 1.0;
         PanelContent.InvalidateMeasure();
         PanelContent.Measure(new Windows.Foundation.Size(PanelWidthDips, double.PositiveInfinity));
+        ContentRoot.UpdateLayout();
         var fallbackHeight = Math.Max(1, Math.Ceiling(PanelContent.DesiredSize.Height));
         var measuredHeight = MeasureVisibleContentHeight(fallbackHeight);
         if (hasSessionPosition)
