@@ -138,17 +138,34 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
         }
     }
 
-    public async Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
+    public Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken) =>
+        ReadRateLimitsAsync(cancellationToken, waitForIngressBarrier: true);
+
+    public Task<RateLimitsReadResult> ReadRateLimitsForRecoveryAsync(CancellationToken cancellationToken) =>
+        ReadRateLimitsAsync(cancellationToken, waitForIngressBarrier: false);
+
+    private async Task<RateLimitsReadResult> ReadRateLimitsAsync(
+        CancellationToken cancellationToken,
+        bool waitForIngressBarrier)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         var rpc = connection ?? throw new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server is not connected.");
         try
         {
-            var rpcResult = await rpc.RequestWithSequenceAsync(
-                "account/rateLimits/read",
-                null,
-                options.EffectiveRequestTimeout,
-                cancellationToken).ConfigureAwait(false);
+            var rpcResult = waitForIngressBarrier
+                ? await rpc.RequestWithSequenceAsync(
+                    "account/rateLimits/read",
+                    null,
+                    options.EffectiveRequestTimeout,
+                    cancellationToken).ConfigureAwait(false)
+                : new JsonRpcResponse(
+                    await rpc.RequestAsync(
+                        "account/rateLimits/read",
+                        null,
+                        options.EffectiveRequestTimeout,
+                        cancellationToken).ConfigureAwait(false),
+                    0,
+                    Task.CompletedTask);
             var result = rpcResult.Payload;
             var fieldPresent = result.ValueKind == JsonValueKind.Object && result.TryGetProperty("rateLimitResetCredits", out _);
             var response = result.Deserialize<RateLimitsResponse>()

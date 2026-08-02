@@ -131,7 +131,15 @@ public sealed class QuotaRuntimeService :
         return current;
     }
 
-    public async ValueTask RequestAsync(RefreshReason reason, CancellationToken cancellationToken = default)
+    public async ValueTask RequestAsync(RefreshReason reason, CancellationToken cancellationToken = default) =>
+        await RequestCoreAsync(reason, cancellationToken, calledFromNotificationLoop: false, bypassIngressBarrier: false)
+            .ConfigureAwait(false);
+
+    private async Task RequestCoreAsync(
+        RefreshReason reason,
+        CancellationToken cancellationToken,
+        bool calledFromNotificationLoop,
+        bool bypassIngressBarrier)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
@@ -149,7 +157,10 @@ public sealed class QuotaRuntimeService :
         var next = (RefreshReason?)reason;
         while (next is not null)
         {
-            var succeeded = await RefreshCoreAsync(cancellationToken).ConfigureAwait(false);
+            var succeeded = await RefreshCoreAsync(
+                cancellationToken,
+                calledFromNotificationLoop,
+                bypassIngressBarrier).ConfigureAwait(false);
             next = coordinator.Complete(succeeded, timeProvider.GetUtcNow());
             if (next is { } pendingReason && !ShouldRequest(pendingReason))
             {
@@ -284,65 +295,102 @@ public sealed class QuotaRuntimeService :
 
     private async Task<ClientLease> EnsureClientAsync(CancellationToken cancellationToken)
     {
-        await clientLifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        ICodexAppServerClient? failedClient = null;
-        Exception? failure = null;
-        ClientLease? connected = null;
-        try
+        while (true)
         {
-            ObjectDisposedException.ThrowIf(disposed, this);
-            if (client is not null)
+            Task[] retiredToObserve;
+            await clientLifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                return new ClientLease(client, clientGeneration);
+                ObjectDisposedException.ThrowIf(disposed, this);
+                if (client is not null)
+                {
+                    return new ClientLease(client, clientGeneration);
+                }
+
+                retiredToObserve = TakeRetiredNotificationTasks();
+            }
+            finally
+            {
+                clientLifecycleGate.Release();
             }
 
-            foreach (var retired in retiredNotificationTasks.ToArray())
+            foreach (var retired in retiredToObserve)
             {
                 await ObserveTaskAsync(retired, "retired notification loop").ConfigureAwait(false);
             }
 
-            retiredNotificationTasks.RemoveAll(task => task.IsCompleted);
-
-            var created = clientFactory.Create();
-            var generation = ++clientGeneration;
-            client = created;
+            ICodexAppServerClient? failedClient = null;
+            Exception? failure = null;
+            ClientLease? connected = null;
+            Task[] additionalRetired;
+            await clientLifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
-                await created.ConnectAsync(linked.Token).ConfigureAwait(false);
                 ObjectDisposedException.ThrowIf(disposed, this);
-                clientLifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-                notificationTask = NotificationLoopAsync(created, generation, clientLifetime.Token);
-                connected = new ClientLease(created, generation);
-            }
-            catch (Exception error)
-            {
-                if (ReferenceEquals(client, created) && clientGeneration == generation)
+                if (client is not null)
                 {
-                    client = null;
-                    notificationTask = null;
+                    return new ClientLease(client, clientGeneration);
                 }
 
-                lastDiagnostics = created.Diagnostics;
-                failedClient = created;
-                failure = error;
+                additionalRetired = TakeRetiredNotificationTasks();
+                if (additionalRetired.Length == 0)
+                {
+                    var created = clientFactory.Create();
+                    var generation = ++clientGeneration;
+                    client = created;
+                    try
+                    {
+                        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
+                        await created.ConnectAsync(linked.Token).ConfigureAwait(false);
+                        ObjectDisposedException.ThrowIf(disposed, this);
+                        latestProtocol = null;
+                        clientLifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                        notificationTask = NotificationLoopAsync(created, generation, clientLifetime.Token);
+                        connected = new ClientLease(created, generation);
+                    }
+                    catch (Exception error)
+                    {
+                        if (ReferenceEquals(client, created) && clientGeneration == generation)
+                        {
+                            client = null;
+                            notificationTask = null;
+                        }
+
+                        lastDiagnostics = created.Diagnostics;
+                        failedClient = created;
+                        failure = error;
+                    }
+                }
             }
-        }
-        finally
-        {
-            clientLifecycleGate.Release();
-        }
+            finally
+            {
+                clientLifecycleGate.Release();
+            }
 
-        if (failedClient is not null)
-        {
-            await DisposeDetachedClientAsync(failedClient).ConfigureAwait(false);
-            ExceptionDispatchInfo.Capture(failure!).Throw();
-        }
+            if (additionalRetired.Length != 0)
+            {
+                foreach (var retired in additionalRetired)
+                {
+                    await ObserveTaskAsync(retired, "retired notification loop").ConfigureAwait(false);
+                }
 
-        return connected!;
+                continue;
+            }
+
+            if (failedClient is not null)
+            {
+                await DisposeDetachedClientAsync(failedClient).ConfigureAwait(false);
+                ExceptionDispatchInfo.Capture(failure!).Throw();
+            }
+
+            return connected!;
+        }
     }
 
-    private async Task<bool> RefreshCoreAsync(CancellationToken cancellationToken)
+    private async Task<bool> RefreshCoreAsync(
+        CancellationToken cancellationToken,
+        bool calledFromNotificationLoop,
+        bool bypassIngressBarrier)
     {
         lastAttemptUtc = timeProvider.GetUtcNow();
         SetCurrent(current with
@@ -355,7 +403,9 @@ public sealed class QuotaRuntimeService :
         try
         {
             lease = await EnsureClientAsync(cancellationToken).ConfigureAwait(false);
-            var result = await lease.Client.ReadRateLimitsAsync(cancellationToken).ConfigureAwait(false);
+            var result = bypassIngressBarrier
+                ? await lease.Client.ReadRateLimitsForRecoveryAsync(cancellationToken).ConfigureAwait(false)
+                : await lease.Client.ReadRateLimitsAsync(cancellationToken).ConfigureAwait(false);
             await EnqueueSnapshotAsync(result, lease, cancellationToken).ConfigureAwait(false);
             lastError = null;
             return true;
@@ -371,7 +421,9 @@ public sealed class QuotaRuntimeService :
 
             if (lease is not null && RequiresReconnect(error.Kind))
             {
-                await ResetClientAsync(lease, waitForNotificationTask: true).ConfigureAwait(false);
+                await ResetClientAsync(
+                    lease,
+                    waitForNotificationTask: !calledFromNotificationLoop).ConfigureAwait(false);
             }
 
             return false;
@@ -475,6 +527,10 @@ public sealed class QuotaRuntimeService :
         {
             work.Completion.TrySetException(new ObjectDisposedException(nameof(QuotaRuntimeService)));
         }
+        else if (work.Notification is { IsOverflow: false } notification)
+        {
+            notification.AcknowledgeIngress();
+        }
 
         return await work.Completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
     }
@@ -549,7 +605,8 @@ public sealed class QuotaRuntimeService :
     }
 
     private bool IsOlderSnapshot(SnapshotWork work) =>
-        work.ClientGeneration < lastAppliedClientGeneration
+        work.ClientGeneration < Volatile.Read(ref clientGeneration)
+        || work.ClientGeneration < lastAppliedClientGeneration
         || (work.ClientGeneration == lastAppliedClientGeneration
             && work.HasIngressSequence
             && lastAppliedHadIngressSequence
@@ -632,27 +689,22 @@ public sealed class QuotaRuntimeService :
         {
             await foreach (var notification in source.ReadNotificationsAsync(cancellationToken).ConfigureAwait(false))
             {
-                var acknowledged = false;
                 try
                 {
                     var requiresFullRead = await EnqueueSnapshotAsync(notification, lease, cancellationToken).ConfigureAwait(false);
 
                     if (requiresFullRead)
                     {
-                        // Let a response behind this notification enter the queue before
-                        // requesting the recovery read; otherwise its ingress barrier would
-                        // wait for this loop while this loop waits for that response.
-                        notification.AcknowledgeIngress();
-                        acknowledged = true;
-                        await RequestAsync(RefreshReason.RateLimitNotification, cancellationToken).ConfigureAwait(false);
+                        await RequestCoreAsync(
+                            RefreshReason.RateLimitNotification,
+                            cancellationToken,
+                            calledFromNotificationLoop: true,
+                            bypassIngressBarrier: notification.IsOverflow).ConfigureAwait(false);
                     }
                 }
                 finally
                 {
-                    if (!acknowledged)
-                    {
-                        notification.AcknowledgeIngress();
-                    }
+                    notification.AcknowledgeIngress();
                 }
             }
         }
@@ -938,6 +990,13 @@ public sealed class QuotaRuntimeService :
         {
             clientLifecycleGate.Release();
         }
+    }
+
+    private Task[] TakeRetiredNotificationTasks()
+    {
+        var tasks = retiredNotificationTasks.ToArray();
+        retiredNotificationTasks.Clear();
+        return tasks;
     }
 
     private static async Task DisposeDetachedClientAsync(ICodexAppServerClient detached)

@@ -115,6 +115,62 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public async Task JsonLineRpc_OverflowWakesAnAlreadyRunningReaderAndReleasesResponseBarrier()
+    {
+        var input = new ChannelTextReader();
+        var output = new RecordingTextWriter();
+        await using var rpc = new JsonLineRpcConnection(input, output);
+        var request = rpc.RequestWithSequenceAsync(
+            "account/rateLimits/read",
+            null,
+            TimeSpan.FromSeconds(1),
+            CancellationToken.None);
+        await output.WaitForLinesAsync(1);
+        var id = JsonDocument.Parse(output.Lines[0]).RootElement.GetProperty("id").GetInt64();
+
+        var notifications = rpc.ReadNotificationsAsync(CancellationToken.None).GetAsyncEnumerator();
+        var first = notifications.MoveNextAsync().AsTask();
+        input.Write("{\"method\":\"account/rateLimits/updated\",\"params\":{}}");
+        Assert.IsTrue(await first.WaitAsync(TimeSpan.FromSeconds(1)));
+        notifications.Current.Acknowledge();
+
+        var second = notifications.MoveNextAsync().AsTask();
+        for (var index = 0; index < 96; index++)
+        {
+            input.Write(JsonSerializer.Serialize(new
+            {
+                method = "account/rateLimits/updated",
+                @params = new { rateLimits = new { primary = new { usedPercent = index } } },
+            }));
+        }
+
+        await input.WaitForReadCountAsync(97);
+        Assert.IsTrue(await second.WaitAsync(TimeSpan.FromSeconds(1)));
+        notifications.Current.Acknowledge();
+        input.Write($"{{\"id\":{id},\"result\":{{}}}}");
+
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        var sawOverflow = false;
+        while (await notifications.MoveNextAsync().AsTask().WaitAsync(timeout.Token))
+        {
+            var notification = notifications.Current;
+            if (notification.IsOverflow)
+            {
+                sawOverflow = true;
+                Assert.IsFalse(request.IsCompleted);
+                notification.Acknowledge();
+                break;
+            }
+
+            notification.Acknowledge();
+        }
+
+        Assert.IsTrue(sawOverflow);
+        await request;
+        await rpc.DisposeAsync();
+    }
+
+    [TestMethod]
     public void RefreshBackoffResetsAfterSuccess()
     {
         var coordinator = new RefreshCoordinator();
@@ -563,11 +619,27 @@ public sealed class Phase3CoreTests
     private sealed class ChannelTextReader : TextReader
     {
         private readonly Channel<string?> values = Channel.CreateUnbounded<string?>();
+        private readonly SemaphoreSlim changed = new(0);
+        private int readCount;
 
         internal void Write(string value) => values.Writer.TryWrite(value);
 
-        public override ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken) =>
-            values.Reader.ReadAsync(cancellationToken);
+        public override async ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken)
+        {
+            var value = await values.Reader.ReadAsync(cancellationToken);
+            Interlocked.Increment(ref readCount);
+            changed.Release();
+            return value;
+        }
+
+        internal async Task WaitForReadCountAsync(int count)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            while (Volatile.Read(ref readCount) < count)
+            {
+                await changed.WaitAsync(timeout.Token);
+            }
+        }
     }
 
     private sealed class RecordingTextWriter : StringWriter

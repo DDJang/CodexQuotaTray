@@ -488,6 +488,77 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_OverflowRecoveryTransportClosedDoesNotSelfAwaitAndNextRefreshRecreatesClient()
+    {
+        using var directory = new TemporaryDirectory();
+        var factory = new OverflowRecoveryFactory();
+        await using var service = new QuotaRuntimeService(
+            factory,
+            new SettingsService(new JsonFileStore(), new PreviewDataPaths(directory.Path)),
+            new PreviewPersistence(new JsonFileStore(), new PreviewDataPaths(directory.Path)));
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        await factory.First.NotificationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        factory.First.Publish(new RateLimitsUpdatedNotification(
+            new RateLimitsResponse(),
+            false,
+            IsOverflow: true));
+
+        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await service.RefreshAsync(CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.AreEqual(2, factory.CreateCount);
+        Assert.IsTrue(factory.Second.ReadCount > 0);
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_NewClientGenerationDoesNotMergeSparseNotificationWithOldBaseline()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var factory = new GenerationClientFactory();
+        var store = new JsonFileStore();
+        await using var service = new QuotaRuntimeService(
+            factory,
+            new SettingsService(store, paths),
+            new PreviewPersistence(store, paths));
+        AppUiState? observed = null;
+        service.StateChanged += (_, state) => observed = state;
+
+        var initial = await service.GetSnapshotAsync(CancellationToken.None);
+        Assert.AreEqual(90, initial.Windows[0].RemainingPercent);
+        factory.First.TriggerDisconnect();
+        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        var refresh = service.RefreshAsync(CancellationToken.None).AsTask();
+        await factory.Second.NotificationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await factory.Second.FirstReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        factory.Second.Publish(new RateLimitsUpdatedNotification(
+            new RateLimitsResponse
+            {
+                RateLimits = new RateLimitSnapshot
+                {
+                    Primary = new RateLimitWindow { UsedPercent = 99 },
+                },
+            },
+            false));
+        await Task.Delay(50);
+
+        var beforeFullRead = await File.ReadAllTextAsync(paths.QuotaCache);
+        StringAssert.Contains(beforeFullRead, "\"usedPercent\": 10");
+        Assert.IsFalse(beforeFullRead.Contains("\"usedPercent\": 99", StringComparison.Ordinal));
+
+        factory.Second.ReleaseFirstRead.TrySetResult();
+        await refresh.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.IsNotNull(observed);
+        Assert.AreEqual(80, observed!.Windows[0].RemainingPercent);
+        var afterFullRead = await File.ReadAllTextAsync(paths.QuotaCache);
+        StringAssert.Contains(afterFullRead, "\"usedPercent\": 20");
+        Assert.IsFalse(afterFullRead.Contains("\"usedPercent\": 99", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_DuplicateSnapshotSkipsUnchangedCacheAndAlertWrites()
     {
         using var directory = new TemporaryDirectory();
@@ -930,6 +1001,176 @@ public sealed class AppServerPhase2Tests
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class OverflowRecoveryFactory : ICodexAppServerClientFactory
+    {
+        public OverflowRecoveryClient First { get; } = new(failAfterFirstRead: true);
+        public OverflowRecoveryClient Second { get; } = new(failAfterFirstRead: false);
+        public int CreateCount { get; private set; }
+
+        public ICodexAppServerClient Create()
+        {
+            CreateCount++;
+            return CreateCount == 1 ? First : Second;
+        }
+    }
+
+    private sealed class OverflowRecoveryClient(bool failAfterFirstRead) : ICodexAppServerClient
+    {
+        private readonly Channel<RateLimitsUpdatedNotification> notifications = Channel.CreateUnbounded<RateLimitsUpdatedNotification>();
+        private int readCount;
+        private int disposed;
+
+        public TaskCompletionSource NotificationStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int ReadCount => Volatile.Read(ref readCount);
+        public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
+
+        public Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new CodexSessionInfo("9.99.0", "9.99.0"));
+
+        public Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
+        {
+            var count = Interlocked.Increment(ref readCount);
+            if (failAfterFirstRead && count > 1)
+            {
+                return Task.FromException<RateLimitsReadResult>(new CodexClientException(
+                    CodexClientErrorKind.TransportClosed,
+                    "synthetic transport close"));
+            }
+
+            return Task.FromResult(new RateLimitsReadResult(
+                new RateLimitsResponse
+                {
+                    RateLimits = new RateLimitSnapshot
+                    {
+                        LimitId = failAfterFirstRead ? "first" : "second",
+                        Primary = new RateLimitWindow
+                        {
+                            UsedPercent = 25,
+                            WindowDurationMinutes = 300,
+                            ResetsAt = 2_000,
+                        },
+                    },
+                },
+                false));
+        }
+
+        public void Publish(RateLimitsUpdatedNotification notification) => notifications.Writer.TryWrite(notification);
+
+        public async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            NotificationStarted.TrySetResult();
+            await foreach (var notification in notifications.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                yield return notification;
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                notifications.Writer.TryComplete();
+                Disposed.TrySetResult();
+            }
+
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class GenerationClientFactory : ICodexAppServerClientFactory
+    {
+        public GenerationClient First { get; } = new("first", 10, closesOnSignal: true, blockFirstRead: false);
+        public GenerationClient Second { get; } = new("second", 20, closesOnSignal: false, blockFirstRead: true);
+        private int createCount;
+
+        public ICodexAppServerClient Create() =>
+            Interlocked.Increment(ref createCount) == 1 ? First : Second;
+    }
+
+    private sealed class GenerationClient(
+        string limitId,
+        long usedPercent,
+        bool closesOnSignal,
+        bool blockFirstRead) : ICodexAppServerClient
+    {
+        private readonly Channel<RateLimitsUpdatedNotification> notifications = Channel.CreateUnbounded<RateLimitsUpdatedNotification>();
+        private readonly TaskCompletionSource disconnect = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int readCount;
+        private int disposed;
+
+        public TaskCompletionSource NotificationStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource FirstReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseFirstRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int ReadCount => Volatile.Read(ref readCount);
+        public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
+
+        public Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new CodexSessionInfo("9.99.0", "9.99.0"));
+
+        public async Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
+        {
+            var count = Interlocked.Increment(ref readCount);
+            if (blockFirstRead && count == 1)
+            {
+                FirstReadStarted.TrySetResult();
+                await ReleaseFirstRead.Task.WaitAsync(cancellationToken);
+            }
+
+            return new RateLimitsReadResult(
+                new RateLimitsResponse
+                {
+                    RateLimits = new RateLimitSnapshot
+                    {
+                        LimitId = limitId,
+                        Primary = new RateLimitWindow
+                        {
+                            UsedPercent = usedPercent,
+                            WindowDurationMinutes = 300,
+                            ResetsAt = 2_000,
+                        },
+                    },
+                },
+                false);
+        }
+
+        public void Publish(RateLimitsUpdatedNotification notification) => notifications.Writer.TryWrite(notification);
+
+        public void TriggerDisconnect() => disconnect.TrySetResult();
+
+        public async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            NotificationStarted.TrySetResult();
+            if (closesOnSignal)
+            {
+                await disconnect.Task.WaitAsync(cancellationToken);
+                throw new ChannelClosedException(new CodexClientException(
+                    CodexClientErrorKind.TransportClosed,
+                    "synthetic generation close"));
+            }
+
+            await foreach (var notification in notifications.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                yield return notification;
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                disconnect.TrySetResult();
+                notifications.Writer.TryComplete();
+                Disposed.TrySetResult();
+            }
+
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class RecordingNotificationSink : IQuotaNotificationSink
