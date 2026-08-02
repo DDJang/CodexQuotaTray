@@ -65,7 +65,7 @@ public sealed class Phase3CoreTests
         input.Write("{\"method\":\"account/rateLimits/updated\",\"params\":{}}");
         input.Write($"{{\"id\":{id},\"result\":{{}}}}");
 
-        await using var notifications = rpc.ReadNotificationsAsync(CancellationToken.None).GetAsyncEnumerator();
+        var notifications = rpc.ReadNotificationsAsync(CancellationToken.None).GetAsyncEnumerator();
         Assert.IsTrue(await notifications.MoveNextAsync());
         var notification = notifications.Current;
         Assert.IsFalse(request.IsCompleted);
@@ -92,8 +92,9 @@ public sealed class Phase3CoreTests
                 },
             }));
         }
+        await Task.Delay(100);
 
-        await using var notifications = rpc.ReadNotificationsAsync(CancellationToken.None).GetAsyncEnumerator();
+        var notifications = rpc.ReadNotificationsAsync(CancellationToken.None).GetAsyncEnumerator();
         var sawOverflow = false;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
         while (await notifications.MoveNextAsync().AsTask().WaitAsync(timeout.Token))
@@ -110,6 +111,7 @@ public sealed class Phase3CoreTests
         }
 
         Assert.IsTrue(sawOverflow);
+        await rpc.DisposeAsync();
     }
 
     [TestMethod]
