@@ -37,6 +37,28 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public void RefreshCoordinator_HandoffKeepsLaterRequestsAndExecutionOwnership()
+    {
+        var coordinator = new RefreshCoordinator();
+        Assert.AreEqual(RefreshDecision.Start, coordinator.Request(RefreshReason.RateLimitNotification));
+        Assert.AreEqual(RefreshDecision.Queue, coordinator.Request(RefreshReason.Manual));
+
+        var handedOff = coordinator.CompleteAndHandoff(false, DateTimeOffset.UnixEpoch);
+
+        Assert.AreEqual(RefreshReason.Manual, handedOff);
+        Assert.IsTrue(coordinator.IsInFlight);
+        Assert.AreEqual(RefreshDecision.Queue, coordinator.Request(RefreshReason.NetworkRestored));
+        Assert.AreEqual(RefreshReason.NetworkRestored, coordinator.PendingReason);
+
+        var next = coordinator.CompleteAndHandoff(true, DateTimeOffset.UnixEpoch.AddMinutes(1));
+
+        Assert.AreEqual(RefreshReason.NetworkRestored, next);
+        Assert.IsTrue(coordinator.IsInFlight);
+        Assert.IsNull(coordinator.CompleteAndHandoff(true, DateTimeOffset.UnixEpoch.AddMinutes(2)));
+        Assert.IsFalse(coordinator.IsInFlight);
+    }
+
+    [TestMethod]
     public void RefreshIntervalsAndStaleThresholdsMatchPolicy()
     {
         var coordinator = new RefreshCoordinator();

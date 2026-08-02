@@ -666,6 +666,103 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_GenerationCommitRejectsStaleCacheBeforeReplacement()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var factory = new LateGenerationClientFactory();
+        var persistence = new BlockingCommitPersistence(paths);
+        await using var service = new QuotaRuntimeService(
+            factory,
+            new SettingsService(new JsonFileStore(), paths),
+            persistence);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        persistence.BlockNextCache();
+        var oldRefresh = service.RefreshAsync(CancellationToken.None).AsTask();
+        await factory.First.LateReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        factory.First.ReleaseLateRead.TrySetResult();
+        await persistence.CacheStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        factory.First.TriggerDisconnect();
+        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        persistence.ReleaseCache.TrySetResult();
+        await oldRefresh.WaitAsync(TimeSpan.FromSeconds(2));
+        await service.RefreshAsync(CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+        var cache = await File.ReadAllTextAsync(paths.QuotaCache);
+        StringAssert.Contains(cache, "\"usedPercent\": 20");
+        Assert.IsFalse(cache.Contains("\"usedPercent\": 90", StringComparison.Ordinal));
+        Assert.IsTrue(persistence.CacheCommitRejected);
+        Assert.IsEmpty(Directory.GetFiles(paths.Root, "quota-cache.json.*.tmp"));
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_GenerationCommitRejectsStaleAlertStateBeforeReplacement()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var factory = new LateGenerationClientFactory();
+        var persistence = new BlockingCommitPersistence(paths);
+        var sink = new RecordingNotificationSink();
+        await using var service = new QuotaRuntimeService(
+            factory,
+            new SettingsService(new JsonFileStore(), paths),
+            persistence,
+            sink);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        persistence.BlockNextAlertState();
+        var oldRefresh = service.RefreshAsync(CancellationToken.None).AsTask();
+        await factory.First.LateReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        factory.First.ReleaseLateRead.TrySetResult();
+        await persistence.AlertStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        factory.First.TriggerDisconnect();
+        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        persistence.ReleaseAlert.TrySetResult();
+        await oldRefresh.WaitAsync(TimeSpan.FromSeconds(2));
+        await service.RefreshAsync(CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+        var state = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(state);
+        Assert.IsFalse(state!.Windows.Values.Any(window => window.LastReliableRemaining == 10));
+        Assert.IsTrue(persistence.AlertCommitRejected);
+        Assert.IsEmpty(sink.Alerts);
+        Assert.IsEmpty(Directory.GetFiles(paths.Root, "alert-state.json.*.tmp"));
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_GenerationCommitSerializesBlockingNotification()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var factory = new LateGenerationClientFactory();
+        var persistence = new PreviewPersistence(new JsonFileStore(), paths);
+        var sink = new BlockingNotificationSink();
+        await using var service = new QuotaRuntimeService(
+            factory,
+            new SettingsService(new JsonFileStore(), paths),
+            persistence,
+            sink);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        var oldRefresh = service.RefreshAsync(CancellationToken.None).AsTask();
+        await factory.First.LateReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        factory.First.ReleaseLateRead.TrySetResult();
+        await sink.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        factory.First.TriggerDisconnect();
+        await Task.Delay(50);
+        Assert.IsFalse(factory.First.Disposed.Task.IsCompleted);
+
+        sink.Release.TrySetResult();
+        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await oldRefresh.WaitAsync(TimeSpan.FromSeconds(2));
+        await service.RefreshAsync(CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_DuplicateSnapshotSkipsUnchangedCacheAndAlertWrites()
     {
         using var directory = new TemporaryDirectory();
@@ -1362,6 +1459,69 @@ public sealed class AppServerPhase2Tests
         {
             CreateCount++;
             return CreateCount == 1 ? First : Second;
+        }
+    }
+
+    private sealed class BlockingCommitPersistence(PreviewDataPaths paths) : PreviewPersistence(new JsonFileStore(), paths)
+    {
+        private int blockCache;
+        private int blockAlert;
+
+        public TaskCompletionSource CacheStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseCache { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource AlertStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseAlert { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool CacheCommitRejected { get; private set; }
+        public bool AlertCommitRejected { get; private set; }
+
+        public void BlockNextCache() => Interlocked.Exchange(ref blockCache, 1);
+
+        public void BlockNextAlertState() => Interlocked.Exchange(ref blockAlert, 1);
+
+        public override async Task<bool> SaveQuotaCacheWithCommitAsync(
+            QuotaCacheDocument value,
+            CancellationToken cancellationToken,
+            SemaphoreSlim commitGate,
+            Func<bool> canCommit,
+            Action onCommitted)
+        {
+            if (Interlocked.Exchange(ref blockCache, 0) == 1)
+            {
+                CacheStarted.TrySetResult();
+                await ReleaseCache.Task.WaitAsync(cancellationToken);
+            }
+
+            var committed = await base.SaveQuotaCacheWithCommitAsync(
+                value,
+                cancellationToken,
+                commitGate,
+                canCommit,
+                onCommitted);
+            CacheCommitRejected |= !committed;
+            return committed;
+        }
+
+        public override async Task<bool> SaveAlertStateWithCommitAsync(
+            AlertStateDocument value,
+            CancellationToken cancellationToken,
+            SemaphoreSlim commitGate,
+            Func<bool> canCommit,
+            Action onCommitted)
+        {
+            if (Interlocked.Exchange(ref blockAlert, 0) == 1)
+            {
+                AlertStarted.TrySetResult();
+                await ReleaseAlert.Task.WaitAsync(cancellationToken);
+            }
+
+            var committed = await base.SaveAlertStateWithCommitAsync(
+                value,
+                cancellationToken,
+                commitGate,
+                canCommit,
+                onCommitted);
+            AlertCommitRejected |= !committed;
+            return committed;
         }
     }
 

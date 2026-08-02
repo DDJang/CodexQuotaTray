@@ -111,7 +111,7 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
     }
 }
 
-public sealed class PreviewPersistence(JsonFileStore store, PreviewDataPaths paths)
+public class PreviewPersistence(JsonFileStore store, PreviewDataPaths paths)
 {
     public async Task<QuotaCacheDocument?> LoadQuotaCacheAsync(CancellationToken cancellationToken)
     {
@@ -126,8 +126,16 @@ public sealed class PreviewPersistence(JsonFileStore store, PreviewDataPaths pat
         }
     }
 
-    public Task SaveQuotaCacheAsync(QuotaCacheDocument value, CancellationToken cancellationToken) =>
+    public virtual Task SaveQuotaCacheAsync(QuotaCacheDocument value, CancellationToken cancellationToken) =>
         store.SaveAsync(paths.QuotaCache, value, cancellationToken);
+
+    public virtual Task<bool> SaveQuotaCacheWithCommitAsync(
+        QuotaCacheDocument value,
+        CancellationToken cancellationToken,
+        SemaphoreSlim commitGate,
+        Func<bool> canCommit,
+        Action onCommitted) =>
+        store.SaveWithCommitAsync(paths.QuotaCache, value, cancellationToken, commitGate, canCommit, onCommitted);
 
     public Task ClearQuotaCacheAsync()
     {
@@ -152,8 +160,16 @@ public sealed class PreviewPersistence(JsonFileStore store, PreviewDataPaths pat
         }
     }
 
-    public Task SaveAlertStateAsync(AlertStateDocument value, CancellationToken cancellationToken) =>
+    public virtual Task SaveAlertStateAsync(AlertStateDocument value, CancellationToken cancellationToken) =>
         store.SaveAsync(paths.AlertState, value, cancellationToken);
+
+    public virtual Task<bool> SaveAlertStateWithCommitAsync(
+        AlertStateDocument value,
+        CancellationToken cancellationToken,
+        SemaphoreSlim commitGate,
+        Func<bool> canCommit,
+        Action onCommitted) =>
+        store.SaveWithCommitAsync(paths.AlertState, value, cancellationToken, commitGate, canCommit, onCommitted);
 }
 
 public sealed class ProductionDataImporter(JsonFileStore store)

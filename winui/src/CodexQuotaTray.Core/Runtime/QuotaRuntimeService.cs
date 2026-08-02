@@ -47,7 +47,7 @@ public sealed class QuotaRuntimeService :
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim initializationGate = new(1, 1);
     private readonly SemaphoreSlim clientLifecycleGate = new(1, 1);
-    private readonly object generationApplyGate = new();
+    private readonly SemaphoreSlim generationCommitGate = new(1, 1);
     private readonly Channel<SnapshotWork> snapshotQueue = Channel.CreateUnbounded<SnapshotWork>(
         new UnboundedChannelOptions
         {
@@ -163,49 +163,48 @@ public sealed class QuotaRuntimeService :
                 cancellationToken,
                 calledFromNotificationLoop: true,
                 bypassIngressBarrier: bypassIngressBarrier).ConfigureAwait(false);
-            var pendingReason = coordinator.Complete(succeeded, timeProvider.GetUtcNow());
-            if (pendingReason is { } pendingReasonValue)
+            var handoffReason = coordinator.CompleteAndHandoff(succeeded, timeProvider.GetUtcNow());
+            if (handoffReason is { } pendingReason)
             {
-                if (ShouldRequest(pendingReasonValue))
-                {
-                    coordinator.Release();
-                    StartPendingRefresh(pendingReasonValue);
-                }
-                else
-                {
-                    coordinator.Release();
-                }
+                StartPendingRefresh(pendingReason);
             }
 
             return;
         }
 
+        await RunRefreshWorkerAsync(reason, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RunRefreshWorkerAsync(RefreshReason reason, CancellationToken cancellationToken)
+    {
         var next = (RefreshReason?)reason;
         while (next is not null)
         {
+            if (!ShouldRequest(next.Value))
+            {
+                next = coordinator.AbandonCurrentAndContinue();
+                continue;
+            }
+
             var succeeded = await RefreshCoreAsync(
                 cancellationToken,
                 calledFromNotificationLoop: false,
                 bypassIngressBarrier: false).ConfigureAwait(false);
-            next = coordinator.Complete(succeeded, timeProvider.GetUtcNow());
-            if (next is { } pendingReason && !ShouldRequest(pendingReason))
-            {
-                coordinator.Release();
-                next = null;
-            }
+            next = coordinator.CompleteAndHandoff(succeeded, timeProvider.GetUtcNow());
         }
     }
 
     private void StartPendingRefresh(RefreshReason reason)
     {
-        if (disposed)
-        {
-            return;
-        }
-
-        var task = RunPendingRefreshAsync(reason);
+        Task task;
         lock (pendingRefreshGate)
         {
+            if (disposed)
+            {
+                return;
+            }
+
+            task = RunPendingRefreshAsync(reason);
             pendingRefreshTask = task;
         }
 
@@ -229,11 +228,7 @@ public sealed class QuotaRuntimeService :
     {
         try
         {
-            await RequestCoreAsync(
-                reason,
-                lifetime.Token,
-                calledFromNotificationLoop: false,
-                bypassIngressBarrier: false).ConfigureAwait(false);
+            await RunRefreshWorkerAsync(reason, lifetime.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
         {
@@ -244,6 +239,11 @@ public sealed class QuotaRuntimeService :
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
             System.Diagnostics.Debug.WriteLine($"Pending quota refresh ended with error: {error.GetType().Name}");
+            var next = coordinator.AbandonCurrentAndContinue();
+            if (next is { } nextReason && !disposed)
+            {
+                await RunRefreshWorkerAsync(nextReason, lifetime.Token).ConfigureAwait(false);
+            }
         }
     }
 
@@ -400,9 +400,14 @@ public sealed class QuotaRuntimeService :
             Exception? failure = null;
             ClientLease? connected = null;
             Task[] additionalRetired;
-            await clientLifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            var commitGateHeld = false;
+            var lifecycleGateHeld = false;
+            await generationCommitGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            commitGateHeld = true;
             try
             {
+                await clientLifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                lifecycleGateHeld = true;
                 ObjectDisposedException.ThrowIf(disposed, this);
                 if (client is not null)
                 {
@@ -413,21 +418,16 @@ public sealed class QuotaRuntimeService :
                 if (additionalRetired.Length == 0)
                 {
                     var created = clientFactory.Create();
-                    long generation;
-                    lock (generationApplyGate)
-                    {
-                        generation = ++clientGeneration;
-                    }
+                    var generation = ++clientGeneration;
+                    latestProtocol = null;
+                    generationCommitGate.Release();
+                    commitGateHeld = false;
                     client = created;
                     try
                     {
                         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
                         await created.ConnectAsync(linked.Token).ConfigureAwait(false);
                         ObjectDisposedException.ThrowIf(disposed, this);
-                        lock (generationApplyGate)
-                        {
-                            latestProtocol = null;
-                        }
                         clientLifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
                         notificationTask = NotificationLoopAsync(created, generation, clientLifetime.Token);
                         connected = new ClientLease(created, generation);
@@ -448,7 +448,15 @@ public sealed class QuotaRuntimeService :
             }
             finally
             {
-                clientLifecycleGate.Release();
+                if (lifecycleGateHeld)
+                {
+                    clientLifecycleGate.Release();
+                }
+
+                if (commitGateHeld)
+                {
+                    generationCommitGate.Release();
+                }
             }
 
             if (additionalRetired.Length != 0)
@@ -524,9 +532,12 @@ public sealed class QuotaRuntimeService :
         long generation,
         CancellationToken cancellationToken)
     {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
+        var applyCancellation = linked.Token;
         var normalized = QuotaNormalizer.Normalize(result);
         DateTimeOffset now;
-        lock (generationApplyGate)
+        await generationCommitGate.WaitAsync(applyCancellation).ConfigureAwait(false);
+        try
         {
             if (!IsCurrentGeneration(generation))
             {
@@ -540,10 +551,9 @@ public sealed class QuotaRuntimeService :
             lastError = null;
             SetCurrent(projector.Project(normalized, now, Settings.ShowRemainingPercent, Settings.Use24HourTime));
         }
-
-        if (!IsCurrentGeneration(generation))
+        finally
         {
-            return false;
+            generationCommitGate.Release();
         }
 
         if (Settings.PersistQuotaCache)
@@ -555,33 +565,17 @@ public sealed class QuotaRuntimeService :
                 || heartbeatDue
                 || !CacheContentEquals(lastPersistedCache, cache))
             {
-                if (!IsCurrentGeneration(generation))
-                {
-                    return false;
-                }
-
                 try
                 {
-                    Task saveTask;
-                    lock (generationApplyGate)
+                    var committed = await persistence.SaveQuotaCacheWithCommitAsync(
+                        cache,
+                        applyCancellation,
+                        generationCommitGate,
+                        () => IsCurrentGeneration(generation),
+                        () => lastPersistedCache = cache).ConfigureAwait(false);
+                    if (!committed)
                     {
-                        if (!IsCurrentGeneration(generation))
-                        {
-                            return false;
-                        }
-
-                        saveTask = persistence.SaveQuotaCacheAsync(cache, cancellationToken);
-                    }
-
-                    await saveTask.ConfigureAwait(false);
-                    lock (generationApplyGate)
-                    {
-                        if (!IsCurrentGeneration(generation))
-                        {
-                            return false;
-                        }
-
-                        lastPersistedCache = cache;
+                        return false;
                     }
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -598,8 +592,7 @@ public sealed class QuotaRuntimeService :
 
         try
         {
-            await EvaluateAlertsAsync(normalized, generation, cancellationToken).ConfigureAwait(false);
-            return IsCurrentGeneration(generation);
+            return await EvaluateAlertsAsync(normalized, generation, applyCancellation).ConfigureAwait(false);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
         {
@@ -702,7 +695,11 @@ public sealed class QuotaRuntimeService :
                     {
                         if (work.Notification.IsOverflow)
                         {
-                            lock (generationApplyGate)
+                            using var overflowLinked = CancellationTokenSource.CreateLinkedTokenSource(
+                                work.CancellationToken,
+                                cancellationToken);
+                            await generationCommitGate.WaitAsync(overflowLinked.Token).ConfigureAwait(false);
+                            try
                             {
                                 if (!IsCurrentGeneration(work.ClientGeneration))
                                 {
@@ -712,6 +709,10 @@ public sealed class QuotaRuntimeService :
                                 {
                                     latestProtocol = null;
                                 }
+                            }
+                            finally
+                            {
+                                generationCommitGate.Release();
                             }
 
                             requiresFullRead = true;
@@ -741,9 +742,11 @@ public sealed class QuotaRuntimeService :
 
                     work.Completion.TrySetResult(applied && requiresFullRead);
                 }
-                catch (OperationCanceledException) when (work.CancellationToken.IsCancellationRequested)
+                catch (OperationCanceledException) when (
+                    work.CancellationToken.IsCancellationRequested
+                    || cancellationToken.IsCancellationRequested)
                 {
-                    work.Completion.TrySetCanceled(work.CancellationToken);
+                    work.Completion.TrySetCanceled(cancellationToken);
                 }
                 catch (Exception error)
                 {
@@ -787,14 +790,14 @@ public sealed class QuotaRuntimeService :
         }
     }
 
-    private async Task EvaluateAlertsAsync(
+    private async Task<bool> EvaluateAlertsAsync(
         NormalizedQuotaSnapshot snapshot,
         long generation,
         CancellationToken cancellationToken)
     {
         if (!IsCurrentGeneration(generation))
         {
-            return;
+            return false;
         }
 
         var inputs = snapshot.Windows.Select(window => new AlertInput(
@@ -807,64 +810,53 @@ public sealed class QuotaRuntimeService :
         var reduction = QuotaAlertReducer.Reduce(alertState, inputs, Settings.EffectiveNotifications);
         if (!IsCurrentGeneration(generation))
         {
-            return;
+            return false;
         }
 
         if (alertState is null || !AlertStateContentEquals(alertState, reduction.State))
         {
-            Task saveTask;
-            lock (generationApplyGate)
+            var committed = await persistence.SaveAlertStateWithCommitAsync(
+                reduction.State,
+                cancellationToken,
+                generationCommitGate,
+                () => IsCurrentGeneration(generation),
+                () => alertState = reduction.State).ConfigureAwait(false);
+            if (!committed)
             {
-                if (!IsCurrentGeneration(generation))
-                {
-                    return;
-                }
-
-                saveTask = persistence.SaveAlertStateAsync(reduction.State, cancellationToken);
-            }
-
-            await saveTask.ConfigureAwait(false);
-            if (!IsCurrentGeneration(generation))
-            {
-                return;
+                return false;
             }
         }
 
-        lock (generationApplyGate)
+        await generationCommitGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
             if (!IsCurrentGeneration(generation))
             {
-                return;
+                return false;
             }
 
             alertState = reduction.State;
-        }
-
-        if (reduction.Alert is not null)
-        {
-            try
+            if (reduction.Alert is not null)
             {
-                Task showTask;
-                lock (generationApplyGate)
+                try
                 {
-                    if (!IsCurrentGeneration(generation))
-                    {
-                        return;
-                    }
-
-                    showTask = notificationSink.ShowAsync(reduction.Alert, cancellationToken);
+                    await notificationSink.ShowAsync(reduction.Alert, cancellationToken).ConfigureAwait(false);
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Quota notification failed after state save: {error.GetType().Name}");
+                }
+            }
 
-                await showTask.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
-            {
-                System.Diagnostics.Debug.WriteLine($"Quota notification failed after state save: {error.GetType().Name}");
-            }
+            return true;
+        }
+        finally
+        {
+            generationCommitGate.Release();
         }
     }
 
@@ -1172,37 +1164,42 @@ public sealed class QuotaRuntimeService :
 
     private async Task<DetachedClient?> DetachClientAsync(ClientLease? expected)
     {
-        await clientLifecycleGate.WaitAsync().ConfigureAwait(false);
+        await generationCommitGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            if (client is null
-                || (expected is not null
-                    && (!ReferenceEquals(client, expected.Client) || clientGeneration != expected.Generation)))
+            await clientLifecycleGate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                return null;
-            }
+                if (client is null
+                    || (expected is not null
+                        && (!ReferenceEquals(client, expected.Client) || clientGeneration != expected.Generation)))
+                {
+                    return null;
+                }
 
-            var detached = client;
-            client = null;
-            lock (generationApplyGate)
-            {
+                var detached = client;
+                client = null;
                 clientGeneration++;
-            }
-            var retiredLifetime = clientLifetime;
-            clientLifetime = null;
-            retiredLifetime?.Cancel();
-            var retiredTask = notificationTask;
-            if (notificationTask is not null)
-            {
-                retiredNotificationTasks.Add(notificationTask);
-                notificationTask = null;
-            }
+                var retiredLifetime = clientLifetime;
+                clientLifetime = null;
+                retiredLifetime?.Cancel();
+                var retiredTask = notificationTask;
+                if (notificationTask is not null)
+                {
+                    retiredNotificationTasks.Add(notificationTask);
+                    notificationTask = null;
+                }
 
-            return new DetachedClient(detached, retiredTask, retiredLifetime);
+                return new DetachedClient(detached, retiredTask, retiredLifetime);
+            }
+            finally
+            {
+                clientLifecycleGate.Release();
+            }
         }
         finally
         {
-            clientLifecycleGate.Release();
+            generationCommitGate.Release();
         }
     }
 
@@ -1346,6 +1343,7 @@ public sealed class QuotaRuntimeService :
         detached?.NotificationLifetime?.Dispose();
         initializationGate.Dispose();
         clientLifecycleGate.Dispose();
+        generationCommitGate.Dispose();
         lifetime.Dispose();
     }
 }
