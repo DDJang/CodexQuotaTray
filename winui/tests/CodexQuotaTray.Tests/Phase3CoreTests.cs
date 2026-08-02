@@ -62,7 +62,7 @@ public sealed class Phase3CoreTests
         await output.WaitForLinesAsync(1);
         var id = JsonDocument.Parse(output.Lines[0]).RootElement.GetProperty("id").GetInt64();
 
-        input.Write("{\"method\":\"account/rateLimits/updated\",\"params\":{}}" );
+        input.Write("{\"method\":\"account/rateLimits/updated\",\"params\":{}}");
         input.Write($"{{\"id\":{id},\"result\":{{}}}}");
 
         await using var notifications = rpc.ReadNotificationsAsync(CancellationToken.None).GetAsyncEnumerator();

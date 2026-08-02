@@ -116,9 +116,14 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
                 {
                     var pending = notificationOverflowAcknowledgement;
                     notificationOverflowAcknowledgement = null;
-                    acknowledgement = pending is null
-                        ? static () => { }
-                        : () => AcknowledgeIngress(pending);
+                    if (pending is null)
+                    {
+                        acknowledgement = static () => { };
+                    }
+                    else
+                    {
+                        acknowledgement = () => AcknowledgeIngress(pending);
+                    }
                 }
 
                 yield return RpcServerNotification.Overflow(

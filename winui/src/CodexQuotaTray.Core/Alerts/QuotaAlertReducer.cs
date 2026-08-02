@@ -53,10 +53,10 @@ public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Thr
             string.Join("、", windows.Select(window => window.WindowName)),
             first.RemainingPercent,
             0)
-            {
-                Kind = QuotaAlertKind.Reset,
-                ResetWindows = windows,
-            };
+        {
+            Kind = QuotaAlertKind.Reset,
+            ResetWindows = windows,
+        };
     }
 
     public static QuotaAlert ForComposite(
