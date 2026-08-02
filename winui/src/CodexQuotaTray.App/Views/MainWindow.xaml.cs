@@ -17,10 +17,13 @@ public sealed partial class MainWindow : Window
     private readonly BackdropService backdrop = new();
     private readonly WindowVisibilityController visibility = new();
     private readonly AppWindow appWindow;
+    private readonly IntPtr hwnd;
     private bool exiting;
     private bool trayAvailable = true;
     private bool positionQueued;
+    private bool forcePositionQueued;
     private bool hasSessionPosition;
+    private bool windowConfigured;
 
     public MainWindow(MainViewModel viewModel)
     {
@@ -28,11 +31,21 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         ContentRoot.DataContext = viewModel;
 
-        var hwnd = WindowNative.GetWindowHandle(this);
+        hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         appWindow = AppWindow.GetFromWindowId(windowId);
+
+        appWindow.Closing += OnClosing;
+        Activated += OnActivated;
+        PanelContent.SizeChanged += (_, _) => QueuePositionIfVisible();
+    }
+
+    internal void ConfigureWindow()
+    {
         appWindow.Title = "CodexQuotaTray";
-        appWindow.IsShownInSwitchers = false;
+        ExtendsContentIntoTitleBar = true;
+        SetTitleBar(HeaderDragRegion);
+
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsAlwaysOnTop = true;
@@ -41,8 +54,6 @@ public sealed partial class MainWindow : Window
             presenter.IsMinimizable = false;
             presenter.SetBorderAndTitleBar(true, false);
         }
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(HeaderDragRegion);
 
         var cornerPreference = NativeMethods.DwmWindowCornerPreferenceRound;
         _ = NativeMethods.DwmSetWindowAttribute(
@@ -50,10 +61,6 @@ public sealed partial class MainWindow : Window
             NativeMethods.DwmwaWindowCornerPreference,
             ref cornerPreference,
             sizeof(int));
-
-        appWindow.Closing += OnClosing;
-        Activated += OnActivated;
-        PanelContent.SizeChanged += (_, _) => QueuePositionIfVisible();
     }
 
     internal Func<Rectangle?> TrayRectangleProvider { get; set; } = static () => null;
@@ -99,7 +106,6 @@ public sealed partial class MainWindow : Window
     {
         trayAvailable = available;
         TrayFailureBanner.Visibility = available ? Visibility.Collapsed : Visibility.Visible;
-        appWindow.IsShownInSwitchers = !available;
         if (!available)
         {
             ShowPanel();
@@ -115,6 +121,16 @@ public sealed partial class MainWindow : Window
         Position();
         Activate();
         appWindow.Show();
+        if (!windowConfigured)
+        {
+            ConfigureWindow();
+            windowConfigured = true;
+        }
+
+        // The first measure can still see the hidden window's old ScrollViewer
+        // viewport. Re-measure after the window is shown so the client height is
+        // based on the actual footer boundary instead of that stale viewport.
+        QueuePositionIfVisible(forceResize: true);
         PanelShown?.Invoke(this, EventArgs.Empty);
     }
 
@@ -126,37 +142,53 @@ public sealed partial class MainWindow : Window
             ThemeMode.Dark => ElementTheme.Dark,
             _ => ElementTheme.Default,
         };
-        _ = backdrop.Apply(this);
+        if (visibility.DesiredVisible)
+        {
+            _ = backdrop.Apply(this);
+        }
     }
 
-    private void QueuePositionIfVisible()
+    private void QueuePositionIfVisible(bool forceResize = false)
     {
-        if (!visibility.DesiredVisible || positionQueued)
+        if (!visibility.DesiredVisible)
+        {
+            return;
+        }
+
+        forcePositionQueued |= forceResize;
+        if (positionQueued)
         {
             return;
         }
 
         positionQueued = true;
-        _ = DispatcherQueue.TryEnqueue(() =>
+        if (!DispatcherQueue.TryEnqueue(() =>
         {
             positionQueued = false;
+            var shouldForceResize = forcePositionQueued;
+            forcePositionQueued = false;
             if (visibility.DesiredVisible)
             {
-                Position();
+                Position(shouldForceResize);
             }
-        });
+        }))
+        {
+            positionQueued = false;
+            forcePositionQueued = false;
+        }
     }
 
-    private void Position()
+    private void Position(bool forceResize = false)
     {
         var scale = ContentRoot.XamlRoot?.RasterizationScale ?? 1.0;
         PanelContent.InvalidateMeasure();
         PanelContent.Measure(new Windows.Foundation.Size(PanelWidthDips, double.PositiveInfinity));
+        ContentRoot.UpdateLayout();
         var fallbackHeight = Math.Max(1, Math.Ceiling(PanelContent.DesiredSize.Height));
         var measuredHeight = MeasureVisibleContentHeight(fallbackHeight);
         if (hasSessionPosition)
         {
-            placement.ResizeAndKeepPosition(appWindow, scale, measuredHeight);
+            placement.ResizeAndKeepPosition(appWindow, scale, measuredHeight, forceResize);
             return;
         }
 
@@ -177,10 +209,24 @@ public sealed partial class MainWindow : Window
                 .TransformToVisual(PanelContent)
                 .TransformPoint(new Windows.Foundation.Point(0, 0))
                 .Y;
+            var bottomGap = PanelContent.Padding.Top;
+            try
+            {
+                bottomGap = Math.Max(
+                    0,
+                    RefreshButton
+                        .TransformToVisual(PanelContent)
+                        .TransformPoint(new Windows.Foundation.Point(0, 0))
+                        .Y);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+
             return PopupPlacement.NaturalContentHeight(
                 footerTop,
                 FooterRow.ActualHeight,
-                PanelContent.Padding.Bottom,
+                bottomGap,
                 fallbackHeight);
         }
         catch (InvalidOperationException)
@@ -191,7 +237,10 @@ public sealed partial class MainWindow : Window
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
-        _ = backdrop.Apply(this);
+        if (visibility.DesiredVisible)
+        {
+            _ = backdrop.Apply(this);
+        }
     }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)

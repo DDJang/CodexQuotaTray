@@ -22,7 +22,7 @@
                 VerticalScrollMode="Auto">
                 <StackPanel
                     x:Name="PanelContent"
-                    Padding="18,14,18,10"
+                    Padding="18,14,18,4"
                     Spacing="10"
                     VerticalAlignment="Top">
                     <Grid ColumnSpacing="10">
@@ -72,6 +72,7 @@
                         </Grid>
 
                         <Button
+                            x:Name="RefreshButton"
                             Grid.Column="1"
                             Style="{StaticResource RoundIconButtonStyle}"
                             Command="{Binding RefreshCommand}"
@@ -123,7 +124,7 @@
                         Background="{ThemeResource CardSurfaceBrush}"
                         BorderBrush="{ThemeResource CardBorderBrush}"
                         BorderThickness="1"
-                        CornerRadius="12"
+                        CornerRadius="{StaticResource QuotaCornerRadius}"
                         Visibility="{Binding HasWindows, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <ItemsRepeater ItemsSource="{Binding Windows}">
                             <ItemsRepeater.ItemTemplate>
@@ -170,7 +171,7 @@
                         </ItemsRepeater>
                     </Border>
 
-                    <Grid x:Name="FooterRow" ColumnSpacing="12">
+                    <Grid x:Name="FooterRow" Height="24" ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -189,6 +190,7 @@
                         </StackPanel>
                         <HyperlinkButton
                             Grid.Column="1"
+                            Height="24"
                             MinHeight="24"
                             Padding="4,1"
                             Command="{Binding OpenUsageCommand}"

@@ -4,6 +4,11 @@ namespace CodexQuotaTray.Core.Presentation;
 
 public static class PopupPlacement
 {
+    public const double DefaultMarginDips = 12;
+    // Compensates for the non-client/client viewport delta so the footer's
+    // bottom gap matches the measured top inset at the target DPI.
+    public const int DefaultBottomTrimPixels = 50;
+
     public static Point PlaceNearTray(Rectangle tray, Rectangle workArea, Size popup, int margin)
     {
         var edge = NearestEdge(tray, workArea);
@@ -23,24 +28,20 @@ public static class PopupPlacement
         };
 
         return new Point(
-            Math.Clamp(x, workArea.Left, Math.Max(workArea.Left, workArea.Right - popup.Width)),
-            Math.Clamp(y, workArea.Top, Math.Max(workArea.Top, workArea.Bottom - popup.Height)));
+            ClampOrigin(x, workArea.Left, workArea.Right, popup.Width, margin),
+            ClampOrigin(y, workArea.Top, workArea.Bottom, popup.Height, margin));
     }
 
     public static Point PlaceAtBottomRight(Rectangle workArea, Size popup, int margin) =>
         new(
-            Math.Max(workArea.Left, workArea.Right - popup.Width - margin),
-            Math.Max(workArea.Top, workArea.Bottom - popup.Height - margin));
+            ClampOrigin(workArea.Right - popup.Width - margin, workArea.Left, workArea.Right, popup.Width, margin),
+            ClampOrigin(workArea.Bottom - popup.Height - margin, workArea.Top, workArea.Bottom, popup.Height, margin));
 
     public static Point ClampToWorkArea(Point location, Rectangle workArea, Size popup, int margin)
     {
-        var left = workArea.Left + margin;
-        var top = workArea.Top + margin;
-        var right = Math.Max(left, workArea.Right - popup.Width - margin);
-        var bottom = Math.Max(top, workArea.Bottom - popup.Height - margin);
         return new Point(
-            Math.Clamp(location.X, left, right),
-            Math.Clamp(location.Y, top, bottom));
+            ClampOrigin(location.X, workArea.Left, workArea.Right, popup.Width, margin),
+            ClampOrigin(location.Y, workArea.Top, workArea.Bottom, popup.Height, margin));
     }
 
     public static int DipsToPixels(double dips, double scale) =>
@@ -50,11 +51,13 @@ public static class PopupPlacement
         double measuredHeightDips,
         double scale,
         int workAreaHeightPixels,
-        double marginDips = 8)
+        double marginDips = DefaultMarginDips,
+        int bottomTrimPixels = 0)
     {
         var desired = DipsToPixels(Math.Max(1, measuredHeightDips), scale);
+        var trimmed = Math.Max(1, desired - Math.Max(0, bottomTrimPixels));
         var margin = DipsToPixels(marginDips, scale);
-        return Math.Clamp(desired, 1, Math.Max(1, workAreaHeightPixels - (margin * 2)));
+        return Math.Clamp(trimmed, 1, Math.Max(1, workAreaHeightPixels - (margin * 2)));
     }
 
     public static double NaturalContentHeight(
@@ -75,8 +78,14 @@ public static class PopupPlacement
         int requestedWidth,
         int requestedHeight,
         int? lastRequestedWidth,
-        int? lastRequestedHeight)
+        int? lastRequestedHeight,
+        bool force = false)
     {
+        if (force)
+        {
+            return true;
+        }
+
         if (currentWidth == requestedWidth && currentHeight == requestedHeight)
         {
             return false;
@@ -97,6 +106,25 @@ public static class PopupPlacement
             (Models.TrayEdge.Bottom, Math.Abs(workArea.Bottom - centerY)),
         };
         return candidates.MinBy(candidate => candidate.Distance).Edge;
+    }
+
+    private static int ClampOrigin(
+        int origin,
+        int workStart,
+        int workEnd,
+        int popupLength,
+        int margin)
+    {
+        var safeMargin = Math.Max(0, margin);
+        var min = workStart + safeMargin;
+        var max = workEnd - popupLength - safeMargin;
+        if (max < min)
+        {
+            min = workStart;
+            max = Math.Max(workStart, workEnd - popupLength);
+        }
+
+        return Math.Clamp(origin, min, max);
     }
 }
 
