@@ -46,12 +46,25 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
         CancellationToken cancellationToken) =>
         (await RequestCoreAsync(method, parameters, timeout, cancellationToken, waitForIngressBarrier: false).ConfigureAwait(false)).Payload;
 
-    public async Task<JsonRpcResponse> RequestWithSequenceAsync(
+    public Task<JsonRpcResponse> RequestWithSequenceAsync(
         string method,
         object? parameters,
         TimeSpan timeout,
         CancellationToken cancellationToken) =>
-        await RequestCoreAsync(method, parameters, timeout, cancellationToken, waitForIngressBarrier: true).ConfigureAwait(false);
+        RequestWithSequenceAsync(
+            method,
+            parameters,
+            timeout,
+            cancellationToken,
+            waitForIngressBarrier: true);
+
+    public async Task<JsonRpcResponse> RequestWithSequenceAsync(
+        string method,
+        object? parameters,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        bool waitForIngressBarrier) =>
+        await RequestCoreAsync(method, parameters, timeout, cancellationToken, waitForIngressBarrier).ConfigureAwait(false);
 
     private async Task<JsonRpcResponse> RequestCoreAsync(
         string method,

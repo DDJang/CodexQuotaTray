@@ -152,20 +152,12 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
         var rpc = connection ?? throw new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server is not connected.");
         try
         {
-            var rpcResult = waitForIngressBarrier
-                ? await rpc.RequestWithSequenceAsync(
-                    "account/rateLimits/read",
-                    null,
-                    options.EffectiveRequestTimeout,
-                    cancellationToken).ConfigureAwait(false)
-                : new JsonRpcResponse(
-                    await rpc.RequestAsync(
-                        "account/rateLimits/read",
-                        null,
-                        options.EffectiveRequestTimeout,
-                        cancellationToken).ConfigureAwait(false),
-                    0,
-                    Task.CompletedTask);
+            var rpcResult = await rpc.RequestWithSequenceAsync(
+                "account/rateLimits/read",
+                null,
+                options.EffectiveRequestTimeout,
+                cancellationToken,
+                waitForIngressBarrier).ConfigureAwait(false);
             var result = rpcResult.Payload;
             var fieldPresent = result.ValueKind == JsonValueKind.Object && result.TryGetProperty("rateLimitResetCredits", out _);
             var response = result.Deserialize<RateLimitsResponse>()

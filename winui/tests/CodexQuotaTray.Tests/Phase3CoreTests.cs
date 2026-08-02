@@ -76,6 +76,34 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public async Task JsonLineRpc_RecoveryReadKeepsIngressSequenceWithoutWaitingForBarrier()
+    {
+        var input = new ChannelTextReader();
+        var output = new RecordingTextWriter();
+        await using var rpc = new JsonLineRpcConnection(input, output);
+        var request = rpc.RequestWithSequenceAsync(
+            "account/rateLimits/read",
+            null,
+            TimeSpan.FromSeconds(1),
+            CancellationToken.None,
+            waitForIngressBarrier: false);
+        await output.WaitForLinesAsync(1);
+        var id = JsonDocument.Parse(output.Lines[0]).RootElement.GetProperty("id").GetInt64();
+
+        input.Write("{\"method\":\"account/rateLimits/updated\",\"params\":{}}");
+        input.Write($"{{\"id\":{id},\"result\":{{}}}}");
+
+        await using var notifications = rpc.ReadNotificationsAsync(CancellationToken.None).GetAsyncEnumerator();
+        Assert.IsTrue(await notifications.MoveNextAsync());
+        var notification = notifications.Current;
+        var response = await request.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.IsTrue(notification.IngressSequence > 0);
+        Assert.IsTrue(response.IngressSequence > notification.IngressSequence);
+        notification.Acknowledge();
+    }
+
+    [TestMethod]
     public async Task JsonLineRpc_ReportsBoundedNotificationOverflow()
     {
         var input = new ChannelTextReader();
