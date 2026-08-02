@@ -176,10 +176,7 @@ public static class QuotaAlertReducer
         }
 
         var tolerance = TimeSpan.FromMinutes(Math.Max(5, (current.WindowDurationMinutes ?? 0) / 2d));
-        return after - before >= tolerance
-            && previous.LastReliableRemaining is { } last
-            && current.RemainingPercent - last >= 50
-            && current.RemainingPercent >= 80;
+        return after - before >= tolerance;
     }
 
     private static IEnumerable<int> Enabled(NotificationSettings settings)

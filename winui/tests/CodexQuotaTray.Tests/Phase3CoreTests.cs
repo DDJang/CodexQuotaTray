@@ -176,7 +176,7 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
-    public void ResetRequiresBothCycleChangeAndSignificantRecovery()
+    public void ResetRequiresCycleChangeAndReliablePercentage()
     {
         var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
         var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
@@ -187,9 +187,23 @@ public sealed class Phase3CoreTests
             [Input(98, resetAt) with { IsPercentageReliable = false }],
             new NotificationSettings());
 
-        Assert.IsNull(timeOnly.Alert);
+        Assert.AreEqual(QuotaAlertKind.Reset, timeOnly.Alert!.Kind);
         Assert.IsNull(recoveryOnly.Alert);
         Assert.IsNull(untrusted.Alert);
+    }
+
+    [TestMethod]
+    public void ResetWithNoUsageStillEmitsResetAlert()
+    {
+        var first = QuotaAlertReducer.Reduce(null, [Input(100)], new NotificationSettings());
+        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var reduction = QuotaAlertReducer.Reduce(
+            first.State,
+            [Input(100, resetAt)],
+            new NotificationSettings());
+
+        Assert.AreEqual(QuotaAlertKind.Reset, reduction.Alert!.Kind);
+        Assert.AreEqual(100, reduction.Alert.ResetWindows[0].RemainingPercent);
     }
 
     [TestMethod]
