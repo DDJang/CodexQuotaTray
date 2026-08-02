@@ -191,6 +191,58 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public void QuotaNormalizer_AlertKeysRemainDistinctThroughReducer()
+    {
+        const string limitId = "same-limit-id";
+        var reset = new RateLimitsReadResult(
+            new RateLimitsResponse
+            {
+                RateLimits = new RateLimitSnapshot
+                {
+                    LimitId = limitId,
+                    LimitName = "Codex",
+                    Primary = new RateLimitWindow
+                    {
+                        UsedPercent = 25,
+                        WindowDurationMinutes = 300,
+                        ResetsAt = 1_900_000_000,
+                    },
+                    Secondary = new RateLimitWindow
+                    {
+                        UsedPercent = 50,
+                        WindowDurationMinutes = 10_080,
+                        ResetsAt = 1_900_500_000,
+                    },
+                },
+            },
+            false);
+
+        var normalized = QuotaNormalizer.Normalize(reset);
+
+        Assert.HasCount(2, normalized.Windows);
+        var primary = normalized.Windows.Single(window => window.SourceSlot == "primary");
+        var secondary = normalized.Windows.Single(window => window.SourceSlot == "secondary");
+        Assert.AreNotEqual(primary.AlertKey, secondary.AlertKey);
+        Assert.IsFalse(primary.AlertKey.Contains(limitId, StringComparison.Ordinal));
+        Assert.IsFalse(secondary.AlertKey.Contains(limitId, StringComparison.Ordinal));
+
+        var inputs = normalized.Windows
+            .Select(window => new AlertInput(
+                window.AlertKey,
+                window.SourceSlot,
+                (int)window.RemainingPercent,
+                window.PercentageReliable,
+                window.WindowDurationMinutes,
+                window.ResetAtUtc))
+            .ToArray();
+        var reduction = QuotaAlertReducer.Reduce(null, inputs, new NotificationSettings());
+
+        Assert.HasCount(2, reduction.State.Windows);
+        Assert.AreEqual((int)primary.RemainingPercent, reduction.State.Windows[primary.AlertKey].LastReliableRemaining!.Value);
+        Assert.AreEqual((int)secondary.RemainingPercent, reduction.State.Windows[secondary.AlertKey].LastReliableRemaining!.Value);
+    }
+
+    [TestMethod]
     [DataRow(false, null, ResetCreditKind.Unavailable)]
     [DataRow(true, null, ResetCreditKind.Unavailable)]
     [DataRow(true, 0L, ResetCreditKind.Empty)]
@@ -349,6 +401,76 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_RequestWaitsForInitializationBeforeApplyingRefreshMode()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            CancellationToken.None);
+
+        var client = new ControlledClient { BlockConnect = true };
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(store, paths),
+            new PreviewPersistence(store, paths));
+
+        var initialization = service.GetSnapshotAsync(CancellationToken.None).AsTask();
+        await client.ConnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        var cardOpened = service.RequestAsync(RefreshReason.CardOpened).AsTask();
+        await Task.Delay(50);
+        Assert.AreEqual(0, client.ReadCount);
+
+        client.ConnectRelease.TrySetResult();
+        client.Release.TrySetResult();
+        await initialization;
+        await cardOpened;
+
+        Assert.AreEqual(RefreshMode.ManualOnly, service.Settings.RefreshMode);
+        Assert.AreEqual(0, client.ReadCount);
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_SerializesFullReadAndNotificationSnapshotApply()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var client = new SnapshotRaceClient();
+        var sink = new BlockingNotificationSink();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(new JsonFileStore(), paths),
+            new PreviewPersistence(new JsonFileStore(), paths),
+            sink);
+        AppUiState? observed = null;
+        service.StateChanged += (_, state) => observed = state;
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        client.Publish(new RateLimitsUpdatedNotification(
+            new RateLimitsResponse
+            {
+                RateLimits = new RateLimitSnapshot
+                {
+                    Primary = new RateLimitWindow { UsedPercent = 90, WindowDurationMinutes = 300 },
+                },
+            },
+            false));
+        await sink.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        var refresh = service.RefreshAsync(CancellationToken.None).AsTask();
+        await client.SecondReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await Task.Delay(50);
+        Assert.IsNotNull(observed);
+        Assert.AreEqual(10, observed!.Windows[0].RemainingPercent);
+
+        sink.Release.TrySetResult();
+        await refresh;
+        Assert.AreEqual(70, observed!.Windows[0].RemainingPercent);
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_CacheRestoreDoesNotNotifyForReset()
     {
         using var directory = new TemporaryDirectory();
@@ -399,6 +521,27 @@ public sealed class AppServerPhase2Tests
         Assert.IsFalse(text.Contains("@example.com", StringComparison.OrdinalIgnoreCase));
         Assert.IsFalse(text.Contains("[REDACTED]", StringComparison.Ordinal));
         Assert.IsFalse(text.Contains("limitId", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntimeDiagnosticsUseEntryAssemblyVersion()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var service = new QuotaRuntimeService(
+            new SingleClientFactory(new ControlledClient()),
+            new SettingsService(new JsonFileStore(), paths),
+            new PreviewPersistence(new JsonFileStore(), paths));
+        try
+        {
+            var expected = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "unknown";
+            StringAssert.Contains(service.CreateDiagnosticText(), $"CodexQuotaTray WinUI: {expected}");
+            Assert.IsFalse(service.CreateDiagnosticText().Contains("CodexQuotaTray WinUI: 0.4.4", StringComparison.Ordinal));
+        }
+        finally
+        {
+            await service.DisposeAsync();
+        }
     }
 
     private static CodexAppServerClient CreateFake(
@@ -580,16 +723,93 @@ public sealed class AppServerPhase2Tests
         }
     }
 
-    private sealed class ControlledClient : ICodexAppServerClient
+    private sealed class BlockingNotificationSink : IQuotaNotificationSink
     {
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int ReadCount { get; private set; }
-        public bool Fail { get; set; }
-        public CodexDiagnosticSnapshot Diagnostics { get; private set; } = new(CliFound: true, CliVersion: "9.99.0");
+
+        public async Task ShowAsync(QuotaAlert alert, CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+        }
+    }
+
+    private sealed class SnapshotRaceClient : ICodexAppServerClient
+    {
+        private readonly Channel<RateLimitsUpdatedNotification> notifications = Channel.CreateUnbounded<RateLimitsUpdatedNotification>();
+        private int readCount;
+
+        public TaskCompletionSource SecondReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
 
         public Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken) =>
             Task.FromResult(new CodexSessionInfo("9.99.0", "9.99.0"));
+
+        public Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref readCount) == 1)
+            {
+                return Task.FromResult(CreateSnapshot(20));
+            }
+
+            SecondReadStarted.TrySetResult();
+            return Task.FromResult(CreateSnapshot(30));
+        }
+
+        public void Publish(RateLimitsUpdatedNotification notification) => notifications.Writer.TryWrite(notification);
+
+        public async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await foreach (var notification in notifications.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                yield return notification;
+            }
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            notifications.Writer.TryComplete();
+            return ValueTask.CompletedTask;
+        }
+
+        private static RateLimitsReadResult CreateSnapshot(long usedPercent) => new(
+            new RateLimitsResponse
+            {
+                RateLimits = new RateLimitSnapshot
+                {
+                    Primary = new RateLimitWindow
+                    {
+                        UsedPercent = usedPercent,
+                        WindowDurationMinutes = 300,
+                    },
+                },
+            },
+            false);
+    }
+
+    private sealed class ControlledClient : ICodexAppServerClient
+    {
+        public TaskCompletionSource ConnectStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ConnectRelease { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int ReadCount { get; private set; }
+        public bool BlockConnect { get; set; }
+        public bool Fail { get; set; }
+        public CodexDiagnosticSnapshot Diagnostics { get; private set; } = new(CliFound: true, CliVersion: "9.99.0");
+
+        public async Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken)
+        {
+            ConnectStarted.TrySetResult();
+            if (BlockConnect)
+            {
+                await ConnectRelease.Task.WaitAsync(cancellationToken);
+            }
+
+            return new CodexSessionInfo("9.99.0", "9.99.0");
+        }
 
         public async Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
         {

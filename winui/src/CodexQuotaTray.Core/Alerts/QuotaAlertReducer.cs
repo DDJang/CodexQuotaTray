@@ -146,7 +146,7 @@ public static class QuotaAlertReducer
                 resetAlertCycle);
         }
 
-        var alert = resetAlerts.Count > 0 ? QuotaAlert.ForReset(resetAlerts) : selected;
+        var alert = selected ?? (resetAlerts.Count > 0 ? QuotaAlert.ForReset(resetAlerts) : null);
         return new AlertReduction(
             new AlertStateDocument(1, enabled, output, resetBaseline || hasValidWindow),
             alert);
@@ -175,7 +175,14 @@ public static class QuotaAlertReducer
             return false;
         }
 
-        var tolerance = TimeSpan.FromMinutes(Math.Max(5, (current.WindowDurationMinutes ?? 0) / 2d));
+        if (previous.WindowDurationMinutes is not > 0
+            || current.WindowDurationMinutes is not > 0
+            || previous.WindowDurationMinutes != current.WindowDurationMinutes)
+        {
+            return false;
+        }
+
+        var tolerance = TimeSpan.FromMinutes(current.WindowDurationMinutes.Value / 2d);
         return after - before >= tolerance;
     }
 

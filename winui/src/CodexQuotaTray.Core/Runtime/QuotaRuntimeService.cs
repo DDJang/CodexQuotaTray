@@ -42,6 +42,7 @@ public sealed class QuotaRuntimeService :
     private readonly RefreshCoordinator coordinator = new();
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim initializationGate = new(1, 1);
+    private readonly SemaphoreSlim snapshotApplyGate = new(1, 1);
     private ICodexAppServerClient? client;
     private RateLimitsReadResult? latestProtocol;
     private NormalizedQuotaSnapshot? latestNormalized;
@@ -96,6 +97,7 @@ public sealed class QuotaRuntimeService :
     public async ValueTask RequestAsync(RefreshReason reason, CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
         if (!ShouldRequest(reason))
         {
             return;
@@ -284,6 +286,19 @@ public sealed class QuotaRuntimeService :
 
     private async Task ApplySnapshotAsync(RateLimitsReadResult result, bool persist, CancellationToken cancellationToken)
     {
+        await snapshotApplyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await ApplySnapshotCoreAsync(result, persist, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            snapshotApplyGate.Release();
+        }
+    }
+
+    private async Task ApplySnapshotCoreAsync(RateLimitsReadResult result, bool persist, CancellationToken cancellationToken)
+    {
         latestProtocol = result;
         latestNormalized = QuotaNormalizer.Normalize(result);
         var now = timeProvider.GetUtcNow();
@@ -366,13 +381,23 @@ public sealed class QuotaRuntimeService :
         {
             await foreach (var notification in source.ReadNotificationsAsync(cancellationToken).ConfigureAwait(false))
             {
-                var merged = RateLimitsSnapshotMerger.Merge(latestProtocol, notification);
-                if (merged.Snapshot is not null)
+                var requiresFullRead = false;
+                await snapshotApplyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                try
                 {
-                    await ApplySnapshotAsync(merged.Snapshot, persist: true, cancellationToken).ConfigureAwait(false);
+                    var merged = RateLimitsSnapshotMerger.Merge(latestProtocol, notification);
+                    requiresFullRead = merged.RequiresFullRead;
+                    if (merged.Snapshot is not null)
+                    {
+                        await ApplySnapshotCoreAsync(merged.Snapshot, persist: true, cancellationToken).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    snapshotApplyGate.Release();
                 }
 
-                if (merged.RequiresFullRead)
+                if (requiresFullRead)
                 {
                     await RequestAsync(RefreshReason.RateLimitNotification, cancellationToken).ConfigureAwait(false);
                 }
@@ -492,9 +517,10 @@ public sealed class QuotaRuntimeService :
     public string CreateDiagnosticText()
     {
         var value = client?.Diagnostics ?? lastDiagnostics;
+        var version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "unknown";
         return string.Join(
             Environment.NewLine,
-            "CodexQuotaTray WinUI: 0.4.4",
+            $"CodexQuotaTray WinUI: {version}",
             $"Codex CLI found: {value.CliFound}",
             $"Codex CLI version: {value.CliVersion ?? "unreported"}",
             $"App Server started: {value.AppServerStarted}",
@@ -588,6 +614,7 @@ public sealed class QuotaRuntimeService :
         }
 
         initializationGate.Dispose();
+        snapshotApplyGate.Dispose();
         lifetime.Dispose();
     }
 }

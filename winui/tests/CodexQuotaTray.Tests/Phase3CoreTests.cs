@@ -176,6 +176,40 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public void ThresholdAlertTakesPriorityOverSimultaneousResetAlert()
+    {
+        var first = QuotaAlertReducer.Reduce(
+            null,
+            [
+                Input(80, key: "reset") with { WindowName = "reset window" },
+                Input(21, key: "threshold") with { WindowName = "threshold window" },
+            ],
+            new NotificationSettings());
+        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var next = QuotaAlertReducer.Reduce(
+            first.State,
+            [
+                Input(98, resetAt, key: "reset") with { WindowName = "reset window" },
+                Input(10, key: "threshold") with { WindowName = "threshold window" },
+            ],
+            new NotificationSettings());
+        var repeat = QuotaAlertReducer.Reduce(
+            next.State,
+            [
+                Input(98, resetAt, key: "reset") with { WindowName = "reset window" },
+                Input(10, key: "threshold") with { WindowName = "threshold window" },
+            ],
+            new NotificationSettings());
+
+        Assert.AreEqual(QuotaAlertKind.Threshold, next.Alert!.Kind);
+        Assert.AreEqual("threshold window", next.Alert.WindowName);
+        Assert.AreEqual(10, next.Alert.Threshold);
+        CollectionAssert.Contains(next.State.Windows["threshold"].HandledThresholds.ToArray(), 10);
+        Assert.AreEqual(resetAt, next.State.Windows["reset"].LastResetAlertCycleUtc);
+        Assert.IsNull(repeat.Alert);
+    }
+
+    [TestMethod]
     public void ResetRequiresCycleChangeAndReliablePercentage()
     {
         var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
@@ -281,6 +315,34 @@ public sealed class Phase3CoreTests
         Assert.IsFalse(QuotaAlertReducer.IsNewCycle(previous, current));
         current = current with { ResetAtUtc = previous.ResetAtUtc.Value.AddDays(4) };
         Assert.IsTrue(QuotaAlertReducer.IsNewCycle(previous, current));
+    }
+
+    [TestMethod]
+    public void ResetRequiresMatchingKnownPositiveDurations()
+    {
+        var previous = new AlertWindowState("window", 10_080, DateTimeOffset.UnixEpoch.AddDays(7), 20, []);
+        var resetAt = previous.ResetAtUtc!.Value.AddDays(4);
+        var valid = Input(98, resetAt) with { WindowDurationMinutes = 10_080 };
+
+        Assert.IsTrue(QuotaAlertReducer.IsResetCycle(previous, valid));
+        Assert.IsFalse(QuotaAlertReducer.IsResetCycle(previous, valid with { WindowDurationMinutes = null }));
+        Assert.IsFalse(QuotaAlertReducer.IsResetCycle(previous, valid with { WindowDurationMinutes = 0 }));
+        Assert.IsFalse(QuotaAlertReducer.IsResetCycle(previous, valid with { WindowDurationMinutes = -1 }));
+        Assert.IsFalse(QuotaAlertReducer.IsResetCycle(previous, valid with { WindowDurationMinutes = 300 }));
+        Assert.IsFalse(QuotaAlertReducer.IsResetCycle(previous with { WindowDurationMinutes = null }, valid));
+
+        var state = new AlertStateDocument(
+            1,
+            [20, 10],
+            new Dictionary<string, AlertWindowState> { ["window"] = previous },
+            true);
+        var baselineOnly = QuotaAlertReducer.Reduce(
+            state,
+            [valid with { WindowDurationMinutes = null }],
+            new NotificationSettings());
+
+        Assert.IsNull(baselineOnly.Alert);
+        Assert.IsNull(baselineOnly.State.Windows["window"].LastResetAlertCycleUtc);
     }
 
     [TestMethod]

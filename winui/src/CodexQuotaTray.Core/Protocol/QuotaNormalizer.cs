@@ -115,8 +115,8 @@ public static class QuotaNormalizer
         var localKey = identity is null
             ? $"fallback:{slot}:{window.WindowDurationMinutes?.ToString() ?? "unknown"}:{ordinal}"
             : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{identity}\n{slot}"))).ToLowerInvariant();
-        var alertKey = snapshot.LimitId is { Length: > 0 } limitId
-            ? $"sha256:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(limitId))).ToLowerInvariant()}"
+        var alertKey = snapshot.LimitId is { Length: > 0 }
+            ? $"sha256:{localKey}"
             : $"fallback:{slot}:{window.WindowDurationMinutes?.ToString() ?? "unknown"}:{ordinal}";
         fallbackOrdinal++;
         output.Add(new NormalizedQuotaWindow(
