@@ -27,7 +27,8 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        currentInstance = AppInstance.FindOrRegisterForKey(InstanceKey);
+        var isolatedPreview = HasArgument(Environment.GetCommandLineArgs(), "--isolated-preview-data");
+        currentInstance = AppInstance.FindOrRegisterForKey(isolatedPreview ? $"{InstanceKey}.Preview" : InstanceKey);
         if (!currentInstance.IsCurrent)
         {
             await currentInstance.RedirectActivationToAsync(AppInstance.GetCurrent().GetActivatedEventArgs());
@@ -161,7 +162,10 @@ public partial class App : Application
 
         if (showDemo)
         {
-            mainWindow.ShowPanel();
+            _ = uiDispatcher.TryEnqueue(() =>
+            {
+                mainWindow?.ShowPanel();
+            });
         }
         else if (startupLaunch)
         {
@@ -169,7 +173,10 @@ public partial class App : Application
         }
         else
         {
-            mainWindow.ShowPanel();
+            _ = uiDispatcher.TryEnqueue(() =>
+            {
+                mainWindow?.ShowPanel();
+            });
         }
 
     }
@@ -229,7 +236,7 @@ public partial class App : Application
         var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
         {
             Title = "CodexQuotaTray WinUI",
-            Content = "0.4.2\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
+            Content = "0.4.4\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
             CloseButtonText = "关闭",
             XamlRoot = mainWindow?.Content.XamlRoot,
         };

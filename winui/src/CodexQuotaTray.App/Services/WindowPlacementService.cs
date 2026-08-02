@@ -20,26 +20,25 @@ internal sealed class WindowPlacementService
         var workArea = GetWorkArea(anchor);
         var (size, margin) = Resize(appWindow, rasterizationScale, measuredContentHeightDips, workArea);
 
-        var location = trayRectangle is { } tray
-            ? PopupPlacement.PlaceNearTray(tray, workArea, size, margin)
-            : PopupPlacement.PlaceAtBottomRight(workArea, size, margin);
+        var location = PopupPlacement.PlaceAtBottomRight(workArea, size, margin);
         appWindow.Move(new PointInt32(location.X, location.Y));
     }
 
     internal void ResizeAndKeepPosition(
         AppWindow appWindow,
         double rasterizationScale,
-        double measuredContentHeightDips)
+        double measuredContentHeightDips,
+        bool forceResize = false)
     {
         var current = appWindow.Position;
         var anchor = new Rectangle(current.X, current.Y, Math.Max(1, appWindow.Size.Width), Math.Max(1, appWindow.Size.Height));
         var workArea = GetWorkArea(anchor);
-        var (size, _) = Resize(appWindow, rasterizationScale, measuredContentHeightDips, workArea);
+        var (size, margin) = Resize(appWindow, rasterizationScale, measuredContentHeightDips, workArea, forceResize);
         var location = PopupPlacement.ClampToWorkArea(
             new Point(current.X, current.Y),
             workArea,
             size,
-            0);
+            margin);
         appWindow.Move(new PointInt32(location.X, location.Y));
     }
 
@@ -47,16 +46,18 @@ internal sealed class WindowPlacementService
         AppWindow appWindow,
         double rasterizationScale,
         double measuredContentHeightDips,
-        Rectangle workArea)
+        Rectangle workArea,
+        bool forceResize = false)
     {
         var scale = Math.Max(1.0, rasterizationScale);
         var width = PopupPlacement.DipsToPixels(420, scale);
-        var margin = PopupPlacement.DipsToPixels(8, scale);
+        var margin = PopupPlacement.DipsToPixels(PopupPlacement.DefaultMarginDips, scale);
         var height = PopupPlacement.ContentHeightPixels(
             measuredContentHeightDips,
             scale,
             workArea.Height,
-            8);
+            PopupPlacement.DefaultMarginDips,
+            PopupPlacement.DefaultBottomTrimPixels);
         var requestedSize = new SizeInt32(width, height);
         if (PopupPlacement.ShouldResizeClient(
             appWindow.ClientSize.Width,
@@ -64,7 +65,8 @@ internal sealed class WindowPlacementService
             requestedSize.Width,
             requestedSize.Height,
             lastRequestedClientSize?.Width,
-            lastRequestedClientSize?.Height))
+            lastRequestedClientSize?.Height,
+            forceResize))
         {
             lastRequestedClientSize = requestedSize;
             appWindow.ResizeClient(requestedSize);
@@ -75,7 +77,7 @@ internal sealed class WindowPlacementService
         }
 
         return (
-            new Size(Math.Max(1, appWindow.Size.Width), Math.Max(1, appWindow.Size.Height)),
+            new Size(requestedSize.Width, requestedSize.Height),
             margin);
     }
 

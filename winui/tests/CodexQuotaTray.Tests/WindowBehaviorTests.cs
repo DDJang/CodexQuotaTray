@@ -66,6 +66,34 @@ public sealed class WindowBehaviorTests
         Assert.AreEqual(TrayEdge.Bottom, PopupPlacement.NearestEdge(new Rectangle(800, 1016, 24, 24), work));
     }
 
+    [TestMethod]
+    public void Placement_FirstOpenUsesBottomRightWithWorkAreaMargin()
+    {
+        var workArea = Rectangle.FromLTRB(0, 0, 1920, 1040);
+        var popup = new Size(840, 520);
+        var margin = 16;
+
+        var result = PopupPlacement.PlaceAtBottomRight(workArea, popup, margin);
+
+        Assert.AreEqual(new Point(1064, 504), result);
+        Assert.AreEqual(workArea.Right - margin, result.X + popup.Width);
+        Assert.AreEqual(workArea.Bottom - margin, result.Y + popup.Height);
+    }
+
+    [TestMethod]
+    public void Placement_NearTrayClampPreservesMarginWhenCenteredPositionOverflows()
+    {
+        var workArea = Rectangle.FromLTRB(0, 0, 1920, 1040);
+        var tray = Rectangle.FromLTRB(1896, 1016, 1920, 1040);
+        var popup = new Size(840, 520);
+        var margin = 16;
+
+        var result = PopupPlacement.PlaceNearTray(tray, workArea, popup, margin);
+
+        Assert.AreEqual(workArea.Right - popup.Width - margin, result.X);
+        Assert.AreEqual(workArea.Bottom - popup.Height - margin, result.Y);
+    }
+
     [DataRow(100, 100, 0, 0, 1920, 1040, 420, 470, 8, 100, 100)]
     [DataRow(1700, 900, 0, 0, 1920, 1040, 420, 470, 8, 1492, 562)]
     [DataRow(-2200, -400, -1920, -200, 0, 880, 420, 470, 8, -1912, -192)]
@@ -114,6 +142,21 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
+    public void ContentHeight_AppliesPhysicalBottomTrimAfterDpiConversion()
+    {
+        Assert.AreEqual(268, PopupPlacement.ContentHeightPixels(286, 1, 1080, 8, 18));
+        Assert.AreEqual(340, PopupPlacement.ContentHeightPixels(286, 1.25, 1350, 8, 18));
+        Assert.AreEqual(256, PopupPlacement.ContentHeightPixels(286, 1, 1080, 8, 30));
+        Assert.AreEqual(328, PopupPlacement.ContentHeightPixels(286, 1.25, 1350, 8, 30));
+    }
+
+    [TestMethod]
+    public void Placement_DefaultMarginIsDpiAware()
+    {
+        Assert.AreEqual(24, PopupPlacement.DipsToPixels(PopupPlacement.DefaultMarginDips, 2));
+    }
+
+    [TestMethod]
     public void NaturalContentHeight_UsesLastVisibleBottomInsteadOfInflatedViewport()
     {
         Assert.AreEqual(210, PopupPlacement.NaturalContentHeight(176, 24, 10, 260));
@@ -127,6 +170,12 @@ public sealed class WindowBehaviorTests
         Assert.IsFalse(PopupPlacement.ShouldResizeClient(840, 760, 840, 520, 840, 520));
         Assert.IsTrue(PopupPlacement.ShouldResizeClient(840, 760, 840, 480, 840, 520));
         Assert.IsFalse(PopupPlacement.ShouldResizeClient(840, 520, 840, 520, null, null));
+    }
+
+    [TestMethod]
+    public void ClientResize_ForceReappliesTheMeasuredSizeAfterWindowIsShown()
+    {
+        Assert.IsTrue(PopupPlacement.ShouldResizeClient(840, 520, 840, 520, 840, 520, force: true));
     }
 
     [TestMethod]
