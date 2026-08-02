@@ -144,11 +144,12 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
         var rpc = connection ?? throw new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server is not connected.");
         try
         {
-            var result = await rpc.RequestAsync(
+            var rpcResult = await rpc.RequestWithSequenceAsync(
                 "account/rateLimits/read",
                 null,
                 options.EffectiveRequestTimeout,
                 cancellationToken).ConfigureAwait(false);
+            var result = rpcResult.Payload;
             var fieldPresent = result.ValueKind == JsonValueKind.Object && result.TryGetProperty("rateLimitResetCredits", out _);
             var response = result.Deserialize<RateLimitsResponse>()
                 ?? throw new CodexClientException(CodexClientErrorKind.Protocol, "Rate-limit result was empty.");
@@ -162,7 +163,7 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
                 LastSuccessUtc = DateTimeOffset.UtcNow,
                 LastError = null,
             });
-            return new RateLimitsReadResult(response, fieldPresent);
+            return new RateLimitsReadResult(response, fieldPresent, rpcResult.IngressSequence);
         }
         catch (CodexClientException error)
         {
@@ -185,27 +186,55 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
         var rpc = connection ?? throw new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server is not connected.");
         await foreach (var notification in rpc.ReadNotificationsAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (!string.Equals(notification.Method, "account/rateLimits/updated", StringComparison.Ordinal))
+            if (notification.IsOverflow)
             {
+                yield return new RateLimitsUpdatedNotification(
+                    new RateLimitsResponse(),
+                    false,
+                    notification.IngressSequence,
+                    IsOverflow: true,
+                    IngressAcknowledgement: notification.Acknowledge);
                 continue;
             }
 
-            var parsed = TryParseNotification(notification.Parameters);
+            if (!string.Equals(notification.Method, "account/rateLimits/updated", StringComparison.Ordinal))
+            {
+                notification.Acknowledge();
+                continue;
+            }
+
+            var parsed = TryParseNotification(
+                notification.Parameters,
+                notification.IngressSequence,
+                notification.Acknowledge);
             if (parsed is not null)
             {
                 yield return parsed;
             }
+            else
+            {
+                notification.Acknowledge();
+            }
         }
     }
 
-    private static RateLimitsUpdatedNotification? TryParseNotification(JsonElement parameters)
+    private static RateLimitsUpdatedNotification? TryParseNotification(
+        JsonElement parameters,
+        long ingressSequence,
+        Action ingressAcknowledgement)
     {
         try
         {
             var fieldPresent = parameters.ValueKind == JsonValueKind.Object
                 && parameters.TryGetProperty("rateLimitResetCredits", out _);
             var response = parameters.Deserialize<RateLimitsResponse>();
-            return response is null ? null : new RateLimitsUpdatedNotification(response, fieldPresent);
+            return response is null
+                ? null
+                : new RateLimitsUpdatedNotification(
+                    response,
+                    fieldPresent,
+                    ingressSequence,
+                    IngressAcknowledgement: ingressAcknowledgement);
         }
         catch (JsonException)
         {

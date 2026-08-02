@@ -645,7 +645,7 @@ internal sealed class TrayIconService : IDisposable
             QuotaAlertKind.Composite => FormatCompositeAlert(alert),
             _ => alert.ThresholdWindows.Count > 0
                 ? FormatThresholdAlert(alert.ThresholdWindows)
-                : $"{alert.WindowName}剩余 {alert.RemainingPercent}%（已达到 {alert.Threshold}% 阈值）",
+                : $"{alert.WindowName}剩余 {alert.RemainingPercent}%",
         };
         data.InfoFlags = NativeMethods.NiifInfo;
         if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
@@ -669,12 +669,12 @@ internal sealed class TrayIconService : IDisposable
         if (windows.Count == 1)
         {
             var window = windows[0];
-            return $"{window.WindowName}剩余 {window.RemainingPercent}%（已达到 {window.Threshold}% 阈值）";
+            return $"{window.WindowName}剩余 {window.RemainingPercent}%";
         }
 
         return string.Join(
             Environment.NewLine,
-            windows.Select(window => $"{window.WindowName}剩余 {window.RemainingPercent}%（已达到 {window.Threshold}% 阈值）"));
+            windows.Select(window => $"{window.WindowName}剩余 {window.RemainingPercent}%"));
     }
 
     private static string FormatCompositeAlert(QuotaAlert alert) =>

@@ -9,18 +9,24 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
     private readonly TextReader reader;
     private readonly TextWriter writer;
     private readonly SemaphoreSlim writeGate = new(1, 1);
-    private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> pending = new();
+    private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonRpcResponse>> pending = new();
     private readonly CancellationTokenSource lifetime = new();
     private readonly Channel<RpcServerNotification> notifications = Channel.CreateBounded<RpcServerNotification>(
         new BoundedChannelOptions(32)
         {
-            FullMode = BoundedChannelFullMode.DropOldest,
-            SingleReader = false,
+            FullMode = BoundedChannelFullMode.Wait,
+            SingleReader = true,
             SingleWriter = true,
         });
     private readonly Task readTask;
+    private readonly object ingressGate = new();
+    private readonly HashSet<TaskCompletionSource<bool>> pendingNotificationAcknowledgements = [];
     private long nextId;
+    private long nextIngressSequence;
     private long malformedJsonCount;
+    private long notificationOverflowSequence;
+    private int notificationOverflowed;
+    private TaskCompletionSource<bool>? notificationOverflowAcknowledgement;
     private bool disposed;
 
     public JsonLineRpcConnection(TextReader reader, TextWriter writer)
@@ -36,11 +42,26 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
         string method,
         object? parameters,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken) =>
+        (await RequestCoreAsync(method, parameters, timeout, cancellationToken, waitForIngressBarrier: false).ConfigureAwait(false)).Payload;
+
+    public async Task<JsonRpcResponse> RequestWithSequenceAsync(
+        string method,
+        object? parameters,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        await RequestCoreAsync(method, parameters, timeout, cancellationToken, waitForIngressBarrier: true).ConfigureAwait(false);
+
+    private async Task<JsonRpcResponse> RequestCoreAsync(
+        string method,
+        object? parameters,
+        TimeSpan timeout,
+        CancellationToken cancellationToken,
+        bool waitForIngressBarrier)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         var id = Interlocked.Increment(ref nextId);
-        var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var completion = new TaskCompletionSource<JsonRpcResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!pending.TryAdd(id, completion))
         {
             throw new CodexClientException(CodexClientErrorKind.Protocol, "Could not register a JSON-RPC request.");
@@ -53,7 +74,12 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutSource.Token);
             try
             {
-                return await completion.Task.WaitAsync(linked.Token).ConfigureAwait(false);
+                var response = await completion.Task.WaitAsync(linked.Token).ConfigureAwait(false);
+                if (waitForIngressBarrier)
+                {
+                    await response.IngressBarrier.WaitAsync(linked.Token).ConfigureAwait(false);
+                }
+                return response;
             }
             catch (OperationCanceledException error) when (!cancellationToken.IsCancellationRequested)
             {
@@ -73,8 +99,39 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
     public Task NotifyAsync(string method, CancellationToken cancellationToken) =>
         WriteAsync(new RpcNotification(method), cancellationToken);
 
-    public IAsyncEnumerable<RpcServerNotification> ReadNotificationsAsync(CancellationToken cancellationToken) =>
-        notifications.Reader.ReadAllAsync(cancellationToken);
+    public async IAsyncEnumerable<RpcServerNotification> ReadNotificationsAsync(
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        while (await notifications.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (Interlocked.Exchange(ref notificationOverflowed, 0) != 0)
+            {
+                while (notifications.Reader.TryRead(out var discarded))
+                {
+                    discarded.Acknowledge();
+                }
+
+                Action acknowledgement;
+                lock (ingressGate)
+                {
+                    var pending = notificationOverflowAcknowledgement;
+                    notificationOverflowAcknowledgement = null;
+                    acknowledgement = pending is null
+                        ? static () => { }
+                        : () => AcknowledgeIngress(pending);
+                }
+
+                yield return RpcServerNotification.Overflow(
+                    Interlocked.Read(ref notificationOverflowSequence),
+                    acknowledgement);
+            }
+
+            while (notifications.Reader.TryRead(out var notification))
+            {
+                yield return notification;
+            }
+        }
+    }
 
     private async Task WriteAsync<T>(T message, CancellationToken cancellationToken)
     {
@@ -149,6 +206,8 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
                 return;
             }
 
+            var ingressSequence = Interlocked.Increment(ref nextIngressSequence);
+
             if (!root.TryGetProperty("id", out var idElement) || !idElement.TryGetInt64(out var id))
             {
                 if (root.TryGetProperty("method", out var method)
@@ -158,7 +217,32 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
                     var parameters = root.TryGetProperty("params", out var value)
                         ? value.Clone()
                         : default;
-                    _ = notifications.Writer.TryWrite(new RpcServerNotification(methodName, parameters));
+                    var notification = new RpcServerNotification(
+                        methodName,
+                        parameters,
+                        ingressSequence,
+                        Acknowledgement: string.Equals(
+                            methodName,
+                            "account/rateLimits/updated",
+                            StringComparison.Ordinal)
+                            ? RegisterNotificationAcknowledgement()
+                            : static () => { });
+                    if (!notifications.Writer.TryWrite(notification))
+                    {
+                        notification.Acknowledge();
+                        lock (ingressGate)
+                        {
+                            if (notificationOverflowAcknowledgement is null)
+                            {
+                                notificationOverflowAcknowledgement = new TaskCompletionSource<bool>(
+                                    TaskCreationOptions.RunContinuationsAsynchronously);
+                                pendingNotificationAcknowledgements.Add(notificationOverflowAcknowledgement);
+                            }
+                        }
+
+                        Interlocked.Exchange(ref notificationOverflowSequence, ingressSequence);
+                        Interlocked.Exchange(ref notificationOverflowed, 1);
+                    }
                 }
 
                 return;
@@ -171,7 +255,10 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
 
             if (root.TryGetProperty("result", out var result))
             {
-                completion.TrySetResult(result.Clone());
+                completion.TrySetResult(new JsonRpcResponse(
+                    result.Clone(),
+                    ingressSequence,
+                    PendingNotificationBarrier()));
                 return;
             }
 
@@ -205,6 +292,36 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
         }
     }
 
+    private Action RegisterNotificationAcknowledgement()
+    {
+        var acknowledged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (ingressGate)
+        {
+            pendingNotificationAcknowledgements.Add(acknowledged);
+        }
+
+        return () => AcknowledgeIngress(acknowledged);
+    }
+
+    private void AcknowledgeIngress(TaskCompletionSource<bool> acknowledgement)
+    {
+        acknowledgement.TrySetResult(true);
+        lock (ingressGate)
+        {
+            pendingNotificationAcknowledgements.Remove(acknowledgement);
+        }
+    }
+
+    private Task PendingNotificationBarrier()
+    {
+        lock (ingressGate)
+        {
+            return pendingNotificationAcknowledgements.Count == 0
+                ? Task.CompletedTask
+                : Task.WhenAll(pendingNotificationAcknowledgements.Select(item => item.Task).ToArray());
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (disposed)
@@ -215,6 +332,16 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
         disposed = true;
         lifetime.Cancel();
         notifications.Writer.TryComplete();
+        lock (ingressGate)
+        {
+            foreach (var acknowledgement in pendingNotificationAcknowledgements.ToArray())
+            {
+                acknowledgement.TrySetResult(true);
+            }
+
+            pendingNotificationAcknowledgements.Clear();
+            notificationOverflowAcknowledgement = null;
+        }
         FailPending(new CodexClientException(CodexClientErrorKind.Cancelled, "The JSON-RPC connection stopped."));
         try
         {
@@ -238,4 +365,20 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
 
 }
 
-public sealed record RpcServerNotification(string Method, JsonElement Parameters);
+public sealed record RpcServerNotification(
+    string Method,
+    JsonElement Parameters,
+    long IngressSequence = 0,
+    bool IsOverflow = false,
+    Action? Acknowledgement = null)
+{
+    public static RpcServerNotification Overflow(long ingressSequence, Action acknowledgement) =>
+        new(string.Empty, default, ingressSequence, IsOverflow: true, Acknowledgement: acknowledgement);
+
+    public void Acknowledge() => Acknowledgement?.Invoke();
+}
+
+public sealed record JsonRpcResponse(
+    JsonElement Payload,
+    long IngressSequence,
+    Task IngressBarrier);

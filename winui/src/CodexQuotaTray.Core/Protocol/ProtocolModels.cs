@@ -69,11 +69,18 @@ public interface ICodexAppServerClientFactory
 
 public sealed record RateLimitsReadResult(
     RateLimitsResponse Response,
-    bool ResetCreditsFieldPresent);
+    bool ResetCreditsFieldPresent,
+    long IngressSequence = 0);
 
 public sealed record RateLimitsUpdatedNotification(
     RateLimitsResponse Response,
-    bool ResetCreditsFieldPresent);
+    bool ResetCreditsFieldPresent,
+    long IngressSequence = 0,
+    bool IsOverflow = false,
+    Action? IngressAcknowledgement = null)
+{
+    public void AcknowledgeIngress() => IngressAcknowledgement?.Invoke();
+}
 
 public sealed class InitializeResponse
 {

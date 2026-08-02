@@ -49,6 +49,70 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public async Task JsonLineRpc_PreservesIngressOrderAcrossResponseAndNotification()
+    {
+        var input = new ChannelTextReader();
+        var output = new RecordingTextWriter();
+        await using var rpc = new JsonLineRpcConnection(input, output);
+        var request = rpc.RequestWithSequenceAsync(
+            "account/rateLimits/read",
+            null,
+            TimeSpan.FromSeconds(1),
+            CancellationToken.None);
+        await output.WaitForLinesAsync(1);
+        var id = JsonDocument.Parse(output.Lines[0]).RootElement.GetProperty("id").GetInt64();
+
+        input.Write("{\"method\":\"account/rateLimits/updated\",\"params\":{}}" );
+        input.Write($"{{\"id\":{id},\"result\":{{}}}}");
+
+        await using var notifications = rpc.ReadNotificationsAsync(CancellationToken.None).GetAsyncEnumerator();
+        Assert.IsTrue(await notifications.MoveNextAsync());
+        var notification = notifications.Current;
+        Assert.IsFalse(request.IsCompleted);
+        notification.Acknowledge();
+
+        var response = await request;
+        Assert.IsTrue(notification.IngressSequence < response.IngressSequence);
+    }
+
+    [TestMethod]
+    public async Task JsonLineRpc_ReportsBoundedNotificationOverflow()
+    {
+        var input = new ChannelTextReader();
+        var output = new RecordingTextWriter();
+        await using var rpc = new JsonLineRpcConnection(input, output);
+        for (var index = 0; index < 64; index++)
+        {
+            input.Write(JsonSerializer.Serialize(new
+            {
+                method = "account/rateLimits/updated",
+                @params = new
+                {
+                    rateLimits = new { primary = new { usedPercent = index } },
+                },
+            }));
+        }
+
+        await using var notifications = rpc.ReadNotificationsAsync(CancellationToken.None).GetAsyncEnumerator();
+        var sawOverflow = false;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        while (await notifications.MoveNextAsync().AsTask().WaitAsync(timeout.Token))
+        {
+            var notification = notifications.Current;
+            if (notification.IsOverflow)
+            {
+                sawOverflow = true;
+                notification.Acknowledge();
+                break;
+            }
+
+            notification.Acknowledge();
+        }
+
+        Assert.IsTrue(sawOverflow);
+    }
+
+    [TestMethod]
     public void RefreshBackoffResetsAfterSuccess()
     {
         var coordinator = new RefreshCoordinator();
@@ -279,8 +343,8 @@ public sealed class Phase3CoreTests
         Assert.AreEqual("threshold window", next.Alert.WindowName);
         Assert.AreEqual(10, next.Alert.Threshold);
         Assert.HasCount(1, next.Alert.ResetWindows);
-        Assert.HasCount(2, next.Alert.ThresholdWindows);
-        CollectionAssert.AreEqual(new[] { 10, 20 }, next.Alert.ThresholdWindows.Select(window => window.Threshold).ToArray());
+        Assert.HasCount(1, next.Alert.ThresholdWindows);
+        CollectionAssert.AreEqual(new[] { 10 }, next.Alert.ThresholdWindows.Select(window => window.Threshold).ToArray());
         CollectionAssert.Contains(next.State.Windows["threshold"].HandledThresholds.ToArray(), 10);
         Assert.AreEqual(resetAt, next.State.Windows["reset"].LastResetAlertCycleUtc);
         Assert.IsNull(repeat.Alert);
@@ -371,7 +435,7 @@ public sealed class Phase3CoreTests
         var first = QuotaAlertReducer.Reduce(null, [Input(60)], new NotificationSettings(true, true, true));
         var crossed = QuotaAlertReducer.Reduce(first.State, [Input(9)], new NotificationSettings(true, true, true));
         Assert.AreEqual(10, crossed.Alert!.Threshold);
-        CollectionAssert.AreEqual(new[] { 10, 20, 50 }, crossed.Alert.ThresholdWindows.Select(window => window.Threshold).ToArray());
+        CollectionAssert.AreEqual(new[] { 10 }, crossed.Alert.ThresholdWindows.Select(window => window.Threshold).ToArray());
         CollectionAssert.AreEquivalent(new[] { 50, 20, 10 }, crossed.State.Windows["window"].HandledThresholds.ToArray());
     }
 
@@ -492,6 +556,53 @@ public sealed class Phase3CoreTests
 
         public override async ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken) =>
             await values.Reader.ReadAsync(cancellationToken);
+    }
+
+    private sealed class ChannelTextReader : TextReader
+    {
+        private readonly Channel<string?> values = Channel.CreateUnbounded<string?>();
+
+        internal void Write(string value) => values.Writer.TryWrite(value);
+
+        public override ValueTask<string?> ReadLineAsync(CancellationToken cancellationToken) =>
+            values.Reader.ReadAsync(cancellationToken);
+    }
+
+    private sealed class RecordingTextWriter : StringWriter
+    {
+        private readonly List<string> lines = [];
+        private readonly SemaphoreSlim changed = new(0);
+
+        internal IReadOnlyList<string> Lines
+        {
+            get
+            {
+                lock (lines)
+                {
+                    return lines.ToArray();
+                }
+            }
+        }
+
+        public override Task WriteLineAsync(ReadOnlyMemory<char> buffer, CancellationToken cancellationToken = default)
+        {
+            lock (lines)
+            {
+                lines.Add(buffer.ToString());
+            }
+
+            changed.Release();
+            return Task.CompletedTask;
+        }
+
+        internal async Task WaitForLinesAsync(int count)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            while (Lines.Count < count)
+            {
+                await changed.WaitAsync(timeout.Token);
+            }
+        }
     }
 
     private sealed class TemporaryDirectory : IDisposable

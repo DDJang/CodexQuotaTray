@@ -153,13 +153,11 @@ public static class QuotaAlertReducer
 
             if (crossed.Length > 0)
             {
-                foreach (var threshold in crossed.OrderBy(value => value))
-                {
-                    thresholdAlerts.Add(new QuotaThresholdWindow(
-                        input.WindowName,
-                        input.RemainingPercent,
-                        threshold));
-                }
+                var threshold = crossed.Min();
+                thresholdAlerts.Add(new QuotaThresholdWindow(
+                    input.WindowName,
+                    input.RemainingPercent,
+                    threshold));
             }
 
             output[input.PseudonymousKey] = new AlertWindowState(

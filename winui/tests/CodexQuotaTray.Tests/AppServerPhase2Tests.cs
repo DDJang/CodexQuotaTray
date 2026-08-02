@@ -510,6 +510,35 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_CacheHeartbeatUpdatesLastSuccessWithoutWritingEveryRefresh()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var client = new ControlledClient();
+        client.Release.TrySetResult();
+        var clock = new ManualTimeProvider();
+        var store = new JsonFileStore();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(store, paths),
+            new PreviewPersistence(store, paths),
+            timeProvider: clock);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        var initial = await File.ReadAllTextAsync(paths.QuotaCache);
+
+        clock.Advance(TimeSpan.FromMinutes(4));
+        _ = await service.RefreshAsync(CancellationToken.None);
+        Assert.AreEqual(initial, await File.ReadAllTextAsync(paths.QuotaCache));
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        _ = await service.RefreshAsync(CancellationToken.None);
+        var heartbeat = await File.ReadAllTextAsync(paths.QuotaCache);
+        Assert.AreNotEqual(initial, heartbeat);
+        StringAssert.Contains(heartbeat, "\"lastSuccessUtc\": \"1970-01-01T00:05:00+00:00");
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_RequestWaitsForInitializationBeforeApplyingRefreshMode()
     {
         using var directory = new TemporaryDirectory();
@@ -577,6 +606,41 @@ public sealed class AppServerPhase2Tests
         sink.Release.TrySetResult();
         await refresh;
         Assert.AreEqual(70, observed!.Windows[0].RemainingPercent);
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_SuccessApplyRefreshesStaleClockBeforeSlowAlertPersistence()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var client = new SnapshotRaceClient();
+        var sink = new BlockingNotificationSink();
+        var clock = new ManualTimeProvider();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(new JsonFileStore(), paths),
+            new PreviewPersistence(new JsonFileStore(), paths),
+            sink,
+            clock);
+        var states = new List<AppUiState>();
+        service.StateChanged += (_, state) => states.Add(state);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        clock.Advance(TimeSpan.FromMinutes(60));
+        client.Publish(new RateLimitsUpdatedNotification(
+            new RateLimitsResponse
+            {
+                RateLimits = new RateLimitSnapshot
+                {
+                    Primary = new RateLimitWindow { UsedPercent = 90, WindowDurationMinutes = 300 },
+                },
+            },
+            false));
+        await sink.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await Task.Delay(100);
+
+        Assert.IsFalse(states.Any(state => state.StatusTone == StatusTone.Warning && state.Windows.Any(window => window.IsStale)));
+        sink.Release.TrySetResult();
     }
 
     [TestMethod]
