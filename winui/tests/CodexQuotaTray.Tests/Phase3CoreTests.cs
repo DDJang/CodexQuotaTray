@@ -132,6 +132,102 @@ public sealed class Phase3CoreTests
         var reduction = QuotaAlertReducer.Reduce(null, [input], new NotificationSettings());
         Assert.IsNull(reduction.Alert);
         Assert.AreEqual(19, reduction.State.Windows[input.PseudonymousKey].LastReliableRemaining);
+        Assert.IsTrue(reduction.State.ResetAlertBaselineEstablished);
+    }
+
+    [DataRow(98)]
+    [DataRow(97)]
+    [TestMethod]
+    public void ResetCycleWithSignificantRecoveryEmitsOneResetAlert(int remaining)
+    {
+        var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
+        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var reduction = QuotaAlertReducer.Reduce(
+            first.State,
+            [Input(remaining, resetAt)],
+            new NotificationSettings());
+
+        Assert.AreEqual(QuotaAlertKind.Reset, reduction.Alert!.Kind);
+        Assert.HasCount(1, reduction.Alert.ResetWindows);
+        Assert.AreEqual(remaining, reduction.Alert.ResetWindows[0].RemainingPercent);
+        Assert.AreEqual(resetAt, reduction.State.Windows["window"].LastResetAlertCycleUtc);
+    }
+
+    [TestMethod]
+    public void ResetAlertCombinesMultipleWindowsAndDoesNotRepeatSameCycle()
+    {
+        var first = QuotaAlertReducer.Reduce(
+            null,
+            [Input(20), Input(30, key: "other")],
+            new NotificationSettings());
+        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var next = QuotaAlertReducer.Reduce(
+            first.State,
+            [Input(98, resetAt), Input(97, resetAt, key: "other")],
+            new NotificationSettings());
+        var repeat = QuotaAlertReducer.Reduce(
+            next.State,
+            [Input(96, resetAt), Input(95, resetAt, key: "other")],
+            new NotificationSettings());
+
+        Assert.AreEqual(QuotaAlertKind.Reset, next.Alert!.Kind);
+        Assert.HasCount(2, next.Alert.ResetWindows);
+        Assert.IsNull(repeat.Alert);
+    }
+
+    [TestMethod]
+    public void ResetRequiresBothCycleChangeAndSignificantRecovery()
+    {
+        var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
+        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var timeOnly = QuotaAlertReducer.Reduce(first.State, [Input(25, resetAt)], new NotificationSettings());
+        var recoveryOnly = QuotaAlertReducer.Reduce(first.State, [Input(98)], new NotificationSettings());
+        var untrusted = QuotaAlertReducer.Reduce(
+            first.State,
+            [Input(98, resetAt) with { IsPercentageReliable = false }],
+            new NotificationSettings());
+
+        Assert.IsNull(timeOnly.Alert);
+        Assert.IsNull(recoveryOnly.Alert);
+        Assert.IsNull(untrusted.Alert);
+    }
+
+    [TestMethod]
+    public async Task ResetAlertPersistsAcrossRestartAndOldAlertStateLoads()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var persistence = new PreviewPersistence(new JsonFileStore(), paths);
+        var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
+        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var alerted = QuotaAlertReducer.Reduce(first.State, [Input(98, resetAt)], new NotificationSettings());
+        await persistence.SaveAlertStateAsync(alerted.State, CancellationToken.None);
+
+        var restored = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        var repeat = QuotaAlertReducer.Reduce(restored, [Input(97, resetAt)], new NotificationSettings());
+        await File.WriteAllTextAsync(
+            paths.AlertState,
+            "{\"schemaVersion\":1,\"baselineThresholds\":[20,10],\"windows\":{}}");
+        var old = await persistence.LoadAlertStateAsync(CancellationToken.None);
+
+        Assert.IsNotNull(restored);
+        Assert.IsNull(repeat.Alert);
+        Assert.IsNotNull(old);
+        Assert.IsFalse(old.ResetAlertBaselineEstablished);
+    }
+
+    [TestMethod]
+    public void DisabledResetAlertSuppressesCurrentCycleAndDoesNotBackfillWhenEnabled()
+    {
+        var disabled = new NotificationSettings(ResetAfterCycle: false);
+        var first = QuotaAlertReducer.Reduce(null, [Input(20)], disabled);
+        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var suppressed = QuotaAlertReducer.Reduce(first.State, [Input(98, resetAt)], disabled);
+        var enabledLater = QuotaAlertReducer.Reduce(suppressed.State, [Input(97, resetAt)], new NotificationSettings());
+
+        Assert.IsNull(suppressed.Alert);
+        Assert.AreEqual(resetAt, suppressed.State.Windows["window"].LastResetAlertCycleUtc);
+        Assert.IsNull(enabledLater.Alert);
     }
 
     [TestMethod]
@@ -202,6 +298,7 @@ public sealed class Phase3CoreTests
         Assert.AreEqual(RefreshMode.Every15Minutes, settings.RefreshMode);
         Assert.IsFalse(settings.EffectiveNotifications.Remaining20);
         Assert.IsFalse(settings.EffectiveNotifications.Remaining10);
+        Assert.IsTrue(settings.EffectiveNotifications.ResetAfterCycle);
     }
 
     [TestMethod]
@@ -215,13 +312,16 @@ public sealed class Phase3CoreTests
         Assert.AreEqual(AppSettings.Defaults, settings);
     }
 
-    private static AlertInput Input(int remaining) => new(
-        "window",
+    private static AlertInput Input(
+        int remaining,
+        DateTimeOffset? resetAt = null,
+        string key = "window") => new(
+        key,
         "7 天额度",
         remaining,
         true,
         10_080,
-        DateTimeOffset.UnixEpoch.AddDays(7));
+        resetAt ?? DateTimeOffset.UnixEpoch.AddDays(7));
 
     private sealed class NotificationReader : TextReader
     {

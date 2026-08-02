@@ -1,9 +1,12 @@
 using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
+using CodexQuotaTray.Core.Alerts;
 using CodexQuotaTray.Core.Models;
+using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Protocol;
+using CodexQuotaTray.Core.Runtime;
 
 namespace CodexQuotaTray.Tests;
 
@@ -295,6 +298,95 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_ScheduledFailuresUseAttemptTimeBackoffAndResetAfterSuccess()
+    {
+        var client = new ControlledClient();
+        client.Release.TrySetResult();
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var clock = new ManualTimeProvider();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(new JsonFileStore(), paths),
+            new PreviewPersistence(new JsonFileStore(), paths),
+            timeProvider: clock);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        Assert.AreEqual(1, client.ReadCount);
+        await clock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(1));
+        await Task.Delay(50);
+
+        client.Fail = true;
+        clock.Advance(TimeSpan.FromMinutes(30));
+        await WaitForReadCountAsync(client, 2);
+        Assert.AreEqual(2, client.ReadCount);
+
+        clock.Advance(TimeSpan.FromSeconds(30));
+        await Task.Delay(100);
+        Assert.AreEqual(2, client.ReadCount);
+
+        clock.Advance(TimeSpan.FromSeconds(30));
+        await WaitForReadCountAsync(client, 3);
+        Assert.AreEqual(3, client.ReadCount);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await Task.Delay(100);
+        Assert.AreEqual(3, client.ReadCount);
+
+        client.Fail = false;
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await WaitForReadCountAsync(client, 4);
+        Assert.AreEqual(4, client.ReadCount);
+        await Task.Delay(500);
+
+        clock.Advance(TimeSpan.FromMinutes(29));
+        await Task.Delay(100);
+        Assert.AreEqual(4, client.ReadCount);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await WaitForReadCountAsync(client, 5);
+        Assert.AreEqual(5, client.ReadCount);
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_CacheRestoreDoesNotNotifyForReset()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            CancellationToken.None);
+        await new PreviewPersistence(store, paths).SaveQuotaCacheAsync(
+            new QuotaCacheDocument(
+                1,
+                DateTimeOffset.UnixEpoch,
+                "plus",
+                [new QuotaCacheWindow(
+                    "primary",
+                    20,
+                    80,
+                    true,
+                    300,
+                    DateTimeOffset.UnixEpoch.AddMinutes(300))]),
+            CancellationToken.None);
+
+        var client = new ControlledClient();
+        client.Release.TrySetResult();
+        var sink = new RecordingNotificationSink();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(store, paths),
+            new PreviewPersistence(store, paths),
+            sink);
+
+        var snapshot = await service.GetSnapshotAsync(CancellationToken.None);
+
+        Assert.HasCount(1, snapshot.Windows);
+        Assert.IsEmpty(sink.Alerts);
+    }
+
+    [TestMethod]
     public async Task Diagnostics_AreSanitized()
     {
         var client = new ControlledClient();
@@ -335,9 +427,94 @@ public sealed class AppServerPhase2Tests
         return new RateLimitsReadResult(response, resetFieldPresent);
     }
 
+    private static async Task WaitForReadCountAsync(ControlledClient client, int expected)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        while (client.ReadCount < expected)
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+    }
+
     private sealed class FrozenTimeProvider(DateTimeOffset utc) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utc;
+    }
+
+    private sealed class ManualTimeProvider : TimeProvider
+    {
+        private long utcTicks = DateTimeOffset.UnixEpoch.Ticks;
+        private readonly TaskCompletionSource timerCreated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private ManualTimer? timer;
+
+        public Task TimerCreated => timerCreated.Task;
+
+        public override DateTimeOffset GetUtcNow() =>
+            new(Interlocked.Read(ref utcTicks), TimeSpan.Zero);
+
+        public override ITimer CreateTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period)
+        {
+            var created = new ManualTimer(callback, state);
+            timer = created;
+            timerCreated.TrySetResult();
+            return created;
+        }
+
+        public void Advance(TimeSpan amount)
+        {
+            Interlocked.Add(ref utcTicks, amount.Ticks);
+            timer?.Tick();
+        }
+
+        private sealed class ManualTimer(TimerCallback callback, object? state) : ITimer
+        {
+            private int disposed;
+
+            public bool Change(TimeSpan dueTime, TimeSpan period) =>
+                Volatile.Read(ref disposed) == 0;
+
+            public void Dispose() => Interlocked.Exchange(ref disposed, 1);
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+
+            public void Tick()
+            {
+                if (Volatile.Read(ref disposed) == 0)
+                {
+                    callback(state);
+                }
+            }
+        }
+    }
+
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        public TemporaryDirectory()
+        {
+            Path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                "CodexQuotaTray.Tests",
+                Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path);
+        }
+
+        public string Path { get; }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
     }
 
     private sealed class ChannelTextReader : TextReader
@@ -390,6 +567,17 @@ public sealed class AppServerPhase2Tests
     private sealed class SingleClientFactory(ICodexAppServerClient client) : ICodexAppServerClientFactory
     {
         public ICodexAppServerClient Create() => client;
+    }
+
+    private sealed class RecordingNotificationSink : IQuotaNotificationSink
+    {
+        public List<QuotaAlert> Alerts { get; } = [];
+
+        public Task ShowAsync(QuotaAlert alert, CancellationToken cancellationToken)
+        {
+            Alerts.Add(alert);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class ControlledClient : ICodexAppServerClient

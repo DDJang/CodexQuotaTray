@@ -267,7 +267,8 @@ public partial class App : Application
         {
             50 => current with { Remaining50 = !current.Remaining50 },
             20 => current with { Remaining20 = !current.Remaining20 },
-            _ => current with { Remaining10 = !current.Remaining10 },
+            10 => current with { Remaining10 = !current.Remaining10 },
+            _ => current with { ResetAfterCycle = !current.ResetAfterCycle },
         };
         return settings with { Notifications = changed };
     });

@@ -29,6 +29,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool notifyRemaining50;
     [ObservableProperty] private bool notifyRemaining20;
     [ObservableProperty] private bool notifyRemaining10;
+    [ObservableProperty] private bool notifyAfterQuotaReset;
     [ObservableProperty] private bool silentStartup;
     [ObservableProperty] private RefreshMode selectedRefreshMode;
     [ObservableProperty] private ThemeMode selectedThemeMode;
@@ -101,7 +102,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         PersistQuotaCache,
         SelectedRefreshMode,
         RefreshOnNetworkRestore,
-        new NotificationSettings(NotifyRemaining50, NotifyRemaining20, NotifyRemaining10),
+        new NotificationSettings(NotifyRemaining50, NotifyRemaining20, NotifyRemaining10, NotifyAfterQuotaReset),
         SelectedThemeMode,
         SilentStartup);
 
@@ -115,6 +116,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         NotifyRemaining50 = value.EffectiveNotifications.Remaining50;
         NotifyRemaining20 = value.EffectiveNotifications.Remaining20;
         NotifyRemaining10 = value.EffectiveNotifications.Remaining10;
+        NotifyAfterQuotaReset = value.EffectiveNotifications.ResetAfterCycle;
         SelectedRefreshMode = value.RefreshMode;
         SelectedThemeMode = value.ThemeMode;
         SilentStartup = value.SilentStartup;

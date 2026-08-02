@@ -29,6 +29,7 @@ internal sealed class TrayIconService : IDisposable
     private const uint Alert50Command = 30;
     private const uint Alert20Command = 31;
     private const uint Alert10Command = 32;
+    private const uint AlertResetCommand = 33;
     private const uint StartupCommand = 40;
     private const uint TrayId = 0x51435452;
     private static readonly Guid TrayGuid = new("8F4F2C19-0C4C-4E1B-8F5C-50D0F1A4A77D");
@@ -569,9 +570,9 @@ internal sealed class TrayIconService : IDisposable
                     _ => RefreshMode.ManualOnly,
                 });
             }
-            else if (command is Alert50Command or Alert20Command or Alert10Command)
+            else if (command is Alert50Command or Alert20Command or Alert10Command or AlertResetCommand)
             {
-                toggleAlert(command == Alert50Command ? 50 : command == Alert20Command ? 20 : 10);
+                toggleAlert(command == Alert50Command ? 50 : command == Alert20Command ? 20 : command == Alert10Command ? 10 : 0);
             }
             else if (command == StartupCommand)
             {
@@ -617,6 +618,7 @@ internal sealed class TrayIconService : IDisposable
         AppendChecked(menu, Alert50Command, "剩余 50%", current.Remaining50);
         AppendChecked(menu, Alert20Command, "剩余 20%", current.Remaining20);
         AppendChecked(menu, Alert10Command, "剩余 10%", current.Remaining10);
+        AppendChecked(menu, AlertResetCommand, "额度周期重置后", current.ResetAfterCycle);
         _ = NativeMethods.AppendMenu(root, NativeMethods.MfPopup, unchecked((UIntPtr)(nuint)menu), "额度提醒");
     }
 
@@ -637,13 +639,20 @@ internal sealed class TrayIconService : IDisposable
         var data = CreateData();
         data.Flags |= NativeMethods.NifInfo;
         data.InfoTitle = "Codex 额度提醒";
-        data.Info = $"{alert.WindowName}剩余 {alert.RemainingPercent}%（已达到 {alert.Threshold}% 阈值）";
+        data.Info = alert.Kind == QuotaAlertKind.Reset
+            ? FormatResetAlert(alert.ResetWindows)
+            : $"{alert.WindowName}剩余 {alert.RemainingPercent}%（已达到 {alert.Threshold}% 阈值）";
         data.InfoFlags = NativeMethods.NiifInfo;
         if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
         {
             throw LastWin32("show quota notification");
         }
     }
+
+    private static string FormatResetAlert(IReadOnlyList<QuotaResetWindow> windows) =>
+        $"{string.Join("、", windows.Select(window => $"{window.WindowName}已重置"))}。当前剩余 "
+        + $"{string.Join("、", windows.Select(window => $"{window.RemainingPercent}%"))}，下次重置时间为 "
+        + $"{string.Join("、", windows.Select(window => window.ResetAtUtc.ToLocalTime().ToString("M月d日 HH:mm")))}。";
 
     internal void UpdateTooltip(string value)
     {

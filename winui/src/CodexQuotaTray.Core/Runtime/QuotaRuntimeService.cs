@@ -317,7 +317,7 @@ public sealed class QuotaRuntimeService :
     {
         var inputs = snapshot.Windows.Select(window => new AlertInput(
             window.AlertKey,
-            window.LimitName ?? "额度窗口",
+            AlertWindowName(window),
             (int)window.RemainingPercent,
             window.PercentageReliable,
             window.WindowDurationMinutes,
@@ -340,6 +340,24 @@ public sealed class QuotaRuntimeService :
                 System.Diagnostics.Debug.WriteLine($"Quota notification failed after state save: {error.GetType().Name}");
             }
         }
+    }
+
+    private static string AlertWindowName(NormalizedQuotaWindow window)
+    {
+        var duration = window.WindowDurationMinutes switch
+        {
+            300 => "5 小时额度",
+            10_080 => "7 天额度",
+            > 0 and var value when value % 1_440 == 0 => $"{value / 1_440} 天额度",
+            > 0 and var value when value % 60 == 0 => $"{value / 60} 小时额度",
+            > 0 and var value => $"{value} 分钟额度",
+            _ => "额度窗口",
+        };
+
+        return string.IsNullOrWhiteSpace(window.LimitName)
+            || string.Equals(window.LimitName.Trim(), "Codex", StringComparison.OrdinalIgnoreCase)
+            ? duration
+            : $"{window.LimitName.Trim()} · {duration}";
     }
 
     private async Task NotificationLoopAsync(ICodexAppServerClient source, CancellationToken cancellationToken)
@@ -374,7 +392,7 @@ public sealed class QuotaRuntimeService :
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30), timeProvider);
         while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
         {
-            var anchor = coordinator.LastSuccessUtc ?? lastAttemptUtc;
+            var anchor = coordinator.ConsecutiveFailures > 0 ? lastAttemptUtc : coordinator.LastSuccessUtc;
             if (anchor is null
                 || timeProvider.GetUtcNow() - anchor >= coordinator.EffectiveInterval(MinimumReliableRemaining()))
             {

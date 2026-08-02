@@ -22,6 +22,7 @@
             <CheckBox Content="剩余 50%" IsChecked="{Binding NotifyRemaining50, Mode=TwoWay}" />
             <CheckBox Content="剩余 20%" IsChecked="{Binding NotifyRemaining20, Mode=TwoWay}" />
             <CheckBox Content="剩余 10%" IsChecked="{Binding NotifyRemaining10, Mode=TwoWay}" />
+            <CheckBox Content="额度周期重置后提醒" IsChecked="{Binding NotifyAfterQuotaReset, Mode=TwoWay}" />
 
             <Grid ColumnSpacing="8" Margin="0,8,0,0">
                 <Grid.ColumnDefinitions>

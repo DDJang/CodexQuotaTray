@@ -5,7 +5,41 @@ using CodexQuotaTray.Core.Protocol;
 
 namespace CodexQuotaTray.Core.Alerts;
 
-public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Threshold);
+public enum QuotaAlertKind
+{
+    Threshold,
+    Reset,
+}
+
+public sealed record QuotaResetWindow(
+    string WindowName,
+    int RemainingPercent,
+    DateTimeOffset ResetAtUtc);
+
+public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Threshold)
+{
+    public QuotaAlertKind Kind { get; init; } = QuotaAlertKind.Threshold;
+
+    public IReadOnlyList<QuotaResetWindow> ResetWindows { get; init; } = [];
+
+    public static QuotaAlert ForReset(IReadOnlyList<QuotaResetWindow> windows)
+    {
+        if (windows.Count == 0)
+        {
+            throw new ArgumentException("At least one reset window is required.", nameof(windows));
+        }
+
+        var first = windows[0];
+        return new QuotaAlert(
+            string.Join("、", windows.Select(window => window.WindowName)),
+            first.RemainingPercent,
+            0)
+        {
+            Kind = QuotaAlertKind.Reset,
+            ResetWindows = windows,
+        };
+    }
+}
 
 public sealed record AlertReduction(AlertStateDocument State, QuotaAlert? Alert);
 
@@ -34,9 +68,12 @@ public static class QuotaAlertReducer
     {
         var enabled = Enabled(settings).ToArray();
         var baseline = previous is null || previous.SchemaVersion != 1;
+        var resetBaseline = baseline || previous?.ResetAlertBaselineEstablished != true;
         var oldWindows = baseline ? new Dictionary<string, AlertWindowState>() : previous!.Windows;
         var output = new Dictionary<string, AlertWindowState>(StringComparer.Ordinal);
+        var resetAlerts = new List<QuotaResetWindow>();
         QuotaAlert? selected = null;
+        var hasValidWindow = false;
 
         foreach (var input in windows)
         {
@@ -51,11 +88,24 @@ public static class QuotaAlertReducer
                 continue;
             }
 
+            hasValidWindow = true;
             var handled = old?.HandledThresholds.ToHashSet() ?? [];
             var newCycle = old is not null && IsNewCycle(old, input);
+            var resetCycle = !resetBaseline && old is not null && IsResetCycle(old, input);
             if (newCycle)
             {
                 handled.Clear();
+            }
+
+            var resetAlertCycle = old?.LastResetAlertCycleUtc;
+            if (resetCycle && input.ResetAtUtc is { } resetAt && resetAlertCycle != resetAt)
+            {
+                if (settings.ResetAfterCycle)
+                {
+                    resetAlerts.Add(new QuotaResetWindow(input.WindowName, input.RemainingPercent, resetAt));
+                }
+
+                resetAlertCycle = resetAt;
             }
 
             var newlyEnabled = enabled.Except(previous?.BaselineThresholds ?? []).ToArray();
@@ -92,10 +142,14 @@ public static class QuotaAlertReducer
                 input.WindowDurationMinutes,
                 input.ResetAtUtc,
                 input.RemainingPercent,
-                handled.OrderDescending().ToArray());
+                handled.OrderDescending().ToArray(),
+                resetAlertCycle);
         }
 
-        return new AlertReduction(new AlertStateDocument(1, enabled, output), selected);
+        var alert = resetAlerts.Count > 0 ? QuotaAlert.ForReset(resetAlerts) : selected;
+        return new AlertReduction(
+            new AlertStateDocument(1, enabled, output, resetBaseline || hasValidWindow),
+            alert);
     }
 
     public static bool IsNewCycle(AlertWindowState previous, AlertInput current)
@@ -110,6 +164,20 @@ public static class QuotaAlertReducer
         }
 
         return previous.LastReliableRemaining is { } last
+            && current.RemainingPercent - last >= 50
+            && current.RemainingPercent >= 80;
+    }
+
+    public static bool IsResetCycle(AlertWindowState previous, AlertInput current)
+    {
+        if (previous.ResetAtUtc is not { } before || current.ResetAtUtc is not { } after)
+        {
+            return false;
+        }
+
+        var tolerance = TimeSpan.FromMinutes(Math.Max(5, (current.WindowDurationMinutes ?? 0) / 2d));
+        return after - before >= tolerance
+            && previous.LastReliableRemaining is { } last
             && current.RemainingPercent - last >= 50
             && current.RemainingPercent >= 80;
     }

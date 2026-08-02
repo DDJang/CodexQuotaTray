@@ -49,14 +49,15 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
     private static NotificationSettings ParseNotifications(JsonElement value) => new(
         Boolean(value, "remaining50", false),
         Boolean(value, "remaining20", true),
-        Boolean(value, "remaining10", true));
+        Boolean(value, "remaining10", true),
+        Boolean(value, "resetAfterCycle", true));
 
     private static NotificationSettings ParseLegacyNotifications(JsonElement root)
     {
         var twenty = Boolean(root, "notifyRemaining20", true);
         var five = Boolean(root, "notifyRemaining5", true);
         var exhausted = Boolean(root, "notifyExhausted", true);
-        return new NotificationSettings(false, twenty, five || exhausted);
+        return new NotificationSettings(false, twenty, five || exhausted, true);
     }
 
     private static RefreshMode ParseRefreshMode(JsonElement root)
