@@ -58,6 +58,17 @@ public sealed class RefreshCoordinator
         }
     }
 
+    public bool IsInFlight
+    {
+        get
+        {
+            lock (gate)
+            {
+                return inFlight;
+            }
+        }
+    }
+
     public void SetMode(RefreshMode mode)
     {
         lock (gate)

@@ -107,7 +107,9 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
                 var line = await reader.ReadLineAsync(lifetime.Token).ConfigureAwait(false);
                 if (line is null)
                 {
-                    FailPending(new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server stdout closed."));
+                    var error = new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server stdout closed.");
+                    FailPending(error);
+                    notifications.Writer.TryComplete(error);
                     return;
                 }
 
@@ -119,7 +121,9 @@ public sealed class JsonLineRpcConnection : IAsyncDisposable
         }
         catch (Exception error) when (error is IOException or ObjectDisposedException)
         {
-            FailPending(new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server stdout failed.", error));
+            var transportError = new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server stdout failed.", error);
+            FailPending(transportError);
+            notifications.Writer.TryComplete(transportError);
         }
     }
 

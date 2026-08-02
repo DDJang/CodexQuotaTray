@@ -3,6 +3,7 @@ using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Protocol;
+using System.Threading.Channels;
 
 namespace CodexQuotaTray.Core.Runtime;
 
@@ -42,19 +43,36 @@ public sealed class QuotaRuntimeService :
     private readonly RefreshCoordinator coordinator = new();
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim initializationGate = new(1, 1);
-    private readonly SemaphoreSlim snapshotApplyGate = new(1, 1);
+    private readonly Channel<SnapshotWork> snapshotQueue = Channel.CreateUnbounded<SnapshotWork>(
+        new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false,
+        });
+    private readonly object snapshotQueueGate = new();
     private ICodexAppServerClient? client;
     private RateLimitsReadResult? latestProtocol;
     private NormalizedQuotaSnapshot? latestNormalized;
     private AlertStateDocument? alertState;
+    private QuotaCacheDocument? lastPersistedCache;
     private Task? notificationTask;
     private Task? schedulerTask;
+    private Task? snapshotApplyTask;
     private AppUiState current = ConnectingState();
     private CodexDiagnosticSnapshot lastDiagnostics = new();
     private CodexClientErrorKind? lastError;
     private DateTimeOffset? lastAttemptUtc;
     private bool initialized;
     private bool disposed;
+    private long nextSnapshotSequence;
+
+    private sealed record SnapshotWork(
+        long Sequence,
+        RateLimitsReadResult? Snapshot,
+        RateLimitsUpdatedNotification? Notification,
+        CancellationToken CancellationToken,
+        TaskCompletionSource<bool> Completion);
 
     public QuotaRuntimeService(
         ICodexAppServerClientFactory clientFactory,
@@ -114,6 +132,11 @@ public sealed class QuotaRuntimeService :
         {
             var succeeded = await RefreshCoreAsync(cancellationToken).ConfigureAwait(false);
             next = coordinator.Complete(succeeded, timeProvider.GetUtcNow());
+            if (next is { } pendingReason && !ShouldRequest(pendingReason))
+            {
+                coordinator.Release();
+                next = null;
+            }
         }
     }
 
@@ -125,7 +148,12 @@ public sealed class QuotaRuntimeService :
         }
 
         var now = timeProvider.GetUtcNow();
-        if (lastAttemptUtc is { } attempt && now - attempt < TimeSpan.FromSeconds(10))
+        var isPendingReevaluation = coordinator.IsInFlight
+            && reason is RefreshReason.CardOpened or RefreshReason.Scheduled;
+        if (!isPendingReevaluation
+            && reason != RefreshReason.RateLimitNotification
+            && lastAttemptUtc is { } attempt
+            && now - attempt < TimeSpan.FromSeconds(10))
         {
             return false;
         }
@@ -136,6 +164,13 @@ public sealed class QuotaRuntimeService :
             return Settings.RefreshMode == RefreshMode.Auto
                 ? age >= TimeSpan.FromMinutes(2)
                 : age >= coordinator.StaleAfter(MinimumReliableRemaining());
+        }
+
+        if (reason == RefreshReason.Scheduled)
+        {
+            var anchor = coordinator.ConsecutiveFailures > 0 ? lastAttemptUtc : coordinator.LastSuccessUtc;
+            return anchor is null
+                || now - anchor >= coordinator.EffectiveInterval(MinimumReliableRemaining());
         }
 
         if (reason is RefreshReason.Resume or RefreshReason.NetworkRestored
@@ -157,6 +192,7 @@ public sealed class QuotaRuntimeService :
         if (previous.PersistQuotaCache && !Settings.PersistQuotaCache)
         {
             await persistence.ClearQuotaCacheAsync().ConfigureAwait(false);
+            lastPersistedCache = null;
         }
 
         if (latestNormalized is not null)
@@ -205,6 +241,7 @@ public sealed class QuotaRuntimeService :
             coordinator.SetMode(Settings.RefreshMode);
             alertState = await persistence.LoadAlertStateAsync(cancellationToken).ConfigureAwait(false);
             await RestoreCacheAsync(cancellationToken).ConfigureAwait(false);
+            snapshotApplyTask = SnapshotApplyLoopAsync(lifetime.Token);
             schedulerTask = SchedulerLoopAsync(lifetime.Token);
             initialized = true;
             if (Settings.RefreshMode == RefreshMode.ManualOnly)
@@ -261,7 +298,7 @@ public sealed class QuotaRuntimeService :
         {
             await EnsureClientAsync(cancellationToken).ConfigureAwait(false);
             var result = await client!.ReadRateLimitsAsync(cancellationToken).ConfigureAwait(false);
-            await ApplySnapshotAsync(result, persist: true, cancellationToken).ConfigureAwait(false);
+            await EnqueueSnapshotAsync(result, cancellationToken).ConfigureAwait(false);
             lastError = null;
             return true;
         }
@@ -284,35 +321,27 @@ public sealed class QuotaRuntimeService :
         }
     }
 
-    private async Task ApplySnapshotAsync(RateLimitsReadResult result, bool persist, CancellationToken cancellationToken)
-    {
-        await snapshotApplyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            await ApplySnapshotCoreAsync(result, persist, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            snapshotApplyGate.Release();
-        }
-    }
-
-    private async Task ApplySnapshotCoreAsync(RateLimitsReadResult result, bool persist, CancellationToken cancellationToken)
+    private async Task ApplySnapshotCoreAsync(RateLimitsReadResult result, CancellationToken cancellationToken)
     {
         latestProtocol = result;
         latestNormalized = QuotaNormalizer.Normalize(result);
         var now = timeProvider.GetUtcNow();
         lastError = null;
         SetCurrent(projector.Project(latestNormalized, now, Settings.ShowRemainingPercent, Settings.Use24HourTime));
-        if (persist && Settings.PersistQuotaCache)
+        if (Settings.PersistQuotaCache)
         {
-            try
+            var cache = ToCache(latestNormalized, now);
+            if (lastPersistedCache is null || !CacheContentEquals(lastPersistedCache, cache))
             {
-                await persistence.SaveQuotaCacheAsync(ToCache(latestNormalized, now), cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
-            {
-                System.Diagnostics.Debug.WriteLine($"Quota cache write failed: {error.GetType().Name}");
+                try
+                {
+                    await persistence.SaveQuotaCacheAsync(cache, cancellationToken).ConfigureAwait(false);
+                    lastPersistedCache = cache;
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Quota cache write failed: {error.GetType().Name}");
+                }
             }
         }
 
@@ -328,6 +357,98 @@ public sealed class QuotaRuntimeService :
         }
     }
 
+    private Task<bool> EnqueueSnapshotAsync(
+        RateLimitsReadResult snapshot,
+        CancellationToken cancellationToken) =>
+        EnqueueSnapshotAsync(
+            new SnapshotWork(
+                0,
+                snapshot,
+                null,
+                cancellationToken,
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)),
+            cancellationToken);
+
+    private Task<bool> EnqueueSnapshotAsync(
+        RateLimitsUpdatedNotification notification,
+        CancellationToken cancellationToken) =>
+        EnqueueSnapshotAsync(
+            new SnapshotWork(
+                0,
+                null,
+                notification,
+                cancellationToken,
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)),
+            cancellationToken);
+
+    private async Task<bool> EnqueueSnapshotAsync(SnapshotWork work, CancellationToken cancellationToken)
+    {
+        lock (snapshotQueueGate)
+        {
+            work = work with { Sequence = ++nextSnapshotSequence };
+            if (disposed || !snapshotQueue.Writer.TryWrite(work))
+            {
+                work.Completion.TrySetException(new ObjectDisposedException(nameof(QuotaRuntimeService)));
+            }
+        }
+
+        return await work.Completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task SnapshotApplyLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var work in snapshotQueue.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                System.Diagnostics.Debug.Assert(work.Sequence > 0);
+                if (work.CancellationToken.IsCancellationRequested)
+                {
+                    work.Completion.TrySetCanceled(work.CancellationToken);
+                    continue;
+                }
+
+                try
+                {
+                    var requiresFullRead = false;
+                    if (work.Snapshot is not null)
+                    {
+                        await ApplySnapshotCoreAsync(work.Snapshot, work.CancellationToken).ConfigureAwait(false);
+                    }
+                    else if (work.Notification is not null)
+                    {
+                        var merged = RateLimitsSnapshotMerger.Merge(latestProtocol, work.Notification);
+                        requiresFullRead = merged.RequiresFullRead;
+                        if (merged.Snapshot is not null)
+                        {
+                            await ApplySnapshotCoreAsync(merged.Snapshot, work.CancellationToken).ConfigureAwait(false);
+                        }
+                    }
+
+                    work.Completion.TrySetResult(requiresFullRead);
+                }
+                catch (OperationCanceledException) when (work.CancellationToken.IsCancellationRequested)
+                {
+                    work.Completion.TrySetCanceled(work.CancellationToken);
+                }
+                catch (Exception error)
+                {
+                    work.Completion.TrySetException(error);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            while (snapshotQueue.Reader.TryRead(out var work))
+            {
+                work.Completion.TrySetCanceled(cancellationToken);
+            }
+        }
+    }
+
     private async Task EvaluateAlertsAsync(NormalizedQuotaSnapshot snapshot, CancellationToken cancellationToken)
     {
         var inputs = snapshot.Windows.Select(window => new AlertInput(
@@ -338,7 +459,11 @@ public sealed class QuotaRuntimeService :
             window.WindowDurationMinutes,
             window.ResetAtUtc)).ToArray();
         var reduction = QuotaAlertReducer.Reduce(alertState, inputs, Settings.EffectiveNotifications);
-        await persistence.SaveAlertStateAsync(reduction.State, cancellationToken).ConfigureAwait(false);
+        if (alertState is null || !AlertStateContentEquals(alertState, reduction.State))
+        {
+            await persistence.SaveAlertStateAsync(reduction.State, cancellationToken).ConfigureAwait(false);
+        }
+
         alertState = reduction.State;
         if (reduction.Alert is not null)
         {
@@ -381,21 +506,7 @@ public sealed class QuotaRuntimeService :
         {
             await foreach (var notification in source.ReadNotificationsAsync(cancellationToken).ConfigureAwait(false))
             {
-                var requiresFullRead = false;
-                await snapshotApplyGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-                try
-                {
-                    var merged = RateLimitsSnapshotMerger.Merge(latestProtocol, notification);
-                    requiresFullRead = merged.RequiresFullRead;
-                    if (merged.Snapshot is not null)
-                    {
-                        await ApplySnapshotCoreAsync(merged.Snapshot, persist: true, cancellationToken).ConfigureAwait(false);
-                    }
-                }
-                finally
-                {
-                    snapshotApplyGate.Release();
-                }
+                var requiresFullRead = await EnqueueSnapshotAsync(notification, cancellationToken).ConfigureAwait(false);
 
                 if (requiresFullRead)
                 {
@@ -406,9 +517,30 @@ public sealed class QuotaRuntimeService :
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+        catch (ObjectDisposedException) when (disposed)
+        {
+        }
+        catch (ChannelClosedException error)
+        {
+            var clientError = error.InnerException as CodexClientException
+                ?? new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server notification stream closed.", error);
+            lastError = clientError.Kind;
+            lastDiagnostics = source.Diagnostics;
+            SetCurrent(FailureState(current, clientError.Kind));
+            if (RequiresReconnect(clientError.Kind))
+            {
+                await ResetClientAsync().ConfigureAwait(false);
+            }
+        }
         catch (CodexClientException error)
         {
             lastError = error.Kind;
+            lastDiagnostics = source.Diagnostics;
+            SetCurrent(FailureState(current, error.Kind));
+            if (RequiresReconnect(error.Kind))
+            {
+                await ResetClientAsync().ConfigureAwait(false);
+            }
         }
     }
 
@@ -440,6 +572,12 @@ public sealed class QuotaRuntimeService :
             return;
         }
 
+        if (string.Equals(current.StatusText, "⚠ 数据可能已过期", StringComparison.Ordinal)
+            && current.Windows.All(window => window.IsStale))
+        {
+            return;
+        }
+
         SetCurrent(current with
         {
             StatusText = "⚠ 数据可能已过期",
@@ -457,15 +595,18 @@ public sealed class QuotaRuntimeService :
     {
         if (!Settings.PersistQuotaCache)
         {
+            lastPersistedCache = null;
             return;
         }
 
         var cache = await persistence.LoadQuotaCacheAsync(cancellationToken).ConfigureAwait(false);
         if (cache is null)
         {
+            lastPersistedCache = null;
             return;
         }
 
+        lastPersistedCache = cache;
         coordinator.RestoreLastSuccess(cache.LastSuccessUtc);
 
         var windows = cache.Windows.Select((window, index) => new NormalizedQuotaWindow(
@@ -507,6 +648,40 @@ public sealed class QuotaRuntimeService :
             window.ResetAtUtc)).ToArray(),
         snapshot.AvailableCount,
         snapshot.ResetCredits.EarliestKnownExpiry);
+
+    private static bool CacheContentEquals(QuotaCacheDocument left, QuotaCacheDocument right) =>
+        left.FormatVersion == right.FormatVersion
+        && string.Equals(left.PlanType, right.PlanType, StringComparison.Ordinal)
+        && left.ResetCreditAvailableCount == right.ResetCreditAvailableCount
+        && left.ResetCreditEarliestExpiryUtc == right.ResetCreditEarliestExpiryUtc
+        && left.Windows.Count == right.Windows.Count
+        && left.Windows.Zip(right.Windows).All(pair =>
+            string.Equals(pair.First.SourceSlot, pair.Second.SourceSlot, StringComparison.Ordinal)
+            && pair.First.UsedPercent == pair.Second.UsedPercent
+            && pair.First.RemainingPercent == pair.Second.RemainingPercent
+            && pair.First.PercentageReliable == pair.Second.PercentageReliable
+            && pair.First.WindowDurationMinutes == pair.Second.WindowDurationMinutes
+            && pair.First.ResetAtUtc == pair.Second.ResetAtUtc);
+
+    private static bool AlertStateContentEquals(AlertStateDocument left, AlertStateDocument right)
+    {
+        if (left.SchemaVersion != right.SchemaVersion
+            || left.ResetAlertBaselineEstablished != right.ResetAlertBaselineEstablished
+            || !left.BaselineThresholds.SequenceEqual(right.BaselineThresholds)
+            || left.Windows.Count != right.Windows.Count)
+        {
+            return false;
+        }
+
+        return left.Windows.All(entry =>
+            right.Windows.TryGetValue(entry.Key, out var other)
+            && entry.Value.PseudonymousKey == other.PseudonymousKey
+            && entry.Value.WindowDurationMinutes == other.WindowDurationMinutes
+            && entry.Value.ResetAtUtc == other.ResetAtUtc
+            && entry.Value.LastReliableRemaining == other.LastReliableRemaining
+            && entry.Value.HandledThresholds.SequenceEqual(other.HandledThresholds)
+            && entry.Value.LastResetAlertCycleUtc == other.LastResetAlertCycleUtc);
+    }
 
     private void SetCurrent(AppUiState state)
     {
@@ -600,9 +775,10 @@ public sealed class QuotaRuntimeService :
 
         disposed = true;
         lifetime.Cancel();
+        snapshotQueue.Writer.TryComplete();
         coordinator.Release();
         await ResetClientAsync().ConfigureAwait(false);
-        foreach (var task in new[] { notificationTask, schedulerTask }.Where(task => task is not null))
+        foreach (var task in new[] { notificationTask, schedulerTask, snapshotApplyTask }.Where(task => task is not null))
         {
             try
             {
@@ -614,7 +790,6 @@ public sealed class QuotaRuntimeService :
         }
 
         initializationGate.Dispose();
-        snapshotApplyGate.Dispose();
         lifetime.Dispose();
     }
 }

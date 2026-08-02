@@ -102,6 +102,80 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public void IndependentSnapshotRequiresIdentityAndCompleteWindows()
+    {
+        var complete = new RateLimitsResponse
+        {
+            RateLimits = new RateLimitSnapshot
+            {
+                LimitId = "private-id",
+                Primary = CompleteWindow(20, 300, 2_000),
+                Secondary = CompleteWindow(30, 10_080, 3_000),
+            },
+        };
+        var missingIdentity = new RateLimitsResponse
+        {
+            RateLimits = new RateLimitSnapshot
+            {
+                Primary = CompleteWindow(20, 300, 2_000),
+                Secondary = CompleteWindow(30, 10_080, 3_000),
+            },
+        };
+        var missingSecondary = new RateLimitsResponse
+        {
+            RateLimits = new RateLimitSnapshot
+            {
+                LimitId = "private-id",
+                Primary = CompleteWindow(20, 300, 2_000),
+            },
+        };
+        var missingDuration = new RateLimitsResponse
+        {
+            RateLimits = new RateLimitSnapshot
+            {
+                LimitId = "private-id",
+                Primary = new RateLimitWindow { UsedPercent = 20, ResetsAt = 2_000 },
+                Secondary = CompleteWindow(30, 10_080, 3_000),
+            },
+        };
+        var missingReset = new RateLimitsResponse
+        {
+            RateLimits = new RateLimitSnapshot
+            {
+                LimitId = "private-id",
+                Primary = new RateLimitWindow { UsedPercent = 20, WindowDurationMinutes = 300 },
+                Secondary = CompleteWindow(30, 10_080, 3_000),
+            },
+        };
+        foreach (var (response, isComplete) in new[]
+        {
+            (complete, true),
+            (missingIdentity, false),
+            (missingSecondary, false),
+            (missingDuration, false),
+            (missingReset, false),
+        })
+        {
+            var result = RateLimitsSnapshotMerger.Merge(
+                null,
+                new RateLimitsUpdatedNotification(response, false));
+            Assert.AreEqual(isComplete, !result.RequiresFullRead);
+        }
+    }
+
+    [TestMethod]
+    public async Task JsonRpcEofCompletesNotificationStreamAsTransportClosed()
+    {
+        await using var connection = new JsonLineRpcConnection(new StringReader(string.Empty), new StringWriter());
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        var notifications = connection.ReadNotificationsAsync(cancellation.Token).GetAsyncEnumerator(cancellation.Token);
+
+        var error = await Assert.ThrowsAsync<CodexClientException>(async () => await notifications.MoveNextAsync());
+        Assert.AreEqual(CodexClientErrorKind.TransportClosed, error.Kind);
+        await notifications.DisposeAsync();
+    }
+
+    [TestMethod]
     public async Task JsonRpcPublishesKnownAndUnknownNotificationsWithoutBreakingResponses()
     {
         var input = new NotificationReader();
@@ -119,7 +193,7 @@ public sealed class Phase3CoreTests
     public void AlertIdentityNeverPersistsRawStableIdentifier()
     {
         const string raw = "sensitive-limit-id";
-        var value = AlertWindowIdentity.Create(raw, "primary", 300, 0);
+        var value = QuotaWindowIdentity.CreateAlertKey(raw, null, "primary", 300, 0);
         Assert.IsTrue(value.StartsWith("sha256:", StringComparison.Ordinal));
         Assert.IsFalse(value.Contains(raw, StringComparison.Ordinal));
         Assert.AreEqual(71, value.Length);
@@ -176,7 +250,7 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
-    public void ThresholdAlertTakesPriorityOverSimultaneousResetAlert()
+    public void ThresholdAndResetAlertsCombineIntoOneStructuredAlert()
     {
         var first = QuotaAlertReducer.Reduce(
             null,
@@ -201,9 +275,12 @@ public sealed class Phase3CoreTests
             ],
             new NotificationSettings());
 
-        Assert.AreEqual(QuotaAlertKind.Threshold, next.Alert!.Kind);
+        Assert.AreEqual(QuotaAlertKind.Composite, next.Alert!.Kind);
         Assert.AreEqual("threshold window", next.Alert.WindowName);
         Assert.AreEqual(10, next.Alert.Threshold);
+        Assert.HasCount(1, next.Alert.ResetWindows);
+        Assert.HasCount(2, next.Alert.ThresholdWindows);
+        CollectionAssert.AreEqual(new[] { 10, 20 }, next.Alert.ThresholdWindows.Select(window => window.Threshold).ToArray());
         CollectionAssert.Contains(next.State.Windows["threshold"].HandledThresholds.ToArray(), 10);
         Assert.AreEqual(resetAt, next.State.Windows["reset"].LastResetAlertCycleUtc);
         Assert.IsNull(repeat.Alert);
@@ -294,6 +371,7 @@ public sealed class Phase3CoreTests
         var first = QuotaAlertReducer.Reduce(null, [Input(60)], new NotificationSettings(true, true, true));
         var crossed = QuotaAlertReducer.Reduce(first.State, [Input(9)], new NotificationSettings(true, true, true));
         Assert.AreEqual(10, crossed.Alert!.Threshold);
+        CollectionAssert.AreEqual(new[] { 10, 20, 50 }, crossed.Alert.ThresholdWindows.Select(window => window.Threshold).ToArray());
         CollectionAssert.AreEquivalent(new[] { 50, 20, 10 }, crossed.State.Windows["window"].HandledThresholds.ToArray());
     }
 
@@ -398,6 +476,13 @@ public sealed class Phase3CoreTests
         true,
         10_080,
         resetAt ?? DateTimeOffset.UnixEpoch.AddDays(7));
+
+    private static RateLimitWindow CompleteWindow(long usedPercent, long durationMinutes, long resetsAt) => new()
+    {
+        UsedPercent = usedPercent,
+        WindowDurationMinutes = durationMinutes,
+        ResetsAt = resetsAt,
+    };
 
     private sealed class NotificationReader : TextReader
     {

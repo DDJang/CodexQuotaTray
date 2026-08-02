@@ -401,6 +401,115 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_StaleStatePublishesOnceAndSuccessRestoresNormalState()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            CancellationToken.None);
+        var clock = new ManualTimeProvider();
+        var client = new ControlledClient();
+        client.Release.TrySetResult();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(store, paths),
+            new PreviewPersistence(store, paths),
+            timeProvider: clock);
+        var states = new List<AppUiState>();
+        service.StateChanged += (_, state) => states.Add(state);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        _ = await service.RefreshAsync(CancellationToken.None);
+        await clock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(1));
+        var beforeStale = states.Count;
+
+        clock.Advance(TimeSpan.FromMinutes(60));
+        await Task.Delay(100);
+        var afterFirstStale = states.Count;
+        Assert.AreEqual(beforeStale + 1, afterFirstStale);
+        Assert.AreEqual(StatusTone.Warning, states[^1].StatusTone);
+        Assert.IsTrue(states[^1].Windows.All(window => window.IsStale));
+
+        clock.Advance(TimeSpan.FromSeconds(30));
+        await Task.Delay(100);
+        Assert.AreEqual(afterFirstStale, states.Count);
+
+        _ = await service.RefreshAsync(CancellationToken.None);
+        Assert.AreEqual(StatusTone.Success, states[^1].StatusTone);
+        Assert.IsTrue(states[^1].Windows.All(window => !window.IsStale));
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_DropsRedundantCardOpenedRequestAfterSuccessfulStartup()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var client = new ControlledClient();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(new JsonFileStore(), paths),
+            new PreviewPersistence(new JsonFileStore(), paths));
+
+        var startup = service.GetSnapshotAsync(CancellationToken.None).AsTask();
+        await client.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        var cardOpened = service.RequestAsync(RefreshReason.CardOpened).AsTask();
+        client.Release.TrySetResult();
+
+        await startup;
+        await cardOpened;
+        Assert.AreEqual(1, client.ReadCount);
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_TransportClosedNotificationSetsErrorAndNextRefreshRecreatesClient()
+    {
+        using var directory = new TemporaryDirectory();
+        var factory = new ReconnectingClientFactory();
+        await using var service = new QuotaRuntimeService(
+            factory,
+            new SettingsService(new JsonFileStore(), new PreviewDataPaths(directory.Path)),
+            new PreviewPersistence(new JsonFileStore(), new PreviewDataPaths(directory.Path)));
+        var disconnected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.StateChanged += (_, state) =>
+        {
+            if (state.StatusTone == StatusTone.Error && state.StatusText.Contains("连接已断开", StringComparison.Ordinal))
+            {
+                disconnected.TrySetResult();
+            }
+        };
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        await disconnected.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        _ = await service.RefreshAsync(CancellationToken.None);
+
+        Assert.AreEqual(2, factory.CreateCount);
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_DuplicateSnapshotSkipsUnchangedCacheAndAlertWrites()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var client = new ControlledClient();
+        client.Release.TrySetResult();
+        var store = new JsonFileStore();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(store, paths),
+            new PreviewPersistence(store, paths));
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        var cache = await File.ReadAllTextAsync(paths.QuotaCache);
+        var alertState = await File.ReadAllTextAsync(paths.AlertState);
+        _ = await service.RefreshAsync(CancellationToken.None);
+
+        Assert.AreEqual(cache, await File.ReadAllTextAsync(paths.QuotaCache));
+        Assert.AreEqual(alertState, await File.ReadAllTextAsync(paths.AlertState));
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_RequestWaitsForInitializationBeforeApplyingRefreshMode()
     {
         using var directory = new TemporaryDirectory();
@@ -710,6 +819,53 @@ public sealed class AppServerPhase2Tests
     private sealed class SingleClientFactory(ICodexAppServerClient client) : ICodexAppServerClientFactory
     {
         public ICodexAppServerClient Create() => client;
+    }
+
+    private sealed class ReconnectingClientFactory : ICodexAppServerClientFactory
+    {
+        public int CreateCount { get; private set; }
+
+        public ICodexAppServerClient Create()
+        {
+            CreateCount++;
+            return new ReconnectingClient(CreateCount == 1);
+        }
+    }
+
+    private sealed class ReconnectingClient(bool closesNotifications) : ICodexAppServerClient
+    {
+        public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
+
+        public Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new CodexSessionInfo("9.99.0", "9.99.0"));
+
+        public Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new RateLimitsReadResult(
+                new RateLimitsResponse
+                {
+                    RateLimits = new RateLimitSnapshot
+                    {
+                        Primary = new RateLimitWindow { UsedPercent = 25, WindowDurationMinutes = 300 },
+                    },
+                },
+                false));
+
+        public async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            if (closesNotifications)
+            {
+                await Task.Yield();
+                throw new ChannelClosedException(new CodexClientException(
+                    CodexClientErrorKind.TransportClosed,
+                    "synthetic stdout EOF"));
+            }
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            yield break;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class RecordingNotificationSink : IQuotaNotificationSink

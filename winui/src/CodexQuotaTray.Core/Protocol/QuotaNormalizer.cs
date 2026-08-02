@@ -110,14 +110,19 @@ public static class QuotaNormalizer
         }
 
         var used = Math.Clamp(rawUsed, 0, 100);
-        var identity = snapshot.LimitId ?? bucket;
         var ordinal = fallbackOrdinal;
-        var localKey = identity is null
-            ? $"fallback:{slot}:{window.WindowDurationMinutes?.ToString() ?? "unknown"}:{ordinal}"
-            : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{identity}\n{slot}"))).ToLowerInvariant();
-        var alertKey = snapshot.LimitId is { Length: > 0 }
-            ? $"sha256:{localKey}"
-            : $"fallback:{slot}:{window.WindowDurationMinutes?.ToString() ?? "unknown"}:{ordinal}";
+        var localKey = QuotaWindowIdentity.CreateLocalKey(
+            snapshot.LimitId,
+            bucket,
+            slot,
+            window.WindowDurationMinutes,
+            ordinal);
+        var alertKey = QuotaWindowIdentity.CreateAlertKey(
+            snapshot.LimitId,
+            bucket,
+            slot,
+            window.WindowDurationMinutes,
+            ordinal);
         fallbackOrdinal++;
         output.Add(new NormalizedQuotaWindow(
             localKey,
@@ -185,6 +190,37 @@ public static class QuotaNormalizer
         string.IsNullOrWhiteSpace(value)
             ? null
             : char.ToUpperInvariant(value.Trim()[0]) + value.Trim()[1..].ToLowerInvariant();
+}
+
+internal static class QuotaWindowIdentity
+{
+    public static string CreateLocalKey(
+        string? limitId,
+        string? bucket,
+        string sourceSlot,
+        long? durationMinutes,
+        int ordinal)
+    {
+        var identity = !string.IsNullOrWhiteSpace(limitId) ? limitId : bucket;
+        return string.IsNullOrWhiteSpace(identity)
+            ? CreateFallback(sourceSlot, durationMinutes, ordinal)
+            : Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{identity}\n{sourceSlot}"))).ToLowerInvariant();
+    }
+
+    public static string CreateAlertKey(
+        string? limitId,
+        string? bucket,
+        string sourceSlot,
+        long? durationMinutes,
+        int ordinal)
+    {
+        return !string.IsNullOrWhiteSpace(limitId)
+            ? $"sha256:{CreateLocalKey(limitId, null, sourceSlot, durationMinutes, ordinal)}"
+            : CreateFallback(sourceSlot, durationMinutes, ordinal);
+    }
+
+    private static string CreateFallback(string sourceSlot, long? durationMinutes, int ordinal) =>
+        $"fallback:{sourceSlot}:{durationMinutes?.ToString() ?? "unknown"}:{ordinal}";
 }
 
 public sealed class QuotaViewProjector(TimeProvider timeProvider, TimeZoneInfo timeZone)

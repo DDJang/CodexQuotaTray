@@ -27,8 +27,27 @@ public static class RateLimitsSnapshotMerger
             false);
     }
 
-    private static bool HasIndependentSnapshot(RateLimitsResponse value) =>
-        value.RateLimits is not null || value.RateLimitsByLimitId is { Count: > 0 };
+    private static bool HasIndependentSnapshot(RateLimitsResponse value)
+    {
+        if (value.RateLimitsByLimitId is { Count: > 0 } buckets)
+        {
+            return buckets.All(entry => HasCompleteSnapshot(entry.Key, entry.Value));
+        }
+
+        return value.RateLimits is { } legacy
+            && HasCompleteSnapshot(legacy.LimitId, legacy);
+    }
+
+    private static bool HasCompleteSnapshot(string? bucket, RateLimitSnapshot? snapshot) =>
+        snapshot is not null
+        && !string.IsNullOrWhiteSpace(snapshot.LimitId ?? bucket)
+        && HasCompleteWindow(snapshot.Primary)
+        && HasCompleteWindow(snapshot.Secondary);
+
+    private static bool HasCompleteWindow(RateLimitWindow? window) =>
+        window?.UsedPercent is not null
+        && window.WindowDurationMinutes is > 0
+        && window.ResetsAt is not null;
 
     private static Dictionary<string, RateLimitSnapshot>? MergeBuckets(
         Dictionary<string, RateLimitSnapshot>? baseline,
