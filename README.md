@@ -2,7 +2,7 @@
 
 CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过本机 `codex app-server` 显示 Codex 额度窗口、剩余百分比和重置时间。
 
-当前交付候选版本为 `0.4.3`，支持 Windows 10/11，正式入口使用 C# + WinUI 3。旧 Rust/Win32 实现已归档到 `archive/rust-win32-final`，不再保留在当前开发分支。本项目不使用 Electron、WebView 或浏览器运行时。
+当前交付候选版本为 `0.5.0`，支持 Windows 10/11，正式入口使用 C# + WinUI 3。旧 Rust/Win32 实现已归档到 `archive/rust-win32-final`，不再保留在当前开发分支。本项目不使用 Electron、WebView 或浏览器运行时。
 
 ## 功能边界
 
@@ -36,7 +36,7 @@ CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过�
 - [依赖与许可证](docs/DEPENDENCIES.md)
 - [Rust/Win32 归档说明](docs/LEGACY_RUST_WIN32.md)
 
-`winui/` 是 0.4.3 正式交付候选入口，默认只读连接本机 App Server，并复用 `%LOCALAPPDATA%\CodexQuotaTray` 的兼容设置、缓存与提醒状态。其构建说明见 [WinUI README](winui/README.md)。
+`winui/` 是 0.5.0 正式交付候选入口，默认只读连接本机 App Server，并复用 `%LOCALAPPDATA%\CodexQuotaTray` 的兼容设置、缓存与提醒状态。其构建说明见 [WinUI README](winui/README.md)。
 
 ## 构建与测试
 

@@ -127,7 +127,8 @@ public partial class App : Application
             mainWindow.ShowPanel,
             ShowSettings,
             () => RequestRuntimeRefresh(RefreshReason.Resume),
-            ExitApplication);
+            ExitApplication,
+            () => runtime?.Settings.ThemeMode ?? CodexQuotaTray.Core.Persistence.ThemeMode.System);
         trayIcon.RegistrationStateChanged += (_, state) =>
         {
             _ = uiDispatcher.TryEnqueue(() =>
@@ -250,7 +251,7 @@ public partial class App : Application
         var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
         {
             Title = "CodexQuotaTray WinUI",
-            Content = "0.4.5\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
+            Content = "0.5.0\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
             CloseButtonText = "关闭",
             XamlRoot = hostElement.XamlRoot,
         };

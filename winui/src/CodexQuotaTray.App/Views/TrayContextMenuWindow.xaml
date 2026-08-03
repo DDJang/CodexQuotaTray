@@ -1,0 +1,47 @@
+<Window
+    x:Class="CodexQuotaTray.App.Views.TrayContextMenuWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="">
+    <Grid
+        x:Name="MenuRoot"
+        Width="160"
+        HorizontalAlignment="Left"
+        VerticalAlignment="Top"
+        Background="Transparent">
+        <Grid
+            x:Name="FallbackSurface"
+            Background="{ThemeResource MenuFallbackSurfaceBrush}"
+            Visibility="Collapsed" />
+
+        <StackPanel
+            x:Name="MenuItems"
+            Padding="6"
+            Spacing="2"
+            VerticalAlignment="Top">
+            <Button
+                x:Name="OpenButton"
+                AutomationProperties.Name="打开面板"
+                Content="打开面板"
+                Click="OnOpenClicked"
+                Style="{StaticResource TrayMenuItemStyle}" />
+            <Button
+                x:Name="SettingsButton"
+                AutomationProperties.Name="设置"
+                Content="设置"
+                Click="OnSettingsClicked"
+                Style="{StaticResource TrayMenuItemStyle}" />
+            <Border
+                Height="1"
+                Margin="0,2"
+                Background="{ThemeResource DividerBrush}"
+                IsHitTestVisible="False" />
+            <Button
+                x:Name="ExitButton"
+                AutomationProperties.Name="退出"
+                Content="退出"
+                Click="OnExitClicked"
+                Style="{StaticResource TrayMenuItemStyle}" />
+        </StackPanel>
+    </Grid>
+</Window>

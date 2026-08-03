@@ -26,7 +26,7 @@ public sealed partial class SettingsWindow : Window
         var hwnd = WindowNative.GetWindowHandle(this);
         var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         var appWindow = AppWindow.GetFromWindowId(id);
-        var scale = GetRasterizationScale(hwnd);
+        var scale = WindowPlacementService.GetRasterizationScale(hwnd);
         _ = WindowIconService.TrySetIcon(appWindow);
         Activated += (_, _) => _ = WindowIconService.TrySetIcon(appWindow);
 
@@ -62,9 +62,6 @@ public sealed partial class SettingsWindow : Window
     {
         _ = AboutButton.Focus(FocusState.Programmatic);
     }
-
-    private static double GetRasterizationScale(IntPtr hwnd) =>
-        Math.Max(1.0, NativeMethods.GetDpiForWindow(hwnd) / 96.0);
 
     private static int DipsToPixels(double dips, double scale) =>
         Math.Max(1, (int)Math.Round(dips * scale, MidpointRounding.AwayFromZero));

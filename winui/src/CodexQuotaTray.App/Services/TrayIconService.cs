@@ -2,18 +2,18 @@ using System.ComponentModel;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using CodexQuotaTray.App.Interop;
+using CodexQuotaTray.App.Views;
 using CodexQuotaTray.Core.Alerts;
 using CodexQuotaTray.Core.Models;
+using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using Microsoft.UI.Dispatching;
+using PersistenceThemeMode = CodexQuotaTray.Core.Persistence.ThemeMode;
 
 namespace CodexQuotaTray.App.Services;
 
 internal sealed class TrayIconService : IDisposable
 {
-    private const uint OpenCommand = 1;
-    private const uint SettingsCommand = 2;
-    private const uint ExitCommand = 3;
     private const uint TrayId = 0x51435452;
     private static readonly Guid TrayGuid = new("8F4F2C19-0C4C-4E1B-8F5C-50D0F1A4A77D");
     private static readonly Dictionary<IntPtr, TrayIconService> Instances = [];
@@ -24,12 +24,14 @@ internal sealed class TrayIconService : IDisposable
     private readonly Action openSettings;
     private readonly Action resume;
     private readonly Action exitApplication;
+    private readonly Func<PersistenceThemeMode> themeProvider;
     private const string TrayCallbackWindowClassName = "CodexQuotaTray.Tray.CallbackWindow";
     private const string TrayBroadcastWindowClassName = "CodexQuotaTray.Tray.BroadcastWindow";
     private IntPtr instance;
     private IntPtr callbackWindow;
     private IntPtr broadcastWindow;
     private IntPtr icon;
+    private TrayContextMenuWindow? contextMenu;
     private uint taskbarCreatedMessage;
     private volatile bool added;
     private bool disposed;
@@ -55,7 +57,8 @@ internal sealed class TrayIconService : IDisposable
         Action showWindow,
         Action openSettings,
         Action resume,
-        Action exitApplication)
+        Action exitApplication,
+        Func<PersistenceThemeMode> themeProvider)
     {
         this.dispatcher = dispatcher;
         this.toggleWindow = toggleWindow;
@@ -63,6 +66,7 @@ internal sealed class TrayIconService : IDisposable
         this.openSettings = openSettings;
         this.resume = resume;
         this.exitApplication = exitApplication;
+        this.themeProvider = themeProvider;
     }
 
     internal void Start()
@@ -452,46 +456,18 @@ internal sealed class TrayIconService : IDisposable
 
     private void ShowMenu()
     {
-        var menu = NativeMethods.CreatePopupMenu();
-        if (menu == IntPtr.Zero)
+        contextMenu ??= new TrayContextMenuWindow(showWindow, openSettings, exitApplication);
+        contextMenu.ToggleAt(GetMenuAnchor(), themeProvider());
+    }
+
+    private Rectangle? GetMenuAnchor()
+    {
+        if (NativeMethods.GetCursorPos(out var point))
         {
-            return;
+            return new Rectangle(point.X, point.Y, 1, 1);
         }
 
-        try
-        {
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, OpenCommand, "打开面板");
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, SettingsCommand, "设置");
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfSeparator, UIntPtr.Zero, string.Empty);
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, ExitCommand, "退出");
-            _ = NativeMethods.GetCursorPos(out var point);
-            _ = NativeMethods.SetForegroundWindow(broadcastWindow);
-            var command = unchecked((uint)NativeMethods.TrackPopupMenu(
-                menu,
-                NativeMethods.TpmRightButton | NativeMethods.TpmReturnCommand | NativeMethods.TpmNonotify,
-                point.X,
-                point.Y,
-                0,
-                broadcastWindow,
-                IntPtr.Zero));
-            _ = NativeMethods.PostMessage(broadcastWindow, NativeMethods.WmNull, UIntPtr.Zero, IntPtr.Zero);
-            if (command == OpenCommand)
-            {
-                showWindow();
-            }
-            else if (command == SettingsCommand)
-            {
-                openSettings();
-            }
-            else if (command == ExitCommand)
-            {
-                exitApplication();
-            }
-        }
-        finally
-        {
-            _ = NativeMethods.DestroyMenu(menu);
-        }
+        return TryGetIconRect();
     }
 
     internal void ShowQuotaAlert(QuotaAlert alert)
@@ -589,6 +565,8 @@ internal sealed class TrayIconService : IDisposable
         disposed = true;
         retryLifetime.Cancel();
         registrationGeneration++;
+        contextMenu?.Dispose();
+        contextMenu = null;
         DeleteIcon();
 
         if (callbackWindow != IntPtr.Zero)
