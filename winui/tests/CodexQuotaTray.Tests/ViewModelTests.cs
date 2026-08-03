@@ -1,5 +1,7 @@
 using CodexQuotaTray.Core.Models;
+using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
+using CodexQuotaTray.Core.Runtime;
 
 namespace CodexQuotaTray.Tests;
 
@@ -113,6 +115,29 @@ public sealed class ViewModelTests
         Assert.AreEqual("● 更新于 14:30", viewModel.StatusText);
     }
 
+    [TestMethod]
+    public async Task SettingsPageCommands_UseInjectedExistingActions()
+    {
+        var runtime = new StubRuntimeControl();
+        var platform = new StubSettingsPlatformActions();
+        var actions = new StubSettingsPageActions();
+        var viewModel = new SettingsViewModel(runtime, platform, actions);
+
+        await viewModel.RefreshQuotaCommand.ExecuteAsync(null);
+        viewModel.OpenOfficialUsageCommand.Execute(null);
+        viewModel.CopyQuotaSummaryCommand.Execute(null);
+        viewModel.CopyDiagnosticsCommand.Execute(null);
+        var aboutHost = new object();
+        viewModel.ShowAboutCommand.Execute(aboutHost);
+
+        Assert.AreEqual(1, actions.RefreshCount);
+        Assert.IsTrue(actions.OpenedUsage);
+        Assert.IsTrue(actions.CopiedSummary);
+        Assert.IsTrue(actions.CopiedDiagnostics);
+        Assert.IsTrue(actions.ShowedAbout);
+        Assert.AreSame(aboutHost, actions.AboutHost);
+    }
+
     private sealed class StubProvider(AppUiState state) : IUiStateProvider
     {
         public ValueTask<AppUiState> GetSnapshotAsync(CancellationToken cancellationToken) =>
@@ -127,5 +152,71 @@ public sealed class ViewModelTests
         public bool WasOpened { get; private set; }
 
         public void OpenOfficialUsage() => WasOpened = true;
+    }
+
+    private sealed class StubRuntimeControl : IQuotaRuntimeControl
+    {
+        public AppSettings Settings { get; private set; } = AppSettings.Defaults;
+
+        public event EventHandler<AppUiState>? StateChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public Task ApplySettingsAsync(AppSettings settings, CancellationToken cancellationToken)
+        {
+            Settings = settings;
+            return Task.CompletedTask;
+        }
+
+        public ValueTask RequestAsync(RefreshReason reason, CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+    }
+
+    private sealed class StubSettingsPlatformActions : ISettingsPlatformActions
+    {
+        public Task SetStartupAsync(bool enabled, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public void OpenDataDirectory()
+        {
+        }
+
+        public Task<int> ImportProductionDataAsync(CancellationToken cancellationToken) => Task.FromResult(0);
+
+        public Task ClearQuotaCacheAsync() => Task.CompletedTask;
+    }
+
+    private sealed class StubSettingsPageActions : ISettingsPageActions
+    {
+        public int RefreshCount { get; private set; }
+
+        public bool OpenedUsage { get; private set; }
+
+        public bool CopiedSummary { get; private set; }
+
+        public bool CopiedDiagnostics { get; private set; }
+
+        public bool ShowedAbout { get; private set; }
+
+        public object? AboutHost { get; private set; }
+
+        public Task RefreshQuotaAsync(CancellationToken cancellationToken)
+        {
+            RefreshCount++;
+            return Task.CompletedTask;
+        }
+
+        public void OpenOfficialUsage() => OpenedUsage = true;
+
+        public void CopyQuotaSummary() => CopiedSummary = true;
+
+        public void CopyDiagnostics() => CopiedDiagnostics = true;
+
+        public void ShowAbout(object? host)
+        {
+            ShowedAbout = true;
+            AboutHost = host;
+        }
     }
 }

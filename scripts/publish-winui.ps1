@@ -14,6 +14,18 @@ function Get-FullPath([string]$Path) {
 $repoRoot = Get-FullPath (Join-Path $PSScriptRoot "..")
 $winuiRoot = Join-Path $repoRoot "winui"
 $project = Join-Path $winuiRoot "src\CodexQuotaTray.App\CodexQuotaTray.App.csproj"
+$dotnetCommand = $DotNet
+if ($DotNet -eq "dotnet") {
+    $localDotNet = @(
+        (Join-Path $repoRoot "target\dotnet-sdk-10.0.302-full\dotnet.exe"),
+        (Join-Path $repoRoot "target\dotnet-sdk-10.0.302\dotnet.exe"),
+        (Join-Path $repoRoot "target\dotnet10\dotnet.exe")
+    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+
+    if ($localDotNet) {
+        $dotnetCommand = $localDotNet
+    }
+}
 $output = if ($OutputDirectory) {
     Get-FullPath $OutputDirectory
 } else {
@@ -22,10 +34,10 @@ $output = if ($OutputDirectory) {
 
 Push-Location $winuiRoot
 try {
-    & $DotNet restore $project --configfile (Join-Path $winuiRoot "NuGet.config") -p:Platform=x64 -r win-x64
+    & $dotnetCommand restore $project --configfile (Join-Path $winuiRoot "NuGet.config") -p:Platform=x64 -r win-x64
     if ($LASTEXITCODE -ne 0) { throw "WinUI restore failed" }
 
-    & $DotNet publish $project -c Release -p:Platform=x64 -r win-x64 --self-contained true `
+    & $dotnetCommand publish $project -c Release -p:Platform=x64 -r win-x64 --self-contained true `
         --no-restore -o $output -p:WindowsAppSDKSelfContained=true `
         -p:PublishSingleFile=false -p:PublishTrimmed=false
     if ($LASTEXITCODE -ne 0) { throw "WinUI publish failed" }

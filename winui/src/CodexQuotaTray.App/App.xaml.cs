@@ -22,7 +22,9 @@ public partial class App : Application
     private Task? initializationTask;
     private QuotaRuntimeService? runtime;
     private SettingsWindow? settingsWindow;
+    private ISettingsPageActions? settingsPageActions;
     private HostEventService? hostEvents;
+    private Microsoft.UI.Xaml.Controls.ContentDialog? aboutDialog;
     private bool exiting;
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
@@ -104,21 +106,18 @@ public partial class App : Application
             diagnostics.CreateDiagnosticText(),
             trayIcon?.CreateDiagnosticText() ?? "托盘注册状态: NotStarted")));
         var summaryClipboard = new DiagnosticsClipboardService(new DelegateDiagnosticTextProvider(viewModel.CreateQuotaSummary));
+        settingsPageActions = new DelegateSettingsPageActions(
+            cancellationToken => viewModel.RefreshCommand.ExecuteAsync(cancellationToken),
+            () => viewModel.OpenUsageCommand.Execute(null),
+            summaryClipboard.Copy,
+            clipboard.Copy,
+            ShowAbout);
         trayIcon = new TrayIconService(
             uiDispatcher,
             mainWindow.TogglePanel,
             mainWindow.ShowPanel,
-            () => _ = viewModel.RefreshCommand.ExecuteAsync(null),
-            () => viewModel.OpenUsageCommand.Execute(null),
-            summaryClipboard.Copy,
-            clipboard.Copy,
             ShowSettings,
-            ShowAbout,
             () => RequestRuntimeRefresh(RefreshReason.Resume),
-            () => runtime?.Settings,
-            mode => UpdateRuntimeSettings(settings => settings with { RefreshMode = mode }),
-            ToggleAlert,
-            ToggleStartup,
             ExitApplication);
         trayIcon.RegistrationStateChanged += (_, state) =>
         {
@@ -222,73 +221,87 @@ public partial class App : Application
 
     private void ShowSettings()
     {
-        if (runtime is null || settingsActions is null)
+        if (runtime is null || settingsActions is null || settingsPageActions is null)
         {
             return;
         }
 
-        settingsWindow ??= new SettingsWindow(new SettingsViewModel(runtime, settingsActions));
+        settingsWindow ??= new SettingsWindow(new SettingsViewModel(runtime, settingsActions, settingsPageActions));
         settingsWindow.Activate();
     }
 
-    private void ShowAbout()
+    private void ShowAbout(object? host)
     {
+        if (aboutDialog is not null || host is not Microsoft.UI.Xaml.FrameworkElement hostElement || hostElement.XamlRoot is null)
+        {
+            return;
+        }
+
+        _ = hostElement.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
         var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
         {
             Title = "CodexQuotaTray WinUI",
             Content = "0.4.4\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
             CloseButtonText = "关闭",
-            XamlRoot = mainWindow?.Content.XamlRoot,
+            XamlRoot = hostElement.XamlRoot,
         };
-        _ = dialog.ShowAsync();
+        aboutDialog = dialog;
+        _ = ShowAboutAsync(dialog, hostElement);
     }
 
-    private async void UpdateRuntimeSettings(Func<AppSettings, AppSettings> update)
+    private async Task ShowAboutAsync(
+        Microsoft.UI.Xaml.Controls.ContentDialog dialog,
+        Microsoft.UI.Xaml.FrameworkElement hostElement)
     {
-        if (runtime is null)
-        {
-            return;
-        }
-
         try
         {
-            await runtime.ApplySettingsAsync(update(runtime.Settings), lifetime.Token);
+            await dialog.ShowAsync();
         }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
+        catch (InvalidOperationException error)
         {
-            System.Diagnostics.Debug.WriteLine($"Could not update settings: {error.GetType().Name}");
+            System.Diagnostics.Debug.WriteLine($"Could not show about dialog: {error.GetType().Name}");
+        }
+        finally
+        {
+            if (ReferenceEquals(aboutDialog, dialog))
+            {
+                aboutDialog = null;
+            }
+
+            _ = RestoreAboutFocusAsync(hostElement);
         }
     }
 
-    private void ToggleAlert(int threshold) => UpdateRuntimeSettings(settings =>
+    private async Task RestoreAboutFocusAsync(Microsoft.UI.Xaml.FrameworkElement hostElement)
     {
-        var current = settings.EffectiveNotifications;
-        var changed = threshold switch
+        await Task.Delay(75);
+        _ = uiDispatcher?.TryEnqueue(() =>
         {
-            50 => current with { Remaining50 = !current.Remaining50 },
-            20 => current with { Remaining20 = !current.Remaining20 },
-            _ => current with { Remaining10 = !current.Remaining10 },
-        };
-        return settings with { Notifications = changed };
-    });
+            settingsWindow?.Activate();
+            settingsWindow?.FocusAboutButton();
+            if (hostElement.XamlRoot is not null)
+            {
+                _ = hostElement.Focus(Microsoft.UI.Xaml.FocusState.Keyboard);
+            }
+        });
+    }
 
-    private async void ToggleStartup()
+    private sealed class DelegateSettingsPageActions(
+        Func<CancellationToken, Task> refreshQuota,
+        Action openOfficialUsage,
+        Action copyQuotaSummary,
+        Action copyDiagnostics,
+        Action<object?> showAbout) : ISettingsPageActions
     {
-        if (runtime is null || settingsActions is null)
-        {
-            return;
-        }
+        public Task RefreshQuotaAsync(CancellationToken cancellationToken) => refreshQuota(cancellationToken);
 
-        var enabled = !runtime.Settings.StartWithWindows;
-        try
-        {
-            await settingsActions.SetStartupAsync(enabled, lifetime.Token);
-            await runtime.ApplySettingsAsync(runtime.Settings with { StartWithWindows = enabled }, lifetime.Token);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
-        {
-            System.Diagnostics.Debug.WriteLine($"Could not update startup: {error.GetType().Name}");
-        }
+        public void OpenOfficialUsage() => openOfficialUsage();
+
+        public void CopyQuotaSummary() => copyQuotaSummary();
+
+        public void CopyDiagnostics() => copyDiagnostics();
+
+        public void ShowAbout(object? host) => showAbout(host);
     }
 
     private static string CreateTooltip(CodexQuotaTray.Core.Models.AppUiState state)

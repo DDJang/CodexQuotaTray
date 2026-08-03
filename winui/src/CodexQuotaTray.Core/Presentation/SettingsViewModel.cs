@@ -16,10 +16,24 @@ public interface ISettingsPlatformActions
     Task ClearQuotaCacheAsync();
 }
 
+public interface ISettingsPageActions
+{
+    Task RefreshQuotaAsync(CancellationToken cancellationToken);
+
+    void OpenOfficialUsage();
+
+    void CopyQuotaSummary();
+
+    void CopyDiagnostics();
+
+    void ShowAbout(object? host);
+}
+
 public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly IQuotaRuntimeControl runtime;
     private readonly ISettingsPlatformActions platform;
+    private readonly ISettingsPageActions pageActions;
 
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showRemainingPercent;
@@ -35,10 +49,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string statusText = string.Empty;
     [ObservableProperty][NotifyCanExecuteChangedFor(nameof(SaveCommand))] private bool isBusy;
 
-    public SettingsViewModel(IQuotaRuntimeControl runtime, ISettingsPlatformActions platform)
+    public SettingsViewModel(
+        IQuotaRuntimeControl runtime,
+        ISettingsPlatformActions platform,
+        ISettingsPageActions pageActions)
     {
         this.runtime = runtime;
         this.platform = platform;
+        this.pageActions = pageActions;
         Load(runtime.Settings);
     }
 
@@ -91,6 +109,22 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenDataDirectory() => platform.OpenDataDirectory();
+
+    [RelayCommand]
+    private Task RefreshQuotaAsync(CancellationToken cancellationToken) =>
+        pageActions.RefreshQuotaAsync(cancellationToken);
+
+    [RelayCommand]
+    private void OpenOfficialUsage() => pageActions.OpenOfficialUsage();
+
+    [RelayCommand]
+    private void CopyQuotaSummary() => pageActions.CopyQuotaSummary();
+
+    [RelayCommand]
+    private void CopyDiagnostics() => pageActions.CopyDiagnostics();
+
+    [RelayCommand]
+    private void ShowAbout(object? host) => pageActions.ShowAbout(host);
 
     private bool CanSave() => !IsBusy;
 

@@ -27,6 +27,7 @@ internal static class NativeMethods
     internal const uint MfString = 0x00000000;
     internal const uint MfChecked = 0x00000008;
     internal const uint MfPopup = 0x00000010;
+    internal const uint MfSeparator = 0x00000800;
     internal const uint TpmRightButton = 0x0002;
     internal const uint TpmReturnCommand = 0x0100;
     internal const uint TpmNonotify = 0x0080;
@@ -141,6 +142,9 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     internal static extern IntPtr DefWindowProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    internal static extern uint GetDpiForWindow(IntPtr hwnd);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     internal static extern IntPtr GetModuleHandle(string? moduleName);
