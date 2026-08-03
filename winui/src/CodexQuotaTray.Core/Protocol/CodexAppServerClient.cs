@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using CodexQuotaTray.Core;
 
 namespace CodexQuotaTray.Core.Protocol;
 
@@ -96,7 +97,7 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
                         {
                             name = "codex_quota_tray_winui",
                             title = "CodexQuotaTray WinUI",
-                            version = "0.5.1",
+                            version = ProductVersion.Current,
                         },
                     },
                     options.EffectiveInitializeTimeout,

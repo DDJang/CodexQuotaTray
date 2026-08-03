@@ -1,5 +1,6 @@
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.App.Views;
+using CodexQuotaTray.Core;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Protocol;
 using CodexQuotaTray.Core.Persistence;
@@ -12,7 +13,6 @@ namespace CodexQuotaTray.App;
 
 public partial class App : Application
 {
-    private const string InstanceKey = "CodexQuotaTray";
     private readonly CancellationTokenSource lifetime = new();
     private MainWindow? mainWindow;
     private TrayIconService? trayIcon;
@@ -29,8 +29,14 @@ public partial class App : Application
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
-        var isolatedPreview = HasArgument(Environment.GetCommandLineArgs(), "--isolated-preview-data");
-        currentInstance = AppInstance.FindOrRegisterForKey(isolatedPreview ? $"{InstanceKey}.Preview" : InstanceKey);
+        var arguments = Environment.GetCommandLineArgs();
+        var launchProfile = AppLaunchProfile.FromArguments(arguments, args.Arguments);
+        var showDemo = launchProfile.ShowDemo;
+        var isolatedPreview = launchProfile.IsolatedPreview;
+        var usePreviewIdentity = launchProfile.UsePreviewIdentity;
+        var trayIdentity = usePreviewIdentity ? TrayIconIdentity.Preview : TrayIconIdentity.Production;
+
+        currentInstance = AppInstance.FindOrRegisterForKey(launchProfile.InstanceKey);
         if (!currentInstance.IsCurrent)
         {
             await currentInstance.RedirectActivationToAsync(AppInstance.GetCurrent().GetActivatedEventArgs());
@@ -38,7 +44,6 @@ public partial class App : Application
             return;
         }
 
-        var arguments = Environment.GetCommandLineArgs();
         if (HasArgument(arguments, "--shutdown-existing"))
         {
             Exit();
@@ -47,8 +52,6 @@ public partial class App : Application
 
         currentInstance.Activated += OnInstanceActivated;
         uiDispatcher = DispatcherQueue.GetForCurrentThread();
-        var launchArguments = args.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var showDemo = launchArguments.Any(IsDemo) || arguments.Any(IsDemo);
         var startupLaunch = arguments.Any(value => string.Equals(value, "--startup", StringComparison.OrdinalIgnoreCase));
         var explicitCodex = ReadOption(arguments, "--codex-bin");
 
@@ -64,7 +67,7 @@ public partial class App : Application
         }
         else
         {
-            var paths = CreateDataPaths(arguments);
+            var paths = CreateDataPaths(isolatedPreview);
             var jsonStore = new JsonFileStore();
             var persistence = new PreviewPersistence(jsonStore, paths);
             var notificationSink = new TrayNotificationSink(uiDispatcher);
@@ -84,10 +87,14 @@ public partial class App : Application
                 {
                     viewModelReference?.ApplySnapshot(state);
                     mainWindow?.ApplyTheme(liveRuntime.Settings.ThemeMode);
-                    trayIcon?.UpdateTooltip(CreateTooltip(state));
+                    trayIcon?.UpdateTooltip(TrayTooltipFormatter.Create(trayIdentity.Tooltip, state));
                 });
             };
-            settingsActions = new SettingsPlatformActions(paths, persistence, new ProductionDataImporter(jsonStore));
+            settingsActions = new SettingsPlatformActions(
+                paths,
+                persistence,
+                new ProductionDataImporter(jsonStore),
+                launchProfile.CanConfigureStartup);
             pendingNotificationSink = notificationSink;
         }
 
@@ -133,7 +140,7 @@ public partial class App : Application
             () => RequestRuntimeRefresh(RefreshReason.Resume),
             ExitApplication,
             () => runtime?.Settings.ThemeMode ?? CodexQuotaTray.Core.Persistence.ThemeMode.System,
-            isolatedPreview ? TrayIconIdentity.Preview : TrayIconIdentity.Production);
+            trayIdentity);
         trayIcon.RegistrationStateChanged += (_, state) =>
         {
             _ = uiDispatcher.TryEnqueue(() =>
@@ -199,9 +206,9 @@ public partial class App : Application
     private ISettingsPlatformActions? settingsActions;
     private TrayNotificationSink? pendingNotificationSink;
 
-    private static PreviewDataPaths CreateDataPaths(string[] arguments)
+    private static PreviewDataPaths CreateDataPaths(bool isolatedPreview)
     {
-        if (!HasArgument(arguments, "--isolated-preview-data"))
+        if (!isolatedPreview)
         {
             return new PreviewDataPaths(Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -272,7 +279,7 @@ public partial class App : Application
         var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
         {
             Title = "CodexQuotaTray WinUI",
-            Content = "0.5.1\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
+            Content = $"{ProductVersion.Current}\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
             CloseButtonText = "关闭",
             XamlRoot = hostElement.XamlRoot,
         };
@@ -334,17 +341,6 @@ public partial class App : Application
 
         public void ShowAbout(object? host) => showAbout(host);
     }
-
-    private static string CreateTooltip(CodexQuotaTray.Core.Models.AppUiState state)
-    {
-        var quotas = string.Join(" · ", state.Windows.Take(2).Select(window => $"{window.Name} {window.RemainingPercent}%"));
-        return string.IsNullOrWhiteSpace(quotas)
-            ? $"CodexQuotaTray · {state.StatusText}"
-            : $"CodexQuotaTray · {quotas} · {state.StatusText}";
-    }
-
-    private static bool IsDemo(string argument) =>
-        string.Equals(argument, "--demo", StringComparison.OrdinalIgnoreCase);
 
     private static string? ReadOption(string[] arguments, string name)
     {

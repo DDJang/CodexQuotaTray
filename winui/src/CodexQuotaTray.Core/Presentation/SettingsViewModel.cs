@@ -7,6 +7,8 @@ namespace CodexQuotaTray.Core.Presentation;
 
 public interface ISettingsPlatformActions
 {
+    bool CanConfigureStartup { get; }
+
     Task SetStartupAsync(bool enabled, CancellationToken cancellationToken);
 
     void OpenDataDirectory();
@@ -63,6 +65,12 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public event EventHandler<ThemeMode>? ThemeSaved;
 
+    public bool CanConfigureStartup => platform.CanConfigureStartup;
+
+    public string StartupDescription => CanConfigureStartup
+        ? "登录 Windows 时自动启动托盘应用。"
+        : "预览模式不可配置开机启动。";
+
     public IReadOnlyList<RefreshMode> RefreshModes { get; } = Enum.GetValues<RefreshMode>();
 
     public IReadOnlyList<ThemeMode> ThemeModes { get; } = Enum.GetValues<ThemeMode>();
@@ -74,7 +82,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            await platform.SetStartupAsync(StartWithWindows, cancellationToken);
+            if (CanConfigureStartup)
+            {
+                await platform.SetStartupAsync(StartWithWindows, cancellationToken);
+            }
+
             await runtime.ApplySettingsAsync(ToSettings(), cancellationToken);
             StatusText = "设置已保存";
             ThemeSaved?.Invoke(this, SelectedThemeMode);
@@ -133,7 +145,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool CanSave() => !IsBusy;
 
     private AppSettings ToSettings() => new(
-        StartWithWindows,
+        CanConfigureStartup && StartWithWindows,
         ShowRemainingPercent,
         Use24HourTime,
         PersistQuotaCache,
@@ -145,7 +157,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private void Load(AppSettings value)
     {
-        StartWithWindows = value.StartWithWindows;
+        StartWithWindows = CanConfigureStartup && value.StartWithWindows;
         ShowRemainingPercent = value.ShowRemainingPercent;
         Use24HourTime = value.Use24HourTime;
         PersistQuotaCache = value.PersistQuotaCache;

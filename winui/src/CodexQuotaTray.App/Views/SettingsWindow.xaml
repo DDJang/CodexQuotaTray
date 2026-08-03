@@ -110,9 +110,13 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Spacing="2">
                                     <TextBlock Text="开机启动" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="登录 Windows 时自动启动托盘应用。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="{Binding StartupDescription}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding StartWithWindows, Mode=TwoWay}" HorizontalAlignment="Right" />
+                                <ToggleSwitch
+                                    Grid.Column="1"
+                                    IsEnabled="{Binding CanConfigureStartup}"
+                                    IsOn="{Binding StartWithWindows, Mode=TwoWay}"
+                                    HorizontalAlignment="Right" />
                             </Grid>
                             <Border Style="{StaticResource SettingsRowDividerStyle}" />
                             <Grid Style="{StaticResource SettingsRowStyle}">

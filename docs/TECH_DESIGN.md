@@ -1,116 +1,108 @@
 # CodexQuotaTray 技术设计
 
-文档状态：WinUI 3 当前实现
-协议基线：`codex-cli 0.144.5` stable App Server schema
-最后更新：2026-07-29
+## 当前技术基线
 
-## 1. 架构边界
+当前正式入口是 C# + WinUI 3，位于 `winui/`。旧 Rust/Win32 实现仅作为归档参考，不参与当前构建、测试、验证或发布。
 
-当前应用由一个 WinUI 3 主进程和一个受控的 `codex app-server` 子进程组成。项目不使用 Electron、WebView UI、浏览器 Cookie 或网页抓取。
+协议生成基线由 [`schemas/CODEX_VERSION`](../schemas/CODEX_VERSION) 指定，对应 wire schema 位于该版本目录。运行时不读取 `schemas/`；这些文件只用于协议审计、升级 diff 和测试 fixture 校准。
 
-```text
-CodexAppServerClient
-        │ stdio JSONL
-        ▼
-JsonLineRpcConnection
-        ▼
-Protocol DTO / QuotaNormalizer
-        ▼
-QuotaRuntimeService / RefreshCoordinator
-        ▼
-AppUiState / MainViewModel
-        ▼
-WinUI window / tray / notifications
-```
-
-职责保持分离：
-
-1. `Protocol/` 管理 App Server 进程、JSONL dispatcher、typed DTO 与额度规范化。
-2. `Runtime/` 维护连接、刷新协调、稀疏通知合并和当前快照。
-3. `Persistence/` 保存设置、非敏感缓存和提醒防重复状态。
-4. `Presentation/` 只消费归一化状态，不解析原始 JSON。
-5. `Alerts/` 负责阈值跨越与 at-most-once 状态。
-6. WinUI App 负责窗口、托盘、系统事件、通知和平台操作。
-
-旧 Rust/Win32 实现由 `archive/rust-win32-final` 保存，不参与当前构建或测试。
-
-## 2. App Server 与协议
-
-- Windows 依次查找 `codex.cmd`、`codex.exe` 和 `codex`；`--codex-bin` 可显式覆盖。
-- 子进程使用 stdin/stdout UTF-8 JSONL，wire envelope 不要求 `jsonrpc` 字段。
-- 初始化顺序为 `initialize`、`initialized`，随后只执行账户和额度读取。
-- response 通过连接内唯一 ID 路由；通知通过独立路径交给 runtime。
-- 请求有超时和取消；退出时先关闭 stdin 并等待正常结束，超时后才回收进程树。
-- RPC 错误正文、stderr 原文和原始响应不写入日志或持久化。
-
-运行时不直接加载 `schemas/**`。该目录暂时保留为协议生成基线、升级 diff 和兼容性审计资料。
-
-## 3. 额度与状态
-
-- 不固定解释 `primary` 或 `secondary`。
-- 使用 `windowDurationMins`、`limitId` 和 `limitName` 识别额度窗口。
-- `remainingPercent = clamp(100 - usedPercent, 0, 100)`。
-- 缺失、null、未知和 malformed 数据不能静默变成零。
-- `rateLimitResetCredits.availableCount` 是重置次数的权威字段；opaque ID 不进入 UI、日志或磁盘。
-- 稀疏通知只覆盖明确存在的字段；无可靠基线时请求协调器补读。
-- 刷新失败保留最后有效快照，并区分 refreshing、stale、offline、unauthenticated 和 unavailable。
-
-所有 Startup、Manual、CardOpened、Resume、NetworkRestored、Scheduled 和服务端通知补读都进入同一个 `RefreshCoordinator`。任意时刻最多存在一个主动读取。
-
-## 4. 持久化与隐私
-
-正式数据目录为：
+## 分层架构
 
 ```text
-%LOCALAPPDATA%\CodexQuotaTray
+Codex App Server
+        │ UTF-8 JSONL over stdio
+        ▼
+Core/Protocol
+        ▼ typed response + normalized quota
+Core/Runtime ─── Core/Persistence
+        │              │
+        ├──── Core/Alerts
+        ▼
+Core/Presentation
+        ▼
+WinUI App / Views / Services / Interop / Themes
 ```
 
-允许保存：
+- `Core/Protocol`：App Server 进程、JSONL transport、请求路由、typed DTO、通知解析和额度规范化。
+- `Core/Runtime`：连接生命周期、刷新协调、稀疏通知应用、当前状态和缓存提交。
+- `Core/Persistence`：设置、额度缓存和提醒防重复状态。
+- `Core/Presentation`：将归一化状态投影为 UI 状态和 ViewModel。
+- `Core/Alerts`：可靠百分比阈值、周期重置和跨重启 at-most-once reducer。
+- `App/Views`：WinUI 窗口和 XAML。
+- `App/Services`：托盘、主题、通知和平台操作。
+- `App/Interop`：Win32、AppWindow、DWM、显示器和 DPI 互操作。
+- `App/Themes`：颜色、控件样式和主题资源。
+- `Tests/FakeAppServer`：匿名 fixture 和确定性的离线验证。
 
-- 刷新与显示设置；
-- 匿名额度数字缓存；
-- 最后成功时间和非敏感版本信息；
-- 伪匿名窗口键与提醒防重复状态。
+UI 只消费 `AppUiState` 和 ViewModel，不解析 wire JSON，也不依赖协议 DTO。
 
-禁止保存或记录：
+## App Server 和只读边界
 
-- token、Cookie、邮箱、完整账户 ID；
-- 原始 limit ID、reset-credit ID；
-- App Server 原始认证或额度响应；
-- `codexHome`、CLI 绝对路径、stderr 原文；
-- 对话、项目代码或浏览历史。
+应用启动受控的 `codex app-server --stdio` 子进程，通过 UTF-8 JSONL 通信。连接使用唯一请求 ID 路由响应，持续排空 stdout/stderr，并通过超时、取消和受控进程树回收限制生命周期。
 
-JSON 文件限制大小并使用同目录临时文件原子替换。缓存恢复后先视为 stale，直到实时读取成功。
+当前 outbound 边界只有：
 
-## 5. Windows UI
+- `initialize` request；
+- `initialized` notification；
+- `account/rateLimits/read` request。
 
-- App 使用 unpackaged、folder-based、self-contained WinUI 3。
-- 托盘 callback、Explorer 重建广播和主窗口生命周期相互隔离。
-- Explorer 无法确认托盘图标时保留可访问的任务栏降级入口。
-- 主窗口使用 DWM 圆角以及 Acrylic → Mica → 不透明背景降级。
-- 关闭窗口仅隐藏；显式退出或 `--shutdown-existing` 才结束进程。
-- UI 只消费 `AppUiState` 和 view model，不接触 wire JSON。
+服务端 `account/rateLimits/updated` 只作为入站通知处理。应用不构造登录、购买、重置卡消费或其他账户写请求。任何 outbound 扩展都必须先更新协议合同、隐私评审和离线序列测试。
 
-## 6. 构建与发布
+原始响应、RPC error 正文和 stderr 原文不写日志或磁盘。额度窗口不依赖 `primary`、`secondary` 的固定周期含义；重置卡数量只接受 `availableCount`。
 
-- `scripts/publish-winui.ps1` 生成 `target/winui-publish/`。
-- `scripts/package-inno.ps1` 直接把该 publish 目录交给 `installer/CodexQuotaTray.iss`，不经过 ZIP。
-- `scripts/package-winui.ps1` 可独立生成便携 ZIP，但它不是安装器中间产物。
-- Inno 安装器使用 per-user 模式、固定 AppId、原位升级、正常关闭和 KeepUserData 语义。
-- `dist/` 和 `dist-inno/` 都是被 Git 忽略的本地产物目录。
+## Runtime 与状态
 
-公开发布仍需要组织控制的签名、Windows 10/11 验证、DPI/多显示器矩阵和长期稳定性测试。
+所有 Startup、Manual、Scheduled、CardOpened、Resume、NetworkRestored 和通知补读进入同一个刷新协调器。协调器保证单 in-flight、最小请求间隔和有界失败退避。
 
-## 7. 测试
+完整读取形成协议基线；稀疏通知只覆盖明确出现的字段。缺少可靠基线、通知溢出或通知不能形成安全独立快照时，Runtime 请求完整读取。失败保留最后有效状态，并由 Presentation 投影刷新中、警告、过期、离线或不可用表现。
 
-`winui/tests/` 使用 fake App Server 和匿名 fixture 覆盖：
+归一化阶段：
 
-- JSONL 路由、timeout、EOF、malformed response；
-- missing/null/unknown quota window；
-- 额度规范化和稀疏通知合并；
-- refresh coordinator 和状态转换；
-- settings/cache/alert persistence；
-- 提醒阈值与跨重启去重；
-- view model、主题、窗口和托盘策略。
+- 优先使用非空 multi-bucket 数据，否则使用 legacy snapshot；
+- 缺少 `usedPercent` 的窗口不进入有效列表；
+- 越界百分比只在显示范围内 clamp，并标记为不可靠；
+- opaque limit 标识只用于生成本地伪匿名键；
+- reset-credit 归一化为 unavailable、empty、count-only、partial-details 或 complete-details。
 
-常规测试不得要求真实 Codex 账户。真实资源 smoke 必须显式启用，且不得保存原始响应。
+## Persistence 与 Alerts
+
+Production 和 Live Preview 使用不同数据目录；Demo Runtime 不写持久化数据。
+
+持久化分为：
+
+- settings：刷新、外观、缓存、提醒和启动偏好；
+- quota cache：套餐、窗口百分比及可靠性、时长、重置时间、重置卡数量和最早已知到期时间；
+- alert state：本地伪匿名窗口键、可靠百分比基线、已处理阈值和周期状态。
+
+缓存不是 wire response archive，不保存 token、邮箱、原始 limit/reset-credit ID、原始响应或用户路径。JSON 文件有大小和条目上限，并使用受控替换提交。
+
+提醒 reducer 只处理可靠百分比。首次快照和新启用阈值只建立基线；同一周期同一阈值最多提醒一次，确认新周期后重新激活。
+
+## Production 与 Preview 身份
+
+具体托盘 GUID 的唯一事实源是 [`TrayIconIdentity.cs`](../winui/src/CodexQuotaTray.App/Services/TrayIconIdentity.cs)，文档不复制其值。启动参数、单实例 key 和能力选择由 [`AppLaunchProfile.cs`](../winui/src/CodexQuotaTray.Core/Runtime/AppLaunchProfile.cs) 决定。
+
+| 启动参数 | 数据源 | 数据位置 | 单实例与托盘身份 | 开机启动能力 |
+| --- | --- | --- | --- | --- |
+| 无参数 | Live Runtime | Production | Production | 允许 |
+| `--demo` | Demo Runtime | 不持久化 | Preview | 不允许 |
+| `--isolated-preview-data` | Live Runtime | Preview | Preview | 不允许 |
+| `--demo --isolated-preview-data` | Demo Runtime | 不持久化 | Preview | 不允许 |
+
+Production 与 Preview 使用不同单实例 key 和托盘身份，可以并存。Demo 始终使用 Preview 身份。Preview/Demo 不读取、写入或覆盖 Production 开机启动项，也不创建 Preview 启动项。
+
+`--shutdown-existing` 根据同一启动配置选择目标身份，并在创建窗口、Runtime 或托盘前完成转发或退出。
+
+## WinUI composition root
+
+`App.xaml.cs` 负责组合运行配置、Runtime、主窗口、设置窗口、托盘和平台服务。Tooltip 的基础名称由当前 `TrayIconIdentity` 注入，再由 `TrayTooltipFormatter` 附加额度与状态摘要；动态更新不能硬编码 Production 名称。
+
+产品版本的唯一声明位于 App 项目文件。`ProductVersion` 从入口程序集的 informational version 读取语义版本并移除构建元数据，供 About、诊断和 `initialize.clientInfo.version` 共用。
+
+窗口、托盘 callback、Explorer 重建处理和应用生命周期相互隔离。窗口关闭通常只隐藏；显式退出或目标身份的 `--shutdown-existing` 才结束进程。
+
+## 验证与发布边界
+
+普通验证统一使用 [`scripts/verify-winui.ps1`](../scripts/verify-winui.ps1)。Quick、Full 和 Release 的准确行为由脚本本身定义；本文不复制日常命令。
+
+真实账户 smoke、Explorer 托盘 smoke、ZIP、Inno、安装和签名均为显式操作，不属于默认验证。当前不能声称已经完成 Windows 10、稳定版 Windows 11、完整 DPI/多显示器/高对比度、公开发布签名或长期稳定性验收；这些门禁见 [Roadmap](ROADMAP.md) 和 [Release guide](RELEASE.md)。

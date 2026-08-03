@@ -200,7 +200,7 @@ try {
         }
     } while ([DateTime]::UtcNow -lt $deadline -and -not $process.HasExited)
 
-    if ($null -eq $callbackWindow) {
+    if ($callbackWindow -eq [IntPtr]::Zero) {
         $resultText = if ($null -eq $lastResult) {
             "not-called"
         } else {
@@ -212,7 +212,7 @@ try {
             "running:$($process.Id)"
         }
         throw "CodexQuotaTray notification callback window was not created " +
-            "(callback=0x$($callbackWindow.ToInt64().ToString('X')), result=$resultText, process=$processText)."
+            "(callback=0x$($callbackWindow.ToInt64().ToString('X')), GetRectHResult=$resultText, ProcessState=$processText)."
     }
 
     $mainWindow = $process.MainWindowHandle

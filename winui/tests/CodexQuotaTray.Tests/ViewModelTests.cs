@@ -157,6 +157,24 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public async Task PreviewSettingsCannotConfigureProductionStartup()
+    {
+        var runtime = new StubRuntimeControl();
+        var platform = new StubSettingsPlatformActions(canConfigureStartup: false);
+        var viewModel = new SettingsViewModel(runtime, platform, new StubSettingsPageActions())
+        {
+            StartWithWindows = true,
+        };
+
+        await viewModel.SaveCommand.ExecuteAsync(null);
+
+        Assert.IsFalse(viewModel.CanConfigureStartup);
+        Assert.AreEqual("预览模式不可配置开机启动。", viewModel.StartupDescription);
+        Assert.AreEqual(0, platform.SetStartupCount);
+        Assert.IsFalse(runtime.Settings.StartWithWindows);
+    }
+
+    [TestMethod]
     public async Task RuntimeAuthoritativeProviderDoesNotReapplyReturnedSnapshot()
     {
         var returned = new AppUiState(
@@ -213,9 +231,17 @@ public sealed class ViewModelTests
             ValueTask.CompletedTask;
     }
 
-    private sealed class StubSettingsPlatformActions : ISettingsPlatformActions
+    private sealed class StubSettingsPlatformActions(bool canConfigureStartup = true) : ISettingsPlatformActions
     {
-        public Task SetStartupAsync(bool enabled, CancellationToken cancellationToken) => Task.CompletedTask;
+        public bool CanConfigureStartup { get; } = canConfigureStartup;
+
+        public int SetStartupCount { get; private set; }
+
+        public Task SetStartupAsync(bool enabled, CancellationToken cancellationToken)
+        {
+            SetStartupCount++;
+            return Task.CompletedTask;
+        }
 
         public void OpenDataDirectory()
         {

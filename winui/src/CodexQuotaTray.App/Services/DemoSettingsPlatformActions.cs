@@ -7,10 +7,12 @@ namespace CodexQuotaTray.App.Services;
 /// </summary>
 internal sealed class DemoSettingsPlatformActions : ISettingsPlatformActions
 {
+    public bool CanConfigureStartup => false;
+
     public Task SetStartupAsync(bool enabled, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.CompletedTask;
+        throw new InvalidOperationException("预览模式不可配置开机启动。");
     }
 
     public void OpenDataDirectory()
