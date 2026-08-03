@@ -1,371 +1,238 @@
 # Codex App Server API Contract
 
-合同状态：0.144.5 已验证子集
-Schema source：`schemas/codex-0.144.5/` 的 stable generator 输出
-适用范围：CodexQuotaTray 只读额度客户端
+## 权威来源与适用范围
 
-## 1. 合同解释规则
+本合同描述 CodexQuotaTray 当前使用的最小只读协议子集，不复制完整 schema。
 
-- **Confirmed** 表示生成 schema 或 P0 实跑已验证。
-- **Client policy** 表示 CodexQuotaTray 的本地约束，不代表 App Server 的全局能力。
-- 生成 schema 是 wire shape 的权威来源；本文只描述应用使用的最小子集。
-- 未出现在 0.144.5 schema 中的字段或方法不得由客户端猜测。
-- 服务端新增未知字段必须忽略；已知必填字段缺失必须产生 protocol error，不能补默认业务值。
+- 协议基线版本以 [`schemas/CODEX_VERSION`](../schemas/CODEX_VERSION) 为唯一来源。
+- Wire shape 以该版本对应的 `schemas/codex-<version>/` 生成文件为准。
+- 当前 DTO、规范化和合并策略以 `Core/Protocol` 实现为准。
+- 运行时不读取 `schemas/` 目录；schema 只用于升级审计、fixture 和合同校准。
 
-## 2. Transport contract
+服务端新增未知字段应被忽略。应用实际使用的字段缺失、为 null 或 malformed 时，必须进入明确的不可用、部分可用或协议失败路径，不能静默生成业务零值。
 
-### 2.1 Framing
+## Transport
 
-- **Confirmed** transport 为 `codex app-server --stdio`。
-- stdin 和 stdout 均为 UTF-8 JSONL：一行一个完整消息，以换行结束。
-- **Confirmed** wire envelope 不包含 `jsonrpc` 字段。
-- 客户端必须持续读取 stdout 和 stderr，避免任一 pipe 填满造成死锁。
-- **Client policy** stderr 内容默认丢弃，仅记录“存在诊断输出”这一布尔事实。
-- **Windows client policy** child 及其后代被包含在 kill-on-close Job Object 中；关闭 stdin 后仍优先等待正常退出，只有命令 shim 留下持有 pipe 的后代时才由 job 回收整棵树。该策略是本地生命周期保证，不是 App Server wire contract。
+- 子进程为 `codex app-server --stdio`。
+- stdin/stdout 使用 UTF-8 JSONL，一行一个完整消息。
+- Wire envelope 不要求 `jsonrpc` 字段。
+- 请求 ID 在单个连接内唯一，由 transport 生成和路由。
+- stdout EOF、读写失败或连接关闭会使 pending request 以受控 transport error 完成。
+- 超时请求从 pending 集合移除；迟到响应不能恢复请求或覆盖其他请求。
+- 非法 JSON、非法 envelope、未知或重复 ID 只产生脱敏诊断，不输出原始消息。
+- stderr 被持续排空，但正文不进入日志或持久化。
 
-### 2.2 Envelope
-
-请求：
+请求、成功响应、错误响应和通知的最小 envelope 分别为：
 
 ```json
 { "method": "method/name", "id": 1, "params": {} }
 ```
 
-成功响应：
-
 ```json
 { "id": 1, "result": {} }
 ```
-
-错误响应：
 
 ```json
 { "id": 1, "error": { "code": 123, "message": "<suppressed>" } }
 ```
 
-通知：
-
 ```json
 { "method": "method/name", "params": {} }
 ```
 
-请求 ID 在单个连接内唯一。**Current P1 client policy** 使用从 0 开始的单调递增 `i64`；整数耗尽时拒绝新请求，不回绕复用。未来 reconnect 建立新连接时可重新创建连接级计数器。
+RPC error message 只验证 shape，不向业务层传播或保存正文。
 
-### 2.3 P1 dispatch 与失败语义
+## 允许的客户端消息
 
-以下是当前客户端实现，不是 App Server 的额外协议保证：
+当前 outbound allowlist 只有三条消息：
 
-- 请求写入前先以 ID 注册到 pending map，允许多个请求同时等待。
-- 唯一 dispatcher 按响应 ID 完成对应 pending request，不使用到达顺序推断归属。
-- 同时含 `result` 与 `error`、两者均缺失或 error shape 非法的响应属于 protocol failure；若 ID 已知，只失败该请求。
-- 没有 ID 且包含字符串 `method` 的消息作为服务端通知进入独立 event queue。
-- 每个请求从发送时开始计算独立 deadline；超时后删除 pending entry，迟到响应不能恢复或覆盖该请求。
-- stdout EOF 或 transport 读写失败会原子关闭连接，并让所有 pending request 返回受控 transport error。
-- 未知 ID、有限历史内的重复响应、非整数响应 ID、非法 JSON 和非法 envelope 只产生脱敏诊断；不 panic、不打印原始消息、不投递给其他请求。
-- RPC error message 只验证其存在，不保存或向上返回；业务层仅接收本地 request ID 和 error code。
+| 顺序 | Method | 类型 | Params |
+| ---: | --- | --- | --- |
+| 1 | `initialize` | request | `clientInfo` |
+| 2 | `initialized` | notification | 无 |
+| 3 | `account/rateLimits/read` | request | `null` |
 
-## 3. Allowed client messages
+应用不发送账户登录、token refresh、购买、重置卡消费或其他账户写请求。任何新增 outbound method 都需要独立更新协议合同、隐私评审和请求序列测试。
 
-CodexQuotaTray 当前 allowlist 只有四条消息：
+### initialize
 
-| 顺序 | Method | ID | Params | 类型 |
-|---:|---|---:|---|---|
-| 1 | `initialize` | 动态唯一 | `InitializeParams` | request |
-| 2 | `initialized` | 无 | 无 | notification |
-| 3 | `account/read` | 动态唯一 | `{ "refreshToken": false }` | request |
-| 4 | `account/rateLimits/read` | 动态唯一 | `null` | request |
-
-除重新读取额度外，任何新 outbound method 都必须先更新本合同、生成 schema、隐私评审和请求序列测试。
-下列示例中的数字 ID 仅为说明；runtime ID 由 JSON-RPC 层生成，协议参数构造器不能指定 ID。
-
-### 3.1 initialize
-
-请求：
+当前 `clientInfo` 为：
 
 ```json
 {
-  "method": "initialize",
-  "id": 0,
-  "params": {
-    "clientInfo": {
-      "name": "codex_quota_tray_spike",
-      "title": "CodexQuotaTray P0 Spike",
-      "version": "0.1.0"
-    }
-  }
+  "name": "codex_quota_tray_winui",
+  "title": "CodexQuotaTray WinUI",
+  "version": "<ProductVersion>"
 }
 ```
 
-**Confirmed schema constraints**：
+`version` 来自应用程序集的 `ProductVersion`，不在协议代码或本文重复维护产品版本。
 
-- `clientInfo` 必填。
-- `clientInfo.name` 和 `clientInfo.version` 必填；`title` 可空。
-- `capabilities` 可空；当前客户端不声明 `experimentalApi`。
+客户端从初始化结果消费：
 
-成功 result 必须包含：
+- `platformFamily`：必须为非空字符串；
+- `platformOs`：必须为非空字符串；
+- `userAgent`：可选，仅用于提取非敏感 runtime 版本 token。
 
-```text
-userAgent: string
-codexHome: absolute path string
-platformFamily: string
-platformOs: string
-```
+初始化结果为空或缺少必需平台字段时进入 protocol error。完整 user-agent、平台路径和原始结果不进入 UI 或磁盘。
 
-**Privacy policy**：`codexHome` 只用于完成反序列化，不进入 domain state、日志或 UI。
+### initialized
 
-### 3.2 initialized
+初始化 request 成功并通过最低字段验证后，客户端发送无 params 的 `initialized` notification。
 
-```json
-{ "method": "initialized" }
-```
+### account/rateLimits/read
 
-**Confirmed** 0.144.5 `ClientNotification` schema 只要求 `method`。客户端采用无 `params` 形式并成功完成后续请求。
-
-### 3.3 account/read
-
-```json
-{
-  "method": "account/read",
-  "id": 1,
-  "params": { "refreshToken": false }
-}
-```
-
-`refreshToken` 为可选 bool。**Client policy** 永远显式发送 false，避免主动 token refresh；正常认证维护仍由 Codex CLI 负责。
-
-响应合同：
+请求 params 为 `null`。当前响应 DTO 消费：
 
 ```text
-requiresOpenaiAuth: bool                  required
-account: null | Account                   optional/null
-
-Account.type:
-  apiKey
-  chatgpt      + email:string + planType:PlanType
-  amazonBedrock
+rateLimits: RateLimitSnapshot?
+rateLimitsByLimitId: map<string, RateLimitSnapshot>?
+rateLimitResetCredits: RateLimitResetCreditsSummary?
 ```
 
-**Privacy policy**：虽然 ChatGPT wire account 的 `email` 在 schema 中必填，typed domain model 必须忽略该字段。允许保留 `type` 和 `planType`。
-
-账户状态映射属于 **client policy**：
-
-| Wire 状态 | Domain auth state | 额度行为 |
-|---|---|---|
-| `account.type = chatgpt` | authenticated | 继续解析 rate limits |
-| `account.type = apiKey` | api_key | 显示 ChatGPT quota 不适用 |
-| `account.type = amazonBedrock` | bedrock | 显示 ChatGPT quota 不适用 |
-| `account = null` 且 `requiresOpenaiAuth = true` | unauthenticated | 提示运行 Codex 登录 |
-| `account = null` 且 false | unknown/unavailable | 不猜测账户类型 |
-
-### 3.4 account/rateLimits/read
-
-```json
-{
-  "method": "account/rateLimits/read",
-  "id": 2,
-  "params": null
-}
-```
-
-成功 result：
-
-```text
-rateLimits: RateLimitSnapshot                         required
-rateLimitsByLimitId: map<string, RateLimitSnapshot>? optional/null
-rateLimitResetCredits: RateLimitResetCreditsSummary? optional/null
-```
-
-`rateLimits` 是 confirmed legacy single-bucket view；`rateLimitsByLimitId` 是 confirmed multi-bucket view。
-
-`rateLimitResetCredits.availableCount` 是可用重置卡数量的权威值，绝不以 `credits.length` 代替。`credits` 可为 null，并可能只返回部分明细。每条明细包含 opaque `id`、`resetType`、`status`、`grantedAt`，以及可空的 `expiresAt`、`title`、`description`。客户端不显示、记录或持久化 reset-credit ID；无效到期时间只被忽略，不能使整个额度响应崩溃。
-
-`account/rateLimits/updated` 是稀疏额度窗口通知，不包含顶层重置卡摘要。客户端合并通知时必须保留最近一次完整 `account/rateLimits/read` 得到的 `rateLimitResetCredits` 快照。
-
-版本字符串只进入脱敏诊断。兼容性由 `initialize` 和 `account/rateLimits/read` 的实际结果判定；较新的 CLI 版本不构成错误。初始化失败、RPC method not found 或关键结构无法解析才进入协议/能力失败状态。
-
-`RateLimitSnapshot` 的全部业务字段在 schema 中均可缺失：
+非空 `rateLimitsByLimitId` 优先于 legacy `rateLimits`。当前 `RateLimitSnapshot` 消费：
 
 ```text
 limitId: string?
 limitName: string?
-planType: PlanType?
+planType: string?
 primary: RateLimitWindow?
 secondary: RateLimitWindow?
-rateLimitReachedType: enum?
-credits: CreditsSnapshot?
-individualLimit: SpendControlLimitSnapshot?
 ```
 
-`RateLimitWindow`：
+当前 `RateLimitWindow` 消费：
 
 ```text
-usedPercent: int32             required when window object exists
-windowDurationMins: int64?     optional/null
-resetsAt: int64?               optional/null, Unix seconds
+usedPercent: int64?
+windowDurationMins: int64?
+resetsAt: int64?  // Unix seconds
 ```
 
-`CreditsSnapshot`：
+窗口对象缺少 `usedPercent` 时不会产生有效额度窗口。越界百分比会 clamp 到显示范围，同时标记为不可靠；缺失时长和重置时间保持未知。
+
+## Reset-credit contract
+
+`rateLimitResetCredits.availableCount` 是可用重置卡数量的唯一权威来源。Schema 在 summary 对象存在时要求该字段；客户端仍对缺失、null、负值和 malformed 数据进行防御处理。
+
+当前消费的 summary 子集：
 
 ```text
-hasCredits: bool               required
-unlimited: bool                required
-balance: string?               optional/null
+availableCount: int64?
+credits: RateLimitResetCredit[]?
+
+RateLimitResetCredit:
+  id: string?          // opaque，仅 typed parsing
+  status: string?
+  expiresAt: integer Unix seconds | null | invalid
 ```
 
-**Contract limitation**：`CreditsSnapshot` 不是 reset-credit summary；客户端不得从它推导可用重置次数。
+`credits` 可以为 null、空或只包含部分明细，列表长度不能代替 `availableCount`。客户端只从有效数值型 `expiresAt` 中选择最早已知到期时间；无效时间被忽略，不使整个额度响应失败。
 
-## 4. Server notification contract
+展示状态映射：
 
-### 4.1 account/rateLimits/updated
+| 条件 | `ResetCreditKind` | 语义 |
+| --- | --- | --- |
+| 顶层字段缺失、summary 缺失或数量缺失 | `Unavailable` | 当前没有可靠重置卡信息 |
+| 权威数量为 0 | `Empty` | 明确可用 0 张 |
+| 数量大于 0，无有效到期时间 | `CountOnly` | 仅数量可靠 |
+| 有到期时间，但明细数不等于权威数量 | `PartialDetails` | 数量可靠、到期摘要不完整 |
+| 有到期时间，明细数等于权威数量 | `CompleteDetails` | 数量及当前明细摘要完整 |
 
-```json
-{
-  "method": "account/rateLimits/updated",
-  "params": {
-    "rateLimits": { "<sparse RateLimitSnapshot>": true }
-  }
-}
-```
+负数数量被视为数据问题并记录匿名 issue，展示值限制为零。Opaque reset-credit ID 不进入归一化状态、UI、日志或持久化。
 
-- `params.rateLimits` 必填。
-- **Confirmed schema description** 这是 sparse rolling update。
-- P0 live run 未观察到此事件，因此事件到达频率、触发时机和长期可靠性尚未由实测确认。
+## 服务端通知与稀疏合并
 
-Client merge policy：
+客户端只消费 `account/rateLimits/updated`。通知 params 使用与额度读取相同的 `RateLimitsResponse` 子集，并按 ingress sequence 排序应用。
 
-1. 将 patch 合并到 legacy `rateLimits`。
-2. 若 patch 有 `limitId`，合并到 key 或 snapshot `limitId` 匹配的 multi-bucket entry。
-3. patch 没有 `limitId` 且当前只有一个 bucket 时，合并到该 bucket。
-4. 只有非 null、实际存在的字段覆盖旧值。
-5. window 内按 `usedPercent`、`windowDurationMins`、`resetsAt` 分字段合并。
-6. patch 无法安全定位 bucket 时不覆盖其他 bucket；记录匿名 warning 或重新调用 read。
+合并规则：
 
-## 5. Normalized domain contract
+1. 只有通知中实际出现且非 null 的 snapshot/window 字段覆盖基线。
+2. 未出现的 legacy snapshot、bucket、窗口字段和 reset-credit summary 保留原值。
+3. 通知显式包含 `rateLimitResetCredits` 时，使用通知值；否则保留完整读取的摘要。
+4. 已有可靠基线时，在基线上应用 sparse patch。
+5. 没有基线时，只有可独立识别且窗口字段完整的通知才能成为独立快照；否则由协调器补充完整读取。
+6. 通知缓冲区溢出、客户端 generation 变化或无法安全应用时，丢弃不可靠基线并补读。
+7. 失败或无法安全定位的数据不得覆盖最后有效快照。
 
-以下 normalized state 已由当前 reducer/store 实现，供未来 cache 和 UI 使用；它不是 App Server wire schema：
+## 归一化状态
+
+当前规范化额度快照包含：
 
 ```text
-AccountMode = chatgpt | api_key | bedrock | unauthenticated | unknown
-
-QuotaWindow:
-  bucket_key: local stable key
-  limit_id: string?
-  display_name: string
-  source_slot: primary | secondary
-  used_percent: 0..100
-  remaining_percent: 0..100
-  window_duration_mins: int64?
-  resets_at: UnixSeconds?
-
-QuotaSnapshot:
-  windows: QuotaWindow[]
-  rate_limit_reached: bool
-  plan_type: string?
-  received_at: LocalInstant
-  source_cli_version: string?
-  reset_credit_state: unavailable_in_schema
-  warnings: WarningCode[]
-
-VersionCompatibility:
-  unknown
-  match(schema_version, runtime_version)
-  mismatch(schema_version, runtime_version)
-  unreported(schema_version)
-```
-
-Projection rules：
-
-- 非空 multi-bucket view 优先于 legacy view。
-- 不根据 source slot 命名周期。
-- 有 `limitName` 时用于显示；否则根据 duration 生成 5-hour、7-day 或动态时长。
-- 缺少 `usedPercent` 的窗口不进入有效列表；产生 warning，不变成 0%。
-- 越界百分比只在展示计算时 clamp，并保留 warning。
-- 缺少 reset time 显示 unknown，不推测服务端周期边界。
-- wire `rateLimitReachedType` 位于 `RateLimitSnapshot`，不是某个 primary/secondary window；normalized state 只保留“至少一个选中 bucket 已报告 reached”的聚合布尔值，驱动耗尽状态但不猜测具体周期。
-- read 或 patch 失败保留最后有效 normalized snapshot；只有明确的非 ChatGPT 账户状态才清除旧 quota。
-- 多 bucket 且 patch 缺少可定位的 `limitId` 时拒绝猜测，保留旧状态并要求完整 refresh。
-- runtime version 从完成握手的 App Server `userAgent` 中仅提取版本 token；完整 user-agent 不进入 normalized state。精确相同为 match，不同为 mismatch，无法解析为 unreported；mismatch/unreported 不阻止 best-effort 只读读取。
-
-## 6. Error and availability contract
-
-P0 CLI exit codes：
-
-| Code | 含义 |
-|---:|---|
-| 0 | 至少一个有效窗口已输出，且 child clean exit |
-| 1 | 进程、transport、timeout、RPC、schema 或清理错误 |
-| 2 | 未登录、不适用认证模式或没有有效 quota window |
-
-未来 stateful service 不直接暴露进程 exit code，而映射为：
-
-```text
-fresh        latest read succeeded
-refreshing   read in flight; previous state retained
-stale        last success older than product threshold
-offline      transport/service failed; cached state may exist
-unauthenticated
-unavailable  no usable state or unsupported environment
-```
-
-任何失败都不得把未知值改成 0 或清空最后有效快照。
-
-## 7. Privacy contract
-
-### 7.1 Never log or persist
-
-- OAuth access/refresh token、API key、cookie。
-- account email、完整 account ID、完整 reset-credit ID。
-- `codexHome`、原始 account response、原始 stdout/stderr。
-- 未脱敏 JSON-RPC error message。
-
-### 7.2 Allowed non-sensitive fields
-
-- 认证模式、套餐类型。
-- limit name/id（确认不是 account identifier 后）。
-- used/remaining percent、window duration、reset timestamp。
-- 本地更新时间、freshness、匿名 warning code。
-- CLI/schema version。
-
-### 7.3 Fixture rules
-
-- fixture 必须人工构造或使用 `[REDACTED]` 占位。
-- 不复制真实百分比、时间戳或原始 response blob。
-- parser 测试不得启动 Codex、读取凭据或访问网络。
-
-### 7.4 Persisted cache contract
-
-当前磁盘缓存是 normalized state 的最小投影，不是 wire response archive。允许字段固定为：
-
-```text
-format_version
-saved_at
-last_success_at
-source_cli_version?
 windows[]:
-  source_slot
-  used_percent
-  window_duration_mins?
-  resets_at?
+  localKey
+  alertKey
+  limitName?
+  sourceSlot
+  usedPercent
+  remainingPercent
+  percentageReliable
+  windowDurationMinutes?
+  resetAtUtc?
+
+resetCredits:
+  kind
+  availableCount?
+  earliestKnownExpiry?
+
+planType?
+issueCount
+resetCreditsFieldPresent
+availableCount?
+creditDetailCount?
 ```
 
-- 明确不持久化 `limitId`、`limitName`、plan/auth mode、email、account ID、token、`codexHome`、warning detail 或 raw JSON。
-- 最多 32 个窗口，单文件最多 64 KiB；版本不支持、字段越界、损坏或超大文件均拒绝加载。
-- load 只返回 typed `RestoredQuota`；错误对象只包含匿名类别/I/O kind，不包含文件正文或用户路径。
-- 恢复后的 quota 固定为 stale 且 auth unknown，必须等待实时 `account/read`/`account/rateLimits/read` 才能进入 fresh/authenticated。
-- 写入使用同目录 temporary + backup replace；primary 损坏时可读取完整 backup。清除操作覆盖 primary、backup 和 temporary，且幂等。
+`localKey` 和 `alertKey` 是本地派生标识。原始稳定 limit ID 只参与 SHA-256 派生，不直接进入 UI 或持久化；没有稳定 ID 时使用 source slot、时长和序号构成 fallback。
 
-## 8. Versioning and change control
+规范化和投影遵循：
 
-1. `schemas/CODEX_VERSION` 必须与生成 schema 的 CLI 版本一致；该文件是审计基线，不是 WinUI 运行时依赖。
-2. CLI 升级时在独立变更中重新生成 stable schema。
-3. 对 schema bundle 执行 diff，重点审查本合同列出的五个 message types。
-4. 更新 wire types、fixtures、API contract 和 parser tests。
-5. 运行离线完整测试后才允许 optional live smoke。
-6. schema 新增 reset-credit 字段只表示可开始评审，不自动授权展示或消费。
+- 不根据 `primary`、`secondary` 命名周期；
+- 优先显示服务端 `limitName`，否则根据时长生成名称；
+- `remainingPercent = 100 - clamp(usedPercent, 0, 100)`；
+- 缺失值保持未知，不能静默替换为零；
+- malformed 响应不能清空最后有效状态；
+- runtime 版本差异不单独阻止 best-effort 只读读取，能力由实际握手和 read 结果决定。
 
-## 9. Read-only enforcement
+## 持久化合同
 
-- Outbound method allowlist 必须在单一模块中集中定义。
-- 测试必须断言序列化的启动序列只含四个已批准 method。
-- 未经单独里程碑批准，runtime 不得构造账户登录、购买、消费或其他写方法。
-- 本合同的任何写 API 扩展都需要安全评审、用户确认设计和幂等性测试；不属于当前 roadmap。
+磁盘缓存是归一化状态的最小投影，不是 wire response archive。当前 `QuotaCacheDocument` 包含：
+
+```text
+formatVersion
+lastSuccessUtc
+planType?
+windows[]:
+  sourceSlot
+  usedPercent
+  remainingPercent
+  percentageReliable
+  windowDurationMinutes?
+  resetAtUtc?
+resetCreditAvailableCount?
+resetCreditEarliestExpiryUtc?
+```
+
+缓存最多保存 32 个窗口，单个 JSON 文件最大 64 KiB。不支持的格式、超限、损坏或无法解析的文件被拒绝，不从缺失字段制造零值。
+
+缓存不保存：
+
+- CLI 或 App Server 版本；
+- 原始 `limitId`、`limitName` 或 reset-credit ID；
+- token、Cookie、邮箱、账户 ID 或 `codexHome`；
+- warning 正文、RPC error 正文、stdout/stderr 或 raw JSON。
+
+缓存恢复后只代表最后已知数据；实时读取成功后才以新的服务端快照替换。关闭缓存会清除额度缓存，但不清除独立的提醒防重复状态。
+
+## 隐私和变更控制
+
+Fixture 必须人工构造或脱敏，不得复制真实认证数据、账户标识或原始 response blob。离线 parser 测试不得启动真实 Codex、读取凭据或访问网络。
+
+协议升级流程：
+
+1. 更新 `schemas/CODEX_VERSION` 指向经确认的 CLI 基线。
+2. 重新生成对应 schema bundle。
+3. 审查本合同使用的消息和字段 diff。
+4. 更新 DTO、规范化、合并、匿名 fixture 和回归测试。
+5. 完整离线验证通过后，才可显式选择真实资源 smoke。
+
+Schema 新增写方法或 reset-credit 明细不自动授权客户端调用。MVP 的只读边界独立于服务端能力，任何写操作都需要单独产品决策和安全评审。

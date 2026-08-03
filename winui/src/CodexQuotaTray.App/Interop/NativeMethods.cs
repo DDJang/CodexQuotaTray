@@ -7,7 +7,6 @@ internal static class NativeMethods
     internal const uint WmApp = 0x8000;
     internal const uint WmLButtonUp = 0x0202;
     internal const uint WmRButtonUp = 0x0205;
-    internal const uint WmNull = 0x0000;
     internal const uint TrayCallbackMessage = WmApp + 41;
     internal const uint NimAdd = 0x00000000;
     internal const uint NimDelete = 0x00000002;
@@ -24,15 +23,11 @@ internal static class NativeMethods
     internal const uint WmPowerBroadcast = 0x0218;
     internal const uint PbtApmResumeAutomatic = 0x0012;
     internal const uint NotifyIconVersion4 = 4;
-    internal const uint MfString = 0x00000000;
-    internal const uint MfChecked = 0x00000008;
-    internal const uint MfPopup = 0x00000010;
-    internal const uint TpmRightButton = 0x0002;
-    internal const uint TpmReturnCommand = 0x0100;
-    internal const uint TpmNonotify = 0x0080;
     internal const uint MonitorDefaultToNearest = 0x00000002;
     internal const uint WsExToolWindow = 0x00000080;
+    internal const uint WsExAppWindow = 0x00040000;
     internal const uint WsPopup = 0x80000000;
+    internal const int GwlExStyle = -20;
     internal const int DwmwaWindowCornerPreference = 33;
     internal const int DwmWindowCornerPreferenceRound = 2;
     internal static readonly IntPtr HwndMessage = new(-3);
@@ -142,6 +137,15 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern IntPtr DefWindowProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
 
+    [DllImport("user32.dll")]
+    internal static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
+    internal static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
+
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)]
+    internal static extern IntPtr SetWindowLongPtr(IntPtr hwnd, int index, IntPtr value);
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     internal static extern IntPtr GetModuleHandle(string? moduleName);
 
@@ -171,17 +175,6 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool DestroyIcon(IntPtr icon);
 
-    [DllImport("user32.dll", SetLastError = true)]
-    internal static extern IntPtr CreatePopupMenu();
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool AppendMenu(IntPtr menu, uint flags, UIntPtr item, string text);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool DestroyMenu(IntPtr menu);
-
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool GetCursorPos(out NativePoint point);
@@ -191,25 +184,18 @@ internal static class NativeMethods
     internal static extern bool SetForegroundWindow(IntPtr hwnd);
 
     [DllImport("user32.dll")]
-    internal static extern int TrackPopupMenu(
-        IntPtr menu,
-        uint flags,
-        int x,
-        int y,
-        int reserved,
-        IntPtr hwnd,
-        IntPtr rectangle);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool PostMessage(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll")]
     internal static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+
+    internal static void ConfigureToolWindow(IntPtr hwnd)
+    {
+        var style = GetWindowLongPtr(hwnd, GwlExStyle).ToInt64();
+        var updated = (style | WsExToolWindow) & ~((long)WsExAppWindow);
+        _ = SetWindowLongPtr(hwnd, GwlExStyle, new IntPtr(updated));
+    }
 
     [DllImport("dwmapi.dll", SetLastError = false)]
     internal static extern int DwmSetWindowAttribute(

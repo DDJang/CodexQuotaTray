@@ -3,7 +3,7 @@
 ; from the locked release build rather than checked into the installer source.
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.0"
+  #error MyAppVersion must be supplied by scripts/package-inno.ps1
 #endif
 #ifndef SourceDir
   #define SourceDir ".."

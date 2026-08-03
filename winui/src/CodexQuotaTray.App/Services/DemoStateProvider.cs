@@ -1,5 +1,6 @@
 using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Presentation;
+using CodexQuotaTray.Core;
 
 namespace CodexQuotaTray.App.Services;
 
@@ -17,7 +18,7 @@ internal sealed class DemoStateProvider : IUiStateProvider, IDiagnosticTextProvi
         return CreateState();
     }
 
-    public string CreateDiagnosticText() => PrototypeDiagnostics.Create("0.4.5", Environment.Version.ToString());
+    public string CreateDiagnosticText() => PrototypeDiagnostics.Create(ProductVersion.Current, Environment.Version.ToString());
 
     private AppUiState CreateState()
     {

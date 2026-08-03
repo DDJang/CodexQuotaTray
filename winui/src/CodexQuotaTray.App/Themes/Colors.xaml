@@ -5,6 +5,18 @@
         <ResourceDictionary x:Key="Light">
             <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#24EAF2FC" />
             <SolidColorBrush x:Key="WindowBorderBrush" Color="#668DA6C2" />
+            <SolidColorBrush x:Key="SettingsTitleBarBackgroundBrush" Color="#FFEAF2FC" />
+            <SolidColorBrush x:Key="SettingsTitleBarForegroundBrush" Color="#FF17212B" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonBackgroundBrush" Color="#FFEAF2FC" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonForegroundBrush" Color="#FF17212B" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonHoverBackgroundBrush" Color="#1A087BE8" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonHoverForegroundBrush" Color="#FF17212B" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonPressedBackgroundBrush" Color="#32087BE8" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonPressedForegroundBrush" Color="#FF17212B" />
+            <SolidColorBrush x:Key="MenuFallbackSurfaceBrush" Color="#FFF4F8FC" />
+            <SolidColorBrush x:Key="MenuItemHoverBrush" Color="#24FFFFFF" />
+            <SolidColorBrush x:Key="MenuItemPressedBrush" Color="#42FFFFFF" />
+            <SolidColorBrush x:Key="MenuItemFocusBrush" Color="#B8087BE8" />
             <SolidColorBrush x:Key="CardSurfaceBrush" Color="#52FFFFFF" />
             <SolidColorBrush x:Key="CardBorderBrush" Color="#52B8CAE0" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="#17212B" />
@@ -29,6 +41,18 @@
         <ResourceDictionary x:Key="Dark">
             <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#28131F30" />
             <SolidColorBrush x:Key="WindowBorderBrush" Color="#667D94B2" />
+            <SolidColorBrush x:Key="SettingsTitleBarBackgroundBrush" Color="#FF1C2D40" />
+            <SolidColorBrush x:Key="SettingsTitleBarForegroundBrush" Color="#FFF3F6F8" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonBackgroundBrush" Color="#FF1C2D40" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonForegroundBrush" Color="#FFF3F6F8" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonHoverBackgroundBrush" Color="#285AAEFF" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonHoverForegroundBrush" Color="#FFF3F6F8" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonPressedBackgroundBrush" Color="#425AAEFF" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonPressedForegroundBrush" Color="#FFF3F6F8" />
+            <SolidColorBrush x:Key="MenuFallbackSurfaceBrush" Color="#FF202B39" />
+            <SolidColorBrush x:Key="MenuItemHoverBrush" Color="#24F3F6F8" />
+            <SolidColorBrush x:Key="MenuItemPressedBrush" Color="#42F3F6F8" />
+            <SolidColorBrush x:Key="MenuItemFocusBrush" Color="#B85AAEFF" />
             <SolidColorBrush x:Key="CardSurfaceBrush" Color="#50344254" />
             <SolidColorBrush x:Key="CardBorderBrush" Color="#527D94B2" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F3F6F8" />
@@ -53,6 +77,18 @@
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="WindowSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="WindowBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SettingsTitleBarBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="SettingsTitleBarForegroundBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonForegroundBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonHoverBackgroundBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonHoverForegroundBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonPressedBackgroundBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+            <SolidColorBrush x:Key="SettingsTitleBarButtonPressedForegroundBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="MenuFallbackSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="MenuItemHoverBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="MenuItemPressedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="MenuItemFocusBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="CardSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="CardBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />

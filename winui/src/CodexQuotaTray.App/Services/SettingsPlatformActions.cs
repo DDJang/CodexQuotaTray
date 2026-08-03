@@ -5,16 +5,35 @@ using Microsoft.Win32;
 
 namespace CodexQuotaTray.App.Services;
 
-internal sealed class SettingsPlatformActions(
-    PreviewDataPaths paths,
-    PreviewPersistence persistence,
-    ProductionDataImporter importer) : ISettingsPlatformActions
+internal sealed class SettingsPlatformActions : ISettingsPlatformActions
 {
     private const string StartupValueName = "CodexQuotaTray";
+    private readonly PreviewDataPaths paths;
+    private readonly PreviewPersistence persistence;
+    private readonly ProductionDataImporter importer;
+
+    public SettingsPlatformActions(
+        PreviewDataPaths paths,
+        PreviewPersistence persistence,
+        ProductionDataImporter importer,
+        bool canConfigureStartup)
+    {
+        this.paths = paths;
+        this.persistence = persistence;
+        this.importer = importer;
+        CanConfigureStartup = canConfigureStartup;
+    }
+
+    public bool CanConfigureStartup { get; }
 
     public Task SetStartupAsync(bool enabled, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (!CanConfigureStartup)
+        {
+            throw new InvalidOperationException("预览模式不可配置开机启动。");
+        }
+
         using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", writable: true)
             ?? throw new InvalidOperationException("无法打开当前用户启动项注册表项。");
         if (enabled)

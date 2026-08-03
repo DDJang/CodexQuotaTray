@@ -87,7 +87,10 @@ internal sealed class WindowPlacementService
         return new Rectangle(point.X, point.Y, 1, 1);
     }
 
-    private static Rectangle GetWorkArea(Rectangle anchor)
+    internal static double GetRasterizationScale(IntPtr hwnd) =>
+        Math.Max(1.0, NativeMethods.GetDpiForWindow(hwnd) / 96.0);
+
+    internal static Rectangle GetWorkArea(Rectangle anchor)
     {
         var point = new NativeMethods.NativePoint
         {

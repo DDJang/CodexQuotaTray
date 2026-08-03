@@ -94,6 +94,36 @@ public sealed class WindowBehaviorTests
         Assert.AreEqual(workArea.Bottom - popup.Height - margin, result.Y);
     }
 
+    [DataRow(1.0)]
+    [DataRow(1.5)]
+    [DataRow(2.0)]
+    [TestMethod]
+    public void ContextMenuPlacement_StaysInsideWorkAreaAtTargetDpi(double scale)
+    {
+        var workArea = Rectangle.FromLTRB(-1920, -120, 0, 980);
+        var popup = new Size(
+            PopupPlacement.DipsToPixels(160, scale),
+            PopupPlacement.DipsToPixels(131, scale));
+        var margin = PopupPlacement.DipsToPixels(8, scale);
+        var anchors = new[]
+        {
+            new Rectangle(-1918, 300, 24, 24),
+            new Rectangle(-980, -118, 24, 24),
+            new Rectangle(-24, 300, 24, 24),
+            new Rectangle(-980, 956, 24, 24),
+        };
+
+        foreach (var anchor in anchors)
+        {
+            var result = PopupPlacement.PlaceNearTray(anchor, workArea, popup, margin);
+
+            Assert.IsGreaterThanOrEqualTo(workArea.Left + margin, result.X);
+            Assert.IsGreaterThanOrEqualTo(workArea.Top + margin, result.Y);
+            Assert.IsLessThanOrEqualTo(workArea.Right - margin, result.X + popup.Width);
+            Assert.IsLessThanOrEqualTo(workArea.Bottom - margin, result.Y + popup.Height);
+        }
+    }
+
     [DataRow(100, 100, 0, 0, 1920, 1040, 420, 470, 8, 100, 100)]
     [DataRow(1700, 900, 0, 0, 1920, 1040, 420, 470, 8, 1492, 562)]
     [DataRow(-2200, -400, -1920, -200, 0, 880, 420, 470, 8, -1912, -192)]

@@ -2,60 +2,36 @@ using System.ComponentModel;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using CodexQuotaTray.App.Interop;
+using CodexQuotaTray.App.Views;
 using CodexQuotaTray.Core.Alerts;
 using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
-using CodexQuotaTray.Core.Runtime;
 using Microsoft.UI.Dispatching;
+using PersistenceThemeMode = CodexQuotaTray.Core.Persistence.ThemeMode;
 
 namespace CodexQuotaTray.App.Services;
 
 internal sealed class TrayIconService : IDisposable
 {
-    private const uint OpenCommand = 1;
-    private const uint RefreshCommand = 2;
-    private const uint UsageCommand = 3;
-    private const uint CopySummaryCommand = 4;
-    private const uint CopyDiagnosticsCommand = 5;
-    private const uint SettingsCommand = 6;
-    private const uint AboutCommand = 7;
-    private const uint ExitCommand = 8;
-    private const uint AutoRefreshCommand = 20;
-    private const uint Every5MinutesCommand = 21;
-    private const uint Every15MinutesCommand = 22;
-    private const uint Every30MinutesCommand = 23;
-    private const uint ManualOnlyCommand = 24;
-    private const uint Alert50Command = 30;
-    private const uint Alert20Command = 31;
-    private const uint Alert10Command = 32;
-    private const uint AlertResetCommand = 33;
-    private const uint StartupCommand = 40;
     private const uint TrayId = 0x51435452;
-    private static readonly Guid TrayGuid = new("8F4F2C19-0C4C-4E1B-8F5C-50D0F1A4A77D");
     private static readonly Dictionary<IntPtr, TrayIconService> Instances = [];
     private static readonly NativeMethods.WindowProcedure SharedWindowProcedure = WindowProcedure;
     private readonly DispatcherQueue dispatcher;
     private readonly Action toggleWindow;
     private readonly Action showWindow;
-    private readonly Action copyDiagnostics;
-    private readonly Action refresh;
-    private readonly Action openUsage;
-    private readonly Action copySummary;
     private readonly Action openSettings;
-    private readonly Action showAbout;
     private readonly Action resume;
-    private readonly Func<AppSettings?> getSettings;
-    private readonly Action<RefreshMode> setRefreshMode;
-    private readonly Action<int> toggleAlert;
-    private readonly Action toggleStartup;
     private readonly Action exitApplication;
+    private readonly Func<PersistenceThemeMode> themeProvider;
+    private readonly TrayIconIdentity identity;
     private const string TrayCallbackWindowClassName = "CodexQuotaTray.Tray.CallbackWindow";
     private const string TrayBroadcastWindowClassName = "CodexQuotaTray.Tray.BroadcastWindow";
     private IntPtr instance;
     private IntPtr callbackWindow;
     private IntPtr broadcastWindow;
     private IntPtr icon;
+    private TrayContextMenuWindow? contextMenu;
     private uint taskbarCreatedMessage;
     private volatile bool added;
     private bool disposed;
@@ -79,34 +55,20 @@ internal sealed class TrayIconService : IDisposable
         DispatcherQueue dispatcher,
         Action toggleWindow,
         Action showWindow,
-        Action refresh,
-        Action openUsage,
-        Action copySummary,
-        Action copyDiagnostics,
         Action openSettings,
-        Action showAbout,
         Action resume,
-        Func<AppSettings?> getSettings,
-        Action<RefreshMode> setRefreshMode,
-        Action<int> toggleAlert,
-        Action toggleStartup,
-        Action exitApplication)
+        Action exitApplication,
+        Func<PersistenceThemeMode> themeProvider,
+        TrayIconIdentity identity)
     {
         this.dispatcher = dispatcher;
         this.toggleWindow = toggleWindow;
         this.showWindow = showWindow;
-        this.refresh = refresh;
-        this.openUsage = openUsage;
-        this.copySummary = copySummary;
-        this.copyDiagnostics = copyDiagnostics;
         this.openSettings = openSettings;
-        this.showAbout = showAbout;
         this.resume = resume;
-        this.getSettings = getSettings;
-        this.setRefreshMode = setRefreshMode;
-        this.toggleAlert = toggleAlert;
-        this.toggleStartup = toggleStartup;
         this.exitApplication = exitApplication;
+        this.themeProvider = themeProvider;
+        this.identity = identity;
     }
 
     internal void Start()
@@ -158,10 +120,10 @@ internal sealed class TrayIconService : IDisposable
         Instances.Add(callbackWindow, this);
         Instances.Add(broadcastWindow, this);
         taskbarCreatedMessage = NativeMethods.RegisterWindowMessage("TaskbarCreated");
-        var executable = Environment.ProcessPath;
+        var iconPath = WindowIconService.IconPath;
         var smallIcons = new IntPtr[1];
-        if (string.IsNullOrWhiteSpace(executable)
-            || NativeMethods.ExtractIconEx(executable, 0, null, smallIcons, 1) != 1
+        if (!File.Exists(iconPath)
+            || NativeMethods.ExtractIconEx(iconPath, 0, null, smallIcons, 1) != 1
             || smallIcons[0] == IntPtr.Zero)
         {
             throw LastWin32("extract the embedded tray icon");
@@ -311,9 +273,9 @@ internal sealed class TrayIconService : IDisposable
     {
         error = 0;
         var data = CreateData();
-        // Clear a stale entry left by a previous host before reusing the stable
-        // product GUID. This preserves the user's notification-area placement
-        // while ensuring callbacks point at the current process.
+        // Clear only this identity's stale entry before reusing its stable GUID.
+        // Production and Preview have different GUIDs, so neither can delete the
+        // other identity's notification icon.
         _ = NativeMethods.ShellNotifyIcon(NativeMethods.NimDelete, ref data);
         if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimAdd, ref data))
         {
@@ -353,7 +315,7 @@ internal sealed class TrayIconService : IDisposable
                     Size = (uint)Marshal.SizeOf<NativeMethods.NotifyIconIdentifier>(),
                     Window = callbackWindow,
                     Id = TrayId,
-                    GuidItem = TrayGuid,
+                    GuidItem = identity.Guid,
                 };
                 var result = NativeMethods.ShellNotifyIconGetRect(ref identifier, out var rect);
                 lastExplorerResult = result;
@@ -394,12 +356,12 @@ internal sealed class TrayIconService : IDisposable
                     return;
                 }
 
-                DeleteIcon();
-                LastRegistrationError = lastExplorerResult;
-                SetRegistrationState(
-                    TrayRegistrationPolicy.StateAfterAttempt(false, attemptNumber),
-                    LastRegistrationError);
-                ScheduleRegistrationAttempt(generation);
+                // Shell_NotifyIcon can accept the icon while Explorer cannot provide a
+                // rectangle (for example when the icon is in the notification overflow
+                // area). The icon is still usable, so do not delete a successful NIM_ADD
+                // just because positioning metadata is unavailable.
+                explorerConfirmed = false;
+                SetRegistrationState(TrayRegistrationState.Registered, null);
             });
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -445,10 +407,10 @@ internal sealed class TrayIconService : IDisposable
             | NativeMethods.NifShowTip,
         CallbackMessage = NativeMethods.TrayCallbackMessage,
         Icon = icon,
-        Tip = "CodexQuotaTray",
+        Tip = identity.Tooltip,
         Info = string.Empty,
         InfoTitle = string.Empty,
-        GuidItem = TrayGuid,
+        GuidItem = identity.Guid,
     };
 
     private void HandleMessage(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
@@ -496,138 +458,19 @@ internal sealed class TrayIconService : IDisposable
 
     private void ShowMenu()
     {
-        var menu = NativeMethods.CreatePopupMenu();
-        if (menu == IntPtr.Zero)
-        {
-            return;
-        }
-
-        try
-        {
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, OpenCommand, "打开面板");
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, RefreshCommand, "刷新额度");
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, UsageCommand, "官方用量页面");
-            AddRefreshMenu(menu);
-            AddAlertMenu(menu);
-            var settings = getSettings();
-            _ = NativeMethods.AppendMenu(
-                menu,
-                NativeMethods.MfString | (settings?.StartWithWindows == true ? NativeMethods.MfChecked : 0),
-                StartupCommand,
-                "开机启动");
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, CopySummaryCommand, "复制额度摘要");
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, CopyDiagnosticsCommand, "复制诊断信息");
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, SettingsCommand, "设置");
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, AboutCommand, "关于");
-            _ = NativeMethods.AppendMenu(menu, NativeMethods.MfString, ExitCommand, "退出 CodexQuotaTray");
-            _ = NativeMethods.GetCursorPos(out var point);
-            _ = NativeMethods.SetForegroundWindow(broadcastWindow);
-            var command = unchecked((uint)NativeMethods.TrackPopupMenu(
-                menu,
-                NativeMethods.TpmRightButton | NativeMethods.TpmReturnCommand | NativeMethods.TpmNonotify,
-                point.X,
-                point.Y,
-                0,
-                broadcastWindow,
-                IntPtr.Zero));
-            _ = NativeMethods.PostMessage(broadcastWindow, NativeMethods.WmNull, UIntPtr.Zero, IntPtr.Zero);
-            if (command == OpenCommand)
-            {
-                showWindow();
-            }
-            else if (command == RefreshCommand)
-            {
-                refresh();
-            }
-            else if (command == UsageCommand)
-            {
-                openUsage();
-            }
-            else if (command == CopySummaryCommand)
-            {
-                copySummary();
-            }
-            else if (command == CopyDiagnosticsCommand)
-            {
-                copyDiagnostics();
-            }
-            else if (command == SettingsCommand)
-            {
-                openSettings();
-            }
-            else if (command == AboutCommand)
-            {
-                showAbout();
-            }
-            else if (command is >= AutoRefreshCommand and <= ManualOnlyCommand)
-            {
-                setRefreshMode(command switch
-                {
-                    AutoRefreshCommand => RefreshMode.Auto,
-                    Every5MinutesCommand => RefreshMode.Every5Minutes,
-                    Every15MinutesCommand => RefreshMode.Every15Minutes,
-                    Every30MinutesCommand => RefreshMode.Every30Minutes,
-                    _ => RefreshMode.ManualOnly,
-                });
-            }
-            else if (command is Alert50Command or Alert20Command or Alert10Command or AlertResetCommand)
-            {
-                toggleAlert(command == Alert50Command ? 50 : command == Alert20Command ? 20 : command == Alert10Command ? 10 : 0);
-            }
-            else if (command == StartupCommand)
-            {
-                toggleStartup();
-            }
-            else if (command == ExitCommand)
-            {
-                exitApplication();
-            }
-        }
-        finally
-        {
-            _ = NativeMethods.DestroyMenu(menu);
-        }
+        contextMenu ??= new TrayContextMenuWindow(showWindow, openSettings, exitApplication);
+        contextMenu.ToggleAt(GetMenuAnchor(), themeProvider());
     }
 
-    private void AddRefreshMenu(IntPtr root)
+    private Rectangle? GetMenuAnchor()
     {
-        var menu = NativeMethods.CreatePopupMenu();
-        if (menu == IntPtr.Zero)
+        if (NativeMethods.GetCursorPos(out var point))
         {
-            return;
+            return new Rectangle(point.X, point.Y, 1, 1);
         }
 
-        var current = getSettings()?.RefreshMode ?? RefreshMode.Auto;
-        AppendChecked(menu, AutoRefreshCommand, "自动", current == RefreshMode.Auto);
-        AppendChecked(menu, Every5MinutesCommand, "每 5 分钟", current == RefreshMode.Every5Minutes);
-        AppendChecked(menu, Every15MinutesCommand, "每 15 分钟", current == RefreshMode.Every15Minutes);
-        AppendChecked(menu, Every30MinutesCommand, "每 30 分钟", current == RefreshMode.Every30Minutes);
-        AppendChecked(menu, ManualOnlyCommand, "仅手动", current == RefreshMode.ManualOnly);
-        _ = NativeMethods.AppendMenu(root, NativeMethods.MfPopup, unchecked((UIntPtr)(nuint)menu), "刷新间隔");
+        return TryGetIconRect();
     }
-
-    private void AddAlertMenu(IntPtr root)
-    {
-        var menu = NativeMethods.CreatePopupMenu();
-        if (menu == IntPtr.Zero)
-        {
-            return;
-        }
-
-        var current = getSettings()?.EffectiveNotifications ?? new NotificationSettings();
-        AppendChecked(menu, Alert50Command, "剩余 50%", current.Remaining50);
-        AppendChecked(menu, Alert20Command, "剩余 20%", current.Remaining20);
-        AppendChecked(menu, Alert10Command, "剩余 10%", current.Remaining10);
-        AppendChecked(menu, AlertResetCommand, "额度周期重置后", current.ResetAfterCycle);
-        _ = NativeMethods.AppendMenu(root, NativeMethods.MfPopup, unchecked((UIntPtr)(nuint)menu), "额度提醒");
-    }
-
-    private static void AppendChecked(IntPtr menu, uint command, string text, bool isChecked) =>
-        _ = NativeMethods.AppendMenu(
-            menu,
-            NativeMethods.MfString | (isChecked ? NativeMethods.MfChecked : 0),
-            command,
-            text);
 
     internal void ShowQuotaAlert(QuotaAlert alert)
     {
@@ -696,6 +539,9 @@ internal sealed class TrayIconService : IDisposable
 
     internal string CreateDiagnosticText() => string.Join(
         Environment.NewLine,
+        $"托盘身份: {identity.Name}",
+        $"托盘 GUID: {identity.Guid:D}",
+        $"托盘提示: {identity.Tooltip}",
         $"托盘注册状态: {RegistrationState}",
         $"托盘注册错误: {(LastRegistrationError?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none")}",
         "托盘回调宿主: HWND_MESSAGE",
@@ -724,6 +570,8 @@ internal sealed class TrayIconService : IDisposable
         disposed = true;
         retryLifetime.Cancel();
         registrationGeneration++;
+        contextMenu?.Dispose();
+        contextMenu = null;
         DeleteIcon();
 
         if (callbackWindow != IntPtr.Zero)

@@ -43,6 +43,7 @@ public sealed partial class MainWindow : Window
     internal void ConfigureWindow()
     {
         appWindow.Title = "CodexQuotaTray";
+        _ = WindowIconService.TrySetIcon(appWindow);
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(HeaderDragRegion);
 

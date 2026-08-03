@@ -7,6 +7,8 @@ namespace CodexQuotaTray.Core.Presentation;
 
 public interface ISettingsPlatformActions
 {
+    bool CanConfigureStartup { get; }
+
     Task SetStartupAsync(bool enabled, CancellationToken cancellationToken);
 
     void OpenDataDirectory();
@@ -16,10 +18,24 @@ public interface ISettingsPlatformActions
     Task ClearQuotaCacheAsync();
 }
 
+public interface ISettingsPageActions
+{
+    Task RefreshQuotaAsync(CancellationToken cancellationToken);
+
+    void OpenOfficialUsage();
+
+    void CopyQuotaSummary();
+
+    void CopyDiagnostics();
+
+    void ShowAbout(object? host);
+}
+
 public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly IQuotaRuntimeControl runtime;
     private readonly ISettingsPlatformActions platform;
+    private readonly ISettingsPageActions pageActions;
 
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showRemainingPercent;
@@ -36,12 +52,24 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string statusText = string.Empty;
     [ObservableProperty][NotifyCanExecuteChangedFor(nameof(SaveCommand))] private bool isBusy;
 
-    public SettingsViewModel(IQuotaRuntimeControl runtime, ISettingsPlatformActions platform)
+    public SettingsViewModel(
+        IQuotaRuntimeControl runtime,
+        ISettingsPlatformActions platform,
+        ISettingsPageActions pageActions)
     {
         this.runtime = runtime;
         this.platform = platform;
+        this.pageActions = pageActions;
         Load(runtime.Settings);
     }
+
+    public event EventHandler<ThemeMode>? ThemeSaved;
+
+    public bool CanConfigureStartup => platform.CanConfigureStartup;
+
+    public string StartupDescription => CanConfigureStartup
+        ? "登录 Windows 时自动启动托盘应用。"
+        : "预览模式不可配置开机启动。";
 
     public IReadOnlyList<RefreshMode> RefreshModes { get; } = Enum.GetValues<RefreshMode>();
 
@@ -54,9 +82,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            await platform.SetStartupAsync(StartWithWindows, cancellationToken);
+            if (CanConfigureStartup)
+            {
+                await platform.SetStartupAsync(StartWithWindows, cancellationToken);
+            }
+
             await runtime.ApplySettingsAsync(ToSettings(), cancellationToken);
             StatusText = "设置已保存";
+            ThemeSaved?.Invoke(this, SelectedThemeMode);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
@@ -93,10 +126,26 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void OpenDataDirectory() => platform.OpenDataDirectory();
 
+    [RelayCommand]
+    private Task RefreshQuotaAsync(CancellationToken cancellationToken) =>
+        pageActions.RefreshQuotaAsync(cancellationToken);
+
+    [RelayCommand]
+    private void OpenOfficialUsage() => pageActions.OpenOfficialUsage();
+
+    [RelayCommand]
+    private void CopyQuotaSummary() => pageActions.CopyQuotaSummary();
+
+    [RelayCommand]
+    private void CopyDiagnostics() => pageActions.CopyDiagnostics();
+
+    [RelayCommand]
+    private void ShowAbout(object? host) => pageActions.ShowAbout(host);
+
     private bool CanSave() => !IsBusy;
 
     private AppSettings ToSettings() => new(
-        StartWithWindows,
+        CanConfigureStartup && StartWithWindows,
         ShowRemainingPercent,
         Use24HourTime,
         PersistQuotaCache,
@@ -108,7 +157,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private void Load(AppSettings value)
     {
-        StartWithWindows = value.StartWithWindows;
+        StartWithWindows = CanConfigureStartup && value.StartWithWindows;
         ShowRemainingPercent = value.ShowRemainingPercent;
         Use24HourTime = value.Use24HourTime;
         PersistQuotaCache = value.PersistQuotaCache;

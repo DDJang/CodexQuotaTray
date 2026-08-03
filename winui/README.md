@@ -1,56 +1,76 @@
 # CodexQuotaTray WinUI 3
 
-这是 CodexQuotaTray 0.4.3 的 WinUI 3 正式交付候选。默认模式连接本机 Codex App Server 并读取真实额度；`--demo` 只用于开发演示。
+`winui/` 是 CodexQuotaTray 当前的 C# + WinUI 3 正式入口。本文件只说明项目结构、
+工具链、启动模式和统一验证入口；产品语义与发布细节分别以根 README 和
+`docs/RELEASE.md` 为准。
 
-0.4.3 使用 message-only HWND 承载托盘回调，另一个隐藏 tool window 接收 Explorer 重建和系统恢复广播。窗口外轮廓只由 DWM 圆角裁剪；窗口置顶并可从标题区自由拖动，本次运行内保留最后位置。标题、套餐、状态和刷新按钮采用紧凑单行布局，额度重置时间合并显示；额度卡片与系统轮廓采用协调圆角，进度条为 12 DIP 原生胶囊。窗口高度直接取底部可见操作行的实际边界并追加设计内边距，不再保留 ScrollViewer 的旧视口高度。自动刷新与手动刷新共用同一按钮忙碌状态。
+## 项目结构
 
-## 安全边界
-
-- 默认数据源为单一 `QuotaRuntimeService`，只发送 `initialize`、`initialized` 和 `account/rateLimits/read`，并被动接收 `account/rateLimits/updated`。
-- 不调用 consume/write 方法；默认使用兼容的 `%LOCALAPPDATA%\CodexQuotaTray` 数据目录。
-- 正式入口沿用原 AppId、进程名、单实例身份、托盘 GUID 和启动项名称，支持覆盖升级 Rust 版。
-- `--isolated-preview-data` 可在 smoke 时切换到隔离目录，不触碰正式用户数据。
+| 路径 | 职责 |
+| --- | --- |
+| `winui/src/CodexQuotaTray.Core` | 协议、运行时、持久化、提醒和展示模型 |
+| `winui/src/CodexQuotaTray.App` | WinUI 窗口、XAML、托盘和平台集成 |
+| `winui/tests/CodexQuotaTray.Tests` | 完整离线单元与回归测试 |
+| `winui/tests/CodexQuotaTray.FakeAppServer` | 可控的离线 App Server 测试进程 |
+| `winui/tests/fixtures` | 匿名协议 fixture |
 
 ## 工具链
 
-- .NET SDK `10.0.302`（由 `global.json` 固定）；
-- Windows SDK `10.0.26100`；
-- x64 Windows 10 19041 或更高版本；
-- Microsoft Windows App SDK `2.2.0`。
+- .NET SDK `10.0.302`，由仓库根目录 `global.json` 固定。
+- `rollForward` 为 `latestPatch`，不允许预发布 SDK。
+- 测试运行器为 Microsoft Testing Platform。
+- Windows SDK 目标为 `10.0.26100`。
+- Microsoft Windows App SDK 为 `2.2.0`。
+- MSTest.Sdk 为 `4.3.2`。
+- NuGet 源固定使用 `winui/NuGet.Config`。
 
-依赖版本集中在 `Directory.Packages.props`。本阶段额外使用 CommunityToolkit.Mvvm `8.4.2` 和 MSTest `4.3.2`，均为 MIT 许可。
+仓库内 SDK 优先于 PATH；验证和发布脚本不会自动下载或安装 SDK。
 
-## 构建与运行
+## 本地运行
 
-```powershell
-dotnet restore CodexQuotaTray.WinUI.sln --configfile NuGet.Config
-dotnet format CodexQuotaTray.WinUI.sln --verify-no-changes --no-restore
-dotnet build CodexQuotaTray.WinUI.sln -c Release -p:Platform=x64 --no-restore
-dotnet test CodexQuotaTray.WinUI.sln -c Release --no-build
-```
-
-真实通知区域 smoke：
+所有命令都从仓库根目录执行。先完成 Quick 验证，再启动已构建应用：
 
 ```powershell
-.\scripts\test-winui-tray.ps1 -Executable <published-exe> -Cycles 100
+pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Quick
+dotnet run --project .\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj `
+  -c Release -p:Platform=x64 --no-build
 ```
 
-普通启动后创建独立托盘并按刷新模式工作；传入 `--demo` 才使用静态数据：
+Demo 示例：
 
 ```powershell
-dotnet run --project src/CodexQuotaTray.App -c Release --no-build -- --demo
+dotnet run --project .\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj `
+  -c Release -p:Platform=x64 --no-build -- --demo
 ```
 
-可用 `--codex-bin <PATH>` 覆盖 CLI。应用优先发现 `%APPDATA%\npm\codex.cmd`；Microsoft Store 版 CLI 当前不允许 unpackaged 子进程重定向 stdio 时，需安装官方 npm 版 Codex CLI。`--startup` 遵守静默启动设置。
+可用 `--codex-bin <PATH>` 覆盖 Codex CLI 路径；`--startup` 用于 Production
+开机启动；`--shutdown-existing` 请求对应身份的已有实例正常退出。
 
-设置窗口支持 Auto/5/15/30 分钟/ManualOnly、50%/20%/10% 提醒、显示与时间偏好、缓存、网络恢复、主题和预览版开机启动。ManualOnly 仍连接并接收安全的主动推送，但只允许用户手动发起读取。
+## 启动参数矩阵
 
-窗口关闭只会隐藏。使用托盘右键菜单中的“退出”才会结束进程；`--shutdown-existing` 用于安装升级和卸载。
+| 参数 | 数据源 | 数据位置 | 单实例与托盘身份 | 开机启动设置 |
+| --- | --- | --- | --- | --- |
+| 无参数 | Live Runtime | Production 数据目录 | Production | 允许 |
+| `--demo` | Demo Runtime | 不持久化 | Preview | 不允许 |
+| `--isolated-preview-data` | Live Runtime | Preview 数据目录 | Preview | 不允许 |
+| `--demo --isolated-preview-data` | Demo Runtime | 不持久化 | Preview | 不允许 |
 
-## 项目边界
+Production 使用真实 App Server 和正式数据；Demo 使用静态数据；Live Preview 使用
+真实 App Server 但隔离数据。Demo 和 Live Preview 可以与 Production 并存，且不会
+读取、写入或覆盖 Production 开机启动项。
 
-- `CodexQuotaTray.Core`：JSONL dispatcher、受控 App Server、DTO、额度归一化、刷新协调器、提醒 reducer、兼容持久化、展示投影和 ViewModel，不依赖 WinUI。
-- `CodexQuotaTray.App`：WinUI composition root、XAML、系统 backdrop、剪贴板诊断和原生托盘桥接。
-- `CodexQuotaTray.FakeAppServer` / `CodexQuotaTray.Tests`：完全离线的协议与 UI 回归测试。
+## 统一验证入口
 
-正式自包含发布由 `scripts/publish-winui.ps1` 生成，Inno 安装器由 `scripts/package-inno.ps1` 生成。
+```powershell
+pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Quick
+pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Full
+pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Release
+```
+
+- `Quick`：工具链信息、显式 NuGet restore、Release x64 build、差异检查。
+- `Full`：格式校验、Release x64 build、完整离线测试、差异检查。
+- `Release`：Full 加自包含 publish 和发布目录检查。
+
+三种模式默认都不会运行真实 Codex smoke 或 Explorer 托盘 smoke。`Release` 也不会
+生成 ZIP、编译 Inno、安装或签名。托盘 smoke 仅能通过验证脚本的显式开关调用现有
+`scripts/test-winui-tray.ps1`，并要求交互式 Explorer 桌面和关闭所有现有实例。
