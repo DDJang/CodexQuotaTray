@@ -58,6 +58,17 @@ public sealed class RefreshCoordinator
         }
     }
 
+    public bool IsInFlight
+    {
+        get
+        {
+            lock (gate)
+            {
+                return inFlight;
+            }
+        }
+    }
+
     public void SetMode(RefreshMode mode)
     {
         lock (gate)
@@ -103,6 +114,9 @@ public sealed class RefreshCoordinator
     }
 
     public RefreshReason? Complete(bool succeeded, DateTimeOffset nowUtc)
+        => CompleteAndHandoff(succeeded, nowUtc);
+
+    public RefreshReason? CompleteAndHandoff(bool succeeded, DateTimeOffset nowUtc)
     {
         lock (gate)
         {
@@ -116,6 +130,22 @@ public sealed class RefreshCoordinator
                 ConsecutiveFailures++;
             }
 
+            var next = pending;
+            pending = null;
+            if (next is not null && Allows(Mode, next.Value))
+            {
+                return next;
+            }
+
+            inFlight = false;
+            return null;
+        }
+    }
+
+    public RefreshReason? AbandonCurrentAndContinue()
+    {
+        lock (gate)
+        {
             var next = pending;
             pending = null;
             if (next is not null && Allows(Mode, next.Value))

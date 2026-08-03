@@ -3,6 +3,8 @@ using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Protocol;
+using System.Runtime.ExceptionServices;
+using System.Threading.Channels;
 
 namespace CodexQuotaTray.Core.Runtime;
 
@@ -33,6 +35,8 @@ public sealed class QuotaRuntimeService :
     IQuotaRuntimeControl,
     IAsyncDisposable
 {
+    private static readonly TimeSpan CacheHeartbeat = TimeSpan.FromMinutes(5);
+
     private readonly ICodexAppServerClientFactory clientFactory;
     private readonly SettingsService settingsService;
     private readonly PreviewPersistence persistence;
@@ -42,18 +46,55 @@ public sealed class QuotaRuntimeService :
     private readonly RefreshCoordinator coordinator = new();
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim initializationGate = new(1, 1);
+    private readonly SemaphoreSlim clientLifecycleGate = new(1, 1);
+    private readonly SemaphoreSlim generationCommitGate = new(1, 1);
+    private readonly Channel<SnapshotWork> snapshotQueue = Channel.CreateUnbounded<SnapshotWork>(
+        new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false,
+        });
+    private readonly List<Task> retiredNotificationTasks = [];
+    private readonly object pendingRefreshGate = new();
     private ICodexAppServerClient? client;
+    private CancellationTokenSource? clientLifetime;
+    private long clientGeneration;
     private RateLimitsReadResult? latestProtocol;
     private NormalizedQuotaSnapshot? latestNormalized;
     private AlertStateDocument? alertState;
+    private QuotaCacheDocument? lastPersistedCache;
     private Task? notificationTask;
     private Task? schedulerTask;
+    private Task? snapshotApplyTask;
+    private Task? pendingRefreshTask;
     private AppUiState current = ConnectingState();
     private CodexDiagnosticSnapshot lastDiagnostics = new();
     private CodexClientErrorKind? lastError;
     private DateTimeOffset? lastAttemptUtc;
     private bool initialized;
     private bool disposed;
+    private long lastAppliedClientGeneration;
+    private long lastAppliedIngressSequence;
+    private bool lastAppliedHadIngressSequence;
+    private DateTimeOffset? lastAppliedSuccessUtc;
+    private long nextFallbackIngressSequence;
+
+    private sealed record SnapshotWork(
+        long ClientGeneration,
+        long IngressSequence,
+        bool HasIngressSequence,
+        RateLimitsReadResult? Snapshot,
+        RateLimitsUpdatedNotification? Notification,
+        CancellationToken CancellationToken,
+        TaskCompletionSource<bool> Completion);
+
+    private sealed record ClientLease(ICodexAppServerClient Client, long Generation);
+
+    private sealed record DetachedClient(
+        ICodexAppServerClient Client,
+        Task? NotificationTask,
+        CancellationTokenSource? NotificationLifetime);
 
     public QuotaRuntimeService(
         ICodexAppServerClientFactory clientFactory,
@@ -93,9 +134,18 @@ public sealed class QuotaRuntimeService :
         return current;
     }
 
-    public async ValueTask RequestAsync(RefreshReason reason, CancellationToken cancellationToken = default)
+    public async ValueTask RequestAsync(RefreshReason reason, CancellationToken cancellationToken = default) =>
+        await RequestCoreAsync(reason, cancellationToken, calledFromNotificationLoop: false, bypassIngressBarrier: false)
+            .ConfigureAwait(false);
+
+    private async Task RequestCoreAsync(
+        RefreshReason reason,
+        CancellationToken cancellationToken,
+        bool calledFromNotificationLoop,
+        bool bypassIngressBarrier)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
+        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
         if (!ShouldRequest(reason))
         {
             return;
@@ -107,11 +157,93 @@ public sealed class QuotaRuntimeService :
             return;
         }
 
+        if (calledFromNotificationLoop)
+        {
+            var succeeded = await RefreshCoreAsync(
+                cancellationToken,
+                calledFromNotificationLoop: true,
+                bypassIngressBarrier: bypassIngressBarrier).ConfigureAwait(false);
+            var handoffReason = coordinator.CompleteAndHandoff(succeeded, timeProvider.GetUtcNow());
+            if (handoffReason is { } pendingReason)
+            {
+                StartPendingRefresh(pendingReason);
+            }
+
+            return;
+        }
+
+        await RunRefreshWorkerAsync(reason, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task RunRefreshWorkerAsync(RefreshReason reason, CancellationToken cancellationToken)
+    {
         var next = (RefreshReason?)reason;
         while (next is not null)
         {
-            var succeeded = await RefreshCoreAsync(cancellationToken).ConfigureAwait(false);
-            next = coordinator.Complete(succeeded, timeProvider.GetUtcNow());
+            if (!ShouldRequest(next.Value))
+            {
+                next = coordinator.AbandonCurrentAndContinue();
+                continue;
+            }
+
+            var succeeded = await RefreshCoreAsync(
+                cancellationToken,
+                calledFromNotificationLoop: false,
+                bypassIngressBarrier: false).ConfigureAwait(false);
+            next = coordinator.CompleteAndHandoff(succeeded, timeProvider.GetUtcNow());
+        }
+    }
+
+    private void StartPendingRefresh(RefreshReason reason)
+    {
+        Task task;
+        lock (pendingRefreshGate)
+        {
+            if (disposed)
+            {
+                return;
+            }
+
+            task = RunPendingRefreshAsync(reason);
+            pendingRefreshTask = task;
+        }
+
+        _ = task.ContinueWith(
+            completed =>
+            {
+                lock (pendingRefreshGate)
+                {
+                    if (ReferenceEquals(pendingRefreshTask, completed))
+                    {
+                        pendingRefreshTask = null;
+                    }
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private async Task RunPendingRefreshAsync(RefreshReason reason)
+    {
+        try
+        {
+            await RunRefreshWorkerAsync(reason, lifetime.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        {
+        }
+        catch (ObjectDisposedException) when (disposed)
+        {
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Pending quota refresh ended with error: {error.GetType().Name}");
+            var next = coordinator.AbandonCurrentAndContinue();
+            if (next is { } nextReason && !disposed)
+            {
+                await RunRefreshWorkerAsync(nextReason, lifetime.Token).ConfigureAwait(false);
+            }
         }
     }
 
@@ -123,7 +255,12 @@ public sealed class QuotaRuntimeService :
         }
 
         var now = timeProvider.GetUtcNow();
-        if (lastAttemptUtc is { } attempt && now - attempt < TimeSpan.FromSeconds(10))
+        var isPendingReevaluation = coordinator.IsInFlight
+            && reason is RefreshReason.CardOpened or RefreshReason.Scheduled;
+        if (!isPendingReevaluation
+            && reason != RefreshReason.RateLimitNotification
+            && lastAttemptUtc is { } attempt
+            && now - attempt < TimeSpan.FromSeconds(10))
         {
             return false;
         }
@@ -134,6 +271,13 @@ public sealed class QuotaRuntimeService :
             return Settings.RefreshMode == RefreshMode.Auto
                 ? age >= TimeSpan.FromMinutes(2)
                 : age >= coordinator.StaleAfter(MinimumReliableRemaining());
+        }
+
+        if (reason == RefreshReason.Scheduled)
+        {
+            var anchor = coordinator.ConsecutiveFailures > 0 ? lastAttemptUtc : coordinator.LastSuccessUtc;
+            return anchor is null
+                || now - anchor >= coordinator.EffectiveInterval(MinimumReliableRemaining());
         }
 
         if (reason is RefreshReason.Resume or RefreshReason.NetworkRestored
@@ -155,6 +299,7 @@ public sealed class QuotaRuntimeService :
         if (previous.PersistQuotaCache && !Settings.PersistQuotaCache)
         {
             await persistence.ClearQuotaCacheAsync().ConfigureAwait(false);
+            lastPersistedCache = null;
         }
 
         if (latestNormalized is not null)
@@ -203,6 +348,7 @@ public sealed class QuotaRuntimeService :
             coordinator.SetMode(Settings.RefreshMode);
             alertState = await persistence.LoadAlertStateAsync(cancellationToken).ConfigureAwait(false);
             await RestoreCacheAsync(cancellationToken).ConfigureAwait(false);
+            snapshotApplyTask = SnapshotApplyLoopAsync(lifetime.Token);
             schedulerTask = SchedulerLoopAsync(lifetime.Token);
             initialized = true;
             if (Settings.RefreshMode == RefreshMode.ManualOnly)
@@ -224,29 +370,119 @@ public sealed class QuotaRuntimeService :
         }
     }
 
-    private async Task EnsureClientAsync(CancellationToken cancellationToken)
+    private async Task<ClientLease> EnsureClientAsync(CancellationToken cancellationToken)
     {
-        if (client is not null)
+        while (true)
         {
-            return;
-        }
+            Task[] retiredToObserve;
+            await clientLifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                ObjectDisposedException.ThrowIf(disposed, this);
+                if (client is not null)
+                {
+                    return new ClientLease(client, clientGeneration);
+                }
 
-        client = clientFactory.Create();
-        try
-        {
-            await client.ConnectAsync(cancellationToken).ConfigureAwait(false);
-            notificationTask = NotificationLoopAsync(client, lifetime.Token);
-        }
-        catch
-        {
-            lastDiagnostics = client.Diagnostics;
-            await client.DisposeAsync().ConfigureAwait(false);
-            client = null;
-            throw;
+                retiredToObserve = TakeRetiredNotificationTasks();
+            }
+            finally
+            {
+                clientLifecycleGate.Release();
+            }
+
+            foreach (var retired in retiredToObserve)
+            {
+                await ObserveTaskAsync(retired, "retired notification loop").ConfigureAwait(false);
+            }
+
+            ICodexAppServerClient? failedClient = null;
+            Exception? failure = null;
+            ClientLease? connected = null;
+            Task[] additionalRetired;
+            var commitGateHeld = false;
+            var lifecycleGateHeld = false;
+            await generationCommitGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            commitGateHeld = true;
+            try
+            {
+                await clientLifecycleGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                lifecycleGateHeld = true;
+                ObjectDisposedException.ThrowIf(disposed, this);
+                if (client is not null)
+                {
+                    return new ClientLease(client, clientGeneration);
+                }
+
+                additionalRetired = TakeRetiredNotificationTasks();
+                if (additionalRetired.Length == 0)
+                {
+                    var created = clientFactory.Create();
+                    var generation = ++clientGeneration;
+                    latestProtocol = null;
+                    generationCommitGate.Release();
+                    commitGateHeld = false;
+                    client = created;
+                    try
+                    {
+                        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
+                        await created.ConnectAsync(linked.Token).ConfigureAwait(false);
+                        ObjectDisposedException.ThrowIf(disposed, this);
+                        clientLifetime = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                        notificationTask = NotificationLoopAsync(created, generation, clientLifetime.Token);
+                        connected = new ClientLease(created, generation);
+                    }
+                    catch (Exception error)
+                    {
+                        if (ReferenceEquals(client, created) && clientGeneration == generation)
+                        {
+                            client = null;
+                            notificationTask = null;
+                        }
+
+                        lastDiagnostics = created.Diagnostics;
+                        failedClient = created;
+                        failure = error;
+                    }
+                }
+            }
+            finally
+            {
+                if (lifecycleGateHeld)
+                {
+                    clientLifecycleGate.Release();
+                }
+
+                if (commitGateHeld)
+                {
+                    generationCommitGate.Release();
+                }
+            }
+
+            if (additionalRetired.Length != 0)
+            {
+                foreach (var retired in additionalRetired)
+                {
+                    await ObserveTaskAsync(retired, "retired notification loop").ConfigureAwait(false);
+                }
+
+                continue;
+            }
+
+            if (failedClient is not null)
+            {
+                await DisposeDetachedClientAsync(failedClient).ConfigureAwait(false);
+                ExceptionDispatchInfo.Capture(failure!).Throw();
+            }
+
+            return connected!;
         }
     }
 
-    private async Task<bool> RefreshCoreAsync(CancellationToken cancellationToken)
+    private async Task<bool> RefreshCoreAsync(
+        CancellationToken cancellationToken,
+        bool calledFromNotificationLoop,
+        bool bypassIngressBarrier)
     {
         lastAttemptUtc = timeProvider.GetUtcNow();
         SetCurrent(current with
@@ -255,22 +491,31 @@ public sealed class QuotaRuntimeService :
             StatusTone = StatusTone.Refreshing,
             IsRefreshing = true,
         });
+        ClientLease? lease = null;
         try
         {
-            await EnsureClientAsync(cancellationToken).ConfigureAwait(false);
-            var result = await client!.ReadRateLimitsAsync(cancellationToken).ConfigureAwait(false);
-            await ApplySnapshotAsync(result, persist: true, cancellationToken).ConfigureAwait(false);
+            lease = await EnsureClientAsync(cancellationToken).ConfigureAwait(false);
+            var result = bypassIngressBarrier
+                ? await lease.Client.ReadRateLimitsForRecoveryAsync(cancellationToken).ConfigureAwait(false)
+                : await lease.Client.ReadRateLimitsAsync(cancellationToken).ConfigureAwait(false);
+            await EnqueueSnapshotAsync(result, lease, cancellationToken).ConfigureAwait(false);
             lastError = null;
             return true;
         }
         catch (CodexClientException error)
         {
-            lastError = error.Kind;
-            lastDiagnostics = client?.Diagnostics ?? lastDiagnostics;
-            SetCurrent(FailureState(current, error.Kind));
-            if (RequiresReconnect(error.Kind))
+            if (lease is null || IsCurrentClient(lease))
             {
-                await ResetClientAsync().ConfigureAwait(false);
+                lastError = error.Kind;
+                lastDiagnostics = lease?.Client.Diagnostics ?? lastDiagnostics;
+                SetCurrent(FailureState(current, error.Kind));
+            }
+
+            if (lease is not null && RequiresReconnect(error.Kind))
+            {
+                await ResetClientAsync(
+                    lease,
+                    waitForNotificationTask: !calledFromNotificationLoop).ConfigureAwait(false);
             }
 
             return false;
@@ -282,90 +527,417 @@ public sealed class QuotaRuntimeService :
         }
     }
 
-    private async Task ApplySnapshotAsync(RateLimitsReadResult result, bool persist, CancellationToken cancellationToken)
+    private async Task<bool> ApplySnapshotCoreAsync(
+        RateLimitsReadResult result,
+        long generation,
+        CancellationToken cancellationToken)
     {
-        latestProtocol = result;
-        latestNormalized = QuotaNormalizer.Normalize(result);
-        var now = timeProvider.GetUtcNow();
-        lastError = null;
-        SetCurrent(projector.Project(latestNormalized, now, Settings.ShowRemainingPercent, Settings.Use24HourTime));
-        if (persist && Settings.PersistQuotaCache)
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
+        var applyCancellation = linked.Token;
+        var normalized = QuotaNormalizer.Normalize(result);
+        DateTimeOffset now;
+        await generationCommitGate.WaitAsync(applyCancellation).ConfigureAwait(false);
+        try
         {
-            try
+            if (!IsCurrentGeneration(generation))
             {
-                await persistence.SaveQuotaCacheAsync(ToCache(latestNormalized, now), cancellationToken).ConfigureAwait(false);
+                return false;
             }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
+
+            latestProtocol = result;
+            latestNormalized = normalized;
+            now = timeProvider.GetUtcNow();
+            lastAppliedSuccessUtc = now;
+            lastError = null;
+            SetCurrent(projector.Project(normalized, now, Settings.ShowRemainingPercent, Settings.Use24HourTime));
+        }
+        finally
+        {
+            generationCommitGate.Release();
+        }
+
+        if (Settings.PersistQuotaCache)
+        {
+            var cache = ToCache(normalized, now);
+            var heartbeatDue = lastPersistedCache is null
+                || now - lastPersistedCache.LastSuccessUtc >= CacheHeartbeat;
+            if (lastPersistedCache is null
+                || heartbeatDue
+                || !CacheContentEquals(lastPersistedCache, cache))
             {
-                System.Diagnostics.Debug.WriteLine($"Quota cache write failed: {error.GetType().Name}");
+                try
+                {
+                    var committed = await persistence.SaveQuotaCacheWithCommitAsync(
+                        cache,
+                        applyCancellation,
+                        generationCommitGate,
+                        () => IsCurrentGeneration(generation),
+                        () => lastPersistedCache = cache).ConfigureAwait(false);
+                    if (!committed)
+                    {
+                        return false;
+                    }
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Quota cache write failed: {error.GetType().Name}");
+                }
             }
+        }
+
+        if (!IsCurrentGeneration(generation))
+        {
+            return false;
         }
 
         try
         {
-            await EvaluateAlertsAsync(latestNormalized, cancellationToken).ConfigureAwait(false);
+            return await EvaluateAlertsAsync(normalized, generation, applyCancellation).ConfigureAwait(false);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
         {
             // State is intentionally saved before notification. If persistence fails,
             // suppress the notification rather than risk a duplicate on the next run.
             System.Diagnostics.Debug.WriteLine($"Alert state write failed: {error.GetType().Name}");
+            return false;
         }
     }
 
-    private async Task EvaluateAlertsAsync(NormalizedQuotaSnapshot snapshot, CancellationToken cancellationToken)
+    private Task<bool> EnqueueSnapshotAsync(
+        RateLimitsReadResult snapshot,
+        ClientLease lease,
+        CancellationToken cancellationToken) =>
+        EnqueueSnapshotAsync(
+            lease,
+            snapshot.IngressSequence,
+            snapshot,
+            null,
+            cancellationToken);
+
+    private Task<bool> EnqueueSnapshotAsync(
+        RateLimitsUpdatedNotification notification,
+        ClientLease lease,
+        CancellationToken cancellationToken) =>
+        EnqueueSnapshotAsync(
+            lease,
+            notification.IngressSequence,
+            null,
+            notification,
+            cancellationToken);
+
+    private Task<bool> EnqueueSnapshotAsync(
+        ClientLease lease,
+        long ingressSequence,
+        RateLimitsReadResult? snapshot,
+        RateLimitsUpdatedNotification? notification,
+        CancellationToken cancellationToken)
     {
-        var inputs = snapshot.Windows.Select(window => new AlertInput(
-            window.AlertKey,
-            window.LimitName ?? "额度窗口",
-            (int)window.RemainingPercent,
-            window.PercentageReliable,
-            window.WindowDurationMinutes,
-            window.ResetAtUtc)).ToArray();
-        var reduction = QuotaAlertReducer.Reduce(alertState, inputs, Settings.EffectiveNotifications);
-        await persistence.SaveAlertStateAsync(reduction.State, cancellationToken).ConfigureAwait(false);
-        alertState = reduction.State;
-        if (reduction.Alert is not null)
-        {
-            try
-            {
-                await notificationSink.ShowAsync(reduction.Alert, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
-            {
-                System.Diagnostics.Debug.WriteLine($"Quota notification failed after state save: {error.GetType().Name}");
-            }
-        }
+        var hasIngressSequence = ingressSequence > 0;
+        var sequence = hasIngressSequence
+            ? ingressSequence
+            : Interlocked.Increment(ref nextFallbackIngressSequence);
+        return EnqueueSnapshotAsync(
+            new SnapshotWork(
+                lease.Generation,
+                sequence,
+                hasIngressSequence,
+                snapshot,
+                notification,
+                cancellationToken,
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)),
+            cancellationToken);
     }
 
-    private async Task NotificationLoopAsync(ICodexAppServerClient source, CancellationToken cancellationToken)
+    private async Task<bool> EnqueueSnapshotAsync(SnapshotWork work, CancellationToken cancellationToken)
+    {
+        if (disposed || !snapshotQueue.Writer.TryWrite(work))
+        {
+            work.Completion.TrySetException(new ObjectDisposedException(nameof(QuotaRuntimeService)));
+        }
+        else if (work.Notification is { IsOverflow: false } notification)
+        {
+            notification.AcknowledgeIngress();
+        }
+
+        return await work.Completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task SnapshotApplyLoopAsync(CancellationToken cancellationToken)
     {
         try
         {
-            await foreach (var notification in source.ReadNotificationsAsync(cancellationToken).ConfigureAwait(false))
+            await foreach (var work in snapshotQueue.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
-                var merged = RateLimitsSnapshotMerger.Merge(latestProtocol, notification);
-                if (merged.Snapshot is not null)
+                if (work.CancellationToken.IsCancellationRequested)
                 {
-                    await ApplySnapshotAsync(merged.Snapshot, persist: true, cancellationToken).ConfigureAwait(false);
+                    work.Completion.TrySetCanceled(work.CancellationToken);
+                    continue;
                 }
 
-                if (merged.RequiresFullRead)
+                if (IsOlderSnapshot(work))
                 {
-                    await RequestAsync(RefreshReason.RateLimitNotification, cancellationToken).ConfigureAwait(false);
+                    work.Completion.TrySetResult(false);
+                    continue;
+                }
+
+                try
+                {
+                    var requiresFullRead = false;
+                    var applied = true;
+                    if (work.Snapshot is not null)
+                    {
+                        applied = await ApplySnapshotCoreAsync(
+                            work.Snapshot,
+                            work.ClientGeneration,
+                            work.CancellationToken).ConfigureAwait(false);
+                    }
+                    else if (work.Notification is not null)
+                    {
+                        if (work.Notification.IsOverflow)
+                        {
+                            using var overflowLinked = CancellationTokenSource.CreateLinkedTokenSource(
+                                work.CancellationToken,
+                                cancellationToken);
+                            await generationCommitGate.WaitAsync(overflowLinked.Token).ConfigureAwait(false);
+                            try
+                            {
+                                if (!IsCurrentGeneration(work.ClientGeneration))
+                                {
+                                    applied = false;
+                                }
+                                else
+                                {
+                                    latestProtocol = null;
+                                }
+                            }
+                            finally
+                            {
+                                generationCommitGate.Release();
+                            }
+
+                            requiresFullRead = true;
+                        }
+                        else if (IsCurrentGeneration(work.ClientGeneration))
+                        {
+                            var merged = RateLimitsSnapshotMerger.Merge(latestProtocol, work.Notification);
+                            requiresFullRead = merged.RequiresFullRead;
+                            if (merged.Snapshot is not null)
+                            {
+                                applied = await ApplySnapshotCoreAsync(
+                                    merged.Snapshot,
+                                    work.ClientGeneration,
+                                    work.CancellationToken).ConfigureAwait(false);
+                            }
+                        }
+                        else
+                        {
+                            applied = false;
+                        }
+                    }
+
+                    if (applied && IsCurrentGeneration(work.ClientGeneration))
+                    {
+                        MarkSnapshotApplied(work);
+                    }
+
+                    work.Completion.TrySetResult(applied && requiresFullRead);
+                }
+                catch (OperationCanceledException) when (
+                    work.CancellationToken.IsCancellationRequested
+                    || cancellationToken.IsCancellationRequested)
+                {
+                    work.Completion.TrySetCanceled(cancellationToken);
+                }
+                catch (Exception error)
+                {
+                    work.Completion.TrySetException(error);
                 }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+        finally
+        {
+            while (snapshotQueue.Reader.TryRead(out var work))
+            {
+                work.Completion.TrySetCanceled(cancellationToken);
+            }
+        }
+    }
+
+    private bool IsOlderSnapshot(SnapshotWork work) =>
+        work.ClientGeneration < Volatile.Read(ref clientGeneration)
+        || work.ClientGeneration < lastAppliedClientGeneration
+        || (work.ClientGeneration == lastAppliedClientGeneration
+            && work.HasIngressSequence
+            && lastAppliedHadIngressSequence
+            && work.IngressSequence < lastAppliedIngressSequence);
+
+    private void MarkSnapshotApplied(SnapshotWork work)
+    {
+        if (work.ClientGeneration > lastAppliedClientGeneration)
+        {
+            lastAppliedClientGeneration = work.ClientGeneration;
+            lastAppliedHadIngressSequence = false;
+            lastAppliedIngressSequence = 0;
+        }
+
+        if (work.HasIngressSequence)
+        {
+            lastAppliedHadIngressSequence = true;
+            lastAppliedIngressSequence = Math.Max(lastAppliedIngressSequence, work.IngressSequence);
+        }
+    }
+
+    private async Task<bool> EvaluateAlertsAsync(
+        NormalizedQuotaSnapshot snapshot,
+        long generation,
+        CancellationToken cancellationToken)
+    {
+        if (!IsCurrentGeneration(generation))
+        {
+            return false;
+        }
+
+        var inputs = snapshot.Windows.Select(window => new AlertInput(
+            window.AlertKey,
+            AlertWindowName(window),
+            (int)window.RemainingPercent,
+            window.PercentageReliable,
+            window.WindowDurationMinutes,
+            window.ResetAtUtc)).ToArray();
+        var reduction = QuotaAlertReducer.Reduce(alertState, inputs, Settings.EffectiveNotifications);
+        if (!IsCurrentGeneration(generation))
+        {
+            return false;
+        }
+
+        if (alertState is null || !AlertStateContentEquals(alertState, reduction.State))
+        {
+            var committed = await persistence.SaveAlertStateWithCommitAsync(
+                reduction.State,
+                cancellationToken,
+                generationCommitGate,
+                () => IsCurrentGeneration(generation),
+                () => alertState = reduction.State).ConfigureAwait(false);
+            if (!committed)
+            {
+                return false;
+            }
+        }
+
+        await generationCommitGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!IsCurrentGeneration(generation))
+            {
+                return false;
+            }
+
+            alertState = reduction.State;
+            if (reduction.Alert is not null)
+            {
+                try
+                {
+                    await notificationSink.ShowAsync(reduction.Alert, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Quota notification failed after state save: {error.GetType().Name}");
+                }
+            }
+
+            return true;
+        }
+        finally
+        {
+            generationCommitGate.Release();
+        }
+    }
+
+    private static string AlertWindowName(NormalizedQuotaWindow window)
+    {
+        var duration = window.WindowDurationMinutes switch
+        {
+            300 => "5 小时额度",
+            10_080 => "7 天额度",
+            > 0 and var value when value % 1_440 == 0 => $"{value / 1_440} 天额度",
+            > 0 and var value when value % 60 == 0 => $"{value / 60} 小时额度",
+            > 0 and var value => $"{value} 分钟额度",
+            _ => "额度窗口",
+        };
+
+        return string.IsNullOrWhiteSpace(window.LimitName)
+            || string.Equals(window.LimitName.Trim(), "Codex", StringComparison.OrdinalIgnoreCase)
+            ? duration
+            : $"{window.LimitName.Trim()} · {duration}";
+    }
+
+    private async Task NotificationLoopAsync(
+        ICodexAppServerClient source,
+        long generation,
+        CancellationToken cancellationToken)
+    {
+        var lease = new ClientLease(source, generation);
+        try
+        {
+            await foreach (var notification in source.ReadNotificationsAsync(cancellationToken).ConfigureAwait(false))
+            {
+                try
+                {
+                    var requiresFullRead = await EnqueueSnapshotAsync(notification, lease, cancellationToken).ConfigureAwait(false);
+
+                    if (requiresFullRead)
+                    {
+                        await RequestCoreAsync(
+                            RefreshReason.RateLimitNotification,
+                            cancellationToken,
+                            calledFromNotificationLoop: true,
+                            bypassIngressBarrier: notification.IsOverflow).ConfigureAwait(false);
+                    }
+                }
+                finally
+                {
+                    notification.AcknowledgeIngress();
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (ObjectDisposedException) when (disposed)
+        {
+        }
+        catch (ChannelClosedException error)
+        {
+            var clientError = error.InnerException as CodexClientException
+                ?? new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server notification stream closed.", error);
+            await HandleNotificationFailureAsync(lease, clientError).ConfigureAwait(false);
+        }
         catch (CodexClientException error)
         {
-            lastError = error.Kind;
+            await HandleNotificationFailureAsync(lease, error).ConfigureAwait(false);
+        }
+    }
+
+    private async Task HandleNotificationFailureAsync(ClientLease lease, CodexClientException error)
+    {
+        if (disposed || !IsCurrentClient(lease))
+        {
+            return;
+        }
+
+        lastError = error.Kind;
+        lastDiagnostics = lease.Client.Diagnostics;
+        SetCurrent(FailureState(current, error.Kind));
+        if (RequiresReconnect(error.Kind))
+        {
+            await ResetClientAsync(lease, waitForNotificationTask: false).ConfigureAwait(false);
         }
     }
 
@@ -374,7 +946,7 @@ public sealed class QuotaRuntimeService :
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(30), timeProvider);
         while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
         {
-            var anchor = coordinator.LastSuccessUtc ?? lastAttemptUtc;
+            var anchor = coordinator.ConsecutiveFailures > 0 ? lastAttemptUtc : coordinator.LastSuccessUtc;
             if (anchor is null
                 || timeProvider.GetUtcNow() - anchor >= coordinator.EffectiveInterval(MinimumReliableRemaining()))
             {
@@ -387,12 +959,18 @@ public sealed class QuotaRuntimeService :
 
     private void ApplyStaleState()
     {
-        if (current.IsRefreshing || lastError is not null || coordinator.LastSuccessUtc is not { } last)
+        if (current.IsRefreshing || lastError is not null || (lastAppliedSuccessUtc ?? coordinator.LastSuccessUtc) is not { } last)
         {
             return;
         }
 
         if (timeProvider.GetUtcNow() - last < coordinator.StaleAfter(MinimumReliableRemaining()))
+        {
+            return;
+        }
+
+        if (string.Equals(current.StatusText, "⚠ 数据可能已过期", StringComparison.Ordinal)
+            && current.Windows.All(window => window.IsStale))
         {
             return;
         }
@@ -414,15 +992,18 @@ public sealed class QuotaRuntimeService :
     {
         if (!Settings.PersistQuotaCache)
         {
+            lastPersistedCache = null;
             return;
         }
 
         var cache = await persistence.LoadQuotaCacheAsync(cancellationToken).ConfigureAwait(false);
         if (cache is null)
         {
+            lastPersistedCache = null;
             return;
         }
 
+        lastPersistedCache = cache;
         coordinator.RestoreLastSuccess(cache.LastSuccessUtc);
 
         var windows = cache.Windows.Select((window, index) => new NormalizedQuotaWindow(
@@ -465,18 +1046,74 @@ public sealed class QuotaRuntimeService :
         snapshot.AvailableCount,
         snapshot.ResetCredits.EarliestKnownExpiry);
 
+    private static bool CacheContentEquals(QuotaCacheDocument left, QuotaCacheDocument right) =>
+        left.FormatVersion == right.FormatVersion
+        && string.Equals(left.PlanType, right.PlanType, StringComparison.Ordinal)
+        && left.ResetCreditAvailableCount == right.ResetCreditAvailableCount
+        && left.ResetCreditEarliestExpiryUtc == right.ResetCreditEarliestExpiryUtc
+        && left.Windows.Count == right.Windows.Count
+        && left.Windows.Zip(right.Windows).All(pair =>
+            string.Equals(pair.First.SourceSlot, pair.Second.SourceSlot, StringComparison.Ordinal)
+            && pair.First.UsedPercent == pair.Second.UsedPercent
+            && pair.First.RemainingPercent == pair.Second.RemainingPercent
+            && pair.First.PercentageReliable == pair.Second.PercentageReliable
+            && pair.First.WindowDurationMinutes == pair.Second.WindowDurationMinutes
+            && pair.First.ResetAtUtc == pair.Second.ResetAtUtc);
+
+    private static bool AlertStateContentEquals(AlertStateDocument left, AlertStateDocument right)
+    {
+        if (left.SchemaVersion != right.SchemaVersion
+            || left.ResetAlertBaselineEstablished != right.ResetAlertBaselineEstablished
+            || !left.BaselineThresholds.SequenceEqual(right.BaselineThresholds)
+            || left.Windows.Count != right.Windows.Count)
+        {
+            return false;
+        }
+
+        return left.Windows.All(entry =>
+            right.Windows.TryGetValue(entry.Key, out var other)
+            && entry.Value.PseudonymousKey == other.PseudonymousKey
+            && entry.Value.WindowDurationMinutes == other.WindowDurationMinutes
+            && entry.Value.ResetAtUtc == other.ResetAtUtc
+            && entry.Value.LastReliableRemaining == other.LastReliableRemaining
+            && entry.Value.HandledThresholds.SequenceEqual(other.HandledThresholds)
+            && entry.Value.LastResetAlertCycleUtc == other.LastResetAlertCycleUtc);
+    }
+
     private void SetCurrent(AppUiState state)
     {
-        current = state with { IsRefreshing = state.StatusTone == StatusTone.Refreshing, IsPrototype = false };
+        if (disposed)
+        {
+            return;
+        }
+
+        var next = state with { IsRefreshing = state.StatusTone == StatusTone.Refreshing, IsPrototype = false };
+        if (UiStateContentEquals(current, next))
+        {
+            return;
+        }
+
+        current = next;
         StateChanged?.Invoke(this, current);
     }
+
+    private static bool UiStateContentEquals(AppUiState left, AppUiState right) =>
+        left.Title == right.Title
+        && left.PlanBadge == right.PlanBadge
+        && left.StatusText == right.StatusText
+        && left.StatusTone == right.StatusTone
+        && left.ResetCredits == right.ResetCredits
+        && left.IsRefreshing == right.IsRefreshing
+        && left.IsPrototype == right.IsPrototype
+        && left.Windows.SequenceEqual(right.Windows);
 
     public string CreateDiagnosticText()
     {
         var value = client?.Diagnostics ?? lastDiagnostics;
+        var version = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "unknown";
         return string.Join(
             Environment.NewLine,
-            "CodexQuotaTray WinUI: 0.4.4",
+            $"CodexQuotaTray WinUI: {version}",
             $"Codex CLI found: {value.CliFound}",
             $"Codex CLI version: {value.CliVersion ?? "unreported"}",
             $"App Server started: {value.AppServerStarted}",
@@ -500,17 +1137,104 @@ public sealed class QuotaRuntimeService :
         CodexClientErrorKind.InitializeTimeout or
         CodexClientErrorKind.Protocol;
 
-    private async Task ResetClientAsync()
+    private bool IsCurrentClient(ClientLease lease) =>
+        ReferenceEquals(Volatile.Read(ref client), lease.Client)
+        && Volatile.Read(ref clientGeneration) == lease.Generation;
+
+    private bool IsCurrentGeneration(long generation) =>
+        Volatile.Read(ref clientGeneration) == generation;
+
+    private async Task ResetClientAsync(ClientLease expected, bool waitForNotificationTask)
     {
-        if (client is null)
+        var detached = await DetachClientAsync(expected).ConfigureAwait(false);
+        if (detached is null)
         {
             return;
         }
 
-        lastDiagnostics = client.Diagnostics;
-        await client.DisposeAsync().ConfigureAwait(false);
-        client = null;
-        notificationTask = null;
+        lastDiagnostics = detached.Client.Diagnostics;
+        await DisposeDetachedClientAsync(detached.Client).ConfigureAwait(false);
+        if (waitForNotificationTask && detached.NotificationTask is not null)
+        {
+            await ObserveTaskAsync(detached.NotificationTask, "reset notification loop").ConfigureAwait(false);
+        }
+
+        detached.NotificationLifetime?.Dispose();
+    }
+
+    private async Task<DetachedClient?> DetachClientAsync(ClientLease? expected)
+    {
+        await generationCommitGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await clientLifecycleGate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                if (client is null
+                    || (expected is not null
+                        && (!ReferenceEquals(client, expected.Client) || clientGeneration != expected.Generation)))
+                {
+                    return null;
+                }
+
+                var detached = client;
+                client = null;
+                clientGeneration++;
+                var retiredLifetime = clientLifetime;
+                clientLifetime = null;
+                retiredLifetime?.Cancel();
+                var retiredTask = notificationTask;
+                if (notificationTask is not null)
+                {
+                    retiredNotificationTasks.Add(notificationTask);
+                    notificationTask = null;
+                }
+
+                return new DetachedClient(detached, retiredTask, retiredLifetime);
+            }
+            finally
+            {
+                clientLifecycleGate.Release();
+            }
+        }
+        finally
+        {
+            generationCommitGate.Release();
+        }
+    }
+
+    private Task[] TakeRetiredNotificationTasks()
+    {
+        var tasks = retiredNotificationTasks.ToArray();
+        retiredNotificationTasks.Clear();
+        return tasks;
+    }
+
+    private static async Task DisposeDetachedClientAsync(ICodexAppServerClient detached)
+    {
+        try
+        {
+            await detached.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Codex client dispose failed: {error.GetType().Name}");
+        }
+    }
+
+    private static async Task ObserveTaskAsync(Task task, string description)
+    {
+        try
+        {
+            await task.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Codex {description} ended with error: {error.GetType().Name}");
+        }
     }
 
     private static AppUiState ConnectingState() => new(
@@ -556,20 +1280,70 @@ public sealed class QuotaRuntimeService :
 
         disposed = true;
         lifetime.Cancel();
+        snapshotQueue.Writer.TryComplete();
         coordinator.Release();
-        await ResetClientAsync().ConfigureAwait(false);
-        foreach (var task in new[] { notificationTask, schedulerTask }.Where(task => task is not null))
+        var detached = await DetachClientAsync(expected: null).ConfigureAwait(false);
+        if (detached is not null)
+        {
+            lastDiagnostics = detached.Client.Diagnostics;
+            await DisposeDetachedClientAsync(detached.Client).ConfigureAwait(false);
+        }
+
+        var tasks = new HashSet<Task>();
+        lock (pendingRefreshGate)
+        {
+            if (pendingRefreshTask is not null)
+            {
+                tasks.Add(pendingRefreshTask);
+                pendingRefreshTask = null;
+            }
+        }
+
+        await clientLifecycleGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            tasks.UnionWith(retiredNotificationTasks);
+            retiredNotificationTasks.Clear();
+            if (notificationTask is not null)
+            {
+                tasks.Add(notificationTask);
+                notificationTask = null;
+            }
+        }
+        finally
+        {
+            clientLifecycleGate.Release();
+        }
+
+        if (schedulerTask is not null)
+        {
+            tasks.Add(schedulerTask);
+        }
+
+        if (snapshotApplyTask is not null)
+        {
+            tasks.Add(snapshotApplyTask);
+        }
+
+        foreach (var task in tasks)
         {
             try
             {
-                await task!.ConfigureAwait(false);
+                await task.ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
             }
+            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+            {
+                System.Diagnostics.Debug.WriteLine($"Codex runtime task ended with error: {error.GetType().Name}");
+            }
         }
 
+        detached?.NotificationLifetime?.Dispose();
         initializationGate.Dispose();
+        clientLifecycleGate.Dispose();
+        generationCommitGate.Dispose();
         lifetime.Dispose();
     }
 }

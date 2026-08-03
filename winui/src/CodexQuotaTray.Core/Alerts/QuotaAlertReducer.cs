@@ -1,27 +1,84 @@
-using System.Security.Cryptography;
-using System.Text;
 using CodexQuotaTray.Core.Persistence;
-using CodexQuotaTray.Core.Protocol;
 
 namespace CodexQuotaTray.Core.Alerts;
 
-public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Threshold);
-
-public sealed record AlertReduction(AlertStateDocument State, QuotaAlert? Alert);
-
-public static class AlertWindowIdentity
+public enum QuotaAlertKind
 {
-    public static string Create(string? limitId, string sourceSlot, long? durationMinutes, int ordinal)
+    Threshold,
+    Reset,
+    Composite,
+}
+
+public sealed record QuotaThresholdWindow(
+    string WindowName,
+    int RemainingPercent,
+    int Threshold);
+
+public sealed record QuotaResetWindow(
+    string WindowName,
+    int RemainingPercent,
+    DateTimeOffset ResetAtUtc);
+
+public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Threshold)
+{
+    public QuotaAlertKind Kind { get; init; } = QuotaAlertKind.Threshold;
+
+    public IReadOnlyList<QuotaThresholdWindow> ThresholdWindows { get; init; } = [];
+
+    public IReadOnlyList<QuotaResetWindow> ResetWindows { get; init; } = [];
+
+    public static QuotaAlert ForThresholds(IReadOnlyList<QuotaThresholdWindow> windows)
     {
-        if (!string.IsNullOrWhiteSpace(limitId))
+        if (windows.Count == 0)
         {
-            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(limitId));
-            return $"sha256:{Convert.ToHexString(hash).ToLowerInvariant()}";
+            throw new ArgumentException("At least one threshold window is required.", nameof(windows));
         }
 
-        return $"fallback:{sourceSlot}:{durationMinutes?.ToString() ?? "unknown"}:{ordinal}";
+        var first = windows[0];
+        return new QuotaAlert(first.WindowName, first.RemainingPercent, first.Threshold)
+        {
+            ThresholdWindows = windows,
+        };
+    }
+
+    public static QuotaAlert ForReset(IReadOnlyList<QuotaResetWindow> windows)
+    {
+        if (windows.Count == 0)
+        {
+            throw new ArgumentException("At least one reset window is required.", nameof(windows));
+        }
+
+        var first = windows[0];
+        return new QuotaAlert(
+            string.Join("、", windows.Select(window => window.WindowName)),
+            first.RemainingPercent,
+            0)
+        {
+            Kind = QuotaAlertKind.Reset,
+            ResetWindows = windows,
+        };
+    }
+
+    public static QuotaAlert ForComposite(
+        IReadOnlyList<QuotaThresholdWindow> thresholds,
+        IReadOnlyList<QuotaResetWindow> resets)
+    {
+        if (thresholds.Count == 0 || resets.Count == 0)
+        {
+            throw new ArgumentException("Both threshold and reset windows are required.");
+        }
+
+        var first = thresholds[0];
+        return new QuotaAlert(first.WindowName, first.RemainingPercent, first.Threshold)
+        {
+            Kind = QuotaAlertKind.Composite,
+            ThresholdWindows = thresholds,
+            ResetWindows = resets,
+        };
     }
 }
+
+public sealed record AlertReduction(AlertStateDocument State, QuotaAlert? Alert);
 
 public static class QuotaAlertReducer
 {
@@ -34,9 +91,12 @@ public static class QuotaAlertReducer
     {
         var enabled = Enabled(settings).ToArray();
         var baseline = previous is null || previous.SchemaVersion != 1;
+        var resetBaseline = baseline || previous?.ResetAlertBaselineEstablished != true;
         var oldWindows = baseline ? new Dictionary<string, AlertWindowState>() : previous!.Windows;
         var output = new Dictionary<string, AlertWindowState>(StringComparer.Ordinal);
-        QuotaAlert? selected = null;
+        var resetAlerts = new List<QuotaResetWindow>();
+        var thresholdAlerts = new List<QuotaThresholdWindow>();
+        var hasValidWindow = false;
 
         foreach (var input in windows)
         {
@@ -51,11 +111,24 @@ public static class QuotaAlertReducer
                 continue;
             }
 
+            hasValidWindow = true;
             var handled = old?.HandledThresholds.ToHashSet() ?? [];
             var newCycle = old is not null && IsNewCycle(old, input);
+            var resetCycle = !resetBaseline && old is not null && IsResetCycle(old, input);
             if (newCycle)
             {
                 handled.Clear();
+            }
+
+            var resetAlertCycle = old?.LastResetAlertCycleUtc;
+            if (resetCycle && input.ResetAtUtc is { } resetAt && resetAlertCycle != resetAt)
+            {
+                if (settings.ResetAfterCycle)
+                {
+                    resetAlerts.Add(new QuotaResetWindow(input.WindowName, input.RemainingPercent, resetAt));
+                }
+
+                resetAlertCycle = resetAt;
             }
 
             var newlyEnabled = enabled.Except(previous?.BaselineThresholds ?? []).ToArray();
@@ -80,11 +153,11 @@ public static class QuotaAlertReducer
 
             if (crossed.Length > 0)
             {
-                var urgent = crossed.Min();
-                if (selected is null || urgent < selected.Threshold)
-                {
-                    selected = new QuotaAlert(input.WindowName, input.RemainingPercent, urgent);
-                }
+                var threshold = crossed.Min();
+                thresholdAlerts.Add(new QuotaThresholdWindow(
+                    input.WindowName,
+                    input.RemainingPercent,
+                    threshold));
             }
 
             output[input.PseudonymousKey] = new AlertWindowState(
@@ -92,10 +165,21 @@ public static class QuotaAlertReducer
                 input.WindowDurationMinutes,
                 input.ResetAtUtc,
                 input.RemainingPercent,
-                handled.OrderDescending().ToArray());
+                handled.OrderDescending().ToArray(),
+                resetAlertCycle);
         }
 
-        return new AlertReduction(new AlertStateDocument(1, enabled, output), selected);
+        thresholdAlerts.Sort((left, right) => left.Threshold.CompareTo(right.Threshold));
+        var alert = thresholdAlerts.Count > 0 && resetAlerts.Count > 0
+            ? QuotaAlert.ForComposite(thresholdAlerts, resetAlerts)
+            : thresholdAlerts.Count > 0
+                ? QuotaAlert.ForThresholds(thresholdAlerts)
+                : resetAlerts.Count > 0
+                    ? QuotaAlert.ForReset(resetAlerts)
+                    : null;
+        return new AlertReduction(
+            new AlertStateDocument(1, enabled, output, resetBaseline || hasValidWindow),
+            alert);
     }
 
     public static bool IsNewCycle(AlertWindowState previous, AlertInput current)
@@ -112,6 +196,24 @@ public static class QuotaAlertReducer
         return previous.LastReliableRemaining is { } last
             && current.RemainingPercent - last >= 50
             && current.RemainingPercent >= 80;
+    }
+
+    public static bool IsResetCycle(AlertWindowState previous, AlertInput current)
+    {
+        if (previous.ResetAtUtc is not { } before || current.ResetAtUtc is not { } after)
+        {
+            return false;
+        }
+
+        if (previous.WindowDurationMinutes is not > 0
+            || current.WindowDurationMinutes is not > 0
+            || previous.WindowDurationMinutes != current.WindowDurationMinutes)
+        {
+            return false;
+        }
+
+        var tolerance = TimeSpan.FromMinutes(current.WindowDurationMinutes.Value / 2d);
+        return after - before >= tolerance;
     }
 
     private static IEnumerable<int> Enabled(NotificationSettings settings)

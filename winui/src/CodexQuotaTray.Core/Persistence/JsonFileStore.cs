@@ -64,6 +64,64 @@ public sealed class JsonFileStore
             }
         }
     }
+
+    public async Task<bool> SaveWithCommitAsync<T>(
+        string path,
+        T value,
+        CancellationToken cancellationToken,
+        SemaphoreSlim commitGate,
+        Func<bool> canCommit,
+        Action? onCommitted = null)
+    {
+        var directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException("A data directory is required.");
+        Directory.CreateDirectory(directory);
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        var backup = path + ".bak";
+        try
+        {
+            await using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous | FileOptions.WriteThrough))
+            {
+                await JsonSerializer.SerializeAsync(stream, value, Options, cancellationToken).ConfigureAwait(false);
+                await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+                if (stream.Length > MaximumBytes)
+                {
+                    throw new InvalidDataException("The persisted document exceeds the safe size limit.");
+                }
+            }
+
+            await commitGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (!canCommit())
+                {
+                    return false;
+                }
+
+                if (File.Exists(path))
+                {
+                    File.Replace(temporary, path, backup, ignoreMetadataErrors: true);
+                }
+                else
+                {
+                    File.Move(temporary, path);
+                }
+
+                onCommitted?.Invoke();
+                return true;
+            }
+            finally
+            {
+                commitGate.Release();
+            }
+        }
+        finally
+        {
+            if (File.Exists(temporary))
+            {
+                File.Delete(temporary);
+            }
+        }
+    }
 }
 
 public sealed class PreviewDataPaths

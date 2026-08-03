@@ -14,8 +14,10 @@ if (-not (Test-Path -LiteralPath $resolvedExecutable -PathType Leaf)) {
     throw "WinUI executable not found: $resolvedExecutable"
 }
 
-if (Get-Process -Name "codex-quota-tray-gui" -ErrorAction SilentlyContinue) {
-    throw "Close every running CodexQuotaTray instance before running the tray smoke."
+$existingProcesses = @(Get-Process -Name "codex-quota-tray-gui" -ErrorAction SilentlyContinue)
+if ($existingProcesses.Count -ne 0) {
+    $pids = $existingProcesses | Select-Object -ExpandProperty Id
+    throw "Close every running CodexQuotaTray instance before running the tray smoke. PIDs: $($pids -join ', ')"
 }
 
 $nativeSource = @'
@@ -136,7 +138,7 @@ try {
         $resultText = if ($null -eq $lastResult) {
             "not-called"
         } else {
-            "0x{0:X8}" -f [uint32]$lastResult
+            "0x{0:X8}" -f ($lastResult -band 0xFFFFFFFFL)
         }
         $processText = if ($process.HasExited) {
             "exited:$($process.ExitCode)"

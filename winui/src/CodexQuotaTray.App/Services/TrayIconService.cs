@@ -504,13 +504,48 @@ internal sealed class TrayIconService : IDisposable
         var data = CreateData();
         data.Flags |= NativeMethods.NifInfo;
         data.InfoTitle = "Codex 额度提醒";
-        data.Info = $"{alert.WindowName}剩余 {alert.RemainingPercent}%（已达到 {alert.Threshold}% 阈值）";
+        data.Info = alert.Kind switch
+        {
+            QuotaAlertKind.Reset => FormatResetAlert(alert.ResetWindows),
+            QuotaAlertKind.Composite => FormatCompositeAlert(alert),
+            _ => alert.ThresholdWindows.Count > 0
+                ? FormatThresholdAlert(alert.ThresholdWindows)
+                : $"{alert.WindowName}剩余 {alert.RemainingPercent}%",
+        };
         data.InfoFlags = NativeMethods.NiifInfo;
         if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
         {
             throw LastWin32("show quota notification");
         }
     }
+
+    private static string FormatResetAlert(IReadOnlyList<QuotaResetWindow> windows) =>
+        $"{string.Join("、", windows.Select(window => $"{window.WindowName}已重置"))}。当前剩余 "
+        + $"{string.Join("、", windows.Select(window => $"{window.RemainingPercent}%"))}，下次重置时间为 "
+        + $"{string.Join("、", windows.Select(window => window.ResetAtUtc.ToLocalTime().ToString("M月d日 HH:mm")))}。";
+
+    private static string FormatThresholdAlert(IReadOnlyList<QuotaThresholdWindow> windows)
+    {
+        if (windows.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        if (windows.Count == 1)
+        {
+            var window = windows[0];
+            return $"{window.WindowName}剩余 {window.RemainingPercent}%";
+        }
+
+        return string.Join(
+            Environment.NewLine,
+            windows.Select(window => $"{window.WindowName}剩余 {window.RemainingPercent}%"));
+    }
+
+    private static string FormatCompositeAlert(QuotaAlert alert) =>
+        FormatThresholdAlert(alert.ThresholdWindows)
+        + Environment.NewLine
+        + FormatResetAlert(alert.ResetWindows);
 
     internal void UpdateTooltip(string value)
     {

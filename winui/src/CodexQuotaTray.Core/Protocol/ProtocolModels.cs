@@ -53,6 +53,9 @@ public interface ICodexAppServerClient : IAsyncDisposable
 
     Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken);
 
+    Task<RateLimitsReadResult> ReadRateLimitsForRecoveryAsync(CancellationToken cancellationToken) =>
+        ReadRateLimitsAsync(cancellationToken);
+
     async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -69,11 +72,26 @@ public interface ICodexAppServerClientFactory
 
 public sealed record RateLimitsReadResult(
     RateLimitsResponse Response,
-    bool ResetCreditsFieldPresent);
+    bool ResetCreditsFieldPresent,
+    long IngressSequence = 0);
 
 public sealed record RateLimitsUpdatedNotification(
     RateLimitsResponse Response,
-    bool ResetCreditsFieldPresent);
+    bool ResetCreditsFieldPresent,
+    long IngressSequence = 0,
+    bool IsOverflow = false,
+    Action? IngressAcknowledgement = null)
+{
+    private int ingressAcknowledged;
+
+    public void AcknowledgeIngress()
+    {
+        if (Interlocked.Exchange(ref ingressAcknowledged, 1) == 0)
+        {
+            IngressAcknowledgement?.Invoke();
+        }
+    }
+}
 
 public sealed class InitializeResponse
 {

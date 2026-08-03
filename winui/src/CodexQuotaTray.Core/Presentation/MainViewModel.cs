@@ -9,6 +9,7 @@ public sealed partial class MainViewModel : ObservableObject
 {
     private readonly IUiStateProvider stateProvider;
     private readonly IExternalNavigation navigation;
+    private readonly bool stateEventsAuthoritative;
 
     [ObservableProperty]
     private string title = "Codex";
@@ -32,10 +33,14 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private bool isPrototype;
 
-    public MainViewModel(IUiStateProvider stateProvider, IExternalNavigation navigation)
+    public MainViewModel(
+        IUiStateProvider stateProvider,
+        IExternalNavigation navigation,
+        bool stateEventsAuthoritative = false)
     {
         this.stateProvider = stateProvider;
         this.navigation = navigation;
+        this.stateEventsAuthoritative = stateEventsAuthoritative;
     }
 
     public ObservableCollection<QuotaWindowView> Windows { get; } = [];
@@ -49,7 +54,11 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand]
     public async Task InitializeAsync(CancellationToken cancellationToken = default)
     {
-        Apply(await stateProvider.GetSnapshotAsync(cancellationToken));
+        var snapshot = await stateProvider.GetSnapshotAsync(cancellationToken);
+        if (!stateEventsAuthoritative)
+        {
+            Apply(snapshot);
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanRefresh))]
@@ -60,7 +69,11 @@ public sealed partial class MainViewModel : ObservableObject
         StatusTone = StatusTone.Refreshing;
         try
         {
-            Apply(await stateProvider.RefreshAsync(cancellationToken));
+            var snapshot = await stateProvider.RefreshAsync(cancellationToken);
+            if (!stateEventsAuthoritative)
+            {
+                Apply(snapshot);
+            }
         }
         finally
         {

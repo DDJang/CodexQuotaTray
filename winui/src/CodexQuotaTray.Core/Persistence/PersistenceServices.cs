@@ -49,14 +49,15 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
     private static NotificationSettings ParseNotifications(JsonElement value) => new(
         Boolean(value, "remaining50", false),
         Boolean(value, "remaining20", true),
-        Boolean(value, "remaining10", true));
+        Boolean(value, "remaining10", true),
+        Boolean(value, "resetAfterCycle", true));
 
     private static NotificationSettings ParseLegacyNotifications(JsonElement root)
     {
         var twenty = Boolean(root, "notifyRemaining20", true);
         var five = Boolean(root, "notifyRemaining5", true);
         var exhausted = Boolean(root, "notifyExhausted", true);
-        return new NotificationSettings(false, twenty, five || exhausted);
+        return new NotificationSettings(false, twenty, five || exhausted, true);
     }
 
     private static RefreshMode ParseRefreshMode(JsonElement root)
@@ -110,7 +111,7 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
     }
 }
 
-public sealed class PreviewPersistence(JsonFileStore store, PreviewDataPaths paths)
+public class PreviewPersistence(JsonFileStore store, PreviewDataPaths paths)
 {
     public async Task<QuotaCacheDocument?> LoadQuotaCacheAsync(CancellationToken cancellationToken)
     {
@@ -125,8 +126,16 @@ public sealed class PreviewPersistence(JsonFileStore store, PreviewDataPaths pat
         }
     }
 
-    public Task SaveQuotaCacheAsync(QuotaCacheDocument value, CancellationToken cancellationToken) =>
+    public virtual Task SaveQuotaCacheAsync(QuotaCacheDocument value, CancellationToken cancellationToken) =>
         store.SaveAsync(paths.QuotaCache, value, cancellationToken);
+
+    public virtual Task<bool> SaveQuotaCacheWithCommitAsync(
+        QuotaCacheDocument value,
+        CancellationToken cancellationToken,
+        SemaphoreSlim commitGate,
+        Func<bool> canCommit,
+        Action onCommitted) =>
+        store.SaveWithCommitAsync(paths.QuotaCache, value, cancellationToken, commitGate, canCommit, onCommitted);
 
     public Task ClearQuotaCacheAsync()
     {
@@ -151,8 +160,16 @@ public sealed class PreviewPersistence(JsonFileStore store, PreviewDataPaths pat
         }
     }
 
-    public Task SaveAlertStateAsync(AlertStateDocument value, CancellationToken cancellationToken) =>
+    public virtual Task SaveAlertStateAsync(AlertStateDocument value, CancellationToken cancellationToken) =>
         store.SaveAsync(paths.AlertState, value, cancellationToken);
+
+    public virtual Task<bool> SaveAlertStateWithCommitAsync(
+        AlertStateDocument value,
+        CancellationToken cancellationToken,
+        SemaphoreSlim commitGate,
+        Func<bool> canCommit,
+        Action onCommitted) =>
+        store.SaveWithCommitAsync(paths.AlertState, value, cancellationToken, commitGate, canCommit, onCommitted);
 }
 
 public sealed class ProductionDataImporter(JsonFileStore store)

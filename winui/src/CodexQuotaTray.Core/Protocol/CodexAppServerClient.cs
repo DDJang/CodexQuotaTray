@@ -96,7 +96,7 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
                         {
                             name = "codex_quota_tray_winui",
                             title = "CodexQuotaTray WinUI",
-                            version = "0.4.4",
+                            version = "0.4.5",
                         },
                     },
                     options.EffectiveInitializeTimeout,
@@ -138,17 +138,27 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
         }
     }
 
-    public async Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
+    public Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken) =>
+        ReadRateLimitsAsync(cancellationToken, waitForIngressBarrier: true);
+
+    public Task<RateLimitsReadResult> ReadRateLimitsForRecoveryAsync(CancellationToken cancellationToken) =>
+        ReadRateLimitsAsync(cancellationToken, waitForIngressBarrier: false);
+
+    private async Task<RateLimitsReadResult> ReadRateLimitsAsync(
+        CancellationToken cancellationToken,
+        bool waitForIngressBarrier)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         var rpc = connection ?? throw new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server is not connected.");
         try
         {
-            var result = await rpc.RequestAsync(
+            var rpcResult = await rpc.RequestWithSequenceAsync(
                 "account/rateLimits/read",
                 null,
                 options.EffectiveRequestTimeout,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                waitForIngressBarrier).ConfigureAwait(false);
+            var result = rpcResult.Payload;
             var fieldPresent = result.ValueKind == JsonValueKind.Object && result.TryGetProperty("rateLimitResetCredits", out _);
             var response = result.Deserialize<RateLimitsResponse>()
                 ?? throw new CodexClientException(CodexClientErrorKind.Protocol, "Rate-limit result was empty.");
@@ -162,7 +172,7 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
                 LastSuccessUtc = DateTimeOffset.UtcNow,
                 LastError = null,
             });
-            return new RateLimitsReadResult(response, fieldPresent);
+            return new RateLimitsReadResult(response, fieldPresent, rpcResult.IngressSequence);
         }
         catch (CodexClientException error)
         {
@@ -185,27 +195,55 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
         var rpc = connection ?? throw new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server is not connected.");
         await foreach (var notification in rpc.ReadNotificationsAsync(cancellationToken).ConfigureAwait(false))
         {
-            if (!string.Equals(notification.Method, "account/rateLimits/updated", StringComparison.Ordinal))
+            if (notification.IsOverflow)
             {
+                yield return new RateLimitsUpdatedNotification(
+                    new RateLimitsResponse(),
+                    false,
+                    notification.IngressSequence,
+                    IsOverflow: true,
+                    IngressAcknowledgement: notification.Acknowledge);
                 continue;
             }
 
-            var parsed = TryParseNotification(notification.Parameters);
+            if (!string.Equals(notification.Method, "account/rateLimits/updated", StringComparison.Ordinal))
+            {
+                notification.Acknowledge();
+                continue;
+            }
+
+            var parsed = TryParseNotification(
+                notification.Parameters,
+                notification.IngressSequence,
+                notification.Acknowledge);
             if (parsed is not null)
             {
                 yield return parsed;
             }
+            else
+            {
+                notification.Acknowledge();
+            }
         }
     }
 
-    private static RateLimitsUpdatedNotification? TryParseNotification(JsonElement parameters)
+    private static RateLimitsUpdatedNotification? TryParseNotification(
+        JsonElement parameters,
+        long ingressSequence,
+        Action ingressAcknowledgement)
     {
         try
         {
             var fieldPresent = parameters.ValueKind == JsonValueKind.Object
                 && parameters.TryGetProperty("rateLimitResetCredits", out _);
             var response = parameters.Deserialize<RateLimitsResponse>();
-            return response is null ? null : new RateLimitsUpdatedNotification(response, fieldPresent);
+            return response is null
+                ? null
+                : new RateLimitsUpdatedNotification(
+                    response,
+                    fieldPresent,
+                    ingressSequence,
+                    IngressAcknowledgement: ingressAcknowledgement);
         }
         catch (JsonException)
         {

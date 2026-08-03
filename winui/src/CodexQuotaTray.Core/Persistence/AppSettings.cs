@@ -13,7 +13,8 @@ public enum ThemeMode
 public sealed record NotificationSettings(
     bool Remaining50 = false,
     bool Remaining20 = true,
-    bool Remaining10 = true);
+    bool Remaining10 = true,
+    bool ResetAfterCycle = true);
 
 public sealed record AppSettings(
     bool StartWithWindows = false,
@@ -51,11 +52,13 @@ public sealed record QuotaCacheWindow(
 public sealed record AlertStateDocument(
     int SchemaVersion,
     IReadOnlyList<int> BaselineThresholds,
-    Dictionary<string, AlertWindowState> Windows);
+    Dictionary<string, AlertWindowState> Windows,
+    bool ResetAlertBaselineEstablished = false);
 
 public sealed record AlertWindowState(
     string PseudonymousKey,
     long? WindowDurationMinutes,
     DateTimeOffset? ResetAtUtc,
     int? LastReliableRemaining,
-    IReadOnlyList<int> HandledThresholds);
+    IReadOnlyList<int> HandledThresholds,
+    DateTimeOffset? LastResetAlertCycleUtc = null);

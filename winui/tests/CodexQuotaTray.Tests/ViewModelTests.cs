@@ -138,6 +138,27 @@ public sealed class ViewModelTests
         Assert.AreSame(aboutHost, actions.AboutHost);
     }
 
+    [TestMethod]
+    public async Task RuntimeAuthoritativeProviderDoesNotReapplyReturnedSnapshot()
+    {
+        var returned = new AppUiState(
+            "Codex",
+            "Plus",
+            "● 更新于 14:30",
+            StatusTone.Success,
+            [QuotaWindowView.Demo("5 小时额度", 80, "1小时后重置", "14:30")],
+            new ResetCreditViewState(ResetCreditKind.Unavailable));
+        var viewModel = new MainViewModel(
+            new StubProvider(returned),
+            new StubNavigation(),
+            stateEventsAuthoritative: true);
+
+        await viewModel.InitializeAsync();
+
+        Assert.AreEqual("正在连接 Codex…", viewModel.StatusText);
+        Assert.IsEmpty(viewModel.Windows);
+    }
+
     private sealed class StubProvider(AppUiState state) : IUiStateProvider
     {
         public ValueTask<AppUiState> GetSnapshotAsync(CancellationToken cancellationToken) =>

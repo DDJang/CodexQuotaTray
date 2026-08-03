@@ -88,7 +88,11 @@ public partial class App : Application
             pendingNotificationSink = notificationSink;
         }
 
-        var viewModel = new MainViewModel(stateProvider, new ExternalNavigation());
+        var runtimeStateEventsAuthoritative = runtime is not null;
+        var viewModel = new MainViewModel(
+            stateProvider,
+            new ExternalNavigation(),
+            runtimeStateEventsAuthoritative);
         viewModelReference = viewModel;
         mainWindow = new MainWindow(viewModel);
         mainWindow.Activate();
@@ -99,7 +103,12 @@ public partial class App : Application
 
         // Start the data task before optional shell integration so a tray initialization
         // failure can never strand the model in its initial connecting state.
-        initializationTask = InitializeStateAsync(stateProvider, viewModel, uiDispatcher, lifetime.Token);
+        initializationTask = InitializeStateAsync(
+            stateProvider,
+            viewModel,
+            uiDispatcher,
+            runtimeStateEventsAuthoritative,
+            lifetime.Token);
 
         var clipboard = new DiagnosticsClipboardService(new DelegateDiagnosticTextProvider(() => string.Join(
             Environment.NewLine,
@@ -241,7 +250,7 @@ public partial class App : Application
         var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
         {
             Title = "CodexQuotaTray WinUI",
-            Content = "0.4.4\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
+            Content = "0.4.5\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
             CloseButtonText = "关闭",
             XamlRoot = hostElement.XamlRoot,
         };
@@ -332,13 +341,17 @@ public partial class App : Application
         IUiStateProvider provider,
         MainViewModel viewModel,
         DispatcherQueue dispatcher,
+        bool stateEventsAuthoritative,
         CancellationToken cancellationToken)
     {
         try
         {
             await Task.Yield();
             var snapshot = await provider.GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
-            await EnqueueAsync(dispatcher, () => viewModel.ApplySnapshot(snapshot), cancellationToken).ConfigureAwait(false);
+            if (!stateEventsAuthoritative)
+            {
+                await EnqueueAsync(dispatcher, () => viewModel.ApplySnapshot(snapshot), cancellationToken).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
