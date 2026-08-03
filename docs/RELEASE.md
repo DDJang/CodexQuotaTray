@@ -2,7 +2,7 @@
 
 ## Artifact
 
-0.5.0 uses a per-user, no-admin Inno Setup installer containing the folder-based, self-contained x64 WinUI application. Its client height is derived from the actual bottom edge of the final visible action row instead of the ScrollViewer viewport, and its DWM/card/progress geometry uses a coordinated rounded hierarchy. The former Rust ZIP workflow is available only through the `archive/rust-win32-final` Git tag and is not part of the current branch.
+0.5.1 uses a per-user, no-admin Inno Setup installer containing the folder-based, self-contained x64 WinUI application. Its client height is derived from the actual bottom edge of the final visible action row instead of the ScrollViewer viewport, and its DWM/card/progress geometry uses a coordinated rounded hierarchy. The former Rust ZIP workflow is available only through the `archive/rust-win32-final` Git tag and is not part of the current branch.
 
 生成 WinUI 便携 ZIP：
 

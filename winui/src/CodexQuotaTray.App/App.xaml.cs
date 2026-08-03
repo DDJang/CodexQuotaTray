@@ -20,7 +20,7 @@ public partial class App : Application
     private DispatcherQueue? uiDispatcher;
     private IAsyncDisposable? providerLifetime;
     private Task? initializationTask;
-    private QuotaRuntimeService? runtime;
+    private IQuotaRuntimeControl? runtime;
     private SettingsWindow? settingsWindow;
     private ISettingsPageActions? settingsPageActions;
     private HostEventService? hostEvents;
@@ -59,6 +59,8 @@ public partial class App : Application
             var demo = new DemoStateProvider();
             stateProvider = demo;
             diagnostics = demo;
+            runtime = new DemoRuntimeControl();
+            settingsActions = new DemoSettingsPlatformActions();
         }
         else
         {
@@ -66,21 +68,22 @@ public partial class App : Application
             var jsonStore = new JsonFileStore();
             var persistence = new PreviewPersistence(jsonStore, paths);
             var notificationSink = new TrayNotificationSink(uiDispatcher);
-            runtime = new QuotaRuntimeService(
+            var liveRuntime = new QuotaRuntimeService(
                 new CodexAppServerClientFactory(new CodexClientOptions(ExplicitCodexBinary: explicitCodex)),
                 new SettingsService(jsonStore, paths),
                 persistence,
                 notificationSink);
-            stateProvider = runtime;
-            diagnostics = runtime;
-            providerLifetime = runtime;
+            runtime = liveRuntime;
+            stateProvider = liveRuntime;
+            diagnostics = liveRuntime;
+            providerLifetime = liveRuntime;
 
-            runtime.StateChanged += (_, state) =>
+            liveRuntime.StateChanged += (_, state) =>
             {
                 _ = uiDispatcher.TryEnqueue(() =>
                 {
                     viewModelReference?.ApplySnapshot(state);
-                    mainWindow?.ApplyTheme(runtime.Settings.ThemeMode);
+                    mainWindow?.ApplyTheme(liveRuntime.Settings.ThemeMode);
                     trayIcon?.UpdateTooltip(CreateTooltip(state));
                 });
             };
@@ -88,13 +91,14 @@ public partial class App : Application
             pendingNotificationSink = notificationSink;
         }
 
-        var runtimeStateEventsAuthoritative = runtime is not null;
+        var runtimeStateEventsAuthoritative = !showDemo;
         var viewModel = new MainViewModel(
             stateProvider,
             new ExternalNavigation(),
             runtimeStateEventsAuthoritative);
         viewModelReference = viewModel;
         mainWindow = new MainWindow(viewModel);
+        mainWindow.ApplyTheme(runtime?.Settings.ThemeMode ?? ThemeMode.System);
         mainWindow.Activate();
         if (!showDemo)
         {
@@ -128,7 +132,8 @@ public partial class App : Application
             ShowSettings,
             () => RequestRuntimeRefresh(RefreshReason.Resume),
             ExitApplication,
-            () => runtime?.Settings.ThemeMode ?? CodexQuotaTray.Core.Persistence.ThemeMode.System);
+            () => runtime?.Settings.ThemeMode ?? CodexQuotaTray.Core.Persistence.ThemeMode.System,
+            isolatedPreview ? TrayIconIdentity.Preview : TrayIconIdentity.Production);
         trayIcon.RegistrationStateChanged += (_, state) =>
         {
             _ = uiDispatcher.TryEnqueue(() =>
@@ -191,7 +196,7 @@ public partial class App : Application
     }
 
     private MainViewModel? viewModelReference;
-    private SettingsPlatformActions? settingsActions;
+    private ISettingsPlatformActions? settingsActions;
     private TrayNotificationSink? pendingNotificationSink;
 
     private static PreviewDataPaths CreateDataPaths(string[] arguments)
@@ -236,8 +241,24 @@ public partial class App : Application
             return;
         }
 
-        settingsWindow ??= new SettingsWindow(new SettingsViewModel(runtime, settingsActions, settingsPageActions));
+        if (settingsWindow is null)
+        {
+            var settingsViewModel = new SettingsViewModel(runtime, settingsActions, settingsPageActions);
+            settingsViewModel.ThemeSaved += OnSettingsThemeSaved;
+            settingsWindow = new SettingsWindow(settingsViewModel);
+        }
+
+        settingsWindow.ApplyTheme(runtime.Settings.ThemeMode);
         settingsWindow.Activate();
+    }
+
+    private void OnSettingsThemeSaved(object? sender, ThemeMode mode)
+    {
+        _ = uiDispatcher?.TryEnqueue(() =>
+        {
+            mainWindow?.ApplyTheme(mode);
+            settingsWindow?.ApplyTheme(mode);
+        });
     }
 
     private void ShowAbout(object? host)
@@ -251,7 +272,7 @@ public partial class App : Application
         var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
         {
             Title = "CodexQuotaTray WinUI",
-            Content = "0.5.0\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
+            Content = "0.5.1\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
             CloseButtonText = "关闭",
             XamlRoot = hostElement.XamlRoot,
         };

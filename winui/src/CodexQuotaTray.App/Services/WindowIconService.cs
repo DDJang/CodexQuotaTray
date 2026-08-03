@@ -4,7 +4,7 @@ namespace CodexQuotaTray.App.Services;
 
 internal static class WindowIconService
 {
-    private static readonly string IconPath = Path.Combine(
+    internal static readonly string IconPath = Path.Combine(
         AppContext.BaseDirectory,
         "Assets",
         "AppIcon.ico");

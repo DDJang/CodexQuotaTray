@@ -61,6 +61,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         Load(runtime.Settings);
     }
 
+    public event EventHandler<ThemeMode>? ThemeSaved;
+
     public IReadOnlyList<RefreshMode> RefreshModes { get; } = Enum.GetValues<RefreshMode>();
 
     public IReadOnlyList<ThemeMode> ThemeModes { get; } = Enum.GetValues<ThemeMode>();
@@ -75,6 +77,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             await platform.SetStartupAsync(StartWithWindows, cancellationToken);
             await runtime.ApplySettingsAsync(ToSettings(), cancellationToken);
             StatusText = "设置已保存";
+            ThemeSaved?.Invoke(this, SelectedThemeMode);
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
         {

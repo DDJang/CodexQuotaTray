@@ -139,6 +139,24 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public async Task SettingsSave_ReportsSavedTheme()
+    {
+        var runtime = new StubRuntimeControl();
+        var viewModel = new SettingsViewModel(
+            runtime,
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions());
+        CodexQuotaTray.Core.Persistence.ThemeMode? savedTheme = null;
+        viewModel.ThemeSaved += (_, mode) => savedTheme = mode;
+
+        viewModel.SelectedThemeMode = CodexQuotaTray.Core.Persistence.ThemeMode.Dark;
+        await viewModel.SaveCommand.ExecuteAsync(null);
+
+        Assert.AreEqual(CodexQuotaTray.Core.Persistence.ThemeMode.Dark, savedTheme);
+        Assert.AreEqual(CodexQuotaTray.Core.Persistence.ThemeMode.Dark, runtime.Settings.ThemeMode);
+    }
+
+    [TestMethod]
     public async Task RuntimeAuthoritativeProviderDoesNotReapplyReturnedSnapshot()
     {
         var returned = new AppUiState(

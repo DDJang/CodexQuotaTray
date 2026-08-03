@@ -15,7 +15,6 @@ namespace CodexQuotaTray.App.Services;
 internal sealed class TrayIconService : IDisposable
 {
     private const uint TrayId = 0x51435452;
-    private static readonly Guid TrayGuid = new("8F4F2C19-0C4C-4E1B-8F5C-50D0F1A4A77D");
     private static readonly Dictionary<IntPtr, TrayIconService> Instances = [];
     private static readonly NativeMethods.WindowProcedure SharedWindowProcedure = WindowProcedure;
     private readonly DispatcherQueue dispatcher;
@@ -25,6 +24,7 @@ internal sealed class TrayIconService : IDisposable
     private readonly Action resume;
     private readonly Action exitApplication;
     private readonly Func<PersistenceThemeMode> themeProvider;
+    private readonly TrayIconIdentity identity;
     private const string TrayCallbackWindowClassName = "CodexQuotaTray.Tray.CallbackWindow";
     private const string TrayBroadcastWindowClassName = "CodexQuotaTray.Tray.BroadcastWindow";
     private IntPtr instance;
@@ -58,7 +58,8 @@ internal sealed class TrayIconService : IDisposable
         Action openSettings,
         Action resume,
         Action exitApplication,
-        Func<PersistenceThemeMode> themeProvider)
+        Func<PersistenceThemeMode> themeProvider,
+        TrayIconIdentity identity)
     {
         this.dispatcher = dispatcher;
         this.toggleWindow = toggleWindow;
@@ -67,6 +68,7 @@ internal sealed class TrayIconService : IDisposable
         this.resume = resume;
         this.exitApplication = exitApplication;
         this.themeProvider = themeProvider;
+        this.identity = identity;
     }
 
     internal void Start()
@@ -118,10 +120,10 @@ internal sealed class TrayIconService : IDisposable
         Instances.Add(callbackWindow, this);
         Instances.Add(broadcastWindow, this);
         taskbarCreatedMessage = NativeMethods.RegisterWindowMessage("TaskbarCreated");
-        var executable = Environment.ProcessPath;
+        var iconPath = WindowIconService.IconPath;
         var smallIcons = new IntPtr[1];
-        if (string.IsNullOrWhiteSpace(executable)
-            || NativeMethods.ExtractIconEx(executable, 0, null, smallIcons, 1) != 1
+        if (!File.Exists(iconPath)
+            || NativeMethods.ExtractIconEx(iconPath, 0, null, smallIcons, 1) != 1
             || smallIcons[0] == IntPtr.Zero)
         {
             throw LastWin32("extract the embedded tray icon");
@@ -271,9 +273,9 @@ internal sealed class TrayIconService : IDisposable
     {
         error = 0;
         var data = CreateData();
-        // Clear a stale entry left by a previous host before reusing the stable
-        // product GUID. This preserves the user's notification-area placement
-        // while ensuring callbacks point at the current process.
+        // Clear only this identity's stale entry before reusing its stable GUID.
+        // Production and Preview have different GUIDs, so neither can delete the
+        // other identity's notification icon.
         _ = NativeMethods.ShellNotifyIcon(NativeMethods.NimDelete, ref data);
         if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimAdd, ref data))
         {
@@ -313,7 +315,7 @@ internal sealed class TrayIconService : IDisposable
                     Size = (uint)Marshal.SizeOf<NativeMethods.NotifyIconIdentifier>(),
                     Window = callbackWindow,
                     Id = TrayId,
-                    GuidItem = TrayGuid,
+                    GuidItem = identity.Guid,
                 };
                 var result = NativeMethods.ShellNotifyIconGetRect(ref identifier, out var rect);
                 lastExplorerResult = result;
@@ -354,12 +356,12 @@ internal sealed class TrayIconService : IDisposable
                     return;
                 }
 
-                DeleteIcon();
-                LastRegistrationError = lastExplorerResult;
-                SetRegistrationState(
-                    TrayRegistrationPolicy.StateAfterAttempt(false, attemptNumber),
-                    LastRegistrationError);
-                ScheduleRegistrationAttempt(generation);
+                // Shell_NotifyIcon can accept the icon while Explorer cannot provide a
+                // rectangle (for example when the icon is in the notification overflow
+                // area). The icon is still usable, so do not delete a successful NIM_ADD
+                // just because positioning metadata is unavailable.
+                explorerConfirmed = false;
+                SetRegistrationState(TrayRegistrationState.Registered, null);
             });
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -405,10 +407,10 @@ internal sealed class TrayIconService : IDisposable
             | NativeMethods.NifShowTip,
         CallbackMessage = NativeMethods.TrayCallbackMessage,
         Icon = icon,
-        Tip = "CodexQuotaTray",
+        Tip = identity.Tooltip,
         Info = string.Empty,
         InfoTitle = string.Empty,
-        GuidItem = TrayGuid,
+        GuidItem = identity.Guid,
     };
 
     private void HandleMessage(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
@@ -537,6 +539,9 @@ internal sealed class TrayIconService : IDisposable
 
     internal string CreateDiagnosticText() => string.Join(
         Environment.NewLine,
+        $"托盘身份: {identity.Name}",
+        $"托盘 GUID: {identity.Guid:D}",
+        $"托盘提示: {identity.Tooltip}",
         $"托盘注册状态: {RegistrationState}",
         $"托盘注册错误: {(LastRegistrationError?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none")}",
         "托盘回调宿主: HWND_MESSAGE",
