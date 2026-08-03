@@ -5,7 +5,7 @@
 
 ## 工具链
 
-- .NET SDK `10.0.302`，由 `winui/global.json` 固定；
+- .NET SDK `10.0.302`，由仓库根目录 `global.json` 固定；
 - Windows x64 / `win-x64`；
 - Inno Setup 7，仅用于生成 per-user 安装器。
 
