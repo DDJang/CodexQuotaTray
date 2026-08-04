@@ -35,6 +35,11 @@ public sealed partial class MainWindow : Window
         var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         appWindow = AppWindow.GetFromWindowId(windowId);
 
+        // The app is activated once during startup before the panel is shown.
+        // Set the icon before that first activation so the taskbar button does
+        // not capture WinUI's default application icon.
+        _ = WindowIconService.TrySetIcon(appWindow);
+
         appWindow.Closing += OnClosing;
         Activated += OnActivated;
         PanelContent.SizeChanged += (_, _) => QueuePositionIfVisible();
