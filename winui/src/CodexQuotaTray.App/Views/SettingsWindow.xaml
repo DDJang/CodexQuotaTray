@@ -5,31 +5,14 @@
     Title="CodexQuotaTray 设置">
     <Grid
         x:Name="SettingsRoot"
-        Background="{ThemeResource WindowSurfaceBrush}">
+        Background="{ThemeResource SettingsWindowSurfaceBrush}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" HorizontalAlignment="Stretch">
-            <StackPanel
-                x:Name="HeaderContent"
-                MaxWidth="720"
-                HorizontalAlignment="Center"
-                Padding="24,22,24,12"
-                Spacing="8">
-                <TextBlock Text="设置" FontSize="28" FontWeight="SemiBold" />
-                <TextBlock
-                    Text="设置、额度缓存和提醒防重复状态仅保存在当前用户目录。"
-                    TextWrapping="Wrap"
-                    Foreground="{ThemeResource SecondaryTextBrush}"
-                    Opacity="0.86" />
-            </StackPanel>
-        </Grid>
-
         <ScrollViewer
             x:Name="SettingsScroller"
-            Grid.Row="1"
+            Grid.Row="0"
             HorizontalScrollBarVisibility="Disabled"
             VerticalScrollBarVisibility="Auto"
             VerticalScrollMode="Auto">

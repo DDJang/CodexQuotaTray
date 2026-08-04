@@ -163,7 +163,7 @@
     <Style x:Key="SettingsDescriptionStyle" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{ThemeResource SecondaryTextBrush}" />
         <Setter Property="FontSize" Value="12" />
-        <Setter Property="Opacity" Value="0.82" />
+        <Setter Property="Opacity" Value="1" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 
