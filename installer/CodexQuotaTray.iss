@@ -54,7 +54,7 @@ Source: "{#SourceDir}\docs\PRIVACY.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\docs\DEPENDENCIES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\CodexQuotaTray"; Filename: "{app}\codex-quota-tray-gui.exe"; IconFilename: "{app}\codex-quota-tray-gui.exe"; WorkingDir: "{app}"
+Name: "{autoprograms}\CodexQuotaTray"; Filename: "{app}\codex-quota-tray-gui.exe"; IconFilename: "{app}\Assets\AppIcon.ico"; IconIndex: 0; WorkingDir: "{app}"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "CodexQuotaTray"; ValueData: """{app}\codex-quota-tray-gui.exe"" --startup"; Flags: uninsdeletevalue; Tasks: autostart
