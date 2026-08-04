@@ -100,11 +100,20 @@ function Invoke-DiffCheck([string]$RepositoryRoot) {
     }
 }
 
+function Normalize-TestOutput([object[]]$Output) {
+    $text = ($Output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+    $ansiPattern = [string][char]27 + '\[[0-?]*[ -/]*[@-~]'
+    return [Regex]::Replace($text, $ansiPattern, '')
+}
+
 function Get-TestCount([string]$Output, [string[]]$Labels) {
-    foreach ($label in $Labels) {
-        $match = [Regex]::Match($Output, "(?im)^\s*$([Regex]::Escape($label))\s*:\s*(\d+)\s*$")
-        if ($match.Success) {
-            return [int]$match.Groups[1].Value
+    foreach ($line in ($Output -split "\r\n|\n|\r")) {
+        $candidate = $line.Trim()
+        foreach ($label in $Labels) {
+            $match = [Regex]::Match($candidate, "(?i)^$([Regex]::Escape($label))\s*:\s*(\d+)$")
+            if ($match.Success) {
+                return [int]$match.Groups[1].Value
+            }
         }
     }
 
@@ -136,7 +145,7 @@ function Invoke-OfflineTests(
             throw "Complete offline tests failed with exit code $testExitCode."
         }
 
-        $text = $testOutput -join [Environment]::NewLine
+        $text = Normalize-TestOutput $testOutput
         $total = Get-TestCount $text @("Total", "总计")
         $passed = Get-TestCount $text @("Passed", "成功")
         $failed = Get-TestCount $text @("Failed", "失败")
