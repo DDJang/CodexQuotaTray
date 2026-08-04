@@ -135,6 +135,12 @@
         <Setter Property="HorizontalAlignment" Value="Stretch" />
     </Style>
 
+    <Style x:Key="SettingsRowTextStyle" TargetType="StackPanel">
+        <Setter Property="Spacing" Value="2" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="HorizontalAlignment" Value="Stretch" />
+    </Style>
+
     <Style x:Key="SettingsGroupHeaderStyle" TargetType="TextBlock">
         <Setter Property="FontSize" Value="18" />
         <Setter Property="FontWeight" Value="SemiBold" />
@@ -164,7 +170,8 @@
     <Style x:Key="SettingsRowDividerStyle" TargetType="Border">
         <Setter Property="Height" Value="1" />
         <Setter Property="Background" Value="{ThemeResource DividerBrush}" />
-        <Setter Property="Opacity" Value="0.7" />
+        <Setter Property="Margin" Value="0,4" />
+        <Setter Property="Opacity" Value="0.42" />
     </Style>
 
     <Style x:Key="SettingsActionButtonStyle" TargetType="Button">
@@ -178,6 +185,7 @@
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="UseSystemFocusVisuals" Value="False" />
     </Style>
 
     <Style x:Key="QuotaProgressStyle" TargetType="ProgressBar">

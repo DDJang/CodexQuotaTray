@@ -139,7 +139,7 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
-    public async Task SettingsSave_ReportsSavedTheme()
+    public void SettingsChangesApplyImmediatelyAndReportTheme()
     {
         var runtime = new StubRuntimeControl();
         var viewModel = new SettingsViewModel(
@@ -150,14 +150,13 @@ public sealed class ViewModelTests
         viewModel.ThemeSaved += (_, mode) => savedTheme = mode;
 
         viewModel.SelectedThemeMode = CodexQuotaTray.Core.Persistence.ThemeMode.Dark;
-        await viewModel.SaveCommand.ExecuteAsync(null);
 
         Assert.AreEqual(CodexQuotaTray.Core.Persistence.ThemeMode.Dark, savedTheme);
         Assert.AreEqual(CodexQuotaTray.Core.Persistence.ThemeMode.Dark, runtime.Settings.ThemeMode);
     }
 
     [TestMethod]
-    public async Task PreviewSettingsCannotConfigureProductionStartup()
+    public void PreviewSettingsCannotConfigureProductionStartup()
     {
         var runtime = new StubRuntimeControl();
         var platform = new StubSettingsPlatformActions(canConfigureStartup: false);
@@ -165,8 +164,6 @@ public sealed class ViewModelTests
         {
             StartWithWindows = true,
         };
-
-        await viewModel.SaveCommand.ExecuteAsync(null);
 
         Assert.IsFalse(viewModel.CanConfigureStartup);
         Assert.AreEqual("预览模式不可配置开机启动。", viewModel.StartupDescription);

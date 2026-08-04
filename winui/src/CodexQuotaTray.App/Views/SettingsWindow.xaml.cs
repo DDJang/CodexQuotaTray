@@ -5,9 +5,6 @@ using CodexQuotaTray.Core.Presentation;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
-using Windows.UI;
-using Windows.UI.ViewManagement;
 using WinRT.Interop;
 using Windows.Graphics;
 
@@ -23,7 +20,6 @@ public sealed partial class SettingsWindow : Window
 
     private readonly SettingsViewModel viewModel;
     private readonly AppWindow appWindow;
-    private readonly UISettings uiSettings = new();
 
     public SettingsWindow(SettingsViewModel viewModel)
     {
@@ -33,14 +29,7 @@ public sealed partial class SettingsWindow : Window
         SettingsRoot.DataContext = viewModel;
         SettingsRoot.SizeChanged += OnSettingsRootSizeChanged;
         SettingsRoot.Loaded += (_, _) => ApplyResponsiveLayout(SettingsRoot.ActualWidth);
-        SettingsRoot.ActualThemeChanged += (_, _) => ApplyTitleBarTheme();
-        uiSettings.ColorValuesChanged += (_, _) =>
-        {
-            if (new AccessibilitySettings().HighContrast || viewModel.SelectedThemeMode == ThemeMode.System)
-            {
-                _ = DispatcherQueue.TryEnqueue(ApplyTitleBarTheme);
-            }
-        };
+        SettingsRoot.ActualThemeChanged += (_, _) => ApplyTitleBarTheme(viewModel.SelectedThemeMode);
 
         var hwnd = WindowNative.GetWindowHandle(this);
         var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
@@ -78,8 +67,8 @@ public sealed partial class SettingsWindow : Window
             _ => ElementTheme.Default,
         };
 
-        ApplyTitleBarTheme();
-        _ = DispatcherQueue.TryEnqueue(ApplyTitleBarTheme);
+        ApplyTitleBarTheme(mode);
+        _ = DispatcherQueue.TryEnqueue(() => ApplyTitleBarTheme(mode));
     }
 
     internal void FocusAboutButton()
@@ -90,7 +79,7 @@ public sealed partial class SettingsWindow : Window
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         _ = WindowIconService.TrySetIcon(appWindow);
-        ApplyTitleBarTheme();
+        ApplyTitleBarTheme(viewModel.SelectedThemeMode);
     }
 
     private void OnSettingsRootSizeChanged(object sender, SizeChangedEventArgs args) =>
@@ -102,7 +91,7 @@ public sealed partial class SettingsWindow : Window
         _ = VisualStateManager.GoToState(SettingsScroller, state, false);
     }
 
-    private void ApplyTitleBarTheme()
+    private void ApplyTitleBarTheme(ThemeMode mode)
     {
         if (!AppWindowTitleBar.IsCustomizationSupported())
         {
@@ -110,19 +99,13 @@ public sealed partial class SettingsWindow : Window
         }
 
         var titleBar = appWindow.TitleBar;
-        titleBar.BackgroundColor = BrushColor(TitleBarBackgroundResource.Background, Color.FromArgb(255, 234, 242, 252));
-        titleBar.ForegroundColor = BrushColor(TitleBarForegroundResource.Background, Color.FromArgb(255, 23, 33, 43));
-        titleBar.ButtonBackgroundColor = BrushColor(TitleBarButtonBackgroundResource.Background, Color.FromArgb(255, 234, 242, 252));
-        titleBar.ButtonForegroundColor = BrushColor(TitleBarButtonForegroundResource.Background, Color.FromArgb(255, 23, 33, 43));
-        titleBar.ButtonHoverBackgroundColor = BrushColor(TitleBarButtonHoverBackgroundResource.Background, Color.FromArgb(26, 8, 123, 232));
-        titleBar.ButtonHoverForegroundColor = BrushColor(TitleBarButtonHoverForegroundResource.Background, Color.FromArgb(255, 23, 33, 43));
-        titleBar.ButtonPressedBackgroundColor = BrushColor(TitleBarButtonPressedBackgroundResource.Background, Color.FromArgb(50, 8, 123, 232));
-        titleBar.ButtonPressedForegroundColor = BrushColor(TitleBarButtonPressedForegroundResource.Background, Color.FromArgb(255, 23, 33, 43));
-    }
-
-    private static Color BrushColor(Brush? brush, Color fallback)
-    {
-        return brush is SolidColorBrush solid ? solid.Color : fallback;
+        titleBar.ResetToDefault();
+        titleBar.PreferredTheme = mode switch
+        {
+            ThemeMode.Light => TitleBarTheme.Light,
+            ThemeMode.Dark => TitleBarTheme.Dark,
+            _ => TitleBarTheme.UseDefaultAppMode,
+        };
     }
 
     private static int DipsToPixels(double dips, double scale) =>

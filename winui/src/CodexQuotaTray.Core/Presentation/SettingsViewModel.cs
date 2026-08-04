@@ -36,6 +36,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IQuotaRuntimeControl runtime;
     private readonly ISettingsPlatformActions platform;
     private readonly ISettingsPageActions pageActions;
+    private readonly SemaphoreSlim applyGate = new(1, 1);
+    private bool suppressSettingsApply = true;
+    private long settingsRevision;
 
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showRemainingPercent;
@@ -50,7 +53,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private RefreshMode selectedRefreshMode;
     [ObservableProperty] private ThemeMode selectedThemeMode;
     [ObservableProperty] private string statusText = string.Empty;
-    [ObservableProperty][NotifyCanExecuteChangedFor(nameof(SaveCommand))] private bool isBusy;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ResetCommand))]
+    private bool isBusy;
 
     public SettingsViewModel(
         IQuotaRuntimeControl runtime,
@@ -61,6 +66,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         this.platform = platform;
         this.pageActions = pageActions;
         Load(runtime.Settings);
+        suppressSettingsApply = false;
     }
 
     public event EventHandler<ThemeMode>? ThemeSaved;
@@ -75,38 +81,12 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public IReadOnlyList<ThemeMode> ThemeModes { get; } = Enum.GetValues<ThemeMode>();
 
-    [RelayCommand(CanExecute = nameof(CanSave))]
-    private async Task SaveAsync(CancellationToken cancellationToken)
+    [RelayCommand(CanExecute = nameof(CanEdit))]
+    private Task ResetAsync(CancellationToken cancellationToken)
     {
-        var previous = runtime.Settings;
-        IsBusy = true;
-        try
-        {
-            if (CanConfigureStartup)
-            {
-                await platform.SetStartupAsync(StartWithWindows, cancellationToken);
-            }
-
-            await runtime.ApplySettingsAsync(ToSettings(), cancellationToken);
-            StatusText = "设置已保存";
-            ThemeSaved?.Invoke(this, SelectedThemeMode);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
-        {
-            Load(previous);
-            StatusText = "保存失败，已恢复原设置";
-        }
-        finally
-        {
-            IsBusy = false;
-        }
-    }
-
-    [RelayCommand]
-    private async Task ResetAsync(CancellationToken cancellationToken)
-    {
+        InvalidatePendingApply();
         Load(AppSettings.Defaults);
-        await SaveAsync(cancellationToken);
+        return ApplyCurrentSettingsAsync(cancellationToken);
     }
 
     [RelayCommand]
@@ -142,7 +122,103 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void ShowAbout(object? host) => pageActions.ShowAbout(host);
 
-    private bool CanSave() => !IsBusy;
+    private bool CanEdit() => !IsBusy;
+
+    private Task ApplyCurrentSettingsAsync(CancellationToken cancellationToken) =>
+        ApplySettingsAsync(ToSettings(), cancellationToken);
+
+    private void QueueSettingsApply()
+    {
+        if (suppressSettingsApply)
+        {
+            return;
+        }
+
+        var revision = Interlocked.Increment(ref settingsRevision);
+        _ = ApplyLatestSettingsAsync(revision);
+    }
+
+    private async Task ApplyLatestSettingsAsync(long revision)
+    {
+        await applyGate.WaitAsync();
+        try
+        {
+            if (revision != Interlocked.Read(ref settingsRevision))
+            {
+                return;
+            }
+
+            await ApplySettingsCoreAsync(ToSettings(), CancellationToken.None);
+        }
+        finally
+        {
+            applyGate.Release();
+        }
+    }
+
+    private async Task ApplySettingsAsync(
+        AppSettings settings,
+        CancellationToken cancellationToken)
+    {
+        await applyGate.WaitAsync(cancellationToken);
+        try
+        {
+            await ApplySettingsCoreAsync(settings, cancellationToken);
+        }
+        finally
+        {
+            applyGate.Release();
+        }
+    }
+
+    private async Task ApplySettingsCoreAsync(
+        AppSettings settings,
+        CancellationToken cancellationToken)
+    {
+        var previous = Normalize(runtime.Settings);
+        IsBusy = true;
+        try
+        {
+            if (CanConfigureStartup && previous.StartWithWindows != settings.StartWithWindows)
+            {
+                await platform.SetStartupAsync(settings.StartWithWindows, cancellationToken);
+            }
+
+            await runtime.ApplySettingsAsync(settings, cancellationToken);
+            if (previous.ThemeMode != settings.ThemeMode)
+            {
+                ThemeSaved?.Invoke(this, settings.ThemeMode);
+            }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            if (CanConfigureStartup && previous.StartWithWindows != settings.StartWithWindows)
+            {
+                try
+                {
+                    await platform.SetStartupAsync(previous.StartWithWindows, CancellationToken.None);
+                }
+                catch (Exception rollbackError) when (
+                    rollbackError is IOException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    // Preserve the original failure while leaving the best-effort rollback contained.
+                }
+            }
+
+            Load(previous);
+            StatusText = "应用设置失败，已恢复原设置";
+            if (previous.ThemeMode != settings.ThemeMode)
+            {
+                ThemeSaved?.Invoke(this, previous.ThemeMode);
+            }
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private void InvalidatePendingApply() => Interlocked.Increment(ref settingsRevision);
 
     private AppSettings ToSettings() => new(
         CanConfigureStartup && StartWithWindows,
@@ -155,19 +231,57 @@ public sealed partial class SettingsViewModel : ObservableObject
         SelectedThemeMode,
         SilentStartup);
 
+    private AppSettings Normalize(AppSettings value) => value with
+    {
+        StartWithWindows = CanConfigureStartup && value.StartWithWindows,
+        Notifications = value.EffectiveNotifications,
+    };
+
     private void Load(AppSettings value)
     {
-        StartWithWindows = CanConfigureStartup && value.StartWithWindows;
-        ShowRemainingPercent = value.ShowRemainingPercent;
-        Use24HourTime = value.Use24HourTime;
-        PersistQuotaCache = value.PersistQuotaCache;
-        RefreshOnNetworkRestore = value.RefreshOnNetworkRestore;
-        NotifyRemaining50 = value.EffectiveNotifications.Remaining50;
-        NotifyRemaining20 = value.EffectiveNotifications.Remaining20;
-        NotifyRemaining10 = value.EffectiveNotifications.Remaining10;
-        NotifyAfterQuotaReset = value.EffectiveNotifications.ResetAfterCycle;
-        SelectedRefreshMode = value.RefreshMode;
-        SelectedThemeMode = value.ThemeMode;
-        SilentStartup = value.SilentStartup;
+        suppressSettingsApply = true;
+        try
+        {
+            StartWithWindows = CanConfigureStartup && value.StartWithWindows;
+            ShowRemainingPercent = value.ShowRemainingPercent;
+            Use24HourTime = value.Use24HourTime;
+            PersistQuotaCache = value.PersistQuotaCache;
+            RefreshOnNetworkRestore = value.RefreshOnNetworkRestore;
+            NotifyRemaining50 = value.EffectiveNotifications.Remaining50;
+            NotifyRemaining20 = value.EffectiveNotifications.Remaining20;
+            NotifyRemaining10 = value.EffectiveNotifications.Remaining10;
+            NotifyAfterQuotaReset = value.EffectiveNotifications.ResetAfterCycle;
+            SelectedRefreshMode = value.RefreshMode;
+            SelectedThemeMode = value.ThemeMode;
+            SilentStartup = value.SilentStartup;
+        }
+        finally
+        {
+            suppressSettingsApply = false;
+        }
     }
+
+    partial void OnStartWithWindowsChanged(bool value) => QueueSettingsApply();
+
+    partial void OnShowRemainingPercentChanged(bool value) => QueueSettingsApply();
+
+    partial void OnUse24HourTimeChanged(bool value) => QueueSettingsApply();
+
+    partial void OnPersistQuotaCacheChanged(bool value) => QueueSettingsApply();
+
+    partial void OnRefreshOnNetworkRestoreChanged(bool value) => QueueSettingsApply();
+
+    partial void OnNotifyRemaining50Changed(bool value) => QueueSettingsApply();
+
+    partial void OnNotifyRemaining20Changed(bool value) => QueueSettingsApply();
+
+    partial void OnNotifyRemaining10Changed(bool value) => QueueSettingsApply();
+
+    partial void OnNotifyAfterQuotaResetChanged(bool value) => QueueSettingsApply();
+
+    partial void OnSilentStartupChanged(bool value) => QueueSettingsApply();
+
+    partial void OnSelectedRefreshModeChanged(RefreshMode value) => QueueSettingsApply();
+
+    partial void OnSelectedThemeModeChanged(ThemeMode value) => QueueSettingsApply();
 }

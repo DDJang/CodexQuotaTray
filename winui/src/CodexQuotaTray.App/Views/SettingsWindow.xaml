@@ -9,23 +9,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-
-        <Grid
-            x:Name="TitleBarThemeResources"
-            Width="0"
-            Height="0"
-            Visibility="Collapsed">
-            <Border x:Name="TitleBarBackgroundResource" Background="{ThemeResource SettingsTitleBarBackgroundBrush}" />
-            <Border x:Name="TitleBarForegroundResource" Background="{ThemeResource SettingsTitleBarForegroundBrush}" />
-            <Border x:Name="TitleBarButtonBackgroundResource" Background="{ThemeResource SettingsTitleBarButtonBackgroundBrush}" />
-            <Border x:Name="TitleBarButtonForegroundResource" Background="{ThemeResource SettingsTitleBarButtonForegroundBrush}" />
-            <Border x:Name="TitleBarButtonHoverBackgroundResource" Background="{ThemeResource SettingsTitleBarButtonHoverBackgroundBrush}" />
-            <Border x:Name="TitleBarButtonHoverForegroundResource" Background="{ThemeResource SettingsTitleBarButtonHoverForegroundBrush}" />
-            <Border x:Name="TitleBarButtonPressedBackgroundResource" Background="{ThemeResource SettingsTitleBarButtonPressedBackgroundBrush}" />
-            <Border x:Name="TitleBarButtonPressedForegroundResource" Background="{ThemeResource SettingsTitleBarButtonPressedForegroundBrush}" />
-        </Grid>
 
         <Grid Grid.Row="0" HorizontalAlignment="Stretch">
             <StackPanel
@@ -53,13 +37,6 @@
                 <VisualStateGroup x:Name="ResponsiveStates">
                     <VisualState x:Name="Narrow">
                         <VisualState.Setters>
-                            <Setter Target="ActionSecondaryColumn.Width" Value="0" />
-                            <Setter Target="RefreshUsageButton.(Grid.Row)" Value="1" />
-                            <Setter Target="RefreshUsageButton.(Grid.Column)" Value="0" />
-                            <Setter Target="CopySummaryButton.(Grid.Row)" Value="2" />
-                            <Setter Target="CopySummaryButton.(Grid.Column)" Value="0" />
-                            <Setter Target="CopyDiagnosticsButton.(Grid.Row)" Value="3" />
-                            <Setter Target="CopyDiagnosticsButton.(Grid.Column)" Value="0" />
                             <Setter Target="ReminderSecondaryColumn.Width" Value="0" />
                             <Setter Target="NotifyRemaining20CheckBox.(Grid.Row)" Value="1" />
                             <Setter Target="NotifyRemaining20CheckBox.(Grid.Column)" Value="0" />
@@ -67,6 +44,13 @@
                             <Setter Target="NotifyRemaining10CheckBox.(Grid.Column)" Value="0" />
                             <Setter Target="NotifyAfterResetCheckBox.(Grid.Row)" Value="3" />
                             <Setter Target="NotifyAfterResetCheckBox.(Grid.Column)" Value="0" />
+                            <Setter Target="AdvancedSecondaryColumn.Width" Value="0" />
+                            <Setter Target="AdvancedImportButton.(Grid.Row)" Value="1" />
+                            <Setter Target="AdvancedImportButton.(Grid.Column)" Value="0" />
+                            <Setter Target="AdvancedCopySummaryButton.(Grid.Row)" Value="2" />
+                            <Setter Target="AdvancedCopySummaryButton.(Grid.Column)" Value="0" />
+                            <Setter Target="AdvancedCopyDiagnosticsButton.(Grid.Row)" Value="3" />
+                            <Setter Target="AdvancedCopyDiagnosticsButton.(Grid.Column)" Value="0" />
                         </VisualState.Setters>
                     </VisualState>
                     <VisualState x:Name="Wide">
@@ -74,13 +58,6 @@
                             <AdaptiveTrigger MinWindowWidth="680" />
                         </VisualState.StateTriggers>
                         <VisualState.Setters>
-                            <Setter Target="ActionSecondaryColumn.Width" Value="*" />
-                            <Setter Target="RefreshUsageButton.(Grid.Row)" Value="0" />
-                            <Setter Target="RefreshUsageButton.(Grid.Column)" Value="1" />
-                            <Setter Target="CopySummaryButton.(Grid.Row)" Value="1" />
-                            <Setter Target="CopySummaryButton.(Grid.Column)" Value="0" />
-                            <Setter Target="CopyDiagnosticsButton.(Grid.Row)" Value="1" />
-                            <Setter Target="CopyDiagnosticsButton.(Grid.Column)" Value="1" />
                             <Setter Target="ReminderSecondaryColumn.Width" Value="*" />
                             <Setter Target="NotifyRemaining20CheckBox.(Grid.Row)" Value="0" />
                             <Setter Target="NotifyRemaining20CheckBox.(Grid.Column)" Value="1" />
@@ -88,6 +65,13 @@
                             <Setter Target="NotifyRemaining10CheckBox.(Grid.Column)" Value="0" />
                             <Setter Target="NotifyAfterResetCheckBox.(Grid.Row)" Value="1" />
                             <Setter Target="NotifyAfterResetCheckBox.(Grid.Column)" Value="1" />
+                            <Setter Target="AdvancedSecondaryColumn.Width" Value="*" />
+                            <Setter Target="AdvancedImportButton.(Grid.Row)" Value="0" />
+                            <Setter Target="AdvancedImportButton.(Grid.Column)" Value="1" />
+                            <Setter Target="AdvancedCopySummaryButton.(Grid.Row)" Value="1" />
+                            <Setter Target="AdvancedCopySummaryButton.(Grid.Column)" Value="0" />
+                            <Setter Target="AdvancedCopyDiagnosticsButton.(Grid.Row)" Value="1" />
+                            <Setter Target="AdvancedCopyDiagnosticsButton.(Grid.Column)" Value="1" />
                         </VisualState.Setters>
                     </VisualState>
                 </VisualStateGroup>
@@ -108,7 +92,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="开机启动" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="{Binding StartupDescription}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
@@ -116,7 +100,8 @@
                                     Grid.Column="1"
                                     IsEnabled="{Binding CanConfigureStartup}"
                                     IsOn="{Binding StartWithWindows, Mode=TwoWay}"
-                                    HorizontalAlignment="Right" />
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center" />
                             </Grid>
                             <Border Style="{StaticResource SettingsRowDividerStyle}" />
                             <Grid Style="{StaticResource SettingsRowStyle}">
@@ -124,11 +109,11 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="静默启动" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="开机时只驻留托盘，不主动显示额度面板。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding SilentStartup, Mode=TwoWay}" HorizontalAlignment="Right" />
+                                <ToggleSwitch Grid.Column="1" IsOn="{Binding SilentStartup, Mode=TwoWay}" HorizontalAlignment="Right" VerticalAlignment="Center" />
                             </Grid>
                             <Border Style="{StaticResource SettingsRowDividerStyle}" />
                             <Grid Style="{StaticResource SettingsRowStyle}">
@@ -136,11 +121,11 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="显示剩余百分比" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="在额度面板中优先显示剩余额度。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding ShowRemainingPercent, Mode=TwoWay}" HorizontalAlignment="Right" />
+                                <ToggleSwitch Grid.Column="1" IsOn="{Binding ShowRemainingPercent, Mode=TwoWay}" HorizontalAlignment="Right" VerticalAlignment="Center" />
                             </Grid>
                             <Border Style="{StaticResource SettingsRowDividerStyle}" />
                             <Grid Style="{StaticResource SettingsRowStyle}">
@@ -148,11 +133,11 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="使用 24 小时制" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="使用 24 小时格式显示重置时间。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding Use24HourTime, Mode=TwoWay}" HorizontalAlignment="Right" />
+                                <ToggleSwitch Grid.Column="1" IsOn="{Binding Use24HourTime, Mode=TwoWay}" HorizontalAlignment="Right" VerticalAlignment="Center" />
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -165,7 +150,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="刷新间隔" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="选择后台自动获取额度的频率。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
@@ -174,7 +159,8 @@
                                     MinWidth="176"
                                     ItemsSource="{Binding RefreshModes}"
                                     SelectedItem="{Binding SelectedRefreshMode, Mode=TwoWay}"
-                                    HorizontalAlignment="Right" />
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center" />
                             </Grid>
                             <Border Style="{StaticResource SettingsRowDividerStyle}" />
                             <Grid Style="{StaticResource SettingsRowStyle}">
@@ -182,7 +168,7 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="主题" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="设置面板和额度窗口的显示主题。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
@@ -191,7 +177,8 @@
                                     MinWidth="176"
                                     ItemsSource="{Binding ThemeModes}"
                                     SelectedItem="{Binding SelectedThemeMode, Mode=TwoWay}"
-                                    HorizontalAlignment="Right" />
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center" />
                             </Grid>
                             <Border Style="{StaticResource SettingsRowDividerStyle}" />
                             <Grid Style="{StaticResource SettingsRowStyle}">
@@ -199,11 +186,11 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="网络恢复后刷新" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="网络恢复后主动重新读取一次额度。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding RefreshOnNetworkRestore, Mode=TwoWay}" HorizontalAlignment="Right" />
+                                <ToggleSwitch Grid.Column="1" IsOn="{Binding RefreshOnNetworkRestore, Mode=TwoWay}" HorizontalAlignment="Right" VerticalAlignment="Center" />
                             </Grid>
                             <Border Style="{StaticResource SettingsRowDividerStyle}" />
                             <Grid Style="{StaticResource SettingsRowStyle}">
@@ -211,11 +198,11 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Spacing="2">
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="保存额度缓存" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="保存非敏感额度快照，用于启动时快速展示。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <ToggleSwitch Grid.Column="1" IsOn="{Binding PersistQuotaCache, Mode=TwoWay}" HorizontalAlignment="Right" />
+                                <ToggleSwitch Grid.Column="1" IsOn="{Binding PersistQuotaCache, Mode=TwoWay}" HorizontalAlignment="Right" VerticalAlignment="Center" />
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -266,50 +253,61 @@
                         </Grid>
                     </Border>
 
-                    <TextBlock Text="快捷操作" Style="{StaticResource SettingsGroupHeaderStyle}" />
+                    <TextBlock Text="数据与高级选项" Style="{StaticResource SettingsGroupHeaderStyle}" />
                     <Border Style="{StaticResource SettingsCardStyle}">
-                        <Grid
-                            x:Name="QuickActionsGrid"
-                            Style="{StaticResource SettingsOperationRowStyle}">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition x:Name="ActionSecondaryColumn" Width="*" />
-                            </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="12">
+                            <Grid
+                                x:Name="AdvancedActionsGrid"
+                                Style="{StaticResource SettingsOperationRowStyle}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition x:Name="AdvancedSecondaryColumn" Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button
+                                    x:Name="AdvancedOpenDataButton"
+                                    Grid.Row="0"
+                                    Grid.Column="0"
+                                    Content="打开数据目录"
+                                    Command="{Binding OpenDataDirectoryCommand}"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                                <Button
+                                    x:Name="AdvancedImportButton"
+                                    Grid.Row="0"
+                                    Grid.Column="1"
+                                    Content="导入 WinUI 预览版数据"
+                                    Command="{Binding ImportProductionDataCommand}"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                                <Button
+                                    x:Name="AdvancedCopySummaryButton"
+                                    Grid.Row="1"
+                                    Grid.Column="0"
+                                    Content="复制额度摘要"
+                                    Command="{Binding CopyQuotaSummaryCommand}"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                                <Button
+                                    x:Name="AdvancedCopyDiagnosticsButton"
+                                    Grid.Row="1"
+                                    Grid.Column="1"
+                                    Content="复制诊断信息"
+                                    Command="{Binding CopyDiagnosticsCommand}"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                            </Grid>
+                            <Border Style="{StaticResource SettingsRowDividerStyle}" />
                             <Button
-                                x:Name="RefreshQuotaButton"
-                                Grid.Row="0"
-                                Grid.Column="0"
-                                Content="刷新额度"
-                                Command="{Binding RefreshQuotaCommand}"
+                                Content="清除额度缓存"
+                                Command="{Binding ClearQuotaCacheCommand}"
                                 Style="{StaticResource SettingsActionButtonStyle}" />
                             <Button
-                                x:Name="RefreshUsageButton"
-                                Grid.Row="0"
-                                Grid.Column="1"
-                                Content="打开官方用量页面"
-                                Command="{Binding OpenOfficialUsageCommand}"
+                                Content="恢复默认设置"
+                                Command="{Binding ResetCommand}"
                                 Style="{StaticResource SettingsActionButtonStyle}" />
-                            <Button
-                                x:Name="CopySummaryButton"
-                                Grid.Row="1"
-                                Grid.Column="0"
-                                Content="复制额度摘要"
-                                Command="{Binding CopyQuotaSummaryCommand}"
-                                Style="{StaticResource SettingsActionButtonStyle}" />
-                            <Button
-                                x:Name="CopyDiagnosticsButton"
-                                Grid.Row="1"
-                                Grid.Column="1"
-                                Content="复制诊断信息"
-                                Command="{Binding CopyDiagnosticsCommand}"
-                                Style="{StaticResource SettingsActionButtonStyle}" />
-                        </Grid>
+                        </StackPanel>
                     </Border>
 
                     <Button
@@ -318,6 +316,7 @@
                         Command="{Binding ShowAboutCommand}"
                         Style="{StaticResource SettingsActionButtonStyle}"
                         HorizontalContentAlignment="Stretch"
+                        UseSystemFocusVisuals="False"
                         AutomationProperties.Name="关于 CodexQuotaTray">
                         <Grid ColumnSpacing="12">
                             <Grid.ColumnDefinitions>
@@ -333,64 +332,9 @@
                                 VerticalAlignment="Center" />
                         </Grid>
                     </Button>
-
-                    <Expander
-                        Header="数据与高级选项"
-                        IsExpanded="False"
-                        HorizontalAlignment="Stretch"
-                        Margin="0,16,0,0">
-                        <Border Style="{StaticResource SettingsCardStyle}" Margin="0,8,0,0">
-                            <StackPanel Spacing="10">
-                                <Button
-                                    Content="打开数据目录"
-                                    Command="{Binding OpenDataDirectoryCommand}"
-                                    Style="{StaticResource SettingsActionButtonStyle}" />
-                                <Button
-                                    Content="导入 WinUI 预览版数据"
-                                    Command="{Binding ImportProductionDataCommand}"
-                                    Style="{StaticResource SettingsActionButtonStyle}" />
-                                <Border Style="{StaticResource SettingsRowDividerStyle}" Margin="0,4" />
-                                <Button
-                                    Content="清除额度缓存"
-                                    Command="{Binding ClearQuotaCacheCommand}"
-                                    Style="{StaticResource SettingsActionButtonStyle}" />
-                            </StackPanel>
-                        </Border>
-                    </Expander>
                 </StackPanel>
             </Grid>
         </ScrollViewer>
 
-        <Border
-            Grid.Row="2"
-            BorderBrush="{ThemeResource CardBorderBrush}"
-            BorderThickness="0,1,0,0">
-            <Grid
-                x:Name="FooterContent"
-                MaxWidth="720"
-                HorizontalAlignment="Center"
-                Padding="24,12,24,20"
-                ColumnSpacing="16">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock
-                    x:Name="StatusTextBlock"
-                    Grid.Column="0"
-                    Text="{Binding StatusText}"
-                    TextWrapping="Wrap"
-                    VerticalAlignment="Center"
-                    Foreground="{ThemeResource SecondaryTextBrush}" />
-                <StackPanel
-                    Grid.Column="1"
-                    Orientation="Horizontal"
-                    Spacing="8"
-                    HorizontalAlignment="Right">
-                    <Button Content="恢复默认设置" Command="{Binding ResetCommand}" />
-                    <Button Content="保存" Style="{StaticResource AccentButtonStyle}" Command="{Binding SaveCommand}" />
-                </StackPanel>
-            </Grid>
-        </Border>
     </Grid>
 </Window>
