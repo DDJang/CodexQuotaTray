@@ -36,6 +36,6 @@ git worktree add <temporary-path> archive/rust-win32-final
 
 ## 协议资料
 
-`schemas/` 暂时保留在当前分支，作为 WinUI 的协议基线、兼容性审计和测试参考。WinUI 当前运行时和项目文件不直接加载这些 schema；重复或过期 schema 的整理应作为独立任务处理。
+`schemas/` 当前只保留 `README.md`、`CODEX_VERSION` 和 `codex-0.144.5/` 这一套版本化完整协议基线，作为 WinUI 的协议基线、兼容性审计和测试参考。WinUI 当前运行时和项目文件不直接加载这些 schema；历史重复生成结果已从工作树清理，历史由 Git 保存。协议升级时应以新的完整版本化目录整体替换旧目录，不在当前分支长期并存多个历史版本。
 
 迁移过程的逐次实施记录和旧架构细节继续由 Git 历史及本归档 tag 保存，当前分支不维护重复的执行流水账或迁移阶段文档。

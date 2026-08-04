@@ -5,19 +5,20 @@
 
 ## 工具链
 
-- .NET SDK `10.0.302`，由 `winui/global.json` 固定；
+- .NET SDK `10.0.302`，由仓库根目录 `global.json` 固定；
 - Windows x64 / `win-x64`；
 - Inno Setup 7，仅用于生成 per-user 安装器。
 
 ## 直接 NuGet 依赖
 
-版本由 `winui/Directory.Packages.props` 固定：
+中央包版本文件 `winui/Directory.Packages.props` 只集中管理以下实际包版本：
 
 | Package | Version | 用途 |
 |---|---:|---|
 | Microsoft.WindowsAppSDK | 2.2.0 | WinUI 3、窗口与 Windows App SDK 运行时 |
 | CommunityToolkit.Mvvm | 8.4.2 | Core view model 与 MVVM 基础 |
-| MSTest.Sdk | 4.3.2 | 测试项目 SDK |
+
+测试项目 SDK 不由中央包版本文件管理。`MSTest.Sdk` 版本 `4.3.2` 直接声明在 `winui/tests/CodexQuotaTray.Tests/CodexQuotaTray.Tests.csproj` 的项目 SDK 属性中。
 
 自包含发布目录还包括 .NET runtime、Windows App SDK 的 native/runtime 文件及其传递依赖。实际发布许可证集合应以干净 restore 后的 `project.assets.json`、NuGet 包许可证和最终 publish 内容为准。
 
