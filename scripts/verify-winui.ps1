@@ -147,7 +147,7 @@ function Invoke-OfflineTests(
 
         $text = Normalize-TestOutput $testOutput
         $total = Get-TestCount $text @("Total", "总计")
-        $passed = Get-TestCount $text @("Passed", "成功")
+        $passed = Get-TestCount $text @("Passed", "Succeeded", "成功")
         $failed = Get-TestCount $text @("Failed", "失败")
         $skipped = Get-TestCount $text @("Skipped", "已跳过")
         $expectedSkipped = "CodexQuotaTray.Tests.LiveResourceSmokeTests.RealAppServer_SerialReadAndLifecycleMeasurement"
