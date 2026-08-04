@@ -1,4 +1,6 @@
 using CodexQuotaTray.Core.Models;
+using PersistenceThemeMode = CodexQuotaTray.Core.Persistence.ThemeMode;
+using RuntimeRefreshMode = CodexQuotaTray.Core.Runtime.RefreshMode;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
@@ -53,4 +55,34 @@ public sealed class BooleanToVisibilityConverter : IValueConverter
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         value is Visibility.Visible;
+}
+
+public sealed class RefreshModeDisplayConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) => value switch
+    {
+        RuntimeRefreshMode.Auto => "自动",
+        RuntimeRefreshMode.Every5Minutes => "每 5 分钟",
+        RuntimeRefreshMode.Every15Minutes => "每 15 分钟",
+        RuntimeRefreshMode.Every30Minutes => "每 30 分钟",
+        RuntimeRefreshMode.ManualOnly => "仅手动",
+        _ => value?.ToString() ?? string.Empty,
+    };
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+public sealed class ThemeModeDisplayConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) => value switch
+    {
+        PersistenceThemeMode.System => "跟随系统",
+        PersistenceThemeMode.Light => "浅色",
+        PersistenceThemeMode.Dark => "深色",
+        _ => value?.ToString() ?? string.Empty,
+    };
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
 }

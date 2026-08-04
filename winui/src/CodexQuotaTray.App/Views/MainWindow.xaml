@@ -12,7 +12,7 @@
             <local:StatusToneBrushConverter x:Key="StatusToneBrushConverter" />
         </Grid.Resources>
 
-        <Grid Background="{ThemeResource WindowSurfaceBrush}">
+        <Grid Background="{ThemeResource MainWindowSurfaceBrush}">
             <ScrollViewer
                 x:Name="PanelScroller"
                 HorizontalScrollBarVisibility="Disabled"

@@ -6,6 +6,7 @@
             <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#24EAF2FC" />
             <SolidColorBrush x:Key="WindowBorderBrush" Color="#668DA6C2" />
             <SolidColorBrush x:Key="SettingsWindowSurfaceBrush" Color="#FFF5F8FC" />
+            <SolidColorBrush x:Key="MainWindowSurfaceBrush" Color="#FFF5F8FC" />
             <SolidColorBrush x:Key="MenuFallbackSurfaceBrush" Color="#FFF4F8FC" />
             <SolidColorBrush x:Key="MenuItemHoverBrush" Color="#24FFFFFF" />
             <SolidColorBrush x:Key="MenuItemPressedBrush" Color="#42FFFFFF" />
@@ -35,6 +36,7 @@
             <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#28131F30" />
             <SolidColorBrush x:Key="WindowBorderBrush" Color="#667D94B2" />
             <SolidColorBrush x:Key="SettingsWindowSurfaceBrush" Color="#FF131A22" />
+            <SolidColorBrush x:Key="MainWindowSurfaceBrush" Color="#28131F30" />
             <SolidColorBrush x:Key="MenuFallbackSurfaceBrush" Color="#FF202B39" />
             <SolidColorBrush x:Key="MenuItemHoverBrush" Color="#24F3F6F8" />
             <SolidColorBrush x:Key="MenuItemPressedBrush" Color="#42F3F6F8" />
@@ -64,6 +66,7 @@
             <SolidColorBrush x:Key="WindowSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="WindowBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="SettingsWindowSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="MainWindowSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="MenuFallbackSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="MenuItemHoverBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="MenuItemPressedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
