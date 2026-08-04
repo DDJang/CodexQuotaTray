@@ -1,0 +1,222 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: 'true'
+
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Set up .NET SDK from global.json
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Verify tag, project version, and main ancestry
+        id: version
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          TAG_SHA: ${{ github.sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if ($env:TAG_NAME -match '^v(.+)$') {
+            $tagVersion = $Matches[1]
+          } else {
+            throw "Release workflow requires a v-prefixed tag; received '$($env:TAG_NAME)'."
+          }
+
+          [xml]$project = Get-Content -LiteralPath '.\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj' -Raw
+          $projectVersion = [string]$project.Project.PropertyGroup.Version
+          if ([string]::IsNullOrWhiteSpace($projectVersion)) {
+            throw 'CodexQuotaTray.App.csproj does not define a Version.'
+          }
+
+          if ($tagVersion -cne $projectVersion) {
+            throw "Tag version '$tagVersion' does not match project version '$projectVersion'."
+          }
+
+          git fetch --no-tags origin main
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not fetch origin/main for ancestry verification.'
+          }
+
+          $tagCommit = (git rev-parse "$($env:TAG_SHA)^{commit}").Trim()
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tagCommit)) {
+            throw "Could not resolve tagged commit '$($env:TAG_SHA)'."
+          }
+
+          git merge-base --is-ancestor $tagCommit 'origin/main'
+          if ($LASTEXITCODE -ne 0) {
+            throw "Tagged commit $tagCommit is not contained in origin/main."
+          }
+
+          $isPrerelease = $projectVersion -match '(?i)(preview|alpha|beta|rc)'
+          "version=$projectVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "is_prerelease=$($isPrerelease.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Tag $($env:TAG_NAME) matches project version $projectVersion."
+          Write-Host "Tagged commit $tagCommit is contained in origin/main."
+
+      - name: Verify SDK selected from global.json
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $globalJson = Get-Content -LiteralPath '.\global.json' -Raw | ConvertFrom-Json
+          $required = [Version][string]$globalJson.sdk.version
+          $actualText = (dotnet --version).Trim()
+          if ($LASTEXITCODE -ne 0) {
+            throw 'dotnet --version failed.'
+          }
+
+          if ($actualText.Contains('-')) {
+            throw "Prerelease .NET SDK '$actualText' is not allowed by global.json."
+          }
+
+          $actual = [Version]$actualText
+          $sameFeatureBand = [Math]::Floor($actual.Build / 100) -eq [Math]::Floor($required.Build / 100)
+          if ($actual.Major -ne $required.Major -or $actual.Minor -ne $required.Minor -or -not $sameFeatureBand -or $actual.Build -lt $required.Build) {
+            throw "Runner selected .NET SDK $actualText; global.json requires $($globalJson.sdk.version) with latestPatch."
+          }
+
+          Write-Host "Using .NET SDK $actualText selected from global.json."
+
+      - name: Verify WinUI Release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Release
+          if ($LASTEXITCODE -ne 0) {
+            throw "WinUI Release verification failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --yes --no-progress
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Inno Setup installation failed.'
+          }
+
+          $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          $iscc = if ($command) { $command.Source } else { $null }
+          if (-not $iscc) {
+            $knownPaths = @(
+              "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+              "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe"
+            )
+            $iscc = $knownPaths | Where-Object {
+              $_ -and (Test-Path -LiteralPath $_ -PathType Leaf)
+            } | Select-Object -First 1
+          }
+
+          if (-not $iscc) {
+            throw 'ISCC.exe was not found after installing Inno Setup.'
+          }
+
+          "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Using Inno compiler $iscc."
+
+      - name: Build portable ZIP
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File .\scripts\package-winui.ps1 -SkipPublish
+          if ($LASTEXITCODE -ne 0) {
+            throw "Portable ZIP packaging failed with exit code $LASTEXITCODE."
+          }
+
+          $zip = ".\dist\CodexQuotaTray-$($env:RELEASE_VERSION)-win-x64.zip"
+          if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) {
+            throw "Portable ZIP was not produced: $zip"
+          }
+
+      - name: Build Inno installer
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File .\scripts\package-inno.ps1 -SkipPublish -Iscc $env:ISCC_PATH
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno installer packaging failed with exit code $LASTEXITCODE."
+          }
+
+          $installer = ".\dist-inno\CodexQuotaTray-$($env:RELEASE_VERSION)-setup.exe"
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Inno installer was not produced: $installer"
+          }
+
+      - name: Generate SHA256SUMS.txt
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifacts = @(
+            ".\dist\CodexQuotaTray-$($env:RELEASE_VERSION)-win-x64.zip",
+            ".\dist-inno\CodexQuotaTray-$($env:RELEASE_VERSION)-setup.exe"
+          )
+
+          $lines = foreach ($artifact in $artifacts) {
+            if (-not (Test-Path -LiteralPath $artifact -PathType Leaf)) {
+              throw "Cannot hash missing artifact: $artifact"
+            }
+
+            $hash = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($artifact))"
+          }
+
+          $checksumPath = Join-Path (Get-Location) 'dist\SHA256SUMS.txt'
+          [IO.File]::WriteAllText(
+            $checksumPath,
+            (($lines -join "`n") + "`n"),
+            [Text.UTF8Encoding]::new($false))
+          Get-Content -LiteralPath $checksumPath
+
+      - name: Create public GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          IS_PRERELEASE: ${{ steps.version.outputs.is_prerelease }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = @(
+            ".\dist\CodexQuotaTray-$($env:RELEASE_VERSION)-win-x64.zip",
+            ".\dist-inno\CodexQuotaTray-$($env:RELEASE_VERSION)-setup.exe",
+            '.\dist\SHA256SUMS.txt'
+          )
+
+          $arguments = @('release', 'create', $env:GITHUB_REF_NAME) + $files + @(
+            '--verify-tag',
+            '--generate-notes'
+          )
+          if ($env:IS_PRERELEASE -eq 'true') {
+            $arguments += '--prerelease'
+          }
+
+          & gh @arguments
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub Release creation failed with exit code $LASTEXITCODE."
+          }
