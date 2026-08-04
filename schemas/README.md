@@ -8,4 +8,4 @@ npx --yes @openai/codex@0.144.5 --version
 npx --yes @openai/codex@0.144.5 app-server generate-json-schema --out schemas/codex-0.144.5
 ```
 
-The generator was run without `--experimental`. Do not edit generated JSON manually. Regenerate the directory and update `CODEX_VERSION` whenever the runtime Codex CLI changes.
+The generator was run without `--experimental`. Do not edit generated JSON manually. Update this directory and `CODEX_VERSION` only when a maintainer intentionally upgrades the checked-in protocol baseline to a new Codex CLI version.
