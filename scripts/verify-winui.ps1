@@ -122,7 +122,9 @@ function Invoke-OfflineTests(
         $arguments = @(
             "test", $TestProject,
             "-c", "Release",
-            "-p:Platform=x64",
+            # The solution maps the test project to Any CPU. Let dotnet test
+            # use that same default so it resolves the build output in
+            # bin\Release instead of looking under bin\x64\Release.
             "-p:RestoreConfigFile=$NuGetConfig",
             "--no-build",
             "--no-restore"
