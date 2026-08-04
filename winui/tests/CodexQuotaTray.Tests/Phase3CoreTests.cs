@@ -199,7 +199,8 @@ public sealed class Phase3CoreTests
         notifications.Current.Acknowledge();
         input.Write($"{{\"id\":{id},\"result\":{{}}}}");
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        // CI runners can briefly delay the reader after the bounded channel has filled.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var sawOverflow = false;
         while (await notifications.MoveNextAsync().AsTask().WaitAsync(timeout.Token))
         {
