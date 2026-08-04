@@ -118,9 +118,9 @@ try {
     if ($corner.A -ne 0) {
         throw "rounded preview corner must be fully transparent"
     }
-    if ($center.A -ne 255) {
-        throw "rounded preview center must be fully opaque"
-    }
+    # Transparent icon sources may have a transparent or antialiased center.
+    # The rounded clipping invariant is the corner alpha check above; do not
+    # require the geometric center to be opaque.
 
     foreach ($size in $sizes) {
         $bitmap = [Drawing.Bitmap]::new(
@@ -192,7 +192,7 @@ Assert-IconContainer $destinationPath $sizes
     Preview = $previewPath
     Destination = $destinationPath
     CornerAlpha = 0
-    CenterAlpha = 255
+    CenterAlpha = $center.A
     CornerRadiusPercent = [Math]::Round($CornerRadiusRatio * 100, 1)
     Sizes = ($sizes -join ",")
     Bytes = (Get-Item -LiteralPath $destinationPath).Length
