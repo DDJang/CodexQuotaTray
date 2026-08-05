@@ -7,6 +7,9 @@ using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Runtime;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Windows.AppLifecycle;
 
 namespace CodexQuotaTray.App;
@@ -276,10 +279,10 @@ public partial class App : Application
         }
 
         _ = hostElement.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-        var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
+        var dialog = new ContentDialog
         {
-            Title = "CodexQuotaTray WinUI",
-            Content = $"{ProductVersion.Current}\n只读额度桌面应用。不会消耗重置卡或执行账户写操作。",
+            Title = "关于 CodexQuotaTray",
+            Content = CreateAboutContent(),
             CloseButtonText = "关闭",
             XamlRoot = hostElement.XamlRoot,
         };
@@ -287,8 +290,67 @@ public partial class App : Application
         _ = ShowAboutAsync(dialog, hostElement);
     }
 
+    private static StackPanel CreateAboutContent()
+    {
+        var content = new StackPanel
+        {
+            Spacing = 10,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        };
+
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.png");
+        var iconUri = File.Exists(iconPath)
+            ? new Uri(iconPath, UriKind.Absolute)
+            : new Uri("ms-appx:///Assets/AppIcon.png");
+        content.Children.Add(new Image
+        {
+            Source = new BitmapImage(iconUri),
+            Width = 64,
+            Height = 64,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Stretch = Stretch.Uniform,
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "CodexQuotaTray",
+            FontSize = 20,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = $"版本 {ProductVersion.Current}",
+            Opacity = 0.78,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "只读额度桌面应用，用于查看额度窗口、重置时间和可用重置卡。不会消耗重置卡或执行账户写操作。",
+            TextWrapping = TextWrapping.Wrap,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+        });
+
+        var links = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        links.Children.Add(new HyperlinkButton
+        {
+            Content = "GitHub 项目主页",
+            NavigateUri = new Uri("https://github.com/DDJang/CodexQuotaTray"),
+        });
+        links.Children.Add(new HyperlinkButton
+        {
+            Content = "开源许可证（MIT）",
+            NavigateUri = new Uri("https://github.com/DDJang/CodexQuotaTray/blob/main/LICENSE"),
+        });
+        content.Children.Add(links);
+        return content;
+    }
+
     private async Task ShowAboutAsync(
-        Microsoft.UI.Xaml.Controls.ContentDialog dialog,
+        ContentDialog dialog,
         Microsoft.UI.Xaml.FrameworkElement hostElement)
     {
         try

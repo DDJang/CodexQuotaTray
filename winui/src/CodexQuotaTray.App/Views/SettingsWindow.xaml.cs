@@ -1,5 +1,6 @@
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.App.Services;
+using CodexQuotaTray.Core;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using Microsoft.UI.Windowing;
@@ -25,6 +26,7 @@ public sealed partial class SettingsWindow : Window
     {
         this.viewModel = viewModel;
         InitializeComponent();
+        AboutVersionText.Text = $"版本 {ProductVersion.Current}";
         AboutButton.CommandParameter = AboutButton;
         SettingsRoot.DataContext = viewModel;
         SettingsRoot.SizeChanged += OnSettingsRootSizeChanged;
@@ -80,6 +82,14 @@ public sealed partial class SettingsWindow : Window
     {
         _ = WindowIconService.TrySetIcon(appWindow);
         ApplyTitleBarTheme(viewModel.SelectedThemeMode);
+    }
+
+    private void OnSettingsToggleButtonClick(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { Content: ToggleSwitch toggleSwitch })
+        {
+            toggleSwitch.IsOn = !toggleSwitch.IsOn;
+        }
     }
 
     private void OnSettingsRootSizeChanged(object sender, SizeChangedEventArgs args) =>

@@ -31,6 +31,8 @@ public interface ISettingsPageActions
     void ShowAbout(object? host);
 }
 
+public sealed record PercentageDisplayModeOption(bool ShowRemainingPercent, string DisplayName);
+
 public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly IQuotaRuntimeControl runtime;
@@ -80,6 +82,24 @@ public sealed partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<RefreshMode> RefreshModes { get; } = Enum.GetValues<RefreshMode>();
 
     public IReadOnlyList<ThemeMode> ThemeModes { get; } = Enum.GetValues<ThemeMode>();
+
+    public IReadOnlyList<PercentageDisplayModeOption> PercentageDisplayModes { get; } =
+    [
+        new(true, "剩余百分比"),
+        new(false, "使用百分比"),
+    ];
+
+    public PercentageDisplayModeOption SelectedPercentageDisplayMode
+    {
+        get => PercentageDisplayModes.First(option => option.ShowRemainingPercent == ShowRemainingPercent);
+        set
+        {
+            if (value is not null)
+            {
+                ShowRemainingPercent = value.ShowRemainingPercent;
+            }
+        }
+    }
 
     [RelayCommand(CanExecute = nameof(CanEdit))]
     private Task ResetAsync(CancellationToken cancellationToken)
@@ -263,7 +283,11 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnStartWithWindowsChanged(bool value) => QueueSettingsApply();
 
-    partial void OnShowRemainingPercentChanged(bool value) => QueueSettingsApply();
+    partial void OnShowRemainingPercentChanged(bool value)
+    {
+        OnPropertyChanged(nameof(SelectedPercentageDisplayMode));
+        QueueSettingsApply();
+    }
 
     partial void OnUse24HourTimeChanged(bool value) => QueueSettingsApply();
 

@@ -156,6 +156,22 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public void PercentageDisplaySelectionMapsToExistingBooleanSetting()
+    {
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions());
+
+        Assert.AreEqual("剩余百分比", viewModel.SelectedPercentageDisplayMode.DisplayName);
+
+        viewModel.SelectedPercentageDisplayMode = viewModel.PercentageDisplayModes[1];
+
+        Assert.IsFalse(viewModel.ShowRemainingPercent);
+        Assert.AreEqual("使用百分比", viewModel.SelectedPercentageDisplayMode.DisplayName);
+    }
+
+    [TestMethod]
     public void PreviewSettingsCannotConfigureProductionStartup()
     {
         var runtime = new StubRuntimeControl();
