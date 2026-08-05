@@ -861,6 +861,7 @@ public sealed class AppServerPhase2Tests
         service.StateChanged += (_, state) => observed = state;
 
         _ = await service.GetSnapshotAsync(CancellationToken.None);
+        await client.NotificationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         client.Publish(new RateLimitsUpdatedNotification(
             new RateLimitsResponse
             {
@@ -870,7 +871,7 @@ public sealed class AppServerPhase2Tests
                 },
             },
             false));
-        await sink.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await sink.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         var refresh = service.RefreshAsync(CancellationToken.None).AsTask();
         await client.SecondReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
@@ -901,6 +902,7 @@ public sealed class AppServerPhase2Tests
         service.StateChanged += (_, state) => states.Add(state);
 
         _ = await service.GetSnapshotAsync(CancellationToken.None);
+        await client.NotificationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         clock.Advance(TimeSpan.FromMinutes(60));
         client.Publish(new RateLimitsUpdatedNotification(
             new RateLimitsResponse
@@ -911,8 +913,7 @@ public sealed class AppServerPhase2Tests
                 },
             },
             false));
-        await sink.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        await Task.Delay(100);
+        await sink.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.IsFalse(states.Any(state => state.StatusTone == StatusTone.Warning && state.Windows.Any(window => window.IsStale)));
         sink.Release.TrySetResult();
@@ -1020,11 +1021,7 @@ public sealed class AppServerPhase2Tests
 
     private static async Task WaitForReadCountAsync(ControlledClient client, int expected)
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-        while (client.ReadCount < expected)
-        {
-            await Task.Delay(10, timeout.Token);
-        }
+        await client.WaitForReadCompletionAsync(expected);
     }
 
     private sealed class FrozenTimeProvider(DateTimeOffset utc) : TimeProvider
@@ -1717,6 +1714,7 @@ public sealed class AppServerPhase2Tests
         private readonly Channel<RateLimitsUpdatedNotification> notifications = Channel.CreateUnbounded<RateLimitsUpdatedNotification>();
         private int readCount;
 
+        public TaskCompletionSource NotificationStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource SecondReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
 
@@ -1739,6 +1737,7 @@ public sealed class AppServerPhase2Tests
         public async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(
             [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
         {
+            NotificationStarted.TrySetResult();
             await foreach (var notification in notifications.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 yield return notification;
@@ -1768,14 +1767,38 @@ public sealed class AppServerPhase2Tests
 
     private sealed class ControlledClient : ICodexAppServerClient
     {
+        private readonly object readGate = new();
+        private readonly Dictionary<int, TaskCompletionSource> readCompletions = [];
+        private int readCount;
+        private int completedReadCount;
+
         public TaskCompletionSource ConnectStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ConnectRelease { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Started { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int ReadCount { get; private set; }
+        public int ReadCount => Volatile.Read(ref readCount);
         public bool BlockConnect { get; set; }
         public bool Fail { get; set; }
         public CodexDiagnosticSnapshot Diagnostics { get; private set; } = new(CliFound: true, CliVersion: "9.99.0");
+
+        public Task WaitForReadCompletionAsync(int expected)
+        {
+            lock (readGate)
+            {
+                if (completedReadCount >= expected)
+                {
+                    return Task.CompletedTask;
+                }
+
+                if (!readCompletions.TryGetValue(expected, out var completion))
+                {
+                    completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    readCompletions.Add(expected, completion);
+                }
+
+                return completion.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            }
+        }
 
         public async Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken)
         {
@@ -1790,29 +1813,43 @@ public sealed class AppServerPhase2Tests
 
         public async Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
         {
-            ReadCount++;
+            var currentRead = Interlocked.Increment(ref readCount);
             Started.TrySetResult();
-            if (ReadCount == 1)
+            try
             {
-                await Release.Task.WaitAsync(cancellationToken);
-            }
-
-            if (Fail)
-            {
-                throw new CodexClientException(CodexClientErrorKind.RequestTimeout, "synthetic");
-            }
-
-            Diagnostics = Diagnostics with { InitializeSucceeded = true, RateLimitsReadSucceeded = true };
-            return new RateLimitsReadResult(
-                new RateLimitsResponse
+                if (currentRead == 1)
                 {
-                    RateLimits = new RateLimitSnapshot
+                    await Release.Task.WaitAsync(cancellationToken);
+                }
+
+                if (Fail)
+                {
+                    throw new CodexClientException(CodexClientErrorKind.RequestTimeout, "synthetic");
+                }
+
+                Diagnostics = Diagnostics with { InitializeSucceeded = true, RateLimitsReadSucceeded = true };
+                return new RateLimitsReadResult(
+                    new RateLimitsResponse
                     {
-                        PlanType = "plus",
-                        Primary = new RateLimitWindow { UsedPercent = 25, WindowDurationMinutes = 300 },
+                        RateLimits = new RateLimitSnapshot
+                        {
+                            PlanType = "plus",
+                            Primary = new RateLimitWindow { UsedPercent = 25, WindowDurationMinutes = 300 },
+                        },
                     },
-                },
-                false);
+                    false);
+            }
+            finally
+            {
+                lock (readGate)
+                {
+                    completedReadCount = Math.Max(completedReadCount, currentRead);
+                    if (readCompletions.TryGetValue(currentRead, out var completion))
+                    {
+                        completion.TrySetResult();
+                    }
+                }
+            }
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
