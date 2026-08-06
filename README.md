@@ -53,6 +53,7 @@ pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Release
 - [技术设计](docs/TECH_DESIGN.md)
 - [App Server 协议契约](docs/API_CONTRACT.md)
 - [路线图](docs/ROADMAP.md)
+- [Android Roadmap](docs/ANDROID_ROADMAP.md)
 - [构建与发布](docs/RELEASE.md)
 - [隐私说明](docs/PRIVACY.md)
 - [依赖与许可证](docs/DEPENDENCIES.md)

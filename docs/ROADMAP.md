@@ -22,3 +22,5 @@
 - 如果用户规模和维护需求增长，再增加更系统的兼容性矩阵与发布自动化。
 
 当前发布步骤见 [构建与发布](RELEASE.md)，运行身份与技术边界见 [技术设计](TECH_DESIGN.md)。
+
+个人使用的实验性 Android 路线见 [Android Roadmap](ANDROID_ROADMAP.md)。
