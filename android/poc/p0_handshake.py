@@ -426,7 +426,12 @@ class P0Probe:
 
     def _probe_account_read(self) -> None:
         try:
-            self._request(2, "account/read", None, "account/read")
+            self._request(
+                2,
+                "account/read",
+                {"refreshToken": False},
+                "account/read",
+            )
         except ProbeFailure as failure:
             self.summary["account_read_result"] = _error_kind(failure)
             self.summary["account_read_rpc_code"] = failure.code

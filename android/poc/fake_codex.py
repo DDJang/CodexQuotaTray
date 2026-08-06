@@ -46,7 +46,17 @@ for line in sys.stdin:
             }
         )
     elif method == "account/read":
-        write({"id": request_id, "error": {"code": -32601, "message": "method not found"}})
+        params = request.get("params")
+        valid_params = (
+            isinstance(params, dict)
+            and set(params) == {"refreshToken"}
+            and type(params.get("refreshToken")) is bool
+            and params["refreshToken"] is False
+        )
+        if valid_params:
+            write({"id": request_id, "error": {"code": -32601, "message": "method not found"}})
+        else:
+            write({"id": request_id, "error": {"code": -32600, "message": "invalid params"}})
     elif method == "account/rateLimits/read" and initialized:
         if emit_malformed:
             sys.stdout.write("{ not-json\n")
