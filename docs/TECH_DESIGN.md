@@ -101,8 +101,8 @@ Production 与 Preview 使用不同单实例 key 和托盘身份，可以并存�
 
 窗口、托盘 callback、Explorer 重建处理和应用生命周期相互隔离。窗口关闭通常只隐藏；显式退出或目标身份的 `--shutdown-existing` 才结束进程。
 
-## 验证与发布边界
+## 验证与发布
 
 普通验证统一使用 [`scripts/verify-winui.ps1`](../scripts/verify-winui.ps1)。Quick、Full 和 Release 的准确行为由脚本本身定义；本文不复制日常命令。
 
-真实账户 smoke、Explorer 托盘 smoke、ZIP、Inno、安装和签名均为显式操作，不属于默认验证。当前不能声称已经完成 Windows 10、稳定版 Windows 11、完整 DPI/多显示器/高对比度、公开发布签名或长期稳定性验收；这些门禁见 [Roadmap](ROADMAP.md) 和 [Release guide](RELEASE.md)。
+真实账户和 Explorer 托盘 smoke 需要特定本机环境，所以不属于默认验证。安装器、签名和更广的 Windows/DPI 组合按发布阶段逐步检查，具体见 [Roadmap](ROADMAP.md) 和 [构建与发布](RELEASE.md)。
