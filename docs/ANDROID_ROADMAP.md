@@ -37,8 +37,8 @@ Android 路线沿用当前协议合同和 Core 实现中的行为语义，而不
 
 | 阶段 | 目标 | 前置条件 | 当前状态 |
 | --- | --- | --- | --- |
-| P0 | 证明真实 Android ARM64 + Termux 可运行并读取 App Server | 无 | 未开始；硬门禁 |
-| P1 | 建立 Termux Bridge 和本地只读接口 | P0 Go | Blocked；等待 P0 |
+| P0 | 证明真实 Android ARM64 + Termux 可运行并读取 App Server | 无 | Go；真实 ARM64/Termux 三次复验完成 |
+| P1 | 建立 Termux Bridge 和本地只读接口 | P0 Go | In progress |
 | P2 | 用假数据验证 Android 最小额度 UI | P0 Go；可与 P1 并行设计，但发布验收仍受 P0 约束 | Blocked；等待 P0 |
 | P3 | 将 Android App 接入真实 Bridge 数据 | P0、P1、P2 Go | Blocked；等待 P0 |
 
@@ -89,6 +89,8 @@ P1 交付一个个人使用的、只读的 Termux Bridge。它只对 App Server 
   消费请求。
 - 输出归一化额度窗口、刷新/过期/离线/不可用状态和 reset-credit 五态。
 - 默认端口为 `43127`，允许配置，绑定地址固定为 `127.0.0.1`。
+- 当前最小本地接口为 `GET /v1/status` 和 `GET /healthz`；状态带有
+  `schemaVersion`，不暴露原始 JSON-RPC、token 或 opaque ID。
 - 先用匿名 fixture 和 fake upstream 验证，再接入 P0 已验证的真实 App Server。
 
 P1 的 Go 条件是：JSONL、动态窗口、缺失值、稀疏合并、reset-credit 五态、进程回收

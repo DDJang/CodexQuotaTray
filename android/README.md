@@ -1,6 +1,6 @@
-# CodexQuotaTray Android P0
+# CodexQuotaTray Android P0/P1
 
-这是个人使用的实验性 P0 验证，不是 Android Bridge、Android UI 或生产日志系统。
+这是个人使用的实验性 P0/P1 验证，不是 Android UI 或生产日志系统。
 目标只有一个：确认真实 Android ARM64 + Termux 中的 Codex App Server 能否通过
 stdin/stdout JSONL 完成初始化和额度读取。
 
@@ -129,3 +129,30 @@ python -X utf8 android/poc/p0_handshake.py `
 
 只有真实 Android ARM64 手机上完成连续三次运行、认证持久化和无遗留子进程检查，
 才能把 P0 标记为初步通过。本机 fake 验证和 Python 语法检查都不能替代真机结果。
+
+## P1 Termux Bridge
+
+Bridge 位于 `android/bridge/bridge.py`，是唯一的 App Server 兼容层。它只绑定
+`127.0.0.1`，默认端口为 `43127`；端口可以通过 `--port` 修改，但不能改为公开监听。
+Bridge 不读取 Android 凭据、不输出原始 JSON-RPC、不提供账户写操作。
+
+在仓库根目录启动：
+
+```sh
+python3 android/bridge/bridge.py \
+  --codex-bin "$(command -v codex)" \
+  --port 43127
+```
+
+另一个 Termux 会话中读取版本化状态：
+
+```sh
+python3 -c 'import urllib.request; print(urllib.request.urlopen("http://127.0.0.1:43127/v1/status").read().decode())'
+```
+
+健康检查地址为 `http://127.0.0.1:43127/healthz`。按 `Ctrl+C` 停止 Bridge；它会关闭
+App Server stdin 并回收进程组。P1 本机离线回归命令为：
+
+```powershell
+python -X utf8 android/bridge/test_bridge.py
+```
