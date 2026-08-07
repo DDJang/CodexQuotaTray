@@ -46,11 +46,11 @@ P2  Product quota UI
 | P0.5 | Standalone APK / embedded runtime | P0 Go | Go；真实 ARM64 APK smoke 已完成 |
 | P1 | Authentication + real quota integration | P0.5 Go | Go；登录、真实额度和认证持久化已完成 |
 | P2 | Product quota UI | P1 Go | Go；真实主页面、手动刷新和重启复验已完成 |
-| P3 | Minimal polish / recovery / packaging | P2 Go | Next |
+| P3 | Minimal polish / recovery / packaging | P2 Go | In Progress |
 
 P0 和 P0.5 都是硬门禁；对应门禁未通过时，后续阶段保持 `blocked`。P0、P0.5 和
-P1 的真实 Android ARM64 验收均已通过，因此 P2 已通过，P3 为 `Next`。能构建 APK 或在桌面
-运行 JVM 测试，不能替代真实 Android ARM64 安装验收。
+P1 的真实 Android ARM64 验收均已通过，因此 P2 已通过，P3 当前为 `In Progress`。能
+构建 APK 或在桌面运行 JVM 测试，不能替代真实 Android ARM64 安装验收。
 
 ## 共享额度语义
 
@@ -247,11 +247,18 @@ P2 已在真实 Android ARM64 手机上验证：force-stop/reopen 后认证保�
 `account/rateLimits/read` 成功，动态窗口、剩余百分比、重置时间、更新时间和手动刷新
 均已显示/通过。未登录 UI 由单元测试覆盖；本轮没有为了测试清除真实设备认证。
 
-## P3：Minimal polish / recovery / packaging（Next）
+## P3：Minimal polish / recovery / packaging（In Progress）
 
-P3 只收尾个人使用所需的最小恢复、设置和打包诊断：启动后恢复已持久化认证、显示
-可解释的错误状态、保留可配置端口和 runtime 版本信息。P3 不实现完整 Codex 聊天、
-会话历史或 Agent 功能。
+P3 只收尾个人使用所需的最小 v0.1.0：保持 Android 原生 Views，补充明确的 loading、
+刷新中、未登录和用户可读错误状态；对 App Server 启动/连接失败提供一次受限的停止、
+重启、readyz、initialize 和额度读取恢复；固定 App 名称 `CodexQuota`、版本 `0.1.0`
+和 `versionCode 1`；复用仓库现有图标；支持不带私钥的 release 构建和可配置 signing。
+
+P3 的 Go 门禁还包括 debug 单元/构建、release 构建、release APK 的 ARM64 runtime
+内容检查，以及真实设备上的已登录启动、手动刷新、force-stop/reopen、可控 App Server
+恢复、网络失败/恢复和进程清理 smoke。未配置正式 keystore 时，只能记录 release build
+passed，不能记录 signed release install passed。P3 不实现完整 Codex 聊天、后台服务、
+通知、Widget、自动更新或多账号。
 
 ## Later
 
@@ -291,4 +298,4 @@ P3 只收尾个人使用所需的最小恢复、设置和打包诊断：启动�
   `arm64-v8a` 设备。
 - 手机系统在更长时间的前台/后台切换中不会杀掉 App 或 App Server；当前只验证了
   手动刷新和 force-stop/reopen。
-- P3 的恢复、错误呈现和最终个人打包方式仍可在不扩大产品范围的前提下完成。
+- P3 的真实设备网络失败/恢复和可控 App Server 恢复 smoke 尚未在本路线文档中记录。

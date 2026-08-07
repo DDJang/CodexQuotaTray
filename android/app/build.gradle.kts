@@ -11,6 +11,12 @@ fun stringPropertyOrEnv(propertyName: String, envName: String): String? {
     return propertyValue?.takeIf { it.isNotEmpty() } ?: envValue?.takeIf { it.isNotEmpty() }
 }
 
+fun rawPropertyOrEnv(propertyName: String, envName: String): String? {
+    val propertyValue = project.findProperty(propertyName) as String?
+    val envValue = System.getenv(envName)
+    return propertyValue?.takeIf { it.isNotEmpty() } ?: envValue?.takeIf { it.isNotEmpty() }
+}
+
 fun inferredRuntimeVersion(path: String?): String {
     if (path.isNullOrBlank()) return "unpackaged"
     return File(path).name
@@ -49,6 +55,39 @@ val appServerPort =
     (stringPropertyOrEnv("codexAndroid.port", "CODEX_ANDROID_PORT") ?: "43128").toIntOrNull()
         ?.takeIf { it in 1024..65535 }
         ?: throw GradleException("codexAndroid.port must be an integer between 1024 and 65535")
+
+val releaseKeystorePath = rawPropertyOrEnv(
+    "codexAndroid.releaseKeystore",
+    "CODEX_ANDROID_RELEASE_KEYSTORE",
+)
+val releaseStorePassword = rawPropertyOrEnv(
+    "codexAndroid.releaseStorePassword",
+    "CODEX_ANDROID_RELEASE_STORE_PASSWORD",
+)
+val releaseKeyAlias = rawPropertyOrEnv(
+    "codexAndroid.releaseKeyAlias",
+    "CODEX_ANDROID_RELEASE_KEY_ALIAS",
+)
+val releaseKeyPassword = rawPropertyOrEnv(
+    "codexAndroid.releaseKeyPassword",
+    "CODEX_ANDROID_RELEASE_KEY_PASSWORD",
+)
+val releaseSigningValues = listOf(
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+)
+val releaseSigningRequested = releaseSigningValues.any { it != null }
+val releaseSigningConfigured = releaseSigningValues.all { !it.isNullOrEmpty() }
+if (releaseSigningRequested && !releaseSigningConfigured) {
+    throw GradleException(
+        "Release signing configuration is incomplete; provide keystore, store password, key alias, and key password.",
+    )
+}
+if (releaseSigningConfigured && !file(releaseKeystorePath!!).isFile) {
+    throw GradleException("Release keystore does not exist: $releaseKeystorePath")
+}
 
 val generatedNativeLibsDir = layout.buildDirectory.dir("generated/codexNativeLibs")
 
@@ -129,7 +168,7 @@ android {
         minSdk = 29
         targetSdk = 35
         versionCode = 1
-        versionName = "0.1.0-p0.5"
+        versionName = "0.1.0"
 
         ndk {
             abiFilters += "arm64-v8a"
@@ -145,6 +184,26 @@ android {
     }
 
     sourceSets.getByName("main").jniLibs.srcDir(generatedNativeLibsDir.get().asFile)
+
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            isMinifyEnabled = false
+            if (releaseSigningConfigured) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
 
     packaging {
         jniLibs {

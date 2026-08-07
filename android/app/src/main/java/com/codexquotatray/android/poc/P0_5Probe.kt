@@ -8,6 +8,7 @@ import com.codexquotatray.android.runtime.CodexProcess
 import com.codexquotatray.android.runtime.EmbeddedCodexRuntime
 import com.codexquotatray.android.runtime.ProcessCleanup
 import com.codexquotatray.android.runtime.RuntimeStatus
+import com.codexquotatray.android.runtime.VersionProbe
 
 data class P0_5Result(
     val runtimePackaged: Boolean,
@@ -23,6 +24,8 @@ data class P0_5Result(
     val processCleanup: ProcessCleanup,
     val lastError: String?,
     val success: Boolean,
+    val recoveryAttempted: Boolean = false,
+    val recoverySucceeded: Boolean = false,
 ) {
     fun render(): String = buildString {
         appendLine("Codex Android Runtime PoC")
@@ -119,6 +122,8 @@ data class P0_5Result(
         appendLine("stderr observed: ${yesNo(processCleanup.stderrObserved)}")
         appendLine("Process cleanup succeeded: ${yesNo(processCleanup.succeeded)}")
         appendLine("Process return code: ${processCleanup.returnCode ?: "unavailable"}")
+        appendLine("Recovery attempted: ${yesNo(recoveryAttempted)}")
+        appendLine("Recovery succeeded: ${yesNo(recoverySucceeded)}")
         appendLine("P0.5 flow completed: ${yesNo(protocol?.flowCompleted == true)}")
         appendLine("Success: ${yesNo(success)}")
         appendLine("Last error: ${lastError ?: "none"}")
@@ -226,6 +231,18 @@ class P0_5Probe(context: Context) {
                 error = version.detail,
             )
         }
+
+        val initial = runOnce(status, version)
+        if (!shouldAttemptSimpleRecovery(initial)) return initial
+
+        val recovered = runOnce(status, version)
+        return recovered.copy(
+            recoveryAttempted = true,
+            recoverySucceeded = recovered.success,
+        )
+    }
+
+    private fun runOnce(status: RuntimeStatus, version: VersionProbe): P0_5Result {
 
         var started = false
         var protocol: ProtocolProbeResult? = null
@@ -362,6 +379,30 @@ class P0_5Probe(context: Context) {
             success = false,
         )
 }
+
+internal fun shouldAttemptSimpleRecovery(result: P0_5Result): Boolean {
+    val protocol = result.protocol
+    val error = protocol?.lastError ?: result.lastError.orEmpty()
+    if (error.startsWith("startup_failed")) return true
+
+    val readyFailure = protocol?.readyProbe?.let { probe ->
+        !probe.succeeded && probe.result !in setOf("cleartext_not_permitted", "http_403")
+    } == true
+    if (readyFailure) return true
+
+    return isRecoverableServerFailure(error)
+}
+
+internal fun isRecoverableServerFailure(error: String): Boolean = error in setOf(
+    "connection_refused",
+    "connection_timeout",
+    "timeout",
+    "other_ioexception",
+    "websocket_open_failed",
+    "websocket_closed_before_initialize",
+    "initialize_timeout",
+    "interrupted",
+)
 
 private fun Throwable.processMessage(): String =
     message?.replace(Regex("[\\r\\n]+"), " ")?.ifBlank { "no message" } ?: "no message"

@@ -146,6 +146,11 @@ class MainActivity : Activity() {
 
     private fun render(model: QuotaUiModel) {
         accountView.text = "${model.accountLabel} / 当前账户"
+        accountView.visibility = if (model.status == QuotaUiStatus.UNAUTHENTICATED) {
+            View.GONE
+        } else {
+            View.VISIBLE
+        }
         statusView.text = model.message ?: when (model.status) {
             QuotaUiStatus.LOADING -> "正在读取额度…"
             QuotaUiStatus.UNAUTHENTICATED -> "尚未登录 Codex"
@@ -162,6 +167,7 @@ class MainActivity : Activity() {
             model.windows.forEach { windowsContainer.addView(windowCard(it)) }
         }
         updatedView.text = model.updatedAtMillis?.let { "更新于 ${formatTime(it)}" } ?: "尚未更新"
+        refreshButton.text = if (busy) "刷新中…" else "刷新"
         refreshButton.isEnabled = !busy
         loginButton.visibility = if (model.status == QuotaUiStatus.UNAUTHENTICATED) {
             View.VISIBLE
@@ -175,6 +181,7 @@ class MainActivity : Activity() {
 
     private fun renderLoginUpdate(update: LoginUpdate) {
         verificationUrl = update.verificationUrl ?: verificationUrl
+        refreshButton.text = if (busy) "刷新中…" else "刷新"
         if (update.state != "waiting_for_user") {
             statusView.text = when (update.state) {
                 "login_starting" -> "正在准备登录…"

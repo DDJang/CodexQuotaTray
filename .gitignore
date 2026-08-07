@@ -16,6 +16,11 @@ captures/
 **/*.tgz
 **/*.tar
 **/*.tar.gz
+**/*.jks
+**/*.keystore
+**/*.p12
+**/keystore.properties
+**/signing.properties
 **/codex.bin
 **/libcodex_exec.so
 **/libc++_shared.so

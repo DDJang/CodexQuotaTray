@@ -28,6 +28,15 @@ data class QuotaUiModel(
 )
 
 fun ProtocolProbeResult.toQuotaUiModel(nowMillis: Long = System.currentTimeMillis()): QuotaUiModel {
+    if (rateLimitsReadSucceeded && rateLimitsResult == "succeeded") {
+        if (quotaState == "unavailable") {
+            return QuotaUiModel(
+                status = QuotaUiStatus.ERROR,
+                message = "额度读取失败",
+            )
+        }
+        return loadedQuota(quotaWindows, quotaState, nowMillis)
+    }
     if (authenticated == false) {
         return QuotaUiModel(
             status = QuotaUiStatus.UNAUTHENTICATED,
@@ -37,22 +46,13 @@ fun ProtocolProbeResult.toQuotaUiModel(nowMillis: Long = System.currentTimeMilli
     if (authenticated != true) {
         return QuotaUiModel(
             status = QuotaUiStatus.ERROR,
-            message = "无法确认 Codex 登录状态",
+            message = userFacingError(lastError, "无法确认 Codex 登录状态"),
         )
     }
-    if (!rateLimitsReadSucceeded || rateLimitsResult != "succeeded") {
-        return QuotaUiModel(
-            status = QuotaUiStatus.ERROR,
-            message = rateLimitsError(rateLimitsResult),
-        )
-    }
-    if (quotaState == "unavailable") {
-        return QuotaUiModel(
-            status = QuotaUiStatus.ERROR,
-            message = "额度窗口数据不可用",
-        )
-    }
-    return loadedQuota(quotaWindows, quotaState, nowMillis)
+    return QuotaUiModel(
+        status = QuotaUiStatus.ERROR,
+        message = rateLimitsError(rateLimitsResult, lastError),
+    )
 }
 
 fun LoginProbeResult.toQuotaUiModel(nowMillis: Long = System.currentTimeMillis()): QuotaUiModel {
@@ -65,19 +65,19 @@ fun LoginProbeResult.toQuotaUiModel(nowMillis: Long = System.currentTimeMillis()
     if (authenticated != true) {
         return QuotaUiModel(
             status = QuotaUiStatus.ERROR,
-            message = "无法确认 Codex 登录状态",
+            message = userFacingError(lastError, "无法确认 Codex 登录状态"),
         )
     }
     if (!rateLimitsReadSucceeded || rateLimitsResult != "succeeded") {
         return QuotaUiModel(
             status = QuotaUiStatus.ERROR,
-            message = rateLimitsError(rateLimitsResult),
+            message = rateLimitsError(rateLimitsResult, lastError),
         )
     }
     if (quotaState == "unavailable") {
         return QuotaUiModel(
             status = QuotaUiStatus.ERROR,
-            message = "额度窗口数据不可用",
+            message = "额度读取失败",
         )
     }
     return loadedQuota(quotaWindows, quotaState, nowMillis)
@@ -107,9 +107,37 @@ private fun loadedQuota(
     )
 }
 
-private fun rateLimitsError(result: String): String = when (result) {
-    "unauthenticated" -> "尚未登录 Codex"
-    "unsupported" -> "当前 App Server 不支持额度读取"
-    "rpc_error" -> "额度读取失败（App Server RPC 错误）"
+private fun rateLimitsError(result: String, lastError: String?): String = when {
+    result == "unauthenticated" -> "登录状态已失效，请重新登录"
+    lastError == "unauthenticated" -> "登录状态已失效，请重新登录"
+    result == "unsupported" -> "当前 App Server 不支持额度读取"
+    result == "rpc_error" -> "额度读取失败"
+    result == "transport_error" || lastError.isTransportFailure() -> "无法连接 Codex"
     else -> "额度读取失败"
 }
+
+private fun userFacingError(lastError: String?, fallback: String): String = when {
+    lastError == "unauthenticated" -> "登录状态已失效，请重新登录"
+    lastError.isBackendStartupFailure() -> "Codex 后端启动失败"
+    lastError.isTransportFailure() -> "无法连接 Codex"
+    else -> fallback
+}
+
+private fun String?.isBackendStartupFailure(): Boolean = this?.let {
+    it.startsWith("startup_failed") ||
+        it.startsWith("ready_") ||
+        it.startsWith("http_") ||
+        it == "initialize_rpc_error" ||
+        it == "initialize_protocol_error"
+} == true
+
+private fun String?.isTransportFailure(): Boolean = this in setOf(
+    "connection_refused",
+    "connection_timeout",
+    "timeout",
+    "other_ioexception",
+    "websocket_open_failed",
+    "websocket_closed_before_initialize",
+    "cleartext_not_permitted",
+    "interrupted",
+)

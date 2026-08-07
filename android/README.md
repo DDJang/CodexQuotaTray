@@ -1,8 +1,8 @@
-# CodexQuotaTray Android P2
+# CodexQuota Android v0.1.0
 
-这是个人使用的实验性 Android APK。P0、P0.5、P1 和 P2 已在真实 Android ARM64
-手机上通过核心产品链路；当前 P3 只做后续的最小 polish/recovery/packaging，不实现
-后台服务、通知、Widget、设置页或 Termux Bridge。
+这是个人使用的实验性 Android 独立 APK。当前版本为 `0.1.0`，只支持
+`arm64-v8a`，不需要 Termux；首次使用需要在 App 内完成 Codex 登录。P0、P0.5、P1
+和 P2 的真实核心链路已经通过，P3 只做最小 polish/recovery/packaging 收尾。
 
 主路线和门禁见 [`docs/ANDROID_ROADMAP.md`](../docs/ANDROID_ROADMAP.md)。现有
 `android/poc/p0_handshake.py` 和 `android/bridge/` 仅用于 P0/P1 诊断回归，不是
@@ -47,6 +47,8 @@ $env:CODEX_ANDROID_RUNTIME = '<path-to-codex-cli-termux-0.146.0>'
 .\gradlew.bat :app:assembleDebug `
   -PcodexAndroid.runtimeVersion=0.146.0 `
   -PcodexAndroid.port=43128
+
+.\gradlew.bat :app:testDebugUnitTest
 ```
 
 也可以把 runtime 路径直接作为 Gradle property 传入：
@@ -60,6 +62,48 @@ $env:CODEX_ANDROID_RUNTIME = '<path-to-codex-cli-termux-0.146.0>'
 没有 runtime 输入时仍可构建一个开发诊断 APK，但页面会明确显示
 `Runtime packaged: no`，这不算 P0.5 Go。构建输出应包含生成的
 `lib/arm64-v8a/libcodex_exec.so` 和 `lib/arm64-v8a/libc++_shared.so`。
+
+### Release 构建与 signing
+
+Release 构建沿用同一 runtime 输入和 `arm64-v8a` 配置：
+
+```powershell
+.\gradlew.bat :app:assembleRelease `
+  -PcodexAndroid.runtime='<path-to-codex-cli-termux-0.146.0>' `
+  -PcodexAndroid.runtimeVersion=0.146.0
+```
+
+没有 signing 配置时会生成未签名 release APK；这可以验证 release 构建和 runtime
+打包，但不能作为可安装的正式 release 验收。Signing 可通过环境变量或用户级
+Gradle properties 提供以下四项：
+
+```text
+CODEX_ANDROID_RELEASE_KEYSTORE
+CODEX_ANDROID_RELEASE_STORE_PASSWORD
+CODEX_ANDROID_RELEASE_KEY_ALIAS
+CODEX_ANDROID_RELEASE_KEY_PASSWORD
+```
+
+对应的 Gradle property 名称是 `codexAndroid.releaseKeystore`、
+`codexAndroid.releaseStorePassword`、`codexAndroid.releaseKeyAlias` 和
+`codexAndroid.releaseKeyPassword`。不要把密码写进仓库或命令行历史；本地 keystore
+文件和 signing properties 已被 `.gitignore` 覆盖。
+
+首次生成个人长期使用的 keystore（命令会交互式询问密码和证书信息）：
+
+```powershell
+New-Item -ItemType Directory -Force "$env:USERPROFILE\.android" | Out-Null
+keytool -genkeypair -v `
+  -keystore "$env:USERPROFILE\.android\codexquota-release.jks" `
+  -storetype PKCS12 `
+  -alias codexquota `
+  -keyalg RSA `
+  -keysize 2048 `
+  -validity 10000
+```
+
+妥善备份该 keystore；后续 `0.1.x`/`0.2.x` APK 必须继续使用同一 key 才能覆盖升级。
+本仓库不生成、不保存也不提交 keystore 或密码。
 
 ## 真机安装与运行
 
@@ -92,7 +136,7 @@ Termux 的 `PATH`；`HOME` 和 `CODEX_HOME` 仍指向 App 私有的 `files/codex
 App Server 会话确认使用 `{"refreshToken": true}`，不会把主动 token 刷新变成普通读取
 的默认行为。
 
-## P2 主页面
+## 正式额度主页面
 
 主页面只显示日常额度信息：
 
@@ -115,10 +159,17 @@ App Server 会话确认使用 `{"refreshToken": true}`，不会把主动 token �
 - 动态额度窗口、剩余百分比、重置时间、更新时间和手动刷新；
 - force-stop/reopen 后仍可读取额度；
 - process cleanup、`testDebugUnitTest` 和 `assembleDebug`。
+- launcher icon 复用仓库现有 `assets/app-icon.png`，以 Android adaptive icon 资源打包。
 
 当前主页面使用 Android 原生 Views 保持依赖最小；它是正式额度页面，不再是只展示
 runtime/App Server 诊断字段的 P0/P1 PoC 页面。P0/P0.5 Python 探针和 Android 诊断代码
 仍保留作开发工具。
+
+P3 收尾包括：启动/刷新时显示“正在读取额度…”或“刷新中…”，刷新按钮在请求期间
+不可重复点击；App Server、WebSocket、超时和额度读取失败只显示简短用户文案，不把
+readyz、PID、JSON-RPC code、nativeLibraryDir、raw exception 或 runtime 路径放到主页面。
+对本地 App Server 的临时启动/连接失败，当前刷新最多自动进行一次停止、重启、readyz、
+initialize 和额度读取恢复；第二次仍失败即进入错误状态。
 
 ## 来源与许可证说明
 
@@ -164,6 +215,10 @@ P2 真机验收：
 - P2 主页面显示真实窗口、剩余百分比、重置时间、更新时间；
 - 未登录状态由 Android 单元测试覆盖，本轮未清除真实手机认证数据；
 - 未登录时显示 `unauthenticated` 和登录入口，而不是诊断字段。
+
+P3 的 release 验收还需要分别记录：`assembleRelease` 成功、APK 内 native runtime
+存在，以及是否使用正式 signing key 完成安装。未配置正式 key 时，后两者不能混为
+“signed release install passed”。
 
 可用以下命令检查 APK 的 native library 目录、私有状态目录和残留进程；命令不会
 打印认证文件内容：
@@ -215,3 +270,5 @@ App Server WebSocket 兼容性；这些结果必须等待真实 ARM64 手机。
   error message 当作诊断日志保存。
 - `Process cleanup succeeded: no`：停止后先检查 `ps -A`，清理残留后再继续
   真机验收。
+- `assembleRelease` 提示 signing 配置不完整：四项 signing 输入必须全部提供；如果只
+  想验证未签名 release，请清除这些本地属性/环境变量后重新构建。

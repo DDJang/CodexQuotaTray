@@ -1,6 +1,7 @@
 package com.codexquotatray.android.protocol
 
 import android.security.NetworkSecurityPolicy
+import com.codexquotatray.android.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -189,7 +190,7 @@ class AppServerClient(private val port: Int) {
                         JSONObject()
                             .put("name", "codexquotatray-android")
                             .put("title", "CodexQuota Android")
-                            .put("version", "0.1.0"),
+                            .put("version", BuildConfig.VERSION_NAME),
                     ),
                 deadline = deadline,
             )
@@ -708,7 +709,7 @@ class AppServerClient(private val port: Int) {
             JSONObject()
                 .put("name", "codexquotatray-android")
                 .put("title", "CodexQuota Android")
-                .put("version", "0.1.0"),
+                .put("version", BuildConfig.VERSION_NAME),
         )
 
     private fun connect(client: OkHttpClient, deadline: Long): LiveSession {

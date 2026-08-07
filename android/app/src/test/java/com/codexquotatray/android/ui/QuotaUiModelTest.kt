@@ -13,10 +13,35 @@ import org.junit.Test
 class QuotaUiModelTest {
     @Test
     fun unauthenticatedDoesNotBecomeLoaded() {
-        val model = probe(authenticated = false).toQuotaUiModel(nowMillis = 123L)
+        val model = probe(
+            authenticated = false,
+            rateLimitsResult = "unauthenticated",
+            rateLimitsReadSucceeded = false,
+        ).toQuotaUiModel(nowMillis = 123L)
 
         assertEquals(QuotaUiStatus.UNAUTHENTICATED, model.status)
         assertTrue(model.windows.isEmpty())
+    }
+
+    @Test
+    fun successfulRateLimitsTakePrecedenceOverStaleAuthenticationFlag() {
+        val model = probe(
+            authenticated = false,
+            windows = listOf(
+                QuotaWindow(
+                    limitId = "opaque",
+                    limitName = "当前额度",
+                    sourceSlot = "custom",
+                    usedPercent = 12,
+                    remainingPercent = 88,
+                    windowDurationMins = 300,
+                    resetsAt = 1234L,
+                ),
+            ),
+        ).toQuotaUiModel(nowMillis = 123L)
+
+        assertEquals(QuotaUiStatus.LOADED, model.status)
+        assertEquals(88, model.windows.single().remainingPercent)
     }
 
     @Test
@@ -53,7 +78,20 @@ class QuotaUiModelTest {
         ).toQuotaUiModel()
 
         assertEquals(QuotaUiStatus.ERROR, model.status)
-        assertTrue(model.message.orEmpty().contains("RPC"))
+        assertEquals("额度读取失败", model.message)
+    }
+
+    @Test
+    fun connectionFailureUsesShortUserFacingMessage() {
+        val model = probe(
+            authenticated = null,
+            rateLimitsResult = "not_attempted",
+            rateLimitsReadSucceeded = false,
+            lastError = "connection_refused",
+        ).toQuotaUiModel()
+
+        assertEquals(QuotaUiStatus.ERROR, model.status)
+        assertEquals("无法连接 Codex", model.message)
     }
 
     private fun probe(
@@ -62,6 +100,7 @@ class QuotaUiModelTest {
         quotaState: String = if (windows.isEmpty()) "zero_windows" else "available",
         rateLimitsResult: String = "succeeded",
         rateLimitsReadSucceeded: Boolean = true,
+        lastError: String? = null,
     ): ProtocolProbeResult = ProtocolProbeResult(
         readyProbe = ReadyProbeResult(true, true, "ready", 200, "OK", 1),
         webSocket = WebSocketDiagnostic.default(43128).copy(onOpen = true),
@@ -76,6 +115,6 @@ class QuotaUiModelTest {
         authenticated = authenticated,
         malformedJsonCount = 0,
         flowCompleted = true,
-        lastError = null,
+        lastError = lastError,
     )
 }
