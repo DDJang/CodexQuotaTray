@@ -2,16 +2,25 @@
 
 ## 权威来源与适用范围
 
-本合同描述 CodexQuotaTray 当前使用的最小只读协议子集，不复制完整 schema。
+本合同描述 CodexQuotaTray 两个客户端共享的最小只读协议子集，不复制完整 schema。
+
+当前 Android P0–P3 只消费 `initialize`、`initialized`、登录、`account/read` 和
+`account/rateLimits/read` 所需子集。本文的稀疏通知、reset-credit、缓存和完整
+规范化章节描述 WinUI 已实现能力；除 envelope、字段缺失和动态额度窗口语义外，
+不自动成为 Android 后续目标。Android 产品范围以
+[Android Roadmap](ANDROID_ROADMAP.md) 为准。
 
 - 协议基线版本以 [`schemas/CODEX_VERSION`](../schemas/CODEX_VERSION) 为唯一来源。
 - Wire shape 以该版本对应的 `schemas/codex-<version>/` 生成文件为准。
-- 当前 DTO、规范化和合并策略以 `Core/Protocol` 实现为准。
+- WinUI DTO、规范化和合并策略以 `Core/Protocol` 实现为准；Android 使用独立 Kotlin
+  实现，但必须保持本文的 envelope、字段缺失和额度语义。
 - 运行时不读取 `schemas/` 目录；schema 只用于升级审计、fixture 和合同校准。
 
 服务端新增未知字段应被忽略。应用实际使用的字段缺失、为 null 或 malformed 时，必须进入明确的不可用、部分可用或协议失败路径，不能静默生成业务零值。
 
 ## Transport
+
+### WinUI
 
 - 子进程为 `codex app-server --stdio`。
 - stdin/stdout 使用 UTF-8 JSONL，一行一个完整消息。
@@ -21,6 +30,15 @@
 - 超时请求从 pending 集合移除；迟到响应不能恢复请求或覆盖其他请求。
 - 非法 JSON、非法 envelope、未知或重复 ID 只产生脱敏诊断，不输出原始消息。
 - stderr 被持续排空，但正文不进入日志或持久化。
+
+### Android
+
+- APK 从 `applicationInfo.nativeLibraryDir` 启动内置 Android ARM64 Codex runtime。
+- App Server 只监听 `ws://127.0.0.1:<port>`，Kotlin 直接使用本地 WebSocket；不经过
+  Termux Bridge、HTTP 服务或远程网络。
+- WebSocket 每条 text message 承载一个完整 JSON envelope，不使用 JSONL 行边界。
+- 请求 ID、错误分类、超时、非法 JSON、未知/重复 ID 和脱敏规则与 WinUI 相同。
+- stdout/stderr 仍被异步排空以避免子进程阻塞，正文不进入产品 UI 或持久化。
 
 请求、成功响应、错误响应和通知的最小 envelope 分别为：
 

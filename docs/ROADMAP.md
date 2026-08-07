@@ -1,4 +1,4 @@
-# CodexQuotaTray Roadmap
+# CodexQuotaTray Windows Roadmap
 
 这是一个个人维护的 0.x 项目。Roadmap 只记录近期方向；更完整的平台和兼容性检查会随着稳定版目标逐步补齐，不作为每个 Preview/Beta 的前置条件。
 
@@ -23,4 +23,5 @@
 
 当前发布步骤见 [构建与发布](RELEASE.md)，运行身份与技术边界见 [技术设计](TECH_DESIGN.md)。
 
-个人使用的实验性 Android 路线见 [Android Roadmap](ANDROID_ROADMAP.md)。
+个人使用的 Android 独立 APK 已完成 P0–P3；后续只规划后台自动刷新、通知、Widget
+和开机启动，见 [Android Roadmap](ANDROID_ROADMAP.md)。

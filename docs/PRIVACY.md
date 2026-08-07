@@ -1,31 +1,53 @@
 # CodexQuotaTray privacy notice
 
-CodexQuotaTray is a local, read-only companion for the installed Codex CLI. It has no analytics service, account backend, web scraper, embedded browser, or reset-credit consumption path.
+CodexQuotaTray has two local, read-only clients: the Windows + WinUI tray app and a
+personal-use Android APK. Neither client has analytics, an account backend, a web scraper,
+an embedded browser, or a reset-credit consumption path.
 
-## Data flow
+## Shared boundaries
 
-- The app starts the locally installed `codex app-server` and uses its stdio protocol for `initialize`, `initialized`, and `account/rateLimits/read`.
-- Codex CLI remains responsible for official authentication. CodexQuotaTray does not read browser cookies, Codex token files, project files, conversations, or browser DOM content.
-- Raw App Server JSON is parsed in memory and discarded. stderr is drained only to prevent deadlock; its text is not persisted or shown.
-- Clicking “official Usage” asks Windows to open `https://chatgpt.com/codex/settings/usage` in the user's default browser. No browser is opened otherwise.
+- Both clients read quota data from a locally started Codex App Server.
+- Raw App Server JSON is parsed in memory and discarded.
+- stdout/stderr is drained only to prevent process deadlock; its text is not persisted or
+  shown in the product UI.
+- Neither client reads browser cookies, browser DOM content, conversations, project files,
+  or code.
+- Neither client logs or persists access tokens, refresh tokens, email addresses, full
+  account identifiers, raw limit identifiers, device codes, or raw authentication responses.
+- Quota reads remain read-only. The clients do not purchase, consume reset credits, or send
+  other account write requests.
 
-## Local files
+## Windows + WinUI data flow
 
-Settings, the optional quota cache, and the reminder de-duplication state are stored under `%LOCALAPPDATA%\CodexQuotaTray`.
+- WinUI starts the locally installed `codex app-server --stdio` and communicates over UTF-8
+  JSONL.
+- Codex CLI remains responsible for authentication; CodexQuotaTray does not read Codex token
+  files.
+- Clicking “official Usage” asks Windows to open the official Usage page in the default
+  browser.
 
-The development-only `--isolated-preview-data` switch uses `%LOCALAPPDATA%\CodexQuotaTray-WinUI-Preview`.
+Windows settings, optional normalized quota cache, and reminder de-duplication state are
+stored under `%LOCALAPPDATA%\CodexQuotaTray`. Preview uses the separate
+`%LOCALAPPDATA%\CodexQuotaTray-WinUI-Preview` directory.
 
-The settings file can contain display preferences, refresh interval, reminder switches, the non-sensitive cache switch, and start-with-Windows preference. The non-sensitive cache is enabled by default for immediate card display and can be disabled from the Settings window, not the tray menu. The cache is a normalized projection containing `formatVersion`, `lastSuccessUtc`, optional `planType`, up to 32 windows with `sourceSlot`, `usedPercent`, `remainingPercent`, `percentageReliable`, optional `windowDurationMinutes` and `resetAtUtc`, plus optional `resetCreditAvailableCount` and `resetCreditEarliestExpiryUtc`.
+The cache contains only normalized display data. `alert-state.json` may contain cycle times,
+handled thresholds, and a locally derived pseudonymous key; original opaque IDs are not
+stored. The WinUI settings page can disable or clear the quota cache. The uninstaller removes
+local data unless the user explicitly keeps it.
 
-`alert-state.json` has a schema version and stores UTC cycle times, the last reliable remaining percentage, handled thresholds, and a local pseudonymous identifier. When the service supplies a stable `limit_id`, the app stores its complete SHA-256 digest and never the original ID. This is a local pseudonymous identifier, not a claim of full anonymity. If no stable ID exists, a source-slot/duration/occurrence fallback is used.
+## Android data flow
 
-The app does not persist email addresses, account identifiers, plan/auth state, raw limit identifiers or names, tokens, cookies, raw responses, reset-credit identifiers, conversations, or code.
+- The APK starts its embedded Android ARM64 Codex runtime from
+  `applicationInfo.nativeLibraryDir` and connects to the App Server over loopback WebSocket.
+- App login uses the App Server login flow and opens the system browser with an Android
+  Intent. The APK does not embed a WebView or inspect browser data.
+- Codex runtime stores authentication in the App-private
+  `<filesDir>/codex-home/.codex` directory. CodexQuota does not copy, export, print, or expose
+  that authentication data.
+- The current Android baseline does not persist a quota cache and does not yet implement
+  background refresh, notifications, Widget, or boot startup.
+- `android:allowBackup` is disabled. Uninstalling the APK removes its App-private data;
+  force-stop or ordinary process exit does not remove authentication.
 
-## Control and deletion
-
-- Disable “保存额度缓存” in the Settings window to delete only `quota-cache.json` and prevent further write-back. It intentionally does not delete `alert-state.json`, because doing so could cause duplicate threshold notifications.
-- Use “清除额度缓存” in the Settings window to delete the quota cache immediately.
-- The Inno uninstaller deletes settings, quota cache, and alert state by default. Interactive uninstall can choose to keep user data; silent uninstall keeps it only when `/KEEPUSERDATA` is explicitly supplied.
-- The app produces no diagnostic log file by default.
-
-When present, `rateLimitResetCredits.availableCount` is authoritative. Missing reset-credit data remains unavailable rather than being guessed as zero, and neither implementation contains a reset-credit consumption path.
+The Android route is for personal use and is not an application-store privacy or compliance
+program. Its current product scope is defined in [Android Roadmap](ANDROID_ROADMAP.md).

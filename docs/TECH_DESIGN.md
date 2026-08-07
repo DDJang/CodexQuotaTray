@@ -1,5 +1,8 @@
 # CodexQuotaTray 技术设计
 
+本文只描述 Windows + WinUI 架构。Android 独立 APK 的当前结构和范围见
+[`android/README.md`](../android/README.md) 与 [Android Roadmap](ANDROID_ROADMAP.md)。
+
 ## 当前技术基线
 
 当前正式入口是 C# + WinUI 3，位于 `winui/`。旧 Rust/Win32 实现仅作为归档参考，不参与当前构建、测试、验证或发布。

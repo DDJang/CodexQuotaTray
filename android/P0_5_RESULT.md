@@ -64,7 +64,7 @@ Codex，`--version` 成功，App Server 启动并通过 `/readyz`，WebSocket �
 `authenticated=false` 与 `account/rateLimits/read` RPC error 不掩盖上述独立结果，
 也不把 `quota_window_count=0` 误判为真实零额度。
 
-## P1/P2 非敏感验收补充
+## P1–P3 非敏感验收补充
 
 - App 内登录完成，`account/read` 返回 authenticated，`account/rateLimits/read` 成功。
 - force-stop/reopen 后不重新登录，认证仍保持，真实额度仍可读取；这作为认证持久化
@@ -72,6 +72,8 @@ Codex，`--version` 成功，App Server 启动并通过 `/readyz`，WebSocket �
 - P2 正式主页面显示动态额度窗口、剩余百分比、重置时间、更新时间和手动刷新结果；
   本次真机返回 1 个窗口。
 - 未登录 UI 由单元测试覆盖；本轮没有为测试清除真实设备认证状态。
+- P3 完成用户可读状态、一次受限恢复、Debug/Release 构建、adaptive icon 和正式额度
+  页面美化；真实设备上的启动、刷新、force-stop/reopen、图标和进程清理均通过。
 
-P0.5、P1 和 P2 的记录均不包含 token、`auth.json`、device code、设备序列号、完整
+P0.5、P1、P2 和 P3 的记录均不包含 token、`auth.json`、device code、设备序列号、完整
 账户响应或完整原始日志。

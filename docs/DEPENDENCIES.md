@@ -1,6 +1,8 @@
 # Dependencies and licenses
 
-这份简表随便携包一起分发。开发工具链和启动方式见 [WinUI README](../winui/README.md)。
+这份简表随便携包一起分发。Windows 开发工具链和启动方式见
+[WinUI README](../winui/README.md)，Android 构建方式见
+[`android/README.md`](../android/README.md)。
 
 | 依赖 | 版本来源 | 用途 |
 | --- | --- | --- |
@@ -10,7 +12,7 @@
 
 Self-contained publish 还会包含 .NET runtime、Windows App SDK 的 native/runtime 文件和传递依赖。分发时应保留这些依赖各自要求的许可证说明。旧 Rust/Cargo 依赖只存在于 Git tag `archive/rust-win32-final`，不属于当前 WinUI 构建。
 
-## Android experimental APK
+## Android personal-use APK
 
 | 依赖 | 版本来源 | 许可证/用途 |
 | --- | --- | --- |
