@@ -1,4 +1,7 @@
-# 构建与发布
+# 构建与发布（Windows / WinUI）
+
+本文只描述 Windows + WinUI 的构建与发布。Android APK 构建见
+[`android/README.md`](../android/README.md)。
 
 产品版本写在 [App 项目文件](../winui/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj)，SDK 由仓库根目录 [`global.json`](../global.json) 选择。所有命令从仓库根目录执行。准备正式 tag 前，建议先确认工作区干净并检查目标提交；`target/`、`dist/`、`dist-inno/`、`bin/`、`obj/` 和 `TestResults/` 都是本地产物，不应提交。
 

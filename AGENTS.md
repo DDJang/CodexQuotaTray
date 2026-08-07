@@ -2,13 +2,18 @@
 
 ## Project scope
 
-CodexQuotaTray is a lightweight, read-only Windows system-tray application for
-displaying Codex quota windows, reset times, and available reset credits.
+CodexQuotaTray has two read-only, separately scoped clients for displaying
+Codex quota windows and reset times.
 
 - The current production entry point is C# with WinUI 3 under `winui/`.
+- `android/` contains a personal-use standalone `arm64-v8a` APK. Its P0-P3
+  baseline is complete; its only current roadmap goals are background refresh,
+  notifications, a Widget, and boot startup.
+- Android work must not modify `winui/`, and WinUI work must not change Android
+  behavior, unless the owner explicitly requests cross-platform changes.
 - The Rust/Win32 implementation is archived and does not participate in the
   current build, test, packaging, or release process.
-- Target Windows 10 and Windows 11.
+- The WinUI client targets Windows 10 and Windows 11.
 - Prefer low idle CPU usage and low memory usage.
 - Do not use Electron, embed a browser runtime, or scrape web interfaces.
 - Do not read browser cookies or store authentication tokens in logs or
@@ -20,12 +25,18 @@ displaying Codex quota windows, reset times, and available reset credits.
 
 Read only the material needed for the current task:
 
-- Ordinary UI task: this file and the relevant XAML and code.
-- Product-semantics task: also read `docs/PRD.md`.
-- Architecture or Core task: also read `docs/TECH_DESIGN.md`.
+- Ordinary WinUI task: this file and the relevant XAML and code.
+- Ordinary Android task: this file, `android/README.md`, and the relevant
+  Android source and tests.
+- WinUI product-semantics task: also read `docs/PRD.md`.
+- Android product-semantics task: also read `docs/ANDROID_ROADMAP.md`.
+- WinUI architecture or Core task: also read `docs/TECH_DESIGN.md`.
+- Android runtime or architecture task: also read `android/README.md`.
 - Protocol task: also read `docs/API_CONTRACT.md` and the relevant `schemas/`.
-- Release or packaging task: also read `docs/RELEASE.md`.
-- Roadmap or milestone task only: read `docs/ROADMAP.md`.
+- WinUI release or packaging task: also read `docs/RELEASE.md`.
+- Android release or packaging task: also read `android/README.md`.
+- Windows roadmap or milestone task only: read `docs/ROADMAP.md`.
+- Android roadmap or milestone task only: read `docs/ANDROID_ROADMAP.md`.
 
 Do not require every task to load the complete documentation set.
 
@@ -44,6 +55,8 @@ smallest coherent change that satisfies the requested scope.
 
 ## Module responsibilities
 
+The following responsibilities describe the WinUI implementation:
+
 - `Core/Protocol`: Codex App Server process and protocol transport.
 - `Core/Runtime`: connection lifecycle, refresh coordination, and current state.
 - `Core/Persistence`: settings, cache, and notification deduplication state.
@@ -57,6 +70,15 @@ smallest coherent change that satisfies the requested scope.
 
 Keep these responsibilities separate. The UI must never parse raw JSON-RPC
 responses directly.
+
+For Android:
+
+- `android/app/src/main/.../protocol`: App Server transport and typed quota input.
+- `android/app/src/main/.../runtime`: embedded runtime and process lifecycle.
+- `android/app/src/main/.../ui`: product projection; it must not parse raw RPC.
+- `android/app/src/test`: deterministic offline Android regressions.
+- `android/poc` and `android/bridge`: development diagnostics only, never APK
+  runtime dependencies.
 
 ## Protocol and domain rules
 
@@ -119,7 +141,7 @@ Without an explicit request, do not:
 
 ## Validation levels
 
-Use `scripts/verify-winui.ps1` from the repository root.
+For WinUI, use `scripts/verify-winui.ps1` from the repository root.
 
 - `Quick`: toolchain report, repository-configured restore, Release x64 build,
   and `git diff --check`.
@@ -139,6 +161,15 @@ Choose validation proportionate to the change:
   opt-in only.
 - Packaging or installer: Release first; packaging and installation remain
   separately authorized operations.
+
+For Android, use the repository Gradle Wrapper with JDK 17 and Android SDK 35:
+
+- Kotlin/UI/protocol changes: `:app:testDebugUnitTest` and `:app:assembleDebug`.
+- Runtime packaging or release changes: also run `:app:assembleRelease` with the
+  owner-provided `CODEX_ANDROID_RUNTIME` input.
+- Documentation-only Android changes: focused checks and `git diff --check`.
+- ADB installation, real-account login, signing, and real-device smoke remain
+  explicit opt-in operations.
 
 Unit tests must use anonymized fixtures and must not require a real Codex
 account. Add regression tests for parser defects, state transitions, missing or

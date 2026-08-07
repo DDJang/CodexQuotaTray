@@ -5,6 +5,25 @@ dist-inno/
 build/
 coverage/
 target/
+.gradle/
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+**/*.apk
+**/*.aab
+**/*.apks
+**/*.tgz
+**/*.tar
+**/*.tar.gz
+**/*.jks
+**/*.keystore
+**/*.p12
+**/keystore.properties
+**/signing.properties
+**/codex.bin
+**/libcodex_exec.so
+**/libc++_shared.so
 **/bin/
 **/obj/
 **/TestResults/
@@ -27,3 +46,7 @@ Thumbs.db
 *.log
 tmp/
 temp/
+
+# Python caches
+__pycache__/
+*.pyc

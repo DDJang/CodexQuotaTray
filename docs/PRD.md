@@ -1,4 +1,7 @@
-# CodexQuotaTray 产品需求
+# CodexQuotaTray 产品需求（Windows / WinUI）
+
+本文只描述 Windows + WinUI 产品。个人使用的 Android 独立 APK 及其后续范围见
+[Android Roadmap](ANDROID_ROADMAP.md)。
 
 ## 用户问题
 
