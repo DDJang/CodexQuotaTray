@@ -3,6 +3,7 @@ package com.codexquotatray.android.ui
 import com.codexquotatray.android.protocol.LoginProbeResult
 import com.codexquotatray.android.protocol.ProtocolProbeResult
 import com.codexquotatray.android.protocol.QuotaWindow
+import kotlin.math.abs
 
 enum class QuotaUiStatus {
     LOADING,
@@ -90,7 +91,7 @@ private fun loadedQuota(
 ): QuotaUiModel {
     val cards = windows.mapIndexed { index, window ->
         QuotaCardModel(
-            title = window.limitName?.takeIf(String::isNotBlank) ?: "额度窗口 ${index + 1}",
+            title = displayName(window, index),
             remainingPercent = window.remainingPercent,
             usedPercent = window.usedPercent,
             windowDurationMins = window.windowDurationMins,
@@ -106,6 +107,29 @@ private fun loadedQuota(
         message = if (quotaState == "zero_windows") "当前没有可用额度窗口" else null,
     )
 }
+
+private fun displayName(window: QuotaWindow, index: Int): String {
+    val duration = window.windowDurationMins
+    val durationName = when {
+        duration.isNear(300L, 15L) -> "5 小时额度"
+        duration.isNear(10_080L, 120L) -> "7 天额度"
+        duration != null && duration > 0L && duration % 1_440L == 0L ->
+            "${duration / 1_440L} 天额度"
+        duration != null && duration > 0L && duration % 60L == 0L ->
+            "${duration / 60L} 小时额度"
+        duration != null && duration > 0L -> "${duration} 分钟额度"
+        else -> null
+    }
+    if (durationName != null) return durationName
+
+    val serverName = window.limitName
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() && !it.equals("Codex", ignoreCase = true) }
+    return serverName ?: if (index == 0) "额度" else "额度窗口 ${index + 1}"
+}
+
+private fun Long?.isNear(target: Long, tolerance: Long): Boolean =
+    this != null && abs(this - target) <= tolerance
 
 private fun rateLimitsError(result: String, lastError: String?): String = when {
     result == "unauthenticated" -> "登录状态已失效，请重新登录"

@@ -64,9 +64,39 @@ class QuotaUiModelTest {
 
         assertEquals(QuotaUiStatus.LOADED, model.status)
         assertEquals("Plus", model.accountLabel)
+        assertEquals("5 小时额度", model.windows.single().title)
         assertEquals(72, model.windows.single().remainingPercent)
         assertNull(model.windows.single().resetsAt)
         assertEquals(123L, model.updatedAtMillis)
+    }
+
+    @Test
+    fun knownWindowDurationsUseHumanReadableTitles() {
+        val model = probe(
+            authenticated = true,
+            windows = listOf(
+                QuotaWindow(
+                    limitId = "short",
+                    limitName = "Codex",
+                    sourceSlot = "primary",
+                    usedPercent = 10,
+                    remainingPercent = 90,
+                    windowDurationMins = 300,
+                    resetsAt = 1_900_000_000L,
+                ),
+                QuotaWindow(
+                    limitId = "long",
+                    limitName = "Codex",
+                    sourceSlot = "secondary",
+                    usedPercent = 20,
+                    remainingPercent = 80,
+                    windowDurationMins = 10_080,
+                    resetsAt = 1_900_500_000L,
+                ),
+            ),
+        ).toQuotaUiModel()
+
+        assertEquals(listOf("5 小时额度", "7 天额度"), model.windows.map { it.title })
     }
 
     @Test

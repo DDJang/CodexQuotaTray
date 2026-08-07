@@ -2,6 +2,7 @@ package com.codexquotatray.android
 
 import android.app.Activity
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -9,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
@@ -21,6 +23,9 @@ import com.codexquotatray.android.ui.QuotaCardModel
 import com.codexquotatray.android.ui.QuotaUiModel
 import com.codexquotatray.android.ui.QuotaUiStatus
 import com.codexquotatray.android.ui.toQuotaUiModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
@@ -46,26 +51,41 @@ class MainActivity : Activity() {
     }
 
     private fun buildContent(): View {
-        val padding = dp(16)
+        val padding = dp(20)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(padding, padding, padding, padding)
+            setPadding(padding, dp(26), padding, dp(18))
+            setBackgroundColor(Color.rgb(248, 250, 253))
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(12))
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(18), 0, dp(16))
         }
-        val scroll = ScrollView(this).apply { addView(content) }
+        val scroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(content)
+        }
 
-        content.addView(textView("CodexQuota", 28f, Typeface.BOLD))
-        accountView = textView("Codex / 当前账户", 16f, Typeface.NORMAL)
-        content.addView(accountView, marginParams(bottom = 12))
-        statusView = textView("正在读取额度…", 16f, Typeface.NORMAL)
-        content.addView(statusView, marginParams(bottom = 12))
+        content.addView(
+            textView("CodexQuota", 30f, Typeface.BOLD).apply {
+                setTextColor(Color.rgb(22, 33, 56))
+            },
+        )
+        accountView = textView("Codex / 当前账户", 16f, Typeface.NORMAL).apply {
+            setTextColor(Color.rgb(77, 91, 116))
+        }
+        content.addView(accountView, marginParams(top = 4, bottom = 24))
+        statusView = textView("正在读取额度…", 16f, Typeface.NORMAL).apply {
+            setTextColor(Color.rgb(77, 91, 116))
+        }
+        content.addView(statusView, marginParams(bottom = 20))
         windowsContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         content.addView(windowsContainer)
-        updatedView = textView("尚未更新", 13f, Typeface.NORMAL)
-        content.addView(updatedView, marginParams(top = 12))
+        updatedView = textView("尚未更新", 13f, Typeface.NORMAL).apply {
+            setTextColor(Color.rgb(124, 136, 158))
+        }
+        content.addView(updatedView, marginParams(top = 8, bottom = 8))
 
         root.addView(
             scroll,
@@ -77,13 +97,13 @@ class MainActivity : Activity() {
         )
 
         val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        refreshButton = button("刷新") { refresh() }
-        loginButton = button("登录 Codex") { startLogin() }
+        refreshButton = button("刷新", primary = true) { refresh() }
+        loginButton = button("登录 Codex", primary = false) { startLogin() }
         actions.addView(refreshButton, weightParams())
         actions.addView(loginButton, weightParams(left = 8))
-        root.addView(actions)
+        root.addView(actions, marginParams(top = 8))
 
-        openBrowserButton = button("打开浏览器") { openVerificationBrowser() }
+        openBrowserButton = button("打开浏览器", primary = false) { openVerificationBrowser() }
         openBrowserButton.visibility = View.GONE
         root.addView(openBrowserButton, marginParams(top = 8))
         return root
@@ -205,27 +225,39 @@ class MainActivity : Activity() {
 
     private fun windowCard(window: QuotaCardModel): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(12), dp(12), dp(12), dp(12))
+        setPadding(dp(16), dp(16), dp(16), dp(16))
         background = GradientDrawable().apply {
-            setColor(Color.rgb(245, 247, 250))
-            cornerRadius = dp(10).toFloat()
+            setColor(Color.WHITE)
+            setStroke(dp(1), Color.rgb(226, 231, 240))
+            cornerRadius = dp(16).toFloat()
         }
-        addView(textView(window.title, 18f, Typeface.BOLD))
+        elevation = dp(2).toFloat()
+        addView(textView(window.title, 17f, Typeface.BOLD).apply {
+            setTextColor(Color.rgb(32, 45, 70))
+        })
         addView(
-            textView("剩余 ${window.remainingPercent}%", 24f, Typeface.BOLD),
-            marginParams(top = 6),
+            textView("剩余 ${window.remainingPercent}%", 26f, Typeface.BOLD).apply {
+                setTextColor(Color.rgb(28, 92, 202))
+            },
+            marginParams(top = 10),
         )
         addView(ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
-            progress = window.remainingPercent
+            progress = window.remainingPercent.coerceIn(0, 100)
+            progressTintList = ColorStateList.valueOf(Color.rgb(49, 111, 224))
+            progressBackgroundTintList = ColorStateList.valueOf(Color.rgb(225, 232, 244))
+            minimumHeight = dp(8)
             contentDescription = "剩余 ${window.remainingPercent}%"
-        }, marginParams(top = 6))
+        }, marginParams(top = 10))
         addView(
-            textView(formatResetAt(window.resetsAt), 14f, Typeface.NORMAL),
-            marginParams(top = 6),
+            textView(formatResetAt(window.resetsAt), 14f, Typeface.NORMAL).apply {
+                setTextColor(Color.rgb(87, 101, 126))
+                setLineSpacing(dp(3).toFloat(), 1.0f)
+            },
+            marginParams(top = 12),
         )
     }.also {
-        it.layoutParams = marginParams(bottom = 10)
+        it.layoutParams = marginParams(bottom = 14)
     }
 
     private fun openVerificationBrowser() {
@@ -244,13 +276,19 @@ class MainActivity : Activity() {
 
     private fun formatResetAt(epochSeconds: Long?): String {
         if (epochSeconds == null) return "重置时间未知"
+        val absolute = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+            .format(Date(epochSeconds * 1_000L))
         val remaining = epochSeconds - System.currentTimeMillis() / 1_000L
-        if (remaining <= 0L) return "已到期或正在刷新"
-        return when {
-            remaining < 3_600L -> "${ceilDiv(remaining, 60L)} 分钟后重置"
-            remaining < 86_400L -> "${ceilDiv(remaining, 3_600L)} 小时后重置"
-            else -> "${ceilDiv(remaining, 86_400L)} 天后重置"
+        val relative = if (remaining <= 0L) {
+            "已到期或正在刷新"
+        } else {
+            when {
+                remaining < 3_600L -> "${ceilDiv(remaining, 60L)} 分钟后重置"
+                remaining < 86_400L -> "${ceilDiv(remaining, 3_600L)} 小时后重置"
+                else -> "${ceilDiv(remaining, 86_400L)} 天后重置"
+            }
         }
+        return "重置于 $absolute\n$relative"
     }
 
     private fun formatTime(epochMillis: Long): String =
@@ -264,8 +302,17 @@ class MainActivity : Activity() {
         setTypeface(typeface, style)
     }
 
-    private fun button(text: String, action: () -> Unit): Button = Button(this).apply {
+    private fun button(text: String, primary: Boolean, action: () -> Unit): Button = Button(this).apply {
         this.text = text
+        textSize = 15f
+        isAllCaps = false
+        setTypeface(typeface, Typeface.BOLD)
+        minimumHeight = dp(52)
+        minHeight = dp(52)
+        backgroundTintList = ColorStateList.valueOf(
+            if (primary) Color.rgb(38, 96, 211) else Color.rgb(229, 235, 246),
+        )
+        setTextColor(if (primary) Color.WHITE else Color.rgb(35, 63, 111))
         setOnClickListener { action() }
     }
 
