@@ -8,6 +8,7 @@ import org.json.JSONObject
 import java.io.File
 import java.security.KeyStore
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicLong
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -30,13 +31,28 @@ internal object LegacyAuthMigrationPolicy {
     }
 }
 
-/**
- * Credentials, quota refresh, logout, and alert state changes share one small
- * process-wide critical section. The lock is intentionally a plain monitor:
- * all callers are local to this app process and operations are short-lived.
- */
+/** Short coordination lock; network I/O must never run under this monitor. */
 internal object CodexProcessLock {
     val monitor = Any()
+}
+
+/** SharedPreferences and Keystore operations use their own short lock. */
+internal object OAuthStoreLock {
+    val monitor = Any()
+}
+
+/**
+ * Changes whenever credentials are explicitly invalidated. A request that
+ * started before logout can use this generation to refuse a late write-back.
+ */
+internal object CredentialGeneration {
+    private val value = AtomicLong(0L)
+
+    fun current(): Long = value.get()
+
+    fun invalidate() {
+        value.incrementAndGet()
+    }
 }
 
 class OAuthStore(context: Context) {
@@ -49,7 +65,7 @@ class OAuthStore(context: Context) {
         "codex-home/.codex/auth.json",
     )
 
-    fun load(): OAuthCredentials? = synchronized(CodexProcessLock.monitor) {
+    fun load(): OAuthCredentials? = synchronized(OAuthStoreLock.monitor) {
         val encrypted = preferences.getString(KEY_ENCRYPTED_CREDENTIALS, null)
         when (LegacyAuthMigrationPolicy.choose(
             // Presence, rather than non-empty content, is authoritative:
@@ -65,11 +81,12 @@ class OAuthStore(context: Context) {
         }
     }
 
-    fun save(credentials: OAuthCredentials): Boolean = synchronized(CodexProcessLock.monitor) {
+    fun save(credentials: OAuthCredentials): Boolean = synchronized(OAuthStoreLock.monitor) {
         saveUnlocked(credentials)
     }
 
-    fun clear() = synchronized(CodexProcessLock.monitor) {
+    fun clear() = synchronized(OAuthStoreLock.monitor) {
+        CredentialGeneration.invalidate()
         // Keep the migration marker. Explicit logout must not re-import the
         // old plaintext file on the next load.
         preferences.edit()

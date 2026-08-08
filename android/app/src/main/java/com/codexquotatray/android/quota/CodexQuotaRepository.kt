@@ -7,11 +7,14 @@ import com.codexquotatray.android.alerts.QuotaAlertStateStore
 import com.codexquotatray.android.alerts.QuotaNotificationPublisher
 import com.codexquotatray.android.auth.CodexOAuthClient
 import com.codexquotatray.android.auth.CodexProcessLock
+import com.codexquotatray.android.auth.CredentialGeneration
+import com.codexquotatray.android.auth.CredentialRefreshAbortedException
 import com.codexquotatray.android.auth.OAuthCredentials
 import com.codexquotatray.android.auth.OAuthException
 import com.codexquotatray.android.auth.OAuthFailureKind
 import com.codexquotatray.android.auth.OAuthLoginUpdate
 import com.codexquotatray.android.auth.OAuthStore
+import com.codexquotatray.android.auth.ProcessCredentialRefreshCoordinator
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.usage.CodexUsageClient
 import com.codexquotatray.android.usage.UsageException
@@ -47,44 +50,75 @@ class CodexQuotaRepository(
 ) {
     private val appContext = context.applicationContext
 
-    fun refresh(): DirectQuotaResult = synchronized(CodexProcessLock.monitor) {
-        var credentials = credentialStore.load()
+    fun refresh(): DirectQuotaResult {
+        val generation = CredentialGeneration.current()
+        val loaded = credentialStore.load()
             ?: throw QuotaReadException(QuotaReadFailureKind.LOGIN_REQUIRED, "尚未登录 Codex")
+        var credentials = currentCredentialsOrThrow(generation)
 
         if (credentials.needsRefresh()) {
-            credentials = refreshCredentials(credentials, allowStaleAccess = true)
+            credentials = refreshCredentials(
+                observed = credentials,
+                allowStaleAccess = true,
+                observedGeneration = generation,
+            )
         }
-        return fetchWithRecovery(credentials)
+        return fetchWithRecovery(credentials, generation)
     }
 
-    fun login(onUpdate: (OAuthLoginUpdate) -> Unit = {}): OAuthCredentials =
-        synchronized(CodexProcessLock.monitor) {
+    fun login(onUpdate: (OAuthLoginUpdate) -> Unit = {}): OAuthCredentials {
+        val generation = CredentialGeneration.current()
         val credentials = try {
             oauthClient.login(onUpdate)
         } catch (error: OAuthException) {
             throw mapOAuthFailure(error)
         }
-        saveCredentials(credentials)
-        credentials
+
+        synchronized(CodexProcessLock.monitor) {
+            if (CredentialGeneration.current() != generation) {
+                throw QuotaReadException(
+                    QuotaReadFailureKind.LOGIN_REQUIRED,
+                    "登录状态已改变，请重新登录",
+                )
+            }
+            saveCredentials(credentials)
+        }
+        return credentials
     }
 
-    private fun fetchWithRecovery(initial: OAuthCredentials): DirectQuotaResult {
+    private fun fetchWithRecovery(
+        initial: OAuthCredentials,
+        initialGeneration: Long,
+    ): DirectQuotaResult {
         try {
-            return publishAndReturn(usageClient.fetch(initial))
+            return publishAndReturn(
+                result = usageClient.fetch(initial),
+                credentials = initial,
+                generation = initialGeneration,
+            )
         } catch (error: UsageException) {
             if (error.kind != UsageFailureKind.UNAUTHORIZED) throw mapUsageFailure(error)
-            if (initial.refreshToken.isBlank()) {
-                credentialStore.clear()
-                throw QuotaReadException(QuotaReadFailureKind.LOGIN_REQUIRED, "登录已失效，请重新登录")
-            }
         }
 
-        val refreshed = refreshCredentials(initial, allowStaleAccess = false)
+        val refreshed = if (initial.refreshToken.isBlank()) {
+            currentCredentialsAfterUnauthorized(initial, initialGeneration)
+        } else {
+            refreshCredentials(
+                observed = initial,
+                allowStaleAccess = false,
+                observedGeneration = initialGeneration,
+            )
+        }
+        val retryGeneration = initialGeneration
         return try {
-            publishAndReturn(usageClient.fetch(refreshed))
+            publishAndReturn(
+                result = usageClient.fetch(refreshed),
+                credentials = refreshed,
+                generation = retryGeneration,
+            )
         } catch (error: UsageException) {
             if (error.kind == UsageFailureKind.UNAUTHORIZED) {
-                credentialStore.clear()
+                clearIfCurrent(refreshed, retryGeneration)
                 throw QuotaReadException(QuotaReadFailureKind.LOGIN_REQUIRED, "登录已失效，请重新登录")
             }
             throw mapUsageFailure(error)
@@ -92,40 +126,115 @@ class CodexQuotaRepository(
     }
 
     private fun refreshCredentials(
-        credentials: OAuthCredentials,
+        observed: OAuthCredentials,
         allowStaleAccess: Boolean,
-    ): OAuthCredentials {
-        return try {
-            oauthClient.refresh(credentials).also(::saveCredentials)
-        } catch (error: OAuthException) {
-            AppLogStore.record(
-                appContext,
-                "OAuth token refresh 失败：${error.message ?: "未知错误"}",
-                "WARN",
-            )
-            when {
-                isPermanentAuthFailure(error.kind) -> {
-                    credentialStore.clear()
-                    throw QuotaReadException(
-                        QuotaReadFailureKind.LOGIN_REQUIRED,
-                        "登录已失效，请重新登录",
-                        error,
+        observedGeneration: Long,
+    ): OAuthCredentials = try {
+        ProcessCredentialRefreshCoordinator.instance.refresh(
+            observed = observed,
+            observedGeneration = observedGeneration,
+            currentGeneration = CredentialGeneration::current,
+            loadCurrent = credentialStore::load,
+            performRefresh = { credentials -> oauthClient.refresh(credentials) },
+            saveRefreshed = ::saveCredentials,
+            onFailure = { _, error ->
+                if (error is OAuthException) {
+                    AppLogStore.record(
+                        appContext,
+                        "OAuth token refresh 失败：${error.message ?: "未知错误"}",
+                        "WARN",
                     )
+                    if (isPermanentAuthFailure(error.kind)) {
+                        credentialStore.clear()
+                    }
                 }
+            },
+        )
+    } catch (error: CredentialRefreshAbortedException) {
+        throw QuotaReadException(
+            QuotaReadFailureKind.LOGIN_REQUIRED,
+            "登录状态已改变，请重新登录",
+            error,
+        )
+    } catch (error: OAuthException) {
+        when {
+            isPermanentAuthFailure(error.kind) -> throw QuotaReadException(
+                QuotaReadFailureKind.LOGIN_REQUIRED,
+                "登录已失效，请重新登录",
+                error,
+            )
 
-                allowStaleAccess && error.kind == OAuthFailureKind.NETWORK -> credentials
-                allowStaleAccess && error.kind == OAuthFailureKind.SERVER -> credentials
-                else -> throw mapOAuthFailure(error)
+            allowStaleAccess && error.kind in setOf(
+                OAuthFailureKind.NETWORK,
+                OAuthFailureKind.SERVER,
+            ) -> credentialStore.load()
+                ?: throw QuotaReadException(
+                    QuotaReadFailureKind.LOGIN_REQUIRED,
+                    "登录状态已改变，请重新登录",
+                    error,
+                )
+
+            else -> throw mapOAuthFailure(error)
+        }
+    }
+
+    private fun currentCredentialsOrThrow(
+        generation: Long,
+    ): OAuthCredentials = synchronized(CodexProcessLock.monitor) {
+        val current = credentialStore.load()
+        if (current == null || CredentialGeneration.current() != generation) {
+            throw QuotaReadException(QuotaReadFailureKind.LOGIN_REQUIRED, "尚未登录 Codex")
+        }
+        current
+    }
+
+    private fun currentCredentialsAfterUnauthorized(
+        observed: OAuthCredentials,
+        generation: Long,
+    ): OAuthCredentials {
+        var replacement: OAuthCredentials? = null
+        synchronized(CodexProcessLock.monitor) {
+            val current = credentialStore.load()
+            if (CredentialGeneration.current() != generation) {
+                // The request started before an explicit logout; it must not
+                // continue with credentials from a later login session.
+            } else if (current != null && current != observed) {
+                replacement = current
+            } else if (current == observed) {
+                credentialStore.clear()
+            }
+        }
+        return replacement ?: throw QuotaReadException(
+            QuotaReadFailureKind.LOGIN_REQUIRED,
+            "登录已失效，请重新登录",
+        )
+    }
+
+    private fun clearIfCurrent(expected: OAuthCredentials, generation: Long) {
+        synchronized(CodexProcessLock.monitor) {
+            val current = credentialStore.load()
+            if (current == expected && CredentialGeneration.current() == generation) {
+                credentialStore.clear()
             }
         }
     }
 
-    private fun publishAndReturn(result: DirectQuotaResult): DirectQuotaResult {
-        if (result.quotaState != "unavailable") {
-            snapshotStore.save(result)
-            val events = QuotaAlertEvaluator(alertStateStore).evaluate(result.windows)
-            alertStateStore.markSuccessfulRefresh(result.updatedAtMillis)
-            notificationPublisher.publish(events)
+    private fun publishAndReturn(
+        result: DirectQuotaResult,
+        credentials: OAuthCredentials,
+        generation: Long,
+    ): DirectQuotaResult {
+        synchronized(CodexProcessLock.monitor) {
+            val current = credentialStore.load()
+            if (current != credentials || CredentialGeneration.current() != generation) {
+                return@synchronized
+            }
+            if (result.quotaState != "unavailable") {
+                snapshotStore.save(result)
+                val events = QuotaAlertEvaluator(alertStateStore).evaluate(result.windows)
+                alertStateStore.markSuccessfulRefresh(result.updatedAtMillis)
+                notificationPublisher.publish(events)
+            }
         }
         return result
     }
