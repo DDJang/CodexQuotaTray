@@ -25,9 +25,6 @@
             android:name=".LogActivity"
             android:exported="false" />
         <activity
-            android:name=".TokenUsageActivity"
-            android:exported="false" />
-        <activity
             android:name=".SettingsActivity"
             android:exported="false" />
         <activity

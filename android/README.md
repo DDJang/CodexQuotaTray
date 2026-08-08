@@ -30,8 +30,9 @@ App-private OAuth credentials
 设置页优先点击“扫描二维码”，扫码保存 `codexquota://pair?deviceId=...&host=...&port=43821&token=...`；
 相机只在点击扫描后请求，拒绝相机时仍可粘贴 URI 或手动输入 Windows 私人 IPv4 与配对密钥。
 配对信息使用独立 Android Keystore/AES-GCM 存储，不与 OAuth 凭据混合，退出 Codex 登录也不会删除配对。
-已配对状态提供立即同步、重新扫码和解除配对。打开“使用统计”页面会先显示上次成功缓存，再自动同步一次；
-也可手动点击“同步”。该功能不接入 quota WorkManager。
+已配对状态提供立即同步、重新扫码和解除配对。主页面底部的“统计”页第一次显示时会先显示上次成功缓存，
+再自动同步一次；同一 MainActivity 生命周期内重复切换不会重复发起自动同步，也可手动点击“同步”。
+该功能不接入 quota WorkManager。
 
 配对后的同步先直连保存的 `lastKnownHost`；只有离线连接失败才通过 Android `NsdManager` 在
 `_codexquota._tcp` 上做一次 4 秒以内的短发现，匹配稳定 `deviceId` 后更新地址并重试。Windows
@@ -99,6 +100,7 @@ token 更新认证信息。
 
 当前 UI 行为：
 
+- 主页面使用固定顶部标题和底部“额度 / 统计”双 Tab；统计页未配对时提供前往设置的 empty state；
 - 未登录主页面只显示“登录 Codex”入口，登录流程在独立页面完成，成功后返回并读取当前额度；
 - 已登录读取全部真实额度窗口，不把窗口数量固定为 1、5 小时或 7 天；
 - `used_percent` 优先转换为 `100 - used_percent`，缺失值显示“剩余未知”；

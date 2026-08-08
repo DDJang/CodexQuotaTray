@@ -584,7 +584,6 @@ class SettingsActivity : Activity() {
         tokenSyncPairedActions.addView(actionButton("解除配对") { clearPairing() }, marginParams(bottom = 10))
         addView(tokenSyncPairedActions)
 
-        addView(actionButton("打开使用统计") { openTokenUsage() })
         addView(textView("LAN 同步仅适用于可信私人 Wi-Fi；不建议在公共 Wi-Fi 使用。", 13f, Typeface.NORMAL).apply {
             setTextColor(palette.muted)
         }, marginParams(top = 10))
@@ -687,10 +686,6 @@ class SettingsActivity : Activity() {
         } else {
             Toast.makeText(this, "无法解除 Windows 配对", Toast.LENGTH_SHORT).show()
         }
-    }
-
-    private fun openTokenUsage() {
-        startActivity(Intent(this, TokenUsageActivity::class.java))
     }
 
     private fun formatPairingTime(raw: String): String = runCatching {
