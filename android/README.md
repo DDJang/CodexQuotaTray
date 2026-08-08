@@ -1,97 +1,57 @@
 # CodexQuota Android v0.1.0
 
-这是个人使用的实验性 Android 独立 APK，只支持 `arm64-v8a`。P0、P0.5、P1、P2
-和 P3 已全部完成并通过真实手机验证；App 不需要 Termux，可在 App 内完成 Codex
-登录、读取真实额度并手动刷新。
+这是 CodexQuotaTray 的个人使用 Android 版本。它是一个轻量的独立 APK，当前主路径
+不依赖 Windows、Termux、Python、Node/npm、HTTP Bridge 或 Codex App Server。
 
-当前已验证能力：
-
-- APK 内置 Android ARM64 Codex runtime；
-- App Server、`/readyz`、WebSocket 和 `initialize`；
-- App 内认证及认证持久化；
-- `account/read` 和真实 `account/rateLimits/read`；
-- 0、1 或多个动态额度窗口、剩余百分比、绝对/相对重置时间；
-- 手动刷新、force-stop/reopen 和进程清理；
-- 一次受限的 App Server 启动/连接恢复；
-- Android 原生 Views 主页面和 adaptive launcher icon；
-- Debug、未签名 Release 构建和可配置 signing 输入。
-
-后续产品范围只有：后台自动刷新、通知、Widget、开机启动。其他新增能力不属于当前
-项目目标，详见 [Android Roadmap](../docs/ANDROID_ROADMAP.md)。
-
-## 运行结构
-
-构建时把外部 runtime 中的 `codex.bin` 原样复制为：
+P0–P3 的历史 ARM64 runtime、App Server、登录、真实额度和 UI 验证仍保留在仓库中；
+当前日常产品路径已经收敛为：
 
 ```text
-lib/arm64-v8a/libcodex_exec.so
-lib/arm64-v8a/libc++_shared.so
+App-private OAuth credentials
+        -> GET https://chatgpt.com/backend-api/wham/usage
+        -> dynamic quota windows
+        -> quota UI / background refresh / notifications
 ```
 
-安装后，App 从 `applicationInfo.nativeLibraryDir` 启动 `libcodex_exec.so`，并设置：
+当前实现范围：
 
-```text
-HOME=<filesDir>/codex-home
-CODEX_HOME=<filesDir>/codex-home/.codex
-LD_LIBRARY_PATH=<applicationInfo.nativeLibraryDir>
-```
+- 设备代码 OAuth 登录、token refresh 和 App 私有持久化；
+- 从旧的 `filesDir/codex-home/.codex/auth.json` 一次迁移认证信息，成功写入加密存储后尽力删除旧文件；
+- Direct HTTPS 读取 `plan_type`、主/次窗口和 additional rate-limit 窗口；
+- 缺失值保持未知，零窗口和额度详情不可用状态明确区分；
+- Android 原生 Views 主页面、动态窗口名称、绝对/相对重置时间和手动刷新；
+- WorkManager 支持 15 分钟、30 分钟和 1 小时后台刷新；
+- 50/20/10% 跨阈值提醒和重置恢复提醒。
+- 设置页支持浅色/深色主题、通知测试、电池优化引导和脱敏运行日志。
 
-Kotlin 直接连接本机 Codex App Server。Termux Bridge、Python P0 探针和 Android 诊断
-代码只用于开发回归，不是 APK 运行时依赖。App 不复制 Termux 的 `auth.json`，也不
-依赖 Termux 的 PATH、HOME、Node/npm 或 Python。
-
-## Runtime 输入
-
-当前验证对象是 DioNanos `codex-termux` `v0.146.0` Android ARM64 package。构建输入
-可以是目录、`.zip`、`.tar.gz` 或 `.tgz`，其中必须包含真实 AArch64 ELF 和伴随库，
-例如：
-
-```text
-bin/codex.bin
-bin/libc++_shared.so
-```
-
-不要把只有 `codex.js` 或 shell launcher 的目录作为 runtime。Gradle 会检查 ELF
-文件头，不会把 npm/Node launcher 当作 Codex executable。
-
-当前验证 archive 的 SHA-256：
-
-```text
-fcb7b2315443c7145f30be67ff099c965364be85b0daf8a20237042172f18533
-```
-
-更完整的来源、构建指纹和真机证据见 [P0.5 真机结果](P0_5_RESULT.md)。runtime
-二进制不提交到仓库。
+后台刷新和通知的真实设备 smoke 仍需在当前 APK 上完成；本轮没有把它们描述为已经
+通过真机验证。Widget 和开机启动仍属于后续范围，详见
+[Android Roadmap](../docs/ANDROID_ROADMAP.md)。
 
 ## 构建
 
-固定工具链：Gradle 8.9、AGP 8.7.3、JDK 17、compile/target SDK 35。
+固定工具链：Gradle 8.9、AGP 8.7.3、JDK 17、compile/target SDK 35。Android SDK 示例
+路径为 `D:\Android\Sdk`，请按本机实际 JDK 17 路径调整。
 
-PowerShell 示例：
+从仓库根目录执行：
 
 ```powershell
 Set-Location android
 $env:JAVA_HOME = '<path-to-jdk-17>'
-$env:ANDROID_SDK_ROOT = '<path-to-android-sdk>'
+$env:ANDROID_SDK_ROOT = 'D:\Android\Sdk'
 $env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
-$env:CODEX_ANDROID_RUNTIME = '<path-to-codex-cli-termux-0.146.0>'
 
 .\gradlew.bat :app:testDebugUnitTest
-.\gradlew.bat :app:assembleDebug `
-  -PcodexAndroid.runtimeVersion=0.146.0 `
-  -PcodexAndroid.port=43128
-.\gradlew.bat :app:assembleRelease `
-  -PcodexAndroid.runtimeVersion=0.146.0
+.\gradlew.bat :app:assembleDebug
+.\gradlew.bat :app:assembleRelease
 ```
 
-也可以使用 `-PcodexAndroid.runtime='<runtime-path>'` 代替环境变量。没有 runtime
-输入时仍能构建开发诊断 APK，但它不是可日常使用的产品 APK，主页面会报告 runtime
-或 App Server 不可用。
+当前构建不读取 `CODEX_ANDROID_RUNTIME`，也不会把 Codex native binary 打入 APK。
+历史 runtime 输入、来源和指纹见 [P0.5 真机结果](P0_5_RESULT.md)，仅作为 P0/P0.5
+证据和开发诊断记录。
 
-### Release signing
-
-未配置 signing 时，`assembleRelease` 生成未签名 APK。个人签名可以通过以下环境变量
-或对应的 `codexAndroid.release*` Gradle property 提供：
+未配置 signing 时，`assembleRelease` 生成未签名 APK。个人签名仍可通过以下四项
+环境变量或对应 Gradle property 配置，四项必须同时提供：
 
 ```text
 CODEX_ANDROID_RELEASE_KEYSTORE
@@ -100,16 +60,12 @@ CODEX_ANDROID_RELEASE_KEY_ALIAS
 CODEX_ANDROID_RELEASE_KEY_PASSWORD
 ```
 
-四项必须同时提供。不要把 keystore、密码或 signing properties 提交到仓库；相关
-本地产物已由 `.gitignore` 排除。当前路线不把公开发布、商店签名或发布自动化作为
-产品目标。
+不要把 keystore、密码或本地 signing property 提交到仓库。
 
 ## 安装与日常使用
 
-以下命令从仓库根目录执行：
-
 ```powershell
-$adb = '<path-to-android-sdk>\platform-tools\adb.exe'
+$adb = 'D:\Android\Sdk\platform-tools\adb.exe'
 & $adb devices
 & $adb shell getprop ro.product.cpu.abi
 & $adb install -r 'android\app\build\outputs\apk\debug\app-debug.apk'
@@ -117,39 +73,42 @@ $adb = '<path-to-android-sdk>\platform-tools\adb.exe'
 & $adb shell monkey -p com.codexquotatray.android 1
 ```
 
-打开后主页面自动读取一次额度：
+首次打开时点击“登录 Codex”，按页面显示的设备代码完成浏览器授权。成功后 token
+使用 Android Keystore 加密后保存到 App 私有存储；普通启动和普通刷新不会无条件重新
+登录或刷新 token。访问令牌临近过期或 usage API 返回 401/403 时，App 才使用 refresh
+token 更新认证信息。
 
-- 未认证时显示“尚未登录 Codex”和“登录 Codex”；
-- 登录完成后的确认读取使用 `account/read {"refreshToken": true}`；
-- 普通启动和普通刷新保持 `account/read {"refreshToken": false}`；
-- 已认证时显示全部真实额度窗口、剩余百分比、进度条、绝对/相对重置时间和更新时间；
-- 缺少 `resetsAt` 时显示“重置时间未知”，不伪造日期；
-- `account/rateLimits/read` RPC error 显示简短错误，不在主页面暴露诊断字段；
-- 点击“刷新”会重新执行一次前台只读读取。
+当前 UI 行为：
 
-当前真实账户响应曾返回 1 个 10080 分钟窗口，页面正确显示为“7 天额度”；若服务端
-返回更多窗口，页面会全部渲染，不补造不存在的 5 小时或 7 天窗口。
+- 未登录主页面只显示“登录 Codex”入口，登录流程在独立页面完成，成功后返回并读取当前额度；
+- 已登录读取全部真实额度窗口，不把窗口数量固定为 1、5 小时或 7 天；
+- `used_percent` 优先转换为 `100 - used_percent`，缺失值显示“剩余未知”；
+- 有 `reset_at` 时显示绝对时间和相对剩余时间，没有时显示“重置时间未知”；
+- 额度服务 401/403、网络错误、服务器错误和非法响应显示不同的简短错误状态；
+- 设置页分别提供“低额度提醒”和“额度重置提醒”开关；低额度提醒覆盖 50%、20%、10% 阈值，系统通知权限在设置页单独申请。
+- 设置页还提供系统通知开关、后台自动刷新开关和刷新频率选择：15 分钟、30 分钟或 1 小时。
+- 后台刷新成功后会保存最近一次脱敏额度快照；主页面在前台会即时接收结果，重新打开时也会先显示最近成功数据，再执行新刷新。
+- 设置页提供“发送测试通知”和“打开电池设置”入口；前者用于确认系统通知权限，后者只提供 Android 电池优化引导，不自动修改系统策略。
+- 设置页提供浅色/深色外观主题选择；运行日志页只显示脱敏摘要，并支持复制日志，复制按钮会短暂显示“已复制”并禁用。
+- 设置页提供账号管理；已登录时显示经过掩码的账号标识并支持退出，未登录时可进入独立登录页。
+- 关于页显示当前版本和 GitHub 项目链接，不影响额度读取。
 
-## 当前验证状态
+## 认证迁移
 
-真实 Android ARM64 手机已验证：
+如果此前 P0.5 APK 在以下路径留下了旧认证文件：
 
-- 安装独立 APK，不安装、不启动 Termux；
-- native runtime、`codex --version`、App Server 和协议握手成功；
-- App 内登录后 `authenticated=true`，真实额度读取成功；
-- force-stop/reopen 后认证保持；
-- 手动刷新成功，额度和更新时间更新；
-- App Server 临时失败时最多进行一次受限恢复；
-- UI、动态标题、绝对/相对重置时间和 launcher icon 真机显示正常；
-- 停止后没有遗留 Codex 进程；
-- `testDebugUnitTest`、`assembleDebug` 和 `assembleRelease` 通过；
-- APK 内存在 `libcodex_exec.so` 和 `libc++_shared.so`。
+```text
+<filesDir>/codex-home/.codex/auth.json
+```
 
-P0–P3 均为 Go。正式 signing key、公开分发和多设备兼容矩阵不属于当前路线门禁。
+新版本首次读取时会解析其中的 OAuth token，写入新的 App 私有 OAuth Store；成功写入后
+会尽力删除旧文件，并记录一次性迁移标记。迁移只在本机发生，不打印认证内容。无法
+解析或缺少 access token 的旧文件会被忽略，需重新登录。加密凭据一旦存在，即使损坏
+也不会回退读取旧文件；退出登录同样保留迁移标记，避免旧凭据被重新导入。
 
 ## 开发诊断与离线回归
 
-以下工具继续保留，但不属于正式主页面：
+P0/P0.5 的 Python 工具继续保留，但不属于 APK 日常运行时：
 
 ```powershell
 python -X utf8 android/poc/test_p0_handshake.py
@@ -157,27 +116,27 @@ python -X utf8 android/bridge/test_bridge.py
 python -m py_compile android/poc/p0_handshake.py android/poc/fake_codex.py
 ```
 
-这些检查不能替代真实 ARM64 手机验证。诊断不得打印 token、邮箱、完整认证文件、
-完整 RPC 响应、设备序列号或 opaque ID。
+这些检查不能替代真实 ARM64 手机、OAuth 浏览器授权、后台调度和通知权限验证。诊断
+不得打印 token、邮箱、完整认证文件、完整 HTTP 响应、设备序列号或 opaque ID。
 
-## 常见失败
+## 真机验证清单
 
-- runtime 未打包：确认 `CODEX_ANDROID_RUNTIME` 或 `codexAndroid.runtime` 指向实际输入。
-- 没有 native ELF：输入只有 launcher/npm 脚本，需要包含 `codex.bin` 的 Android
-  ARM64 package。
-- `CANNOT LINK EXECUTABLE`：检查 APK 中的 `libc++_shared.so` 和
-  `LD_LIBRARY_PATH`。
-- App Server 或 WebSocket 超时：检查端口 `43128`、runtime 版本支持和最小 logcat。
-- “尚未登录 Codex”：使用 App 内登录入口完成授权，不要复制外部认证文件。
-- Release signing 配置不完整：四项 signing 输入必须全部提供；仅验证未签名 release
-  时应清除不完整的本地 signing 配置。
-- 进程清理失败：使用 `adb shell ps -A` 检查残留，不保存 stdout/stderr 原文。
+当前产品改动需要在真实 Android ARM64 手机上补做：
+
+1. 新安装后设备代码登录；
+2. force-stop/reopen 后直接读取 usage；
+3. 401 后 refresh token 续期；
+4. `rate_limit` 返回 0、1 和多个窗口；
+5. 网络断开、401/403、500 和非法响应；
+6. WorkManager 周期刷新；
+7. 50/20/10% 跨阈值和 reset 通知；
+8. 通知权限拒绝时主页面仍可正常刷新。
 
 ## 来源与许可证
 
 Android Kotlin/Gradle/UI 代码是本仓库内的独立实现。项目曾参考
 `aeewws/codex-mobile-oneapk` 的实现思路，但未直接复制其源码片段或文件。
 
-DioNanos `codex-termux` Android ARM64 runtime 是外部构建输入，不提交到仓库；其
-package metadata 标为 Apache-2.0，随包 NOTICE 另列 OpenAI Codex 和 Ratatui MIT
-版权信息。依赖简表见 [Dependencies](../docs/DEPENDENCIES.md)。
+历史 DioNanos `codex-termux` Android ARM64 runtime 不再随当前 APK 打包，也不提交到
+仓库；其来源、版本和 SHA-256 仅记录在 [P0.5 真机结果](P0_5_RESULT.md)。依赖简表见
+[Dependencies](../docs/DEPENDENCIES.md)。

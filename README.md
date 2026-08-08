@@ -7,9 +7,10 @@ CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过�
 实现保存在 Git tag `archive/rust-win32-final`，不参与当前构建、测试和发布；旧版
 细节需要时直接通过 Git 历史查看。本项目不使用 Electron、WebView 或浏览器运行时。
 
-仓库同时包含个人使用的 Android `arm64-v8a` 独立 APK。Android P0–P3 已完成：
-embedded runtime、App 内登录、真实额度、手动刷新、产品 UI、恢复和打包均已通过
-真机验证。Android 后续范围仅为后台自动刷新、通知、Widget 和开机启动；具体见
+仓库同时包含个人使用的实验性 Android 独立 APK。历史 P0–P3 已验证 ARM64 runtime、
+App Server、App 内登录、真实额度、手动刷新、产品 UI、恢复和打包；当前日常 Android
+路径已收敛为 App 私有 OAuth + Direct HTTPS usage，不再依赖 embedded runtime 或
+App Server。后续范围仅为后台自动刷新、通知、Widget 和开机启动；具体见
 [Android Roadmap](docs/ANDROID_ROADMAP.md)。
 
 ## 主要功能
@@ -23,7 +24,8 @@ embedded runtime、App 内登录、真实额度、手动刷新、产品 UI、恢
 ## 只读和隐私边界
 
 - 应用只读取额度信息，不执行额度消费、重置卡消费或账户写操作。
-- 不在日志或明文配置中保存访问令牌、刷新令牌或浏览器 Cookie。
+- WinUI 不在日志或明文配置中保存访问令牌、刷新令牌或浏览器 Cookie；Android 使用
+  Android Keystore 保护 App 私有 OAuth Store。
 - 不把未知字段或缺失数据静默解释为零。
 - 离线测试使用匿名 fixture 和 Fake App Server，不需要真实 Codex 账户。
 
@@ -58,7 +60,7 @@ pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Release
 - [技术设计](docs/TECH_DESIGN.md)
 - [App Server 协议契约](docs/API_CONTRACT.md)
 - [Windows 路线图](docs/ROADMAP.md)
-- [Android 路线图（P0–P3 已完成）](docs/ANDROID_ROADMAP.md)
+- [Android 路线图（个人实验性路线）](docs/ANDROID_ROADMAP.md)
 - [构建与发布](docs/RELEASE.md)
 - [隐私说明](docs/PRIVACY.md)
 - [依赖与许可证](docs/DEPENDENCIES.md)
