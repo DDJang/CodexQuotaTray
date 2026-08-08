@@ -1,7 +1,6 @@
 package com.codexquotatray.android.ui
 
-import com.codexquotatray.android.protocol.LoginProbeResult
-import com.codexquotatray.android.protocol.ProtocolProbeResult
+import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.protocol.QuotaWindow
 import kotlin.math.abs
 
@@ -14,8 +13,8 @@ enum class QuotaUiStatus {
 
 data class QuotaCardModel(
     val title: String,
-    val remainingPercent: Int,
-    val usedPercent: Int,
+    val remainingPercent: Int?,
+    val usedPercent: Int?,
     val windowDurationMins: Long?,
     val resetsAt: Long?,
 )
@@ -28,66 +27,48 @@ data class QuotaUiModel(
     val message: String? = null,
 )
 
-fun ProtocolProbeResult.toQuotaUiModel(nowMillis: Long = System.currentTimeMillis()): QuotaUiModel {
-    if (rateLimitsReadSucceeded && rateLimitsResult == "succeeded") {
-        if (quotaState == "unavailable") {
-            return QuotaUiModel(
-                status = QuotaUiStatus.ERROR,
-                message = "额度读取失败",
-            )
-        }
-        return loadedQuota(quotaWindows, quotaState, nowMillis)
-    }
-    if (authenticated == false) {
-        return QuotaUiModel(
-            status = QuotaUiStatus.UNAUTHENTICATED,
-            message = "尚未登录 Codex",
-        )
-    }
-    if (authenticated != true) {
-        return QuotaUiModel(
-            status = QuotaUiStatus.ERROR,
-            message = userFacingError(lastError, "无法确认 Codex 登录状态"),
-        )
-    }
-    return QuotaUiModel(
-        status = QuotaUiStatus.ERROR,
-        message = rateLimitsError(rateLimitsResult, lastError),
-    )
-}
-
-fun LoginProbeResult.toQuotaUiModel(nowMillis: Long = System.currentTimeMillis()): QuotaUiModel {
-    if (authenticated == false) {
-        return QuotaUiModel(
-            status = QuotaUiStatus.UNAUTHENTICATED,
-            message = "尚未登录 Codex",
-        )
-    }
-    if (authenticated != true) {
-        return QuotaUiModel(
-            status = QuotaUiStatus.ERROR,
-            message = userFacingError(lastError, "无法确认 Codex 登录状态"),
-        )
-    }
-    if (!rateLimitsReadSucceeded || rateLimitsResult != "succeeded") {
-        return QuotaUiModel(
-            status = QuotaUiStatus.ERROR,
-            message = rateLimitsError(rateLimitsResult, lastError),
-        )
-    }
+fun DirectQuotaResult.toQuotaUiModel(): QuotaUiModel {
     if (quotaState == "unavailable") {
         return QuotaUiModel(
             status = QuotaUiStatus.ERROR,
-            message = "额度读取失败",
+            message = "额度详情暂不可用",
         )
     }
-    return loadedQuota(quotaWindows, quotaState, nowMillis)
+    return loadedQuota(windows, planType, quotaState, updatedAtMillis)
 }
+
+fun unauthenticatedQuotaUiModel(): QuotaUiModel = QuotaUiModel(
+    status = QuotaUiStatus.UNAUTHENTICATED,
+    message = "尚未登录 Codex",
+)
+
+fun quotaLoadingUiModel(
+    previous: QuotaUiModel? = null,
+    message: String = "正在读取额度…",
+): QuotaUiModel = QuotaUiModel(
+    status = QuotaUiStatus.LOADING,
+    accountLabel = previous?.accountLabel ?: "Codex",
+    windows = previous?.windows ?: emptyList(),
+    updatedAtMillis = previous?.updatedAtMillis,
+    message = message,
+)
+
+fun quotaErrorUiModel(
+    message: String,
+    previous: QuotaUiModel? = null,
+): QuotaUiModel = QuotaUiModel(
+    status = QuotaUiStatus.ERROR,
+    accountLabel = previous?.accountLabel ?: "Codex",
+    windows = previous?.windows ?: emptyList(),
+    updatedAtMillis = previous?.updatedAtMillis,
+    message = message,
+)
 
 private fun loadedQuota(
     windows: List<QuotaWindow>,
+    planType: String?,
     quotaState: String,
-    nowMillis: Long,
+    updatedAtMillis: Long,
 ): QuotaUiModel {
     val cards = windows.mapIndexed { index, window ->
         QuotaCardModel(
@@ -98,12 +79,14 @@ private fun loadedQuota(
             resetsAt = window.resetsAt,
         )
     }
-    val planType = windows.firstNotNullOfOrNull { it.planType?.takeIf(String::isNotBlank) }
+    val resolvedPlanType = planType
+        ?.takeIf(String::isNotBlank)
+        ?: windows.firstNotNullOfOrNull { it.planType?.takeIf(String::isNotBlank) }
     return QuotaUiModel(
         status = QuotaUiStatus.LOADED,
-        accountLabel = planType?.replaceFirstChar { it.uppercase() } ?: "Codex",
+        accountLabel = resolvedPlanType?.replaceFirstChar { it.uppercase() } ?: "Codex",
         windows = cards,
-        updatedAtMillis = nowMillis,
+        updatedAtMillis = updatedAtMillis,
         message = if (quotaState == "zero_windows") "当前没有可用额度窗口" else null,
     )
 }
@@ -130,38 +113,3 @@ private fun displayName(window: QuotaWindow, index: Int): String {
 
 private fun Long?.isNear(target: Long, tolerance: Long): Boolean =
     this != null && abs(this - target) <= tolerance
-
-private fun rateLimitsError(result: String, lastError: String?): String = when {
-    result == "unauthenticated" -> "登录状态已失效，请重新登录"
-    lastError == "unauthenticated" -> "登录状态已失效，请重新登录"
-    result == "unsupported" -> "当前 App Server 不支持额度读取"
-    result == "rpc_error" -> "额度读取失败"
-    result == "transport_error" || lastError.isTransportFailure() -> "无法连接 Codex"
-    else -> "额度读取失败"
-}
-
-private fun userFacingError(lastError: String?, fallback: String): String = when {
-    lastError == "unauthenticated" -> "登录状态已失效，请重新登录"
-    lastError.isBackendStartupFailure() -> "Codex 后端启动失败"
-    lastError.isTransportFailure() -> "无法连接 Codex"
-    else -> fallback
-}
-
-private fun String?.isBackendStartupFailure(): Boolean = this?.let {
-    it.startsWith("startup_failed") ||
-        it.startsWith("ready_") ||
-        it.startsWith("http_") ||
-        it == "initialize_rpc_error" ||
-        it == "initialize_protocol_error"
-} == true
-
-private fun String?.isTransportFailure(): Boolean = this in setOf(
-    "connection_refused",
-    "connection_timeout",
-    "timeout",
-    "other_ioexception",
-    "websocket_open_failed",
-    "websocket_closed_before_initialize",
-    "cleartext_not_permitted",
-    "interrupted",
-)

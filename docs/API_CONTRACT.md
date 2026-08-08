@@ -4,10 +4,12 @@
 
 本合同描述 CodexQuotaTray 两个客户端共享的最小只读协议子集，不复制完整 schema。
 
-当前 Android P0–P3 只消费 `initialize`、`initialized`、登录、`account/read` 和
-`account/rateLimits/read` 所需子集。本文的稀疏通知、reset-credit、缓存和完整
-规范化章节描述 WinUI 已实现能力；除 envelope、字段缺失和动态额度窗口语义外，
-不自动成为 Android 后续目标。Android 产品范围以
+当前 WinUI 消费 `initialize`、`initialized`、登录、`account/read` 和
+`account/rateLimits/read` 所需子集。Android 的 P0/P0.5 App Server 探测曾验证过同一
+组合同，但 Android 当前日常产品路径使用独立的 OAuth + Direct HTTPS usage API，
+不再启动 App Server。本文的稀疏通知、reset-credit、缓存和完整规范化章节主要描述
+WinUI 已实现能力；除字段缺失和动态额度窗口语义外，不自动成为 Android 后续目标。
+Android 产品范围以
 [Android Roadmap](ANDROID_ROADMAP.md) 为准。
 
 - 协议基线版本以 [`schemas/CODEX_VERSION`](../schemas/CODEX_VERSION) 为唯一来源。
@@ -31,14 +33,32 @@
 - 非法 JSON、非法 envelope、未知或重复 ID 只产生脱敏诊断，不输出原始消息。
 - stderr 被持续排空，但正文不进入日志或持久化。
 
-### Android
+### Android 历史 App Server 探测
 
-- APK 从 `applicationInfo.nativeLibraryDir` 启动内置 Android ARM64 Codex runtime。
-- App Server 只监听 `ws://127.0.0.1:<port>`，Kotlin 直接使用本地 WebSocket；不经过
-  Termux Bridge、HTTP 服务或远程网络。
-- WebSocket 每条 text message 承载一个完整 JSON envelope，不使用 JSONL 行边界。
-- 请求 ID、错误分类、超时、非法 JSON、未知/重复 ID 和脱敏规则与 WinUI 相同。
-- stdout/stderr 仍被异步排空以避免子进程阻塞，正文不进入产品 UI 或持久化。
+- P0/P0.5 曾从 APK native library 启动 Android ARM64 Codex runtime，并通过本机
+  WebSocket 验证 App Server。
+- 该路径保留在历史结果和 Python 诊断中，不是当前日常 APK 的数据路径。
+
+### Android 当前 Direct HTTPS
+
+- OAuth device-code 登录和 refresh token 只保存在 App 私有存储；旧
+  `filesDir/codex-home/.codex/auth.json` 只作为一次性迁移输入，旧文件保留。
+- 日常额度读取是：
+
+  ```text
+  GET https://chatgpt.com/backend-api/wham/usage
+  Authorization: Bearer <access token>
+  Accept: application/json
+  ChatGPT-Account-Id: <account id>  // 有可靠值时才发送
+  ```
+
+- usage API 的 401/403 触发一次 refresh token 恢复后重试；普通启动和普通刷新不
+  无条件 refresh。
+- 当前消费 `plan_type`、`rate_limit.primary_window`、`secondary_window` 和顶层
+  `additional_rate_limits[]` 中的动态窗口。窗口的 `used_percent`、`reset_at` 和
+  `limit_window_seconds` 均可缺失；缺失不转换为零。
+- Android 正常路径不启动 App Server，不使用 WebSocket、JSONL、Termux Bridge、
+  HTTP 中转或 `ProcessBuilder`。WorkManager 只调度同一个 Direct HTTPS 读取函数。
 
 请求、成功响应、错误响应和通知的最小 envelope 分别为：
 
@@ -60,7 +80,7 @@
 
 RPC error message 只验证 shape，不向业务层传播或保存正文。
 
-## 允许的客户端消息
+## WinUI 允许的 App Server 消息
 
 当前 outbound allowlist 只有三条消息：
 
@@ -86,7 +106,7 @@ RPC error message 只验证 shape，不向业务层传播或保存正文。
 
 `version` 来自应用程序集的 `ProductVersion`，不在协议代码或本文重复维护产品版本。
 
-客户端从初始化结果消费：
+WinUI 客户端从初始化结果消费：
 
 - `platformFamily`：必须为非空字符串；
 - `platformOs`：必须为非空字符串；
@@ -98,7 +118,7 @@ RPC error message 只验证 shape，不向业务层传播或保存正文。
 
 初始化 request 成功并通过最低字段验证后，客户端发送无 params 的 `initialized` notification。
 
-### account/rateLimits/read
+### account/rateLimits/read（WinUI 与历史 Android P0/P0.5 探测）
 
 请求 params 为 `null`。当前响应 DTO 消费：
 
@@ -212,6 +232,9 @@ creditDetailCount?
 - runtime 版本差异不单独阻止 best-effort 只读读取，能力由实际握手和 read 结果决定。
 
 ## 持久化合同
+
+以下额度缓存合同描述 WinUI 的归一化缓存。当前 Android 不持久化完整额度缓存；
+Android 只持久化 OAuth Store 和提醒去重状态，usage 响应直接投影到 UI。
 
 磁盘缓存是归一化状态的最小投影，不是 wire response archive。当前 `QuotaCacheDocument` 包含：
 

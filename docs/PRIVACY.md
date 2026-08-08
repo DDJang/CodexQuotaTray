@@ -6,14 +6,18 @@ an embedded browser, or a reset-credit consumption path.
 
 ## Shared boundaries
 
-- Both clients read quota data from a locally started Codex App Server.
-- Raw App Server JSON is parsed in memory and discarded.
+- WinUI reads quota data from a locally started Codex App Server; Android's current product
+  path reads the Direct HTTPS usage endpoint after local OAuth authentication.
+- Raw App Server/HTTP JSON is parsed in memory and discarded.
 - stdout/stderr is drained only to prevent process deadlock; its text is not persisted or
   shown in the product UI.
 - Neither client reads browser cookies, browser DOM content, conversations, project files,
   or code.
-- Neither client logs or persists access tokens, refresh tokens, email addresses, full
-  account identifiers, raw limit identifiers, device codes, or raw authentication responses.
+- Neither client logs access tokens, refresh tokens, email addresses, full account
+  identifiers, raw limit identifiers, device codes, or raw authentication responses. WinUI
+  delegates token persistence to Codex CLI; Android persists the minimum OAuth credentials
+  (including the routing account ID) encrypted with Android Keystore in its App-private
+  store so the personal APK can reopen without logging in again.
 - Quota reads remain read-only. The clients do not purchase, consume reset credits, or send
   other account write requests.
 
@@ -37,15 +41,17 @@ local data unless the user explicitly keeps it.
 
 ## Android data flow
 
-- The APK starts its embedded Android ARM64 Codex runtime from
-  `applicationInfo.nativeLibraryDir` and connects to the App Server over loopback WebSocket.
-- App login uses the App Server login flow and opens the system browser with an Android
-  Intent. The APK does not embed a WebView or inspect browser data.
-- Codex runtime stores authentication in the App-private
-  `<filesDir>/codex-home/.codex` directory. CodexQuota does not copy, export, print, or expose
-  that authentication data.
-- The current Android baseline does not persist a quota cache and does not yet implement
-  background refresh, notifications, Widget, or boot startup.
+- The APK performs OAuth device-code login through the system browser and does not embed a
+  WebView or inspect browser data.
+- OAuth access/refresh credentials are stored in an App-private SharedPreferences store.
+  A legacy `<filesDir>/codex-home/.codex/auth.json` can be parsed once for migration; the
+  legacy file is retained and its contents are never logged or shown.
+- Daily quota reads use `GET https://chatgpt.com/backend-api/wham/usage` with the access
+  token and, when available, the account ID. The APK does not start App Server, Termux, or
+  a local HTTP service on this path.
+- The APK does not persist a full quota response or history. It persists only the minimum
+  alert de-duplication state and refresh timestamp. WorkManager and notifications are part
+  of the current implementation; their real-device behavior remains a separate smoke check.
 - `android:allowBackup` is disabled. Uninstalling the APK removes its App-private data;
   force-stop or ordinary process exit does not remove authentication.
 
