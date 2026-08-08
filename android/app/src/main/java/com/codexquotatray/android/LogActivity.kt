@@ -1,6 +1,7 @@
 package com.codexquotatray.android
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -21,6 +22,7 @@ class LogActivity : Activity() {
     private val logStore by lazy { AppLogStore(this) }
     private lateinit var logView: TextView
     private lateinit var copyButton: Button
+    private lateinit var clearButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -81,7 +83,13 @@ class LogActivity : Activity() {
         )
 
         copyButton = actionButton("复制日志") { copyLogs() }
-        root.addView(copyButton)
+        clearButton = actionButton("清空日志") { confirmClearLogs() }
+        val actions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(copyButton, weightParams())
+            addView(clearButton, weightParams(left = 8))
+        }
+        root.addView(actions)
         return root
     }
 
@@ -100,6 +108,18 @@ class LogActivity : Activity() {
                 copyButton.text = "复制日志"
             }
         }, COPY_FEEDBACK_MILLIS)
+    }
+
+    private fun confirmClearLogs() {
+        AlertDialog.Builder(this)
+            .setTitle("清空日志")
+            .setMessage("确定清空全部本地日志吗？")
+            .setNegativeButton("取消", null)
+            .setPositiveButton("清空") { _, _ ->
+                logStore.clear()
+                renderLog()
+            }
+            .show()
     }
 
     private fun backButton(): TextView = textView("‹", 34f, Typeface.NORMAL).apply {
@@ -133,6 +153,11 @@ class LogActivity : Activity() {
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT,
         ).apply { setMargins(0, 0, 0, dp(bottom)) }
+
+    private fun weightParams(left: Int = 0): LinearLayout.LayoutParams =
+        LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            setMargins(dp(left), 0, 0, 0)
+        }
 
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt().coerceAtLeast(value)

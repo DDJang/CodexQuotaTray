@@ -180,7 +180,6 @@ class MainActivity : Activity() {
     private fun refresh() {
         if (busy) return
         busy = true
-        AppLogStore.record(this, "开始读取额度")
         val previous = lastSuccessfulModel
         render(quotaLoadingUiModel(previous))
         worker.execute {
@@ -192,7 +191,6 @@ class MainActivity : Activity() {
                         val candidate = value.toQuotaUiModel()
                         if (candidate.status == QuotaUiStatus.LOADED) {
                             lastSuccessfulModel = candidate
-                            AppLogStore.record(this@MainActivity, "额度读取成功：${candidate.windows.size} 个窗口")
                             candidate
                         } else {
                             AppLogStore.record(this@MainActivity, "额度详情暂不可用", "WARN")
@@ -235,7 +233,6 @@ class MainActivity : Activity() {
         if (latestTime < currentTime) return
         lastSuccessfulModel = latest
         render(latest)
-        AppLogStore.record(this, "已显示后台刷新结果")
     }
 
     private fun openLogin() {

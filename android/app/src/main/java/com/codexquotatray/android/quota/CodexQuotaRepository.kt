@@ -1,6 +1,7 @@
 package com.codexquotatray.android.quota
 
 import android.content.Context
+import com.codexquotatray.android.AppLogStore
 import com.codexquotatray.android.alerts.QuotaAlertEvaluator
 import com.codexquotatray.android.alerts.QuotaAlertStateStore
 import com.codexquotatray.android.alerts.QuotaNotificationPublisher
@@ -43,6 +44,8 @@ class CodexQuotaRepository(
         QuotaNotificationPublisher(context),
     private val snapshotStore: QuotaSnapshotStore = QuotaSnapshotStore(context),
 ) {
+    private val appContext = context.applicationContext
+
     fun refresh(): DirectQuotaResult {
         var credentials = credentialStore.load()
             ?: throw QuotaReadException(QuotaReadFailureKind.LOGIN_REQUIRED, "尚未登录 Codex")
@@ -93,6 +96,11 @@ class CodexQuotaRepository(
         return try {
             oauthClient.refresh(credentials).also(::saveCredentials)
         } catch (error: OAuthException) {
+            AppLogStore.record(
+                appContext,
+                "OAuth token refresh 失败：${error.message ?: "未知错误"}",
+                "WARN",
+            )
             when {
                 isPermanentAuthFailure(error.kind) -> {
                     credentialStore.clear()

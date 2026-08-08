@@ -144,6 +144,7 @@ class SettingsActivity : Activity() {
             setTextColor(palette.body)
             setOnCheckedChangeListener { _, checked ->
                 if (updating) return@setOnCheckedChangeListener
+                AppLogStore.record(this@SettingsActivity, "系统通知设置已${if (checked) "开启" else "关闭"}")
                 if (checked) {
                     requestNotificationPermission()
                 } else {

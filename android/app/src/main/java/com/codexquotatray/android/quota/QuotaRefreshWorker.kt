@@ -17,12 +17,10 @@ class QuotaRefreshWorker(
     workerParams: WorkerParameters,
 ) : Worker(appContext, workerParams) {
     override fun doWork(): Result = try {
-        AppLogStore.record(applicationContext, "后台刷新开始")
         val result = CodexQuotaRepository(applicationContext).refresh()
         if (result.quotaState != "unavailable") {
             QuotaRefreshEvents.notifyCompleted(applicationContext)
         }
-        AppLogStore.record(applicationContext, "后台刷新成功：${result.windows.size} 个窗口")
         Result.success()
     } catch (error: QuotaReadException) {
         AppLogStore.record(
