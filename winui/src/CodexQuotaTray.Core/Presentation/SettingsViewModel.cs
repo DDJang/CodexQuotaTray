@@ -21,6 +21,12 @@ public interface ISettingsPlatformActions
 
     string TokenSyncAddressText { get; }
 
+    string TokenSyncDeviceNameText { get; }
+
+    string? TokenSyncPairingInfo { get; }
+
+    event EventHandler? TokenSyncChanged;
+
     Task ApplyTokenSyncEnabledAsync(bool enabled, CancellationToken cancellationToken);
 
     void CopyTokenSyncPairingInfo();
@@ -65,6 +71,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool phoneTokenSyncEnabled;
     [ObservableProperty] private string tokenSyncStatusText = string.Empty;
     [ObservableProperty] private string tokenSyncAddressText = string.Empty;
+    [ObservableProperty] private string tokenSyncDeviceNameText = string.Empty;
+    [ObservableProperty] private string? tokenSyncPairingInfo;
     [ObservableProperty] private RefreshMode selectedRefreshMode;
     [ObservableProperty] private ThemeMode selectedThemeMode;
     [ObservableProperty] private string statusText = string.Empty;
@@ -80,12 +88,15 @@ public sealed partial class SettingsViewModel : ObservableObject
         this.runtime = runtime;
         this.platform = platform;
         this.pageActions = pageActions;
+        platform.TokenSyncChanged += OnTokenSyncChanged;
         Load(runtime.Settings);
         RefreshTokenSyncStatus();
         suppressSettingsApply = false;
     }
 
     public event EventHandler<ThemeMode>? ThemeSaved;
+
+    public event EventHandler? TokenSyncChanged;
 
     public bool CanConfigureStartup => platform.CanConfigureStartup;
 
@@ -355,11 +366,17 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnSelectedThemeModeChanged(ThemeMode value) => QueueSettingsApply();
 
-    private void RefreshTokenSyncStatus()
+    public void RefreshTokenSyncStatus()
     {
         TokenSyncStatusText = platform.TokenSyncStatusText;
+        TokenSyncDeviceNameText = string.IsNullOrWhiteSpace(platform.TokenSyncDeviceNameText)
+            ? string.Empty
+            : $"电脑：{platform.TokenSyncDeviceNameText}";
         TokenSyncAddressText = string.IsNullOrWhiteSpace(platform.TokenSyncAddressText)
             ? string.Empty
             : $"Windows 地址：{platform.TokenSyncAddressText}";
+        TokenSyncPairingInfo = platform.TokenSyncPairingInfo;
     }
+
+    private void OnTokenSyncChanged(object? sender, EventArgs args) => TokenSyncChanged?.Invoke(this, args);
 }

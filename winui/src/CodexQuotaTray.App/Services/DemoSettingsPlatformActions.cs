@@ -31,6 +31,16 @@ internal sealed class DemoSettingsPlatformActions : ISettingsPlatformActions
 
     public string TokenSyncAddressText => string.Empty;
 
+    public string TokenSyncDeviceNameText => string.Empty;
+
+    public string? TokenSyncPairingInfo => null;
+
+    public event EventHandler? TokenSyncChanged
+    {
+        add { }
+        remove { }
+    }
+
     public Task ApplyTokenSyncEnabledAsync(bool enabled, CancellationToken cancellationToken) => Task.CompletedTask;
 
     public void CopyTokenSyncPairingInfo() => throw new InvalidOperationException("预览模式不可用。");

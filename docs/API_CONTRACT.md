@@ -281,6 +281,25 @@ day 字段为 `date`、`totalTokens` 及可为 null 的 input/cached-input/outpu
 Android 仅接受 RFC1918 IPv4，不接受 hostname、公网 IP、loopback、其他 scheme 或 redirect。
 这一 HTTP 例外只属于 `TokenUsageSyncClient`；OpenAI OAuth 与 quota 请求继续固定 HTTPS。
 
+### 配对身份与局域网发现
+
+Windows 的 `token-sync.json` 使用独立的配对设置记录：`schemaVersion=2`、稳定的随机
+UUID `deviceId` 和 256-bit `pairingSecret`。首次创建或从 schema 1 迁移时生成
+`deviceId`；重新生成密钥只替换 `pairingSecret`，因此旧 Android 配对会立即收到 401，
+但 Windows 身份不会变化。
+
+二维码和手动 fallback 使用本地 URI：
+`codexquota://pair?deviceId=<uuid>&host=<private-ip>&port=43821&token=<secret>&name=<optional>`。
+二维码只包含 LAN 配对密钥，不包含 OAuth/Codex credential、账号、邮箱、session 或统计内容。
+Android 扫码必须验证 scheme、`pair` host、deviceId、RFC1918 IPv4、端口和非空 token；旧式
+手动地址没有 deviceId 时仍可直连，但不会启用自动发现。
+
+启用 Windows Token Usage 时，同时发布 `_codexquota._tcp` DNS-SD 服务。TXT metadata 只含
+`deviceId`、`name` 和 `port`，授权密钥不广播；关闭服务或进程退出会注销 registration。
+Android 使用 `NsdManager` 进行一次最多 4 秒的短发现：先尝试保存的 `lastKnownHost`，
+只有连接超时、拒绝或不可达等离线失败才发现并匹配相同 `deviceId`，随后校验解析出的
+private IPv4、更新 host 并用原 secret 重试。401 不触发发现，而提示重新扫码。
+
 ## 隐私和变更控制
 
 Fixture 必须人工构造或脱敏，不得复制真实认证数据、账户标识或原始 response blob。离线 parser 测试不得启动真实 Codex、读取凭据或访问网络。

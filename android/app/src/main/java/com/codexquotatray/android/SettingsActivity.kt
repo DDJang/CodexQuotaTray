@@ -28,6 +28,13 @@ import com.codexquotatray.android.quota.QuotaRefreshSettings
 import com.codexquotatray.android.quota.QuotaRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenSyncEndpoint
 import com.codexquotatray.android.usage.TokenSyncStore
+import com.codexquotatray.android.usage.TokenUsageException
+import com.codexquotatray.android.usage.TokenUsageSyncClient
+import com.google.zxing.integration.android.IntentIntegrator
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.concurrent.Executors
 
 class SettingsActivity : Activity() {
     private val palette by lazy { AppTheme.palette(this) }
@@ -51,6 +58,12 @@ class SettingsActivity : Activity() {
     private lateinit var tokenSyncHostInput: EditText
     private lateinit var tokenSyncSecretInput: EditText
     private lateinit var tokenSyncStatus: TextView
+    private lateinit var tokenSyncDevice: TextView
+    private lateinit var tokenSyncLastSync: TextView
+    private lateinit var tokenSyncManualContainer: LinearLayout
+    private lateinit var tokenSyncPairedActions: LinearLayout
+    private val pairingWorker = Executors.newSingleThreadExecutor()
+    private val pairingMain = android.os.Handler(android.os.Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -63,6 +76,11 @@ class SettingsActivity : Activity() {
     override fun onResume() {
         super.onResume()
         if (::notificationStatus.isInitialized) render()
+    }
+
+    override fun onDestroy() {
+        pairingWorker.shutdownNow()
+        super.onDestroy()
     }
 
     private fun buildContent(): View {
@@ -295,6 +313,7 @@ class SettingsActivity : Activity() {
         renderNotificationPermission()
         renderRefreshInterval()
         renderThemeOptions()
+        renderTokenSyncPairing()
     }
 
     private fun renderNotificationPermission() {
@@ -520,29 +539,32 @@ class SettingsActivity : Activity() {
 
     private fun tokenSyncSection(): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        val stored = TokenSyncStore(this@SettingsActivity).load()
-        tokenSyncStatus = textView(
-            if (stored == null) "尚未配对 Windows" else "已配对 ${stored.host}:${stored.port}",
-            14f,
-            Typeface.NORMAL,
-        ).apply { setTextColor(palette.muted) }
-        addView(tokenSyncStatus, marginParams(bottom = 8))
+        tokenSyncStatus = textView("尚未配对 Windows", 14f, Typeface.NORMAL).apply { setTextColor(palette.muted) }
+        addView(tokenSyncStatus, marginParams(bottom = 4))
+        tokenSyncDevice = textView("", 14f, Typeface.NORMAL).apply { setTextColor(palette.muted) }
+        addView(tokenSyncDevice, marginParams(bottom = 4))
+        tokenSyncLastSync = textView("", 13f, Typeface.NORMAL).apply { setTextColor(palette.muted) }
+        addView(tokenSyncLastSync, marginParams(bottom = 10))
+        addView(actionButton("扫描二维码") { scanPairing() }, marginParams(bottom = 12))
+
+        tokenSyncManualContainer = LinearLayout(this@SettingsActivity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
         pairingUriInput = EditText(this@SettingsActivity).apply {
             hint = "粘贴 codexquota://pair?..."
             setSingleLine(true)
             setTextColor(palette.body)
             setHintTextColor(palette.muted)
         }
-        addView(pairingUriInput, marginParams(bottom = 8))
-        addView(actionButton("保存粘贴的配对信息") { savePairingUri() }, marginParams(bottom = 12))
+        tokenSyncManualContainer.addView(pairingUriInput, marginParams(bottom = 8))
+        tokenSyncManualContainer.addView(actionButton("保存粘贴的配对信息") { savePairingUri() }, marginParams(bottom = 12))
         tokenSyncHostInput = EditText(this@SettingsActivity).apply {
             hint = "Windows 地址，例如 192.168.1.10:43821"
             setSingleLine(true)
-            setText(stored?.let { "${it.host}:${it.port}" }.orEmpty())
             setTextColor(palette.body)
             setHintTextColor(palette.muted)
         }
-        addView(tokenSyncHostInput, marginParams(bottom = 8))
+        tokenSyncManualContainer.addView(tokenSyncHostInput, marginParams(bottom = 8))
         tokenSyncSecretInput = EditText(this@SettingsActivity).apply {
             hint = "配对密钥"
             setSingleLine(true)
@@ -550,11 +572,19 @@ class SettingsActivity : Activity() {
             setTextColor(palette.body)
             setHintTextColor(palette.muted)
         }
-        addView(tokenSyncSecretInput, marginParams(bottom = 8))
-        addView(actionButton("保存手动配置") { saveManualPairing() }, marginParams(bottom = 10))
-        addView(actionButton("打开使用统计") {
-            startActivity(Intent(this@SettingsActivity, TokenUsageActivity::class.java))
-        })
+        tokenSyncManualContainer.addView(tokenSyncSecretInput, marginParams(bottom = 8))
+        tokenSyncManualContainer.addView(actionButton("保存手动配置") { saveManualPairing() }, marginParams(bottom = 10))
+        addView(tokenSyncManualContainer)
+
+        tokenSyncPairedActions = LinearLayout(this@SettingsActivity).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        tokenSyncPairedActions.addView(actionButton("立即同步") { syncPairedNow() }, marginParams(bottom = 8))
+        tokenSyncPairedActions.addView(actionButton("重新扫码") { scanPairing() }, marginParams(bottom = 8))
+        tokenSyncPairedActions.addView(actionButton("解除配对") { clearPairing() }, marginParams(bottom = 10))
+        addView(tokenSyncPairedActions)
+
+        addView(actionButton("打开使用统计") { openTokenUsage() })
         addView(textView("LAN 同步仅适用于可信私人 Wi-Fi；不建议在公共 Wi-Fi 使用。", 13f, Typeface.NORMAL).apply {
             setTextColor(palette.muted)
         }, marginParams(top = 10))
@@ -574,13 +604,100 @@ class SettingsActivity : Activity() {
                 pairingUriInput.text.clear()
                 tokenSyncSecretInput.text.clear()
                 tokenSyncHostInput.setText("${pairing.host}:${pairing.port}")
-                tokenSyncStatus.text = "已配对 ${pairing.host}:${pairing.port}"
+                renderTokenSyncPairing()
                 Toast.makeText(this, "Token 同步配对已保存", Toast.LENGTH_SHORT).show()
+                testPairing(pairing)
             } else {
                 Toast.makeText(this, "无法安全保存配对信息", Toast.LENGTH_SHORT).show()
             }
         }.onFailure { error -> Toast.makeText(this, error.message ?: "配对信息无效", Toast.LENGTH_SHORT).show() }
     }
+
+    private fun scanPairing() {
+        IntentIntegrator(this).apply {
+            setDesiredBarcodeFormats("QR_CODE")
+            setPrompt("扫描 Windows Token Usage 配对二维码")
+            setBeepEnabled(false)
+            setOrientationLocked(false)
+        }.initiateScan()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        val result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
+        if (result != null) {
+            if (!result.contents.isNullOrBlank()) {
+                savePairing(runCatching { TokenSyncEndpoint.parsePairingUri(result.contents) })
+            } else {
+                Toast.makeText(this, "未读取二维码，可继续手动输入配对信息", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    private fun testPairing(pairing: com.codexquotatray.android.usage.TokenSyncPairing) {
+        tokenSyncStatus.text = "正在测试 Windows 连接…"
+        pairingWorker.execute {
+            val result = runCatching { TokenUsageSyncClient(this).sync(pairing) }
+            pairingMain.post {
+                result.onSuccess { synced ->
+                    val saved = TokenSyncEndpoint.markSynced(synced.pairing, synced.snapshot)
+                    TokenSyncStore(this).save(saved)
+                    renderTokenSyncPairing()
+                    Toast.makeText(this, "Windows 配对成功", Toast.LENGTH_SHORT).show()
+                }.onFailure { error ->
+                    renderTokenSyncPairing()
+                    val message = (error as? TokenUsageException)?.message ?: "Windows 当前不可用"
+                    Toast.makeText(this, "已保存配对；$message", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun syncPairedNow() {
+        TokenSyncStore(this).load()?.let(::testPairing)
+            ?: Toast.makeText(this, "尚未配对 Windows", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun renderTokenSyncPairing() {
+        if (!::tokenSyncStatus.isInitialized) return
+        val stored = TokenSyncStore(this).load()
+        if (stored == null) {
+            tokenSyncStatus.text = "尚未配对 Windows"
+            tokenSyncDevice.text = ""
+            tokenSyncLastSync.text = ""
+            tokenSyncHostInput.setText("")
+            tokenSyncManualContainer.visibility = View.VISIBLE
+            tokenSyncPairedActions.visibility = View.GONE
+            return
+        }
+
+        tokenSyncStatus.text = "已配对"
+        tokenSyncDevice.text = "电脑：${stored.displayName ?: "Windows PC"} · ${stored.host}:${stored.port}"
+        tokenSyncLastSync.text = stored.lastSyncUtc?.let { "上次同步：${formatPairingTime(it)}" } ?: "上次同步：尚未成功"
+        tokenSyncHostInput.setText("${stored.host}:${stored.port}")
+        tokenSyncManualContainer.visibility = View.GONE
+        tokenSyncPairedActions.visibility = View.VISIBLE
+    }
+
+    private fun clearPairing() {
+        if (TokenSyncStore(this).clear()) {
+            renderTokenSyncPairing()
+            Toast.makeText(this, "Windows 配对已解除", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "无法解除 Windows 配对", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openTokenUsage() {
+        startActivity(Intent(this, TokenUsageActivity::class.java))
+    }
+
+    private fun formatPairingTime(raw: String): String = runCatching {
+        DateTimeFormatter.ofPattern("MM-dd HH:mm", java.util.Locale.getDefault())
+            .withZone(ZoneId.systemDefault())
+            .format(Instant.parse(raw))
+    }.getOrDefault("未知")
 
     private fun cardBackground(): GradientDrawable = GradientDrawable().apply {
         setColor(palette.surface)

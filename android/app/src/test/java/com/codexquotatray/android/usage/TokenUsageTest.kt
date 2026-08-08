@@ -17,11 +17,16 @@ import java.nio.file.Files
 
 class TokenUsageTest {
     @Test fun pairingUriParsesAndPublicOrInvalidEndpointsAreRejected() {
-        val pairing = TokenSyncEndpoint.parsePairingUri("codexquota://pair?host=192.168.1.10&port=43821&token=secret")
+        val deviceId = "123e4567-e89b-12d3-a456-426614174000"
+        val pairing = TokenSyncEndpoint.parsePairingUri("codexquota://pair?deviceId=$deviceId&host=192.168.1.10&port=43821&token=secret&name=Desk%20PC")
+        assertEquals(deviceId, pairing.deviceId)
         assertEquals("192.168.1.10", pairing.host)
         assertEquals(43821, pairing.port)
         assertEquals("secret", pairing.secret)
+        assertEquals("Desk PC", pairing.displayName)
         assertThrows(IllegalArgumentException::class.java) { TokenSyncEndpoint.parsePairingUri("http://192.168.1.10") }
+        assertThrows(IllegalArgumentException::class.java) { TokenSyncEndpoint.parsePairingUri("codexquota://pair?host=192.168.1.10&port=43821&token=secret") }
+        assertThrows(IllegalArgumentException::class.java) { TokenSyncEndpoint.parsePairingUri("codexquota://pair/path?deviceId=$deviceId&host=192.168.1.10&port=43821&token=secret") }
         assertThrows(IllegalArgumentException::class.java) { TokenSyncEndpoint.validated("8.8.8.8", 43821, "secret") }
         assertThrows(IllegalArgumentException::class.java) { TokenSyncEndpoint.validated("127.0.0.1", 43821, "secret") }
         assertTrue(TokenSyncEndpoint.isPrivateIpv4("10.1.2.3"))
@@ -48,8 +53,93 @@ class TokenUsageTest {
         assertEquals(TokenUsageFailureKind.INVALID_RESPONSE, failure { malformed.fetch(pairing()) }.kind)
         val unsupported = TokenUsageSyncClient(client { response(it, 200, fixture(schema = 2)) })
         assertEquals(TokenUsageFailureKind.UNSUPPORTED, failure { unsupported.fetch(pairing()) }.kind)
+        val httpError = TokenUsageSyncClient(client { response(it, 503, "") })
+        assertEquals(TokenUsageFailureKind.HTTP_ERROR, failure { httpError.fetch(pairing()) }.kind)
         val offline = TokenUsageSyncClient(client { throw SocketTimeoutException("timeout") })
         assertEquals(TokenUsageFailureKind.OFFLINE, failure { offline.fetch(pairing()) }.kind)
+    }
+
+    @Test fun directSuccessDoesNotStartDiscovery() {
+        var calls = 0
+        val discovery = object : TokenSyncDiscovery {
+            override fun find(deviceId: String, timeoutMs: Long): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? {
+                calls++
+                return null
+            }
+        }
+        TokenUsageSyncClient(client { response(it, 200, fixture()) }, discovery).sync(pairingWithId())
+        assertEquals(0, calls)
+    }
+
+    @Test fun offlineFallsBackToMatchingDiscoveryAndUpdatesHost() {
+        var discoveryCalls = 0
+        val discovery = object : TokenSyncDiscovery {
+            override fun find(deviceId: String, timeoutMs: Long): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? {
+                discoveryCalls++
+                return TokenSyncEndpoint.TokenSyncDiscoveryCandidate(deviceId, "192.168.1.11", 43821, "Desk PC")
+            }
+        }
+        val result = TokenUsageSyncClient(client { chain ->
+            if (chain.request().url.host == "192.168.1.10") throw SocketTimeoutException("timeout")
+            response(chain, 200, fixture())
+        }, discovery).sync(pairingWithId())
+        assertEquals(1, discoveryCalls)
+        assertEquals("192.168.1.11", result.pairing.host)
+        assertEquals("Desk PC", result.pairing.displayName)
+    }
+
+    @Test fun unauthorizedDoesNotStartDiscovery() {
+        var discoveryCalls = 0
+        val discovery = object : TokenSyncDiscovery {
+            override fun find(deviceId: String, timeoutMs: Long): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? {
+                discoveryCalls++
+                return null
+            }
+        }
+        assertEquals(
+            TokenUsageFailureKind.PAIRING_INVALID,
+            failure { TokenUsageSyncClient(client { response(it, 401, "") }, discovery).sync(pairingWithId()) }.kind,
+        )
+        assertEquals(0, discoveryCalls)
+    }
+
+    @Test fun httpErrorDoesNotStartDiscovery() {
+        var discoveryCalls = 0
+        val discovery = object : TokenSyncDiscovery {
+            override fun find(deviceId: String, timeoutMs: Long): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? {
+                discoveryCalls++
+                return null
+            }
+        }
+        assertEquals(
+            TokenUsageFailureKind.HTTP_ERROR,
+            failure { TokenUsageSyncClient(client { response(it, 503, "") }, discovery).sync(pairingWithId()) }.kind,
+        )
+        assertEquals(0, discoveryCalls)
+    }
+
+    @Test fun discoveryMatchingIgnoresOtherDeviceIds() {
+        val target = "123e4567-e89b-12d3-a456-426614174000"
+        val candidates = listOf(
+            TokenSyncEndpoint.TokenSyncDiscoveryCandidate("123e4567-e89b-12d3-a456-426614174001", "192.168.1.11", 43821, "Other"),
+            TokenSyncEndpoint.TokenSyncDiscoveryCandidate(target, "192.168.1.12", 43821, "Desk PC"),
+        )
+        assertEquals("192.168.1.12", TokenSyncEndpoint.chooseDiscoveryCandidate(candidates, target)?.host)
+    }
+
+    @Test fun clientRejectsDiscoveryCandidateForAnotherDevice() {
+        val discovery = object : TokenSyncDiscovery {
+            override fun find(deviceId: String, timeoutMs: Long): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? =
+                TokenSyncEndpoint.TokenSyncDiscoveryCandidate(
+                    "123e4567-e89b-12d3-a456-426614174001",
+                    "192.168.1.11",
+                    43821,
+                    "Other",
+                )
+        }
+        val client = TokenUsageSyncClient(client { throw SocketTimeoutException("timeout") }, discovery)
+
+        assertEquals(TokenUsageFailureKind.OFFLINE, failure { client.sync(pairingWithId()) }.kind)
     }
 
     @Test fun cacheRoundTripUsesAggregateJsonOnly() {
@@ -85,6 +175,13 @@ class TokenUsageTest {
     }
 
     private fun pairing() = TokenSyncPairing("192.168.1.10", 43821, "secret")
+
+    private fun pairingWithId() = TokenSyncEndpoint.validated(
+        "123e4567-e89b-12d3-a456-426614174000",
+        "192.168.1.10",
+        43821,
+        "secret",
+    )
 
     private fun failure(block: () -> Unit): TokenUsageException =
         assertThrows(TokenUsageException::class.java, block)

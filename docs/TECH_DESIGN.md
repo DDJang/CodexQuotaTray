@@ -94,6 +94,19 @@ Production 和 Live Preview 使用不同数据目录；Demo Runtime 不写持久
 Bearer 比较使用固定时间比较。关闭设置或退出应用会立即停止唯一 listener；应用不自动
 提升权限或修改 Windows 防火墙。
 
+配对设置记录另存为 schema 2，包含首次生成且长期稳定的 `deviceId` UUID；重新生成
+`pairingSecret` 时保持该 ID 不变。设置页用本地 QR encoder 展示
+`codexquota://pair?...`，并保留复制 URI 的 fallback。Token Sync listener 启动后通过
+Windows DNS-SD API 发布 `_codexquota._tcp`，只把 deviceId、display name 和 SRV/TXT
+port 作为发现 metadata；注销 listener 时同步注销唯一 registration。地址监视器每 15 秒
+检查当前 RFC1918 IPv4，DHCP 地址变化时以同一 deviceId/secret 重启 listener 与 publication。
+
+Android `TokenUsageSyncClient` 先请求加密保存的 `lastKnownHost`。仅连接离线失败会调用
+`NsdManager` 做最多 4 秒的一次性发现，并要求 resolved IPv4 仍是 RFC1918 且 TXT deviceId
+匹配；成功后更新 host。401 被视为 pairing secret 失效，不做 discovery。Android 扫码路径
+由用户按钮触发并在需要时申请相机权限，手动地址仍作为 fallback；这一流程不改变 quota
+WorkManager 或 Token scanner。
+
 ## Production 与 Preview 身份
 
 具体托盘 GUID 的唯一事实源是 [`TrayIconIdentity.cs`](../winui/src/CodexQuotaTray.App/Services/TrayIconIdentity.cs)，文档不复制其值。启动参数、单实例 key 和能力选择由 [`AppLaunchProfile.cs`](../winui/src/CodexQuotaTray.Core/Runtime/AppLaunchProfile.cs) 决定。

@@ -254,6 +254,16 @@ public sealed class ViewModelTests
 
         public string TokenSyncAddressText => string.Empty;
 
+        public string TokenSyncDeviceNameText => string.Empty;
+
+        public string? TokenSyncPairingInfo => null;
+
+        public event EventHandler? TokenSyncChanged
+        {
+            add { }
+            remove { }
+        }
+
         public Task SetStartupAsync(bool enabled, CancellationToken cancellationToken)
         {
             SetStartupCount++;

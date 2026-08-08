@@ -18,6 +18,7 @@ import android.widget.TextView
 import com.codexquotatray.android.usage.HeatmapBuckets
 import com.codexquotatray.android.usage.TokenFormatter
 import com.codexquotatray.android.usage.TokenSyncStore
+import com.codexquotatray.android.usage.TokenSyncEndpoint
 import com.codexquotatray.android.usage.TokenUsageCache
 import com.codexquotatray.android.usage.TokenUsageDay
 import com.codexquotatray.android.usage.TokenUsageException
@@ -89,14 +90,16 @@ class TokenUsageActivity : Activity() {
     private fun sync() {
         val pairing = pairingStore.load()
         if (pairing == null) {
-            status.text = if (lastSnapshot == null) "请先在设置中粘贴 Windows 配对信息" else "未配置 Windows 配对；正在显示缓存"
+            status.text = if (lastSnapshot == null) "请先在设置中扫码或输入 Windows 配对信息" else "未配置 Windows 配对；正在显示缓存"
             return
         }
         syncButton.isEnabled = false
         status.text = if (lastSnapshot == null) "正在从 Windows 同步…" else "正在同步；当前显示缓存"
         worker.execute {
-            runCatching { TokenUsageSyncClient().fetch(pairing) }
-                .onSuccess { snapshot ->
+            runCatching { TokenUsageSyncClient(this).sync(pairing) }
+                .onSuccess { result ->
+                    val snapshot = result.snapshot
+                    pairingStore.save(TokenSyncEndpoint.markSynced(result.pairing, snapshot))
                     cache.save(snapshot)
                     main.post {
                         lastSnapshot = snapshot

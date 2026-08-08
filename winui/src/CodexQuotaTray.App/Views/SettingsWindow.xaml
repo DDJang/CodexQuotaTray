@@ -355,7 +355,20 @@
                                 OnContent="开启"
                                 OffContent="关闭" />
                             <TextBlock Text="{Binding TokenSyncStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                            <TextBlock Text="{Binding TokenSyncDeviceNameText}" Style="{StaticResource SettingsDescriptionStyle}" />
                             <TextBlock Text="{Binding TokenSyncAddressText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                            <StackPanel x:Name="TokenSyncQrPanel" HorizontalAlignment="Center" Spacing="8">
+                                <Image
+                                    x:Name="TokenSyncQrCodeImage"
+                                    Width="220"
+                                    Height="220"
+                                    HorizontalAlignment="Center"
+                                    Stretch="Uniform" />
+                                <TextBlock
+                                    Text="使用 CodexQuota Android 扫码配对"
+                                    HorizontalAlignment="Center"
+                                    Style="{StaticResource SettingsDescriptionStyle}" />
+                            </StackPanel>
                             <TextBlock
                                 Text="配对密钥默认隐藏；仅复制到受信任的私人 Wi-Fi 设备。"
                                 TextWrapping="Wrap"

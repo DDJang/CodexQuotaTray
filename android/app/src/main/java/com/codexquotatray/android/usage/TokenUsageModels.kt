@@ -3,6 +3,7 @@ package com.codexquotatray.android.usage
 import org.json.JSONObject
 import java.net.URI
 import java.time.LocalDate
+import java.util.UUID
 import kotlin.math.ln
 
 data class TokenUsageDay(
@@ -34,22 +35,46 @@ data class TokenUsageSnapshot(
     val days: List<TokenUsageDay>,
 )
 
-data class TokenSyncPairing(val host: String, val port: Int, val secret: String) {
-    val url: String get() = "http://$host:$port/v1/token-usage"
+data class TokenSyncPairing(
+    val deviceId: String,
+    val pairingSecret: String,
+    val lastKnownHost: String,
+    val port: Int,
+    val displayName: String? = null,
+    val lastSyncUtc: String? = null,
+) {
+    constructor(host: String, port: Int, secret: String) : this("", secret, host, port)
+
+    val host: String get() = lastKnownHost
+    val secret: String get() = pairingSecret
+    val url: String get() = "http://$lastKnownHost:$port/v1/token-usage"
 }
 
 object TokenSyncEndpoint {
+    const val ServiceType = "_codexquota._tcp"
+
     fun parsePairingUri(raw: String): TokenSyncPairing {
         val uri = runCatching { URI(raw.trim()) }.getOrElse { throw IllegalArgumentException("配对信息格式无效") }
         require(uri.scheme.equals("codexquota", ignoreCase = true) && uri.host.equals("pair", ignoreCase = true)) {
             "配对信息格式无效"
         }
-        val query = uri.rawQuery.orEmpty().split('&').mapNotNull { part ->
+        require(uri.rawPath.isNullOrEmpty() && uri.rawFragment == null && uri.rawUserInfo == null && uri.port == -1) {
+            "配对信息格式无效"
+        }
+        val rawParts = uri.rawQuery.orEmpty().split('&').filter { it.isNotEmpty() }
+        val query = rawParts.mapNotNull { part ->
             val separator = part.indexOf('=')
             if (separator <= 0) null else java.net.URLDecoder.decode(part.substring(0, separator), "UTF-8") to
                 java.net.URLDecoder.decode(part.substring(separator + 1), "UTF-8")
-        }.toMap()
-        return validated(query["host"].orEmpty(), query["port"]?.toIntOrNull() ?: 43821, query["token"].orEmpty())
+        }.toMap().also { values -> require(values.size == rawParts.size) { "配对信息格式无效" } }
+        require(!query["deviceId"].isNullOrBlank()) { "Windows 设备标识缺失" }
+        return validated(
+            query["deviceId"].orEmpty(),
+            query["host"].orEmpty(),
+            query["port"]?.toIntOrNull() ?: throw IllegalArgumentException("端口无效"),
+            query["token"].orEmpty(),
+            query["name"],
+        )
     }
 
     fun parseManual(address: String, secret: String): TokenSyncPairing {
@@ -61,11 +86,45 @@ object TokenSyncEndpoint {
     }
 
     fun validated(host: String, port: Int, secret: String): TokenSyncPairing {
+        return validated("", host, port, secret)
+    }
+
+    fun validated(
+        deviceId: String,
+        host: String,
+        port: Int,
+        secret: String,
+        displayName: String? = null,
+        lastSyncUtc: String? = null,
+    ): TokenSyncPairing {
+        require(deviceId.isBlank() || isValidDeviceId(deviceId)) { "Windows 设备标识无效" }
         require(isPrivateIpv4(host)) { "仅允许私人局域网 IPv4 地址" }
         require(port in 1..65535) { "端口无效" }
         require(secret.isNotBlank()) { "配对密钥不能为空" }
-        return TokenSyncPairing(host, port, secret)
+        return TokenSyncPairing(deviceId.trim(), secret, host, port, displayName?.takeIf { it.isNotBlank() }, lastSyncUtc)
     }
+
+    fun isValidDeviceId(value: String): Boolean = runCatching {
+        UUID.fromString(value).toString().equals(value, ignoreCase = true)
+    }.getOrDefault(false)
+
+    fun isDiscoveryEnabled(pairing: TokenSyncPairing): Boolean = isValidDeviceId(pairing.deviceId)
+
+    fun shouldDiscover(failure: TokenUsageFailureKind, pairing: TokenSyncPairing): Boolean =
+        failure == TokenUsageFailureKind.OFFLINE && isDiscoveryEnabled(pairing)
+
+    data class TokenSyncDiscoveryCandidate(val deviceId: String, val host: String, val port: Int, val displayName: String?)
+
+    fun chooseDiscoveryCandidate(
+        candidates: Iterable<TokenSyncDiscoveryCandidate>,
+        deviceId: String,
+    ): TokenSyncDiscoveryCandidate? = candidates.firstOrNull { it.deviceId.equals(deviceId, ignoreCase = true) }
+
+    fun updateHost(pairing: TokenSyncPairing, candidate: TokenSyncDiscoveryCandidate): TokenSyncPairing =
+        validated(pairing.deviceId, candidate.host, candidate.port, pairing.pairingSecret, candidate.displayName ?: pairing.displayName, pairing.lastSyncUtc)
+
+    fun markSynced(pairing: TokenSyncPairing, snapshot: TokenUsageSnapshot): TokenSyncPairing =
+        pairing.copy(lastSyncUtc = snapshot.generatedAtUtc)
 
     fun isPrivateIpv4(host: String): Boolean {
         val parts = host.split('.')

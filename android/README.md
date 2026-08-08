@@ -27,10 +27,16 @@ App-private OAuth credentials
 
 ## Windows Token Usage 同步
 
-设置页可粘贴 `codexquota://pair?host=...&port=43821&token=...`，或手动输入 Windows
-私人 IPv4 与配对密钥。配对信息使用独立 Android Keystore/AES-GCM 存储，不与 OAuth
-凭据混合，退出 Codex 登录也不会删除配对。打开“使用统计”页面会先显示上次成功缓存，
-再自动同步一次；也可手动点击“同步”。该功能不接入 quota WorkManager。
+设置页优先点击“扫描二维码”，扫码保存 `codexquota://pair?deviceId=...&host=...&port=43821&token=...`；
+相机只在点击扫描后请求，拒绝相机时仍可粘贴 URI 或手动输入 Windows 私人 IPv4 与配对密钥。
+配对信息使用独立 Android Keystore/AES-GCM 存储，不与 OAuth 凭据混合，退出 Codex 登录也不会删除配对。
+已配对状态提供立即同步、重新扫码和解除配对。打开“使用统计”页面会先显示上次成功缓存，再自动同步一次；
+也可手动点击“同步”。该功能不接入 quota WorkManager。
+
+配对后的同步先直连保存的 `lastKnownHost`；只有离线连接失败才通过 Android `NsdManager` 在
+`_codexquota._tcp` 上做一次 4 秒以内的短发现，匹配稳定 `deviceId` 后更新地址并重试。Windows
+只发布 deviceId、电脑名和端口等非敏感 metadata，不发布 pairing secret。401 表示密钥失效，
+不会触发发现，而会提示重新扫码；无 deviceId 的旧手动配置仍可直连但没有自动发现。
 
 LAN 同步只接受 RFC1918 IPv4，禁用 redirect，连接/读取采用短超时。应用允许 cleartext
 是为了这一受校验的 `TokenUsageSyncClient`；OpenAI OAuth 与 usage 客户端仍只使用固定

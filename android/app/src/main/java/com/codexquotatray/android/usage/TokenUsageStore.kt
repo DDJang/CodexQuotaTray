@@ -21,7 +21,13 @@ class TokenSyncStore(context: Context) {
 
     fun save(pairing: TokenSyncPairing): Boolean = synchronized(lock) {
         runCatching {
-            val payload = JSONObject().put("host", pairing.host).put("port", pairing.port).put("secret", pairing.secret)
+            val payload = JSONObject()
+                .put("deviceId", pairing.deviceId)
+                .put("host", pairing.lastKnownHost)
+                .put("port", pairing.port)
+                .put("secret", pairing.pairingSecret)
+                .put("displayName", pairing.displayName ?: JSONObject.NULL)
+                .put("lastSyncUtc", pairing.lastSyncUtc ?: JSONObject.NULL)
                 .toString().toByteArray(Charsets.UTF_8)
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, key())
@@ -36,8 +42,19 @@ class TokenSyncStore(context: Context) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(GCM_TAG_BITS, bytes.copyOfRange(0, GCM_IV_BYTES)))
         val json = JSONObject(String(cipher.doFinal(bytes.copyOfRange(GCM_IV_BYTES, bytes.size)), Charsets.UTF_8))
-        TokenSyncEndpoint.validated(json.getString("host"), json.getInt("port"), json.getString("secret"))
+        TokenSyncEndpoint.validated(
+            json.optString("deviceId", ""),
+            json.getString("host"),
+            json.getInt("port"),
+            json.getString("secret"),
+            (json.opt("displayName") as? String)?.takeIf { it.isNotBlank() },
+            (json.opt("lastSyncUtc") as? String)?.takeIf { it.isNotBlank() },
+        )
     }.getOrNull()
+
+    fun clear(): Boolean = synchronized(lock) {
+        preferences.edit().remove(KEY_PAIRING).commit()
+    }
 
     private fun key(): SecretKey {
         val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }

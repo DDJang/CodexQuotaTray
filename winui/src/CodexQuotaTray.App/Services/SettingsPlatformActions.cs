@@ -37,6 +37,16 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
 
     public string TokenSyncAddressText => tokenSync.AddressText;
 
+    public string TokenSyncDeviceNameText => tokenSync.DeviceNameText;
+
+    public string? TokenSyncPairingInfo => tokenSync.PairingInfo;
+
+    public event EventHandler? TokenSyncChanged
+    {
+        add => tokenSync.Changed += value;
+        remove => tokenSync.Changed -= value;
+    }
+
     public Task SetStartupAsync(bool enabled, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

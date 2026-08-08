@@ -41,6 +41,16 @@ tool contents, project paths, session JSON and account identity are neither retu
 logged. The 256-bit pairing secret is stored in the same App-private identity directory and
 is never included in diagnostics.
 
+The pairing record also contains a random stable Windows `deviceId` used only to match the
+same installation after a DHCP address change. QR pairing is generated locally and contains
+only that deviceId, a private-LAN address/port, an optional display name, and the independent
+LAN pairing secret; it never contains OpenAI credentials, account identifiers, email, session
+data, prompts, responses, or Token Usage data. Windows DNS-SD publication exposes only the
+deviceId, display name, and port. Android stores the pairing record with its separate
+Keystore/AES-GCM key. Discovery is a short, user-initiated-on-sync lookup, not a permanent LAN
+listener; a 401 is treated as an invalid pairing rather than an invitation to discover another
+device.
+
 The cache contains only normalized display data. `alert-state.json` may contain cycle times,
 handled thresholds, and a locally derived pseudonymous key; original opaque IDs are not
 stored. The WinUI settings page can disable or clear the quota cache. The uninstaller removes

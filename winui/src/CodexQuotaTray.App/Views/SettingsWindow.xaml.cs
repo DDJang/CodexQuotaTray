@@ -6,6 +6,7 @@ using CodexQuotaTray.Core.Presentation;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Imaging;
 using WinRT.Interop;
 using Windows.Graphics;
 
@@ -29,6 +30,9 @@ public sealed partial class SettingsWindow : Window
         AboutVersionText.Text = $"版本 {ProductVersion.Current}";
         AboutButton.CommandParameter = AboutButton;
         SettingsRoot.DataContext = viewModel;
+        viewModel.PropertyChanged += OnViewModelPropertyChanged;
+        viewModel.TokenSyncChanged += OnTokenSyncChanged;
+        UpdateTokenSyncQrCode();
         SettingsRoot.SizeChanged += OnSettingsRootSizeChanged;
         SettingsRoot.Loaded += (_, _) => ApplyResponsiveLayout(SettingsRoot.ActualWidth);
         SettingsRoot.ActualThemeChanged += (_, _) => ApplyTitleBarTheme(viewModel.SelectedThemeMode);
@@ -82,6 +86,45 @@ public sealed partial class SettingsWindow : Window
     {
         _ = WindowIconService.TrySetIcon(appWindow);
         ApplyTitleBarTheme(viewModel.SelectedThemeMode);
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(SettingsViewModel.TokenSyncPairingInfo) or nameof(SettingsViewModel.PhoneTokenSyncEnabled))
+        {
+            _ = DispatcherQueue.TryEnqueue(UpdateTokenSyncQrCode);
+        }
+    }
+
+    private void OnTokenSyncChanged(object? sender, EventArgs args)
+    {
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            viewModel.RefreshTokenSyncStatus();
+            UpdateTokenSyncQrCode();
+        });
+    }
+
+    private void UpdateTokenSyncQrCode()
+    {
+        var value = viewModel.PhoneTokenSyncEnabled ? viewModel.TokenSyncPairingInfo : null;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            TokenSyncQrCodeImage.Source = null;
+            TokenSyncQrPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        try
+        {
+            TokenSyncQrCodeImage.Source = TokenUsageQrCodeGenerator.Create(value);
+            TokenSyncQrPanel.Visibility = Visibility.Visible;
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException)
+        {
+            TokenSyncQrCodeImage.Source = null;
+            TokenSyncQrPanel.Visibility = Visibility.Collapsed;
+        }
     }
 
     private void OnSettingsToggleButtonClick(object sender, RoutedEventArgs args)
