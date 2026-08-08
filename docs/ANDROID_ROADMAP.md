@@ -40,6 +40,7 @@ App-private OAuth Store
 - 约 15 分钟的 WorkManager 周期刷新；
 - 50/20/10% 跨阈值提醒及 reset/recovery 提醒；
 - 失败分类、手动刷新和通知权限拒绝后的可用 UI。
+- 与 quota 独立的 Windows Token Usage 私网按需同步、加密配对、本地聚合缓存和使用统计页。
 
 上述新链路已完成 PC-first 实现和脱敏单元测试；真实 Android 上的 OAuth、usage、
 WorkManager 和通知 smoke 仍需单独验证，未验证前不得标记为真机 Go。
@@ -81,7 +82,7 @@ WorkManager 和通知 smoke 仍需单独验证，未验证前不得标记为真�
 - 完整 Codex 聊天、会话历史、Agent、项目功能或远程访问；
 - Codex runtime 自动更新、Termux 运行时依赖、Termux:Boot、proot、root、Shizuku、
   JNI/NDK 重写或外部 shell service；
-- HTTP 服务、云端 Bridge、SQLite/Room、复杂设置页或通用插件框架；
+- 通用 HTTP Bridge、云端同步、SQLite/Room、复杂设置页或通用插件框架；
 - reset-credit 展示、消费、购买或其他账户写操作；
 - 多 ABI、x86 模拟器兼容矩阵、公开签名、商店素材和发布自动化。
 

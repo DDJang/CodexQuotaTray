@@ -25,7 +25,8 @@ public sealed record AppSettings(
     bool RefreshOnNetworkRestore = true,
     NotificationSettings? Notifications = null,
     ThemeMode ThemeMode = ThemeMode.System,
-    bool SilentStartup = true)
+    bool SilentStartup = true,
+    bool PhoneTokenSyncEnabled = false)
 {
     [JsonIgnore]
     public NotificationSettings EffectiveNotifications => Notifications ?? new();

@@ -34,6 +34,13 @@ Windows settings, optional normalized quota cache, and reminder de-duplication s
 stored under `%LOCALAPPDATA%\CodexQuotaTray`. Preview uses the separate
 `%LOCALAPPDATA%\CodexQuotaTray-WinUI-Preview` directory.
 
+When phone Token sync is enabled, WinUI streams only `token_count` and timestamp fields from
+the current user's Codex `sessions` and `archived_sessions`. It sends only daily aggregate
+numbers and an all-history summary over the selected private LAN IPv4. Prompts, responses,
+tool contents, project paths, session JSON and account identity are neither returned nor
+logged. The 256-bit pairing secret is stored in the same App-private identity directory and
+is never included in diagnostics.
+
 The cache contains only normalized display data. `alert-state.json` may contain cycle times,
 handled thresholds, and a locally derived pseudonymous key; original opaque IDs are not
 stored. The WinUI settings page can disable or clear the quota cache. The uninstaller removes
@@ -49,6 +56,10 @@ local data unless the user explicitly keeps it.
 - Daily quota reads use `GET https://chatgpt.com/backend-api/wham/usage` with the access
   token and, when available, the account ID. The APK does not start App Server, Termux, or
   a local HTTP service on this path.
+- Optional Token Usage sync is a separate, user-paired HTTP client restricted to RFC1918
+  IPv4. Its pairing secret is encrypted with a separate Android Keystore key. The cached
+  `token-usage-cache.json` contains only the aggregate schema returned by Windows and remains
+  visible when Windows is offline.
 - The APK does not persist a full quota response or history. It persists only the minimum
   alert de-duplication state and refresh timestamp. WorkManager and notifications are part
   of the current implementation; their real-device behavior remains a separate smoke check.

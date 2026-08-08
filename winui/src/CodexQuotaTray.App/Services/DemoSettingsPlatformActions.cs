@@ -26,4 +26,14 @@ internal sealed class DemoSettingsPlatformActions : ISettingsPlatformActions
     }
 
     public Task ClearQuotaCacheAsync() => Task.CompletedTask;
+
+    public string TokenSyncStatusText => "预览模式不可用";
+
+    public string TokenSyncAddressText => string.Empty;
+
+    public Task ApplyTokenSyncEnabledAsync(bool enabled, CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public void CopyTokenSyncPairingInfo() => throw new InvalidOperationException("预览模式不可用。");
+
+    public Task RegenerateTokenSyncSecretAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

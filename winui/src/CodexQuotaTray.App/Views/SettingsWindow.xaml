@@ -346,6 +346,38 @@
                             </Border>
                     </Grid>
 
+                    <TextBlock Text="手机 Token 同步" Style="{StaticResource SettingsGroupHeaderStyle}" />
+                    <Border Style="{StaticResource SettingsItemCardStyle}">
+                        <StackPanel Spacing="10">
+                            <ToggleSwitch
+                                Header="手机 Token 同步"
+                                IsOn="{Binding PhoneTokenSyncEnabled, Mode=TwoWay}"
+                                OnContent="开启"
+                                OffContent="关闭" />
+                            <TextBlock Text="{Binding TokenSyncStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                            <TextBlock Text="{Binding TokenSyncAddressText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                            <TextBlock
+                                Text="配对密钥默认隐藏；仅复制到受信任的私人 Wi-Fi 设备。"
+                                TextWrapping="Wrap"
+                                Style="{StaticResource SettingsDescriptionStyle}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button
+                                    Content="复制配对信息"
+                                    Command="{Binding CopyTokenSyncPairingInfoCommand}"
+                                    IsEnabled="{Binding PhoneTokenSyncEnabled}"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                                <Button
+                                    Content="重新生成密钥"
+                                    Command="{Binding RegenerateTokenSyncSecretCommand}"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                            </StackPanel>
+                            <TextBlock
+                                Text="若手机无法连接，请检查 Windows 防火墙；应用不会自动提权或添加规则。"
+                                TextWrapping="Wrap"
+                                Style="{StaticResource SettingsDescriptionStyle}" />
+                        </StackPanel>
+                    </Border>
+
                     <TextBlock Text="数据与高级选项" Style="{StaticResource SettingsGroupHeaderStyle}" />
                     <StackPanel Spacing="8">
                         <Grid

@@ -264,6 +264,23 @@ resetCreditEarliestExpiryUtc?
 
 缓存恢复后只代表最后已知数据；实时读取成功后才以新的服务端快照替换。关闭缓存会清除额度缓存，但不清除独立的提醒防重复状态。
 
+## LAN Token Usage schemaVersion 1
+
+该合同独立于 Codex App Server 与 Android Direct HTTPS quota 合同。Windows 仅在用户
+开启手机同步时，通过一个 RFC1918 IPv4 的 `http://<private-ip>:43821/v1/token-usage`
+提供只读 `GET`。请求必须包含 `Authorization: Bearer <pairing-secret>`；无效或缺失密钥
+返回 401，其他方法返回 405，未知路径返回 404，所有响应包含 `Cache-Control: no-store`。
+
+成功响应使用 camelCase，包含 `schemaVersion=1`、`generatedAtUtc`、`sourceTimeZone`、
+全历史 `summary`，以及最近 365 天内实际存在的 `days`。summary 字段为
+`todayTokens`、`last7DaysTokens`、`last30DaysTokens`、`lifetimeTokens`、
+`peakDailyTokens`、`peakDate`、`activeDays`、`currentStreak`、`longestStreak`。
+day 字段为 `date`、`totalTokens` 及可为 null 的 input/cached-input/output/reasoning breakdown。
+接口不得包含 session ID、路径、账号、邮箱、prompt、response、工具内容或原始 JSONL。
+
+Android 仅接受 RFC1918 IPv4，不接受 hostname、公网 IP、loopback、其他 scheme 或 redirect。
+这一 HTTP 例外只属于 `TokenUsageSyncClient`；OpenAI OAuth 与 quota 请求继续固定 HTTPS。
+
 ## 隐私和变更控制
 
 Fixture 必须人工构造或脱敏，不得复制真实认证数据、账户标识或原始 response blob。离线 parser 测试不得启动真实 Codex、读取凭据或访问网络。

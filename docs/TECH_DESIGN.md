@@ -81,6 +81,19 @@ Production 和 Live Preview 使用不同数据目录；Demo Runtime 不写持久
 
 提醒 reducer 只处理可靠百分比。首次快照和新启用阈值只建立基线；同一周期同一阈值最多提醒一次，确认新周期后重新激活。
 
+## Token Usage 与手机同步
+
+`Core/TokenUsage` 只流式读取 `CODEX_HOME`（或 `%USERPROFILE%\.codex`）下的
+`sessions/YYYY/MM/DD/*.jsonl` 和 `archived_sessions/*.jsonl`。累计计数优先使用
+`last_token_usage.total_tokens` 的单次增量；缺失时对 `total_token_usage.total_tokens`
+做差，并在计数下降时从新基线继续。时间戳与 Token 数字快照的 SHA-256 本地散列用于
+抑制 archive 与 fork 复制历史；散列、session 标识和原始 JSON 不发送到 Android。
+
+用户开启“手机 Token 同步”后，进程内 `TcpListener` 只绑定一个 RFC1918 IPv4 和固定
+端口 43821，提供 `GET /v1/token-usage`。256-bit 随机配对密钥保存在应用私有数据目录，
+Bearer 比较使用固定时间比较。关闭设置或退出应用会立即停止唯一 listener；应用不自动
+提升权限或修改 Windows 防火墙。
+
 ## Production 与 Preview 身份
 
 具体托盘 GUID 的唯一事实源是 [`TrayIconIdentity.cs`](../winui/src/CodexQuotaTray.App/Services/TrayIconIdentity.cs)，文档不复制其值。启动参数、单实例 key 和能力选择由 [`AppLaunchProfile.cs`](../winui/src/CodexQuotaTray.Core/Runtime/AppLaunchProfile.cs) 决定。

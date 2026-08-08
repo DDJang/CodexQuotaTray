@@ -16,6 +16,16 @@ public interface ISettingsPlatformActions
     Task<int> ImportProductionDataAsync(CancellationToken cancellationToken);
 
     Task ClearQuotaCacheAsync();
+
+    string TokenSyncStatusText { get; }
+
+    string TokenSyncAddressText { get; }
+
+    Task ApplyTokenSyncEnabledAsync(bool enabled, CancellationToken cancellationToken);
+
+    void CopyTokenSyncPairingInfo();
+
+    Task RegenerateTokenSyncSecretAsync(CancellationToken cancellationToken);
 }
 
 public interface ISettingsPageActions
@@ -52,6 +62,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool notifyRemaining10;
     [ObservableProperty] private bool notifyAfterQuotaReset;
     [ObservableProperty] private bool silentStartup;
+    [ObservableProperty] private bool phoneTokenSyncEnabled;
+    [ObservableProperty] private string tokenSyncStatusText = string.Empty;
+    [ObservableProperty] private string tokenSyncAddressText = string.Empty;
     [ObservableProperty] private RefreshMode selectedRefreshMode;
     [ObservableProperty] private ThemeMode selectedThemeMode;
     [ObservableProperty] private string statusText = string.Empty;
@@ -68,6 +81,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         this.platform = platform;
         this.pageActions = pageActions;
         Load(runtime.Settings);
+        RefreshTokenSyncStatus();
         suppressSettingsApply = false;
     }
 
@@ -142,6 +156,29 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private void ShowAbout(object? host) => pageActions.ShowAbout(host);
 
+    [RelayCommand]
+    private void CopyTokenSyncPairingInfo()
+    {
+        try
+        {
+            platform.CopyTokenSyncPairingInfo();
+            StatusText = "配对信息已复制";
+        }
+        catch (InvalidOperationException)
+        {
+            RefreshTokenSyncStatus();
+            StatusText = "同步服务当前未监听，无法复制配对信息";
+        }
+    }
+
+    [RelayCommand]
+    private async Task RegenerateTokenSyncSecretAsync(CancellationToken cancellationToken)
+    {
+        await platform.RegenerateTokenSyncSecretAsync(cancellationToken);
+        RefreshTokenSyncStatus();
+        StatusText = "配对密钥已重新生成；旧配对已失效";
+    }
+
     private bool CanEdit() => !IsBusy;
 
     private Task ApplyCurrentSettingsAsync(CancellationToken cancellationToken) =>
@@ -205,6 +242,11 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
 
             await runtime.ApplySettingsAsync(settings, cancellationToken);
+            if (previous.PhoneTokenSyncEnabled != settings.PhoneTokenSyncEnabled)
+            {
+                await platform.ApplyTokenSyncEnabledAsync(settings.PhoneTokenSyncEnabled, cancellationToken);
+                RefreshTokenSyncStatus();
+            }
             if (previous.ThemeMode != settings.ThemeMode)
             {
                 ThemeSaved?.Invoke(this, settings.ThemeMode);
@@ -249,7 +291,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         RefreshOnNetworkRestore,
         new NotificationSettings(NotifyRemaining50, NotifyRemaining20, NotifyRemaining10, NotifyAfterQuotaReset),
         SelectedThemeMode,
-        SilentStartup);
+        SilentStartup,
+        PhoneTokenSyncEnabled);
 
     private AppSettings Normalize(AppSettings value) => value with
     {
@@ -274,6 +317,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             SelectedRefreshMode = value.RefreshMode;
             SelectedThemeMode = value.ThemeMode;
             SilentStartup = value.SilentStartup;
+            PhoneTokenSyncEnabled = value.PhoneTokenSyncEnabled;
         }
         finally
         {
@@ -305,7 +349,17 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnSilentStartupChanged(bool value) => QueueSettingsApply();
 
+    partial void OnPhoneTokenSyncEnabledChanged(bool value) => QueueSettingsApply();
+
     partial void OnSelectedRefreshModeChanged(RefreshMode value) => QueueSettingsApply();
 
     partial void OnSelectedThemeModeChanged(ThemeMode value) => QueueSettingsApply();
+
+    private void RefreshTokenSyncStatus()
+    {
+        TokenSyncStatusText = platform.TokenSyncStatusText;
+        TokenSyncAddressText = string.IsNullOrWhiteSpace(platform.TokenSyncAddressText)
+            ? string.Empty
+            : $"Windows 地址：{platform.TokenSyncAddressText}";
+    }
 }

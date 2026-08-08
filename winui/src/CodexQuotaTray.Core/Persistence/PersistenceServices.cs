@@ -43,7 +43,8 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
             Boolean(root, "refreshOnNetworkRestore", defaults.RefreshOnNetworkRestore),
             notifications,
             EnumValue(root, "themeMode", ThemeMode.System),
-            Boolean(root, "silentStartup", true));
+            Boolean(root, "silentStartup", true),
+            Boolean(root, "phoneTokenSyncEnabled", false));
     }
 
     private static NotificationSettings ParseNotifications(JsonElement value) => new(

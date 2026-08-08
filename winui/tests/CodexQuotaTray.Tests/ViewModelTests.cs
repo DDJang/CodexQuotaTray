@@ -250,6 +250,10 @@ public sealed class ViewModelTests
 
         public int SetStartupCount { get; private set; }
 
+        public string TokenSyncStatusText => "已关闭";
+
+        public string TokenSyncAddressText => string.Empty;
+
         public Task SetStartupAsync(bool enabled, CancellationToken cancellationToken)
         {
             SetStartupCount++;
@@ -263,6 +267,14 @@ public sealed class ViewModelTests
         public Task<int> ImportProductionDataAsync(CancellationToken cancellationToken) => Task.FromResult(0);
 
         public Task ClearQuotaCacheAsync() => Task.CompletedTask;
+
+        public Task ApplyTokenSyncEnabledAsync(bool enabled, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public void CopyTokenSyncPairingInfo()
+        {
+        }
+
+        public Task RegenerateTokenSyncSecretAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     private sealed class StubSettingsPageActions : ISettingsPageActions

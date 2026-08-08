@@ -28,6 +28,7 @@ public partial class App : Application
     private ISettingsPageActions? settingsPageActions;
     private HostEventService? hostEvents;
     private Microsoft.UI.Xaml.Controls.ContentDialog? aboutDialog;
+    private TokenUsageSyncController? tokenUsageSync;
     private bool exiting;
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
@@ -93,11 +94,14 @@ public partial class App : Application
                     trayIcon?.UpdateTooltip(TrayTooltipFormatter.Create(trayIdentity.Tooltip, state));
                 });
             };
+            tokenUsageSync = new TokenUsageSyncController(new TokenUsageSettingsService(jsonStore, paths));
             settingsActions = new SettingsPlatformActions(
                 paths,
                 persistence,
                 new ProductionDataImporter(jsonStore),
-                launchProfile.CanConfigureStartup);
+                launchProfile.CanConfigureStartup,
+                tokenUsageSync,
+                () => liveRuntime.Settings.PhoneTokenSyncEnabled);
             pendingNotificationSink = notificationSink;
         }
 
@@ -123,6 +127,10 @@ public partial class App : Application
             uiDispatcher,
             runtimeStateEventsAuthoritative,
             lifetime.Token);
+        if (tokenUsageSync is not null)
+        {
+            _ = StartTokenUsageSyncAfterInitializationAsync(tokenUsageSync, lifetime.Token);
+        }
 
         var clipboard = new DiagnosticsClipboardService(new DelegateDiagnosticTextProvider(() => string.Join(
             Environment.NewLine,
@@ -233,6 +241,27 @@ public partial class App : Application
         if (runtime is { Settings.SilentStartup: false })
         {
             _ = uiDispatcher?.TryEnqueue(() => mainWindow?.ShowPanel());
+        }
+    }
+
+    private async Task StartTokenUsageSyncAfterInitializationAsync(
+        TokenUsageSyncController controller,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (initializationTask is not null)
+            {
+                await initializationTask.ConfigureAwait(false);
+            }
+
+            if (runtime?.Settings.PhoneTokenSyncEnabled == true)
+            {
+                await controller.SetEnabledAsync(true, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
     }
 
@@ -500,6 +529,12 @@ public partial class App : Application
         {
             await providerLifetime.DisposeAsync();
             providerLifetime = null;
+        }
+
+        if (tokenUsageSync is not null)
+        {
+            await tokenUsageSync.DisposeAsync();
+            tokenUsageSync = null;
         }
 
         trayIcon?.Dispose();

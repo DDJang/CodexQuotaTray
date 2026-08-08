@@ -47,6 +47,7 @@ Codex 用户需要在不打开官方 Usage 页面、不打断当前工作的情�
 - 设置、非敏感缓存和提醒去重。
 - Production、Live Preview 和 Demo 的隔离运行。
 - 官方 Usage 页面入口、额度摘要和脱敏诊断复制。
+- 可选的手机 Token 同步：从本机 Codex session history 只读聚合 Token 数字，并仅在用户开启时通过私人局域网提供带密钥鉴权的只读接口。
 
 ## 非目标
 
@@ -55,7 +56,7 @@ Codex 用户需要在不打开官方 Usage 页面、不打断当前工作的情�
 - 购买 credits、消费重置卡或提供其他账户写入口。
 - 读取 Codex 凭据、浏览器 Cookie、网页内容、对话或项目代码。
 - 自建账户同步服务、Electron、WebView 或常驻浏览器内核。
-- 用量历史图、多账户、IDE 插件或桌面悬浮窗。
+- Windows 端用量历史图、多账户、IDE 插件或桌面悬浮窗。
 
 ## 产品验收
 

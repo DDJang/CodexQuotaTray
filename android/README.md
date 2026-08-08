@@ -23,6 +23,19 @@ App-private OAuth credentials
 - WorkManager 支持 15 分钟、30 分钟和 1 小时后台刷新；
 - 50/20/10% 跨阈值提醒和重置恢复提醒。
 - 设置页支持浅色/深色主题、通知测试、电池优化引导和脱敏运行日志。
+- 可选的 Windows Token Usage 私人局域网配对、按需同步、聚合缓存和 365 天活动热力图。
+
+## Windows Token Usage 同步
+
+设置页可粘贴 `codexquota://pair?host=...&port=43821&token=...`，或手动输入 Windows
+私人 IPv4 与配对密钥。配对信息使用独立 Android Keystore/AES-GCM 存储，不与 OAuth
+凭据混合，退出 Codex 登录也不会删除配对。打开“使用统计”页面会先显示上次成功缓存，
+再自动同步一次；也可手动点击“同步”。该功能不接入 quota WorkManager。
+
+LAN 同步只接受 RFC1918 IPv4，禁用 redirect，连接/读取采用短超时。应用允许 cleartext
+是为了这一受校验的 `TokenUsageSyncClient`；OpenAI OAuth 与 usage 客户端仍只使用固定
+HTTPS 地址。LAN 同步仅适用于可信私人 Wi-Fi，不建议在不可信公共 Wi-Fi 使用。Windows
+防火墙规则需用户自行确认，应用不会自动提权或修改防火墙。
 
 后台刷新和通知的真实设备 smoke 仍需在当前 APK 上完成；本轮没有把它们描述为已经
 通过真机验证。Widget 和开机启动仍属于后续范围，详见

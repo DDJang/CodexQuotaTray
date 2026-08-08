@@ -2,6 +2,7 @@ using System.Diagnostics;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using Microsoft.Win32;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace CodexQuotaTray.App.Services;
 
@@ -11,20 +12,30 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
     private readonly PreviewDataPaths paths;
     private readonly PreviewPersistence persistence;
     private readonly ProductionDataImporter importer;
+    private readonly TokenUsageSyncController tokenSync;
+    private readonly Func<bool> tokenSyncEnabled;
 
     public SettingsPlatformActions(
         PreviewDataPaths paths,
         PreviewPersistence persistence,
         ProductionDataImporter importer,
-        bool canConfigureStartup)
+        bool canConfigureStartup,
+        TokenUsageSyncController tokenSync,
+        Func<bool> tokenSyncEnabled)
     {
         this.paths = paths;
         this.persistence = persistence;
         this.importer = importer;
+        this.tokenSync = tokenSync;
+        this.tokenSyncEnabled = tokenSyncEnabled;
         CanConfigureStartup = canConfigureStartup;
     }
 
     public bool CanConfigureStartup { get; }
+
+    public string TokenSyncStatusText => tokenSync.StatusText;
+
+    public string TokenSyncAddressText => tokenSync.AddressText;
 
     public Task SetStartupAsync(bool enabled, CancellationToken cancellationToken)
     {
@@ -62,4 +73,19 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
     }
 
     public Task ClearQuotaCacheAsync() => persistence.ClearQuotaCacheAsync();
+
+    public Task ApplyTokenSyncEnabledAsync(bool enabled, CancellationToken cancellationToken) =>
+        tokenSync.SetEnabledAsync(enabled, cancellationToken);
+
+    public void CopyTokenSyncPairingInfo()
+    {
+        var value = tokenSync.PairingInfo ?? throw new InvalidOperationException("手机 Token 同步当前未监听。");
+        var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+        package.SetText(value);
+        Clipboard.SetContent(package);
+        Clipboard.Flush();
+    }
+
+    public Task RegenerateTokenSyncSecretAsync(CancellationToken cancellationToken) =>
+        tokenSync.RegenerateAsync(tokenSyncEnabled(), cancellationToken);
 }

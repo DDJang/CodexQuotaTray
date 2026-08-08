@@ -15,6 +15,7 @@ import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
@@ -25,6 +26,8 @@ import com.codexquotatray.android.alerts.QuotaNotifications
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import com.codexquotatray.android.quota.QuotaRefreshSettings
 import com.codexquotatray.android.quota.QuotaRefreshSettingsStore
+import com.codexquotatray.android.usage.TokenSyncEndpoint
+import com.codexquotatray.android.usage.TokenSyncStore
 
 class SettingsActivity : Activity() {
     private val palette by lazy { AppTheme.palette(this) }
@@ -44,6 +47,10 @@ class SettingsActivity : Activity() {
     private lateinit var systemThemeOption: TextView
     private lateinit var lightThemeOption: TextView
     private lateinit var darkThemeOption: TextView
+    private lateinit var pairingUriInput: EditText
+    private lateinit var tokenSyncHostInput: EditText
+    private lateinit var tokenSyncSecretInput: EditText
+    private lateinit var tokenSyncStatus: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -85,6 +92,9 @@ class SettingsActivity : Activity() {
         content.addView(toolbar, marginParams(bottom = 24))
 
         content.addView(accountRow(), marginParams(bottom = 24))
+
+        content.addView(sectionTitle("Token 使用量同步"), marginParams(bottom = 6))
+        content.addView(tokenSyncSection(), marginParams(bottom = 24))
 
         content.addView(sectionTitle("额度提醒"), marginParams(bottom = 6))
         content.addView(
@@ -506,6 +516,70 @@ class SettingsActivity : Activity() {
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
         )
         addView(textView("›", 26f, Typeface.NORMAL).apply { setTextColor(palette.muted) })
+    }
+
+    private fun tokenSyncSection(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        val stored = TokenSyncStore(this@SettingsActivity).load()
+        tokenSyncStatus = textView(
+            if (stored == null) "尚未配对 Windows" else "已配对 ${stored.host}:${stored.port}",
+            14f,
+            Typeface.NORMAL,
+        ).apply { setTextColor(palette.muted) }
+        addView(tokenSyncStatus, marginParams(bottom = 8))
+        pairingUriInput = EditText(this@SettingsActivity).apply {
+            hint = "粘贴 codexquota://pair?..."
+            setSingleLine(true)
+            setTextColor(palette.body)
+            setHintTextColor(palette.muted)
+        }
+        addView(pairingUriInput, marginParams(bottom = 8))
+        addView(actionButton("保存粘贴的配对信息") { savePairingUri() }, marginParams(bottom = 12))
+        tokenSyncHostInput = EditText(this@SettingsActivity).apply {
+            hint = "Windows 地址，例如 192.168.1.10:43821"
+            setSingleLine(true)
+            setText(stored?.let { "${it.host}:${it.port}" }.orEmpty())
+            setTextColor(palette.body)
+            setHintTextColor(palette.muted)
+        }
+        addView(tokenSyncHostInput, marginParams(bottom = 8))
+        tokenSyncSecretInput = EditText(this@SettingsActivity).apply {
+            hint = "配对密钥"
+            setSingleLine(true)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setTextColor(palette.body)
+            setHintTextColor(palette.muted)
+        }
+        addView(tokenSyncSecretInput, marginParams(bottom = 8))
+        addView(actionButton("保存手动配置") { saveManualPairing() }, marginParams(bottom = 10))
+        addView(actionButton("打开使用统计") {
+            startActivity(Intent(this@SettingsActivity, TokenUsageActivity::class.java))
+        })
+        addView(textView("LAN 同步仅适用于可信私人 Wi-Fi；不建议在公共 Wi-Fi 使用。", 13f, Typeface.NORMAL).apply {
+            setTextColor(palette.muted)
+        }, marginParams(top = 10))
+    }
+
+    private fun savePairingUri() {
+        savePairing(runCatching { TokenSyncEndpoint.parsePairingUri(pairingUriInput.text.toString()) })
+    }
+
+    private fun saveManualPairing() {
+        savePairing(runCatching { TokenSyncEndpoint.parseManual(tokenSyncHostInput.text.toString(), tokenSyncSecretInput.text.toString()) })
+    }
+
+    private fun savePairing(result: Result<com.codexquotatray.android.usage.TokenSyncPairing>) {
+        result.onSuccess { pairing ->
+            if (TokenSyncStore(this).save(pairing)) {
+                pairingUriInput.text.clear()
+                tokenSyncSecretInput.text.clear()
+                tokenSyncHostInput.setText("${pairing.host}:${pairing.port}")
+                tokenSyncStatus.text = "已配对 ${pairing.host}:${pairing.port}"
+                Toast.makeText(this, "Token 同步配对已保存", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "无法安全保存配对信息", Toast.LENGTH_SHORT).show()
+            }
+        }.onFailure { error -> Toast.makeText(this, error.message ?: "配对信息无效", Toast.LENGTH_SHORT).show() }
     }
 
     private fun cardBackground(): GradientDrawable = GradientDrawable().apply {
