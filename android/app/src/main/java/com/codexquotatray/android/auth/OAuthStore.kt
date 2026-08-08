@@ -13,6 +13,32 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
+internal enum class LegacyAuthLoadPath {
+    ENCRYPTED,
+    LEGACY,
+    UNAVAILABLE,
+}
+
+internal object LegacyAuthMigrationPolicy {
+    fun choose(
+        hasEncryptedCredentials: Boolean,
+        migrationCompleted: Boolean,
+    ): LegacyAuthLoadPath = when {
+        hasEncryptedCredentials -> LegacyAuthLoadPath.ENCRYPTED
+        !migrationCompleted -> LegacyAuthLoadPath.LEGACY
+        else -> LegacyAuthLoadPath.UNAVAILABLE
+    }
+}
+
+/**
+ * Credentials, quota refresh, logout, and alert state changes share one small
+ * process-wide critical section. The lock is intentionally a plain monitor:
+ * all callers are local to this app process and operations are short-lived.
+ */
+internal object CodexProcessLock {
+    val monitor = Any()
+}
+
 class OAuthStore(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(
         PREFERENCES_NAME,
@@ -23,22 +49,55 @@ class OAuthStore(context: Context) {
         "codex-home/.codex/auth.json",
     )
 
-    @Synchronized
-    fun load(): OAuthCredentials? {
+    fun load(): OAuthCredentials? = synchronized(CodexProcessLock.monitor) {
         val encrypted = preferences.getString(KEY_ENCRYPTED_CREDENTIALS, null)
-        if (!encrypted.isNullOrBlank()) {
-            decrypt(encrypted)?.let { return it }
+        when (LegacyAuthMigrationPolicy.choose(
+            // Presence, rather than non-empty content, is authoritative:
+            // an empty/corrupted encrypted value must not fall back to legacy.
+            hasEncryptedCredentials = preferences.contains(KEY_ENCRYPTED_CREDENTIALS),
+            migrationCompleted = preferences.getBoolean(KEY_LEGACY_MIGRATION_COMPLETED, false),
+        )) {
+            // A corrupted encrypted record is still authoritative. Never
+            // fall back to a stale plaintext file after encryption was used.
+            LegacyAuthLoadPath.ENCRYPTED -> encrypted?.let(::decrypt)
+            LegacyAuthLoadPath.UNAVAILABLE -> null
+            LegacyAuthLoadPath.LEGACY -> migrateLegacyCredentials()
         }
+    }
 
+    fun save(credentials: OAuthCredentials): Boolean = synchronized(CodexProcessLock.monitor) {
+        saveUnlocked(credentials)
+    }
+
+    fun clear() = synchronized(CodexProcessLock.monitor) {
+        // Keep the migration marker. Explicit logout must not re-import the
+        // old plaintext file on the next load.
+        preferences.edit()
+            .remove(KEY_ENCRYPTED_CREDENTIALS)
+            .remove(KEY_ACCESS_TOKEN)
+            .remove(KEY_REFRESH_TOKEN)
+            .remove(KEY_ID_TOKEN)
+            .remove(KEY_ACCOUNT_ID)
+            .remove(KEY_ACCESS_TOKEN_EXPIRES_AT)
+            .remove(KEY_LAST_REFRESH)
+            .putBoolean(KEY_LEGACY_MIGRATION_COMPLETED, true)
+            .commit()
+    }
+
+    private fun migrateLegacyCredentials(): OAuthCredentials? {
         val migrated = legacyAuthFile.takeIf(File::isFile)
             ?.let { file -> runCatching { AuthJsonParser.parse(file.readText()) }.getOrNull() }
-            ?: return null
-        save(migrated)
+        if (migrated == null) {
+            markMigrationCompleted()
+            return null
+        }
+        if (!saveUnlocked(migrated)) return null
+        markMigrationCompleted()
+        runCatching { legacyAuthFile.delete() }
         return migrated
     }
 
-    @Synchronized
-    fun save(credentials: OAuthCredentials): Boolean = runCatching {
+    private fun saveUnlocked(credentials: OAuthCredentials): Boolean = runCatching {
         val payload = JSONObject()
             .put(
                 "tokens",
@@ -69,9 +128,8 @@ class OAuthStore(context: Context) {
             .commit()
     }.getOrDefault(false)
 
-    @Synchronized
-    fun clear() {
-        preferences.edit().clear().commit()
+    private fun markMigrationCompleted() {
+        preferences.edit().putBoolean(KEY_LEGACY_MIGRATION_COMPLETED, true).commit()
     }
 
     private fun decrypt(encoded: String): OAuthCredentials? = runCatching {
@@ -111,6 +169,7 @@ class OAuthStore(context: Context) {
         private const val KEY_ACCOUNT_ID = "account_id"
         private const val KEY_ACCESS_TOKEN_EXPIRES_AT = "access_token_expires_at"
         private const val KEY_LAST_REFRESH = "last_refresh"
+        private const val KEY_LEGACY_MIGRATION_COMPLETED = "legacy_auth_migration_completed"
         private const val KEY_ALIAS = "codex_quota_oauth_v1"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"

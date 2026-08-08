@@ -23,11 +23,16 @@ class QuotaRefreshWorker(
         }
         Result.success()
     } catch (error: QuotaReadException) {
-        AppLogStore.record(
-            applicationContext,
-            "后台刷新失败：${error.message}",
-            "WARN",
-        )
+        if (error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) {
+            QuotaRefreshScheduler.cancel(applicationContext)
+            AppLogStore.record(applicationContext, "后台刷新已停止：需要重新登录", "WARN")
+        } else {
+            AppLogStore.record(
+                applicationContext,
+                "后台刷新失败：${error.message}",
+                "WARN",
+            )
+        }
         // The next scheduled run will retry ordinary network or API failures.
         Result.success()
     }
@@ -36,12 +41,18 @@ class QuotaRefreshWorker(
 object QuotaRefreshScheduler {
     private const val WORK_NAME = "codex_quota_periodic_refresh"
 
+    fun cancel(context: Context) {
+        WorkManager.getInstance(context.applicationContext).cancelUniqueWork(WORK_NAME)
+    }
+
     fun schedule(context: Context) {
         val appContext = context.applicationContext
         val settings = QuotaRefreshSettingsStore(appContext).load()
         val workManager = WorkManager.getInstance(appContext)
-        workManager.cancelUniqueWork(WORK_NAME)
-        if (!settings.enabled || OAuthStore(appContext).load() == null) return
+        if (!settings.enabled || OAuthStore(appContext).load() == null) {
+            cancel(appContext)
+            return
+        }
 
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -54,7 +65,7 @@ object QuotaRefreshScheduler {
             .build()
         workManager.enqueueUniquePeriodicWork(
             WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.UPDATE,
             request,
         )
     }

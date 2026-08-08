@@ -131,7 +131,7 @@ class QuotaAlertEvaluator(
                 continue
             }
 
-            val resetObserved = previous != null && isReset(previous, window, current)
+            val resetObserved = previous != null && isReset(previous, window)
             if (resetObserved) {
                 stateStore.save(
                     key,
@@ -154,17 +154,23 @@ class QuotaAlertEvaluator(
                 notified20 = current <= 20
                 notified10 = current <= 10
             } else {
-                if (!notified50 && old > 50 && current <= 50) {
-                    notified50 = true
-                    events += QuotaAlertEvent(AlertEventKind.THRESHOLD, window, 50)
+                val crossed = buildList {
+                    if (!notified50 && old > 50 && current <= 50) add(50)
+                    if (!notified20 && old > 20 && current <= 20) add(20)
+                    if (!notified10 && old > 10 && current <= 10) add(10)
                 }
-                if (!notified20 && old > 20 && current <= 20) {
-                    notified20 = true
-                    events += QuotaAlertEvent(AlertEventKind.THRESHOLD, window, 20)
+                crossed.minOrNull()?.let { mostSevere ->
+                    // One refresh can cross several levels; emit only the
+                    // most severe notification while consuming all crossed
+                    // thresholds so they cannot replay later.
+                    events += QuotaAlertEvent(AlertEventKind.THRESHOLD, window, mostSevere)
                 }
-                if (!notified10 && old > 10 && current <= 10) {
-                    notified10 = true
-                    events += QuotaAlertEvent(AlertEventKind.THRESHOLD, window, 10)
+                crossed.forEach { threshold ->
+                    when (threshold) {
+                        50 -> notified50 = true
+                        20 -> notified20 = true
+                        10 -> notified10 = true
+                    }
                 }
             }
             stateStore.save(
@@ -183,16 +189,16 @@ class QuotaAlertEvaluator(
         return events
     }
 
-    private fun isReset(previous: AlertRecord, window: QuotaWindow, current: Int): Boolean {
+    private fun isReset(previous: AlertRecord, window: QuotaWindow): Boolean {
         val oldReset = previous.lastResetAt ?: return false
         val newReset = window.resetsAt ?: return false
         if (newReset <= oldReset) return false
-        val oldRemaining = previous.lastRemainingPercent ?: return false
-        if (current < oldRemaining) return false
         val durationMins = window.windowDurationMins ?: previous.lastWindowDurationMins
-        val expectedAdvance = durationMins?.times(60L)?.div(2L) ?: 3_600L
+        val durationSeconds = durationMins?.times(60L) ?: 3_600L
         val resetAdvance = newReset - oldReset
-        val remainingJump = current - oldRemaining
-        return resetAdvance >= max(300L, expectedAdvance) || remainingJump >= 20
+        // resetAt is the primary reset signal. Require an advance close to a
+        // full window so a server-side timestamp correction cannot re-arm
+        // alerts; remainingPercent may move independently and is not enough.
+        return resetAdvance >= max(300L, durationSeconds * 3L / 4L)
     }
 }

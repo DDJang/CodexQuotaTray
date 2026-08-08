@@ -14,6 +14,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.codexquotatray.android.alerts.QuotaAlertStateStore
 import com.codexquotatray.android.auth.JwtClaims
+import com.codexquotatray.android.auth.CodexProcessLock
 import com.codexquotatray.android.auth.OAuthCredentials
 import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
@@ -133,9 +134,11 @@ class AccountActivity : Activity() {
     }
 
     private fun logout() {
-        oauthStore.clear()
-        QuotaAlertStateStore(this).clear()
-        QuotaSnapshotStore(this).clear()
+        synchronized(CodexProcessLock.monitor) {
+            oauthStore.clear()
+            QuotaAlertStateStore(this).clear()
+            QuotaSnapshotStore(this).clear()
+        }
         QuotaRefreshScheduler.schedule(this)
         AppLogStore.record(this, "已退出登录")
         render()

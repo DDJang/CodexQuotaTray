@@ -6,6 +6,7 @@ import com.codexquotatray.android.alerts.QuotaAlertEvaluator
 import com.codexquotatray.android.alerts.QuotaAlertStateStore
 import com.codexquotatray.android.alerts.QuotaNotificationPublisher
 import com.codexquotatray.android.auth.CodexOAuthClient
+import com.codexquotatray.android.auth.CodexProcessLock
 import com.codexquotatray.android.auth.OAuthCredentials
 import com.codexquotatray.android.auth.OAuthException
 import com.codexquotatray.android.auth.OAuthFailureKind
@@ -46,7 +47,7 @@ class CodexQuotaRepository(
 ) {
     private val appContext = context.applicationContext
 
-    fun refresh(): DirectQuotaResult {
+    fun refresh(): DirectQuotaResult = synchronized(CodexProcessLock.monitor) {
         var credentials = credentialStore.load()
             ?: throw QuotaReadException(QuotaReadFailureKind.LOGIN_REQUIRED, "尚未登录 Codex")
 
@@ -56,14 +57,15 @@ class CodexQuotaRepository(
         return fetchWithRecovery(credentials)
     }
 
-    fun login(onUpdate: (OAuthLoginUpdate) -> Unit = {}): DirectQuotaResult {
+    fun login(onUpdate: (OAuthLoginUpdate) -> Unit = {}): OAuthCredentials =
+        synchronized(CodexProcessLock.monitor) {
         val credentials = try {
             oauthClient.login(onUpdate)
         } catch (error: OAuthException) {
             throw mapOAuthFailure(error)
         }
         saveCredentials(credentials)
-        return fetchWithRecovery(credentials)
+        credentials
     }
 
     private fun fetchWithRecovery(initial: OAuthCredentials): DirectQuotaResult {

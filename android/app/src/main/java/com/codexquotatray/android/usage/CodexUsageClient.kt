@@ -89,10 +89,14 @@ class CodexUsageClient(
         val additional = rateLimitValue(json, "additional_rate_limits")
         for (index in 0 until additional.length()) {
             val entry = additional.optJSONObject(index) ?: continue
-            val name = string(entry, "limit_name", "limitName")
-                ?: string(entry, "metered_feature", "meteredFeature")
+            val meteredFeature = string(entry, "metered_feature", "meteredFeature")
+            val name = string(entry, "limit_name", "limitName") ?: meteredFeature
             val extraRateLimit = entry.optJSONObject("rate_limit") ?: continue
-            val prefix = "additional:$index"
+            val stableId = string(entry, "limit_id", "limitId", "id")
+                ?: meteredFeature
+                ?: name
+                ?: "index:$index"
+            val prefix = "additional:$stableId"
             addRateWindow(
                 windows = windows,
                 rateLimit = extraRateLimit,

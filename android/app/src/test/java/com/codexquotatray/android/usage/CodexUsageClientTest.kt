@@ -4,6 +4,8 @@ import com.codexquotatray.android.auth.OAuthCredentials
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -133,6 +135,23 @@ class CodexUsageClientTest {
         assertEquals(UsageFailureKind.NETWORK, error?.kind)
     }
 
+    @Test
+    fun additionalWindowIdentityDoesNotDependOnArrayOrder() {
+        val ordered = client().parseUsage(additionalPayload(listOf("alpha", "beta")), 1L)
+        val reversed = client().parseUsage(additionalPayload(listOf("beta", "alpha")), 1L)
+
+        val orderedIds = ordered.windows
+            .filter { it.limitName != null }
+            .associate { it.limitName!! to it.limitId }
+        val reversedIds = reversed.windows
+            .filter { it.limitName != null }
+            .associate { it.limitName!! to it.limitId }
+
+        assertEquals(orderedIds, reversedIds)
+        assertTrue(orderedIds.getValue("alpha")!!.contains("alpha"))
+        assertTrue(orderedIds.getValue("beta")!!.contains("beta"))
+    }
+
     private fun assertFailure(code: Int, kind: UsageFailureKind) {
         server.enqueue(MockResponse().setResponseCode(code).setBody("{\"error\":\"fake\"}"))
         val error = runCatching { client().fetch(credentials()) }.exceptionOrNull() as? UsageException
@@ -142,6 +161,34 @@ class CodexUsageClientTest {
 
     private fun client(): CodexUsageClient =
         CodexUsageClient(usageUrl = server.url("/backend-api/wham/usage").toString())
+
+    private fun additionalPayload(order: List<String>): JSONObject = JSONObject()
+        .put(
+            "rate_limit",
+            JSONObject().put(
+                "primary_window",
+                JSONObject().put("used_percent", 10).put("limit_window_seconds", 300),
+            ),
+        )
+        .put(
+            "additional_rate_limits",
+            JSONArray().apply {
+                order.forEach { name ->
+                    put(
+                        JSONObject()
+                            .put("limit_id", name)
+                            .put("limit_name", name)
+                            .put(
+                                "rate_limit",
+                                JSONObject().put(
+                                    "primary_window",
+                                    JSONObject().put("used_percent", 20),
+                                ),
+                            ),
+                    )
+                }
+            },
+        )
 
     private fun credentials() = OAuthCredentials(
         accessToken = "fake-access",

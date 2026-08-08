@@ -37,6 +37,20 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 
+internal fun formatResetRemaining(remainingSeconds: Long): String {
+    if (remainingSeconds <= 0L) return "已到期或正在刷新"
+
+    val days = remainingSeconds / 86_400L
+    val hours = (remainingSeconds % 86_400L) / 3_600L
+    val minutes = (remainingSeconds % 3_600L) / 60L
+    return when {
+        days > 0L -> "$days 天 $hours 小时 $minutes 分钟后重置"
+        hours > 0L -> "$hours 小时 $minutes 分钟后重置"
+        minutes > 0L -> "$minutes 分钟后重置"
+        else -> "不足 1 分钟后重置"
+    }
+}
+
 class MainActivity : Activity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -72,10 +86,15 @@ class MainActivity : Activity() {
         lastKnownAuthenticated = OAuthStore(this).load() != null
         QuotaRefreshScheduler.schedule(this)
         setContentView(buildContent())
-        val cached = if (lastKnownAuthenticated == true) loadLatestModel() else null
-        lastSuccessfulModel = cached
-        render(quotaLoadingUiModel(cached))
-        refresh()
+        if (lastKnownAuthenticated == true) {
+            val cached = loadLatestModel()
+            lastSuccessfulModel = cached
+            render(quotaLoadingUiModel(cached))
+            refresh()
+        } else {
+            lastSuccessfulModel = null
+            render(unauthenticatedQuotaUiModel())
+        }
     }
 
     override fun onStart() {
@@ -212,6 +231,7 @@ class MainActivity : Activity() {
                             lastKnownAuthenticated = false
                             lastSuccessfulModel = null
                             snapshotStore.clear()
+                            QuotaRefreshScheduler.cancel(this@MainActivity)
                         }
                         modelForFailure(error, previous)
                     },
@@ -246,10 +266,7 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == LOGIN_REQUEST_CODE && resultCode == RESULT_OK) {
-            lastKnownAuthenticated = true
-            lastSuccessfulModel = null
             QuotaRefreshScheduler.schedule(this)
-            refresh()
         }
     }
 
@@ -365,22 +382,12 @@ class MainActivity : Activity() {
         val absolute = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
             .format(Date(epochSeconds * 1_000L))
         val remaining = epochSeconds - System.currentTimeMillis() / 1_000L
-        val relative = if (remaining <= 0L) {
-            "已到期或正在刷新"
-        } else {
-            when {
-                remaining < 3_600L -> "${ceilDiv(remaining, 60L)} 分钟后重置"
-                remaining < 86_400L -> "${ceilDiv(remaining, 3_600L)} 小时后重置"
-                else -> "${ceilDiv(remaining, 86_400L)} 天后重置"
-            }
-        }
+        val relative = formatResetRemaining(remaining)
         return "重置于 $absolute\n$relative"
     }
 
     private fun formatTime(epochMillis: Long): String =
         SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(epochMillis))
-
-    private fun ceilDiv(value: Long, divisor: Long): Long = (value + divisor - 1L) / divisor
 
     private fun textView(text: String, size: Float, style: Int): TextView = TextView(this).apply {
         this.text = text

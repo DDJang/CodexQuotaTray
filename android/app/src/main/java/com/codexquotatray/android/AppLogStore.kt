@@ -90,13 +90,27 @@ internal object AppLogRetention {
 }
 
 internal object AppLogSanitizer {
-    private val secretPattern = Regex(
-        "(?i)(access[_-]?token|refresh[_-]?token|id[_-]?token|authorization)\\s*[:=]\\s*[^\\s,;]+",
+    private val jsonSecretPattern = Regex(
+        """(?i)(\"?(?:access[_-]?token|refresh[_-]?token|id[_-]?token|authorization|cookie|device[_-]?code)\"?\s*:\s*\")([^\"]*)(\")""",
     )
-    private val deviceCodePattern = Regex("(?i)(device\\s*code|登录码)\\s*[:：]?\\s*[^\\s,;]+")
+    private val authorizationHeaderPattern = Regex(
+        """(?i)(\bAuthorization\b\s*[:=]\s*)(?:Bearer\s+)?[^\s,;}\]]+""",
+    )
+    private val secretPattern = Regex(
+        """(?i)(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token)\b\s*[:=]\s*)(?:\"[^\"]*\"|[^\s,;}\]]+)""",
+    )
+    private val cookiePattern = Regex(
+        """(?i)(\bCookie\b\s*[:=]\s*)[^\r\n]+""",
+    )
+    private val deviceCodePattern = Regex(
+        """(?i)(\bdevice[ _-]*code\b|登录码)\s*[:：=]?\s*[A-Za-z0-9][A-Za-z0-9_-]*""",
+    )
 
     fun sanitize(message: String): String = message
+        .replace(jsonSecretPattern) { "${it.groupValues[1]}[已隐藏]${it.groupValues[3]}" }
+        .replace(authorizationHeaderPattern) { "${it.groupValues[1]}[已隐藏]" }
         .replace(secretPattern) { redactSecret(it) }
+        .replace(cookiePattern) { "${it.groupValues[1]}[已隐藏]" }
         .replace(deviceCodePattern) { redactDeviceCode(it) }
         .replace(Regex("\\s+"), " ")
         .trim()

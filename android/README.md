@@ -16,7 +16,7 @@ App-private OAuth credentials
 当前实现范围：
 
 - 设备代码 OAuth 登录、token refresh 和 App 私有持久化；
-- 从旧的 `filesDir/codex-home/.codex/auth.json` 一次迁移认证信息，旧文件保留不改；
+- 从旧的 `filesDir/codex-home/.codex/auth.json` 一次迁移认证信息，成功写入加密存储后尽力删除旧文件；
 - Direct HTTPS 读取 `plan_type`、主/次窗口和 additional rate-limit 窗口；
 - 缺失值保持未知，零窗口和额度详情不可用状态明确区分；
 - Android 原生 Views 主页面、动态窗口名称、绝对/相对重置时间和手动刷新；
@@ -101,9 +101,10 @@ token 更新认证信息。
 <filesDir>/codex-home/.codex/auth.json
 ```
 
-新版本首次读取时会解析其中的 OAuth token，写入新的 App 私有 OAuth Store，并保留
-旧文件不删除。迁移只在本机发生，不打印认证内容。无法解析或缺少 access token 的
-旧文件会被忽略，需重新登录。
+新版本首次读取时会解析其中的 OAuth token，写入新的 App 私有 OAuth Store；成功写入后
+会尽力删除旧文件，并记录一次性迁移标记。迁移只在本机发生，不打印认证内容。无法
+解析或缺少 access token 的旧文件会被忽略，需重新登录。加密凭据一旦存在，即使损坏
+也不会回退读取旧文件；退出登录同样保留迁移标记，避免旧凭据被重新导入。
 
 ## 开发诊断与离线回归
 

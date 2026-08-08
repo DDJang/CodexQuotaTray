@@ -138,7 +138,7 @@ class LoginActivity : Activity() {
         if (update.state != "waiting_for_user") {
             statusView.text = when (update.state) {
                 "login_starting" -> "正在准备登录…"
-                "exchanging_token" -> "登录完成，正在读取额度…"
+                "exchanging_token" -> "登录完成，正在保存登录状态…"
                 else -> update.message ?: "正在处理登录…"
             }
             return
