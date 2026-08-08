@@ -2,10 +2,12 @@ package com.codexquotatray.android
 
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -13,6 +15,8 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.ViewCompat
+import kotlin.math.max
 
 class MainActivity : Activity() {
     private val palette by lazy { AppTheme.palette(this) }
@@ -22,6 +26,7 @@ class MainActivity : Activity() {
     private lateinit var tokenUsagePage: TokenUsagePageView
     private lateinit var pageContainer: FrameLayout
     private lateinit var bottomBar: LiquidGlassBottomBar
+    private lateinit var headerView: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -87,9 +92,9 @@ class MainActivity : Activity() {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(palette.background)
-            setPadding(0, 0, 0, dp(104))
         }
-        content.addView(buildHeader(), LinearLayout.LayoutParams(
+        headerView = buildHeader()
+        content.addView(headerView, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT,
         ))
@@ -114,23 +119,33 @@ class MainActivity : Activity() {
         bottomBar = LiquidGlassBottomBar(this, content, palette) { tab -> selectTab(tab) }
         root.addView(bottomBar, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
-            dp(84),
+            bottomBar.requiredHeight(0),
             Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
-        ).apply { bottomMargin = dp(10) })
-        root.setOnApplyWindowInsetsListener { _, insets ->
-            val navBottom = WindowInsetsCompat.toWindowInsetsCompat(insets)
-                .getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
-            content.setPadding(0, 0, 0, dp(104) + navBottom)
-            (bottomBar.layoutParams as? FrameLayout.LayoutParams)?.let { params ->
-                params.bottomMargin = dp(10) + navBottom
-                bottomBar.layoutParams = params
+        ))
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val safeTop = max(
+                insets.getInsets(WindowInsetsCompat.Type.statusBars()).top,
+                insets.getInsets(WindowInsetsCompat.Type.displayCutout()).top,
+            )
+            val safeBottom = max(
+                insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom,
+                insets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures()).bottom,
+            )
+            if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+                Log.d("CodexQuotaInsets", "safeTop=$safeTop safeBottom=$safeBottom")
             }
+            headerView.setPadding(dp(20), dp(14) + safeTop, dp(20), dp(10))
+            bottomBar.setSafeBottomInset(safeBottom)
+            val pageBottom = bottomBar.requiredHeight(safeBottom)
+            quotaPage.setBottomSafePadding(pageBottom)
+            tokenUsagePage.setBottomSafePadding(pageBottom)
             insets
         }
+        ViewCompat.requestApplyInsets(root)
         return root
     }
 
-    private fun buildHeader(): View = LinearLayout(this).apply {
+    private fun buildHeader(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(20), dp(14), dp(20), dp(10))

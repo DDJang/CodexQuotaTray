@@ -14,14 +14,15 @@ import android.view.Gravity
 import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
-import android.widget.Button
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.Spinner
-import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.codexquotatray.android.alerts.QuotaNotifications
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import com.codexquotatray.android.quota.QuotaRefreshSettings
@@ -35,6 +36,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executors
+import kotlin.math.max
 
 class SettingsActivity : Activity() {
     private val palette by lazy { AppTheme.palette(this) }
@@ -43,12 +45,12 @@ class SettingsActivity : Activity() {
     private val themeSettingsStore by lazy { ThemeSettingsStore(this) }
     private var updating = false
 
-    private lateinit var lowQuotaSwitch: Switch
-    private lateinit var resetSwitch: Switch
-    private lateinit var notificationSwitch: Switch
+    private lateinit var lowQuotaSwitch: GlassToggleView
+    private lateinit var resetSwitch: GlassToggleView
+    private lateinit var notificationSwitch: GlassToggleView
     private lateinit var notificationStatus: TextView
-    private lateinit var notificationTestButton: Button
-    private lateinit var backgroundRefreshSwitch: Switch
+    private lateinit var notificationTestButton: GlassActionButton
+    private lateinit var backgroundRefreshSwitch: GlassToggleView
     private lateinit var refreshIntervalLabel: TextView
     private lateinit var refreshIntervalSpinner: Spinner
     private lateinit var systemThemeOption: TextView
@@ -62,6 +64,9 @@ class SettingsActivity : Activity() {
     private lateinit var tokenSyncLastSync: TextView
     private lateinit var tokenSyncManualContainer: LinearLayout
     private lateinit var tokenSyncPairedActions: LinearLayout
+    private lateinit var settingsRoot: FrameLayout
+    private lateinit var settingsScroll: ScrollView
+    private lateinit var settingsHeader: FrameLayout
     private val pairingWorker = Executors.newSingleThreadExecutor()
     private val pairingMain = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -70,6 +75,7 @@ class SettingsActivity : Activity() {
         super.onCreate(savedInstanceState)
         AppTheme.applySystemBars(this)
         setContentView(buildContent())
+        ViewCompat.requestApplyInsets(settingsRoot)
         render()
     }
 
@@ -84,140 +90,117 @@ class SettingsActivity : Activity() {
     }
 
     private fun buildContent(): View {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(22), dp(20), dp(18))
+        settingsRoot = FrameLayout(this).apply {
             setBackgroundColor(palette.background)
+            clipChildren = false
         }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(8), 0, dp(20))
+            setPadding(dp(20), dp(18), dp(20), dp(28))
         }
-        val scroll = ScrollView(this).apply {
+        settingsScroll = ScrollView(this).apply {
             isFillViewport = true
+            clipToPadding = false
             addView(content)
         }
+        settingsRoot.addView(settingsScroll, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        ))
+        settingsHeader = buildHeader()
+        settingsRoot.addView(settingsHeader, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            dp(64),
+            Gravity.TOP,
+        ))
 
-        val toolbar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        toolbar.addView(backButton())
-        toolbar.addView(
-            textView("设置", 24f, Typeface.BOLD).apply { setTextColor(palette.title) },
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        content.addView(toolbar, marginParams(bottom = 24))
+        content.addView(settingsSectionLabel(this, palette, "账户与同步"), marginParams(bottom = 8))
+        val accountAndSync = SettingsGroupCard(this, palette)
+        accountAndSync.addItem(accountRow(), dividerAfter = false)
+        accountAndSync.addContent(tokenSyncSection())
+        content.addView(accountAndSync, marginParams(bottom = 24))
 
-        content.addView(accountRow(), marginParams(bottom = 24))
-
-        content.addView(sectionTitle("Token 使用量同步"), marginParams(bottom = 6))
-        content.addView(tokenSyncSection(), marginParams(bottom = 24))
-
-        content.addView(sectionTitle("额度提醒"), marginParams(bottom = 6))
-        content.addView(
-            textView("分别控制低额度和额度窗口重置通知。", 14f, Typeface.NORMAL).apply {
-                setTextColor(palette.muted)
-            },
-            marginParams(bottom = 14),
-        )
-
-        lowQuotaSwitch = Switch(this).apply {
-            text = "低额度提醒"
-            textSize = 16f
-            setTextColor(palette.body)
-            setOnCheckedChangeListener { _, checked ->
-                if (!updating) {
-                    alertSettingsStore.save(
-                        alertSettingsStore.load().copy(lowQuotaEnabled = checked),
-                    )
-                    AppLogStore.record(this@SettingsActivity, "低额度提醒已${if (checked) "开启" else "关闭"}")
-                }
+        content.addView(settingsSectionLabel(this, palette, "额度提醒"), marginParams(bottom = 8))
+        val alertGroup = SettingsGroupCard(this, palette)
+        lowQuotaSwitch = glassToggle("低额度提醒") {
+            if (!updating) {
+                alertSettingsStore.save(alertSettingsStore.load().copy(lowQuotaEnabled = it))
+                AppLogStore.record(this@SettingsActivity, "低额度提醒已${if (it) "开启" else "关闭"}")
             }
         }
-        content.addView(
-            settingRow(lowQuotaSwitch, "额度跨过 50%、20% 或 10% 阈值时提醒。"),
-            marginParams(bottom = 10),
-        )
-
-        resetSwitch = Switch(this).apply {
-            text = "额度重置提醒"
-            textSize = 16f
-            setTextColor(palette.body)
-            setOnCheckedChangeListener { _, checked ->
-                if (!updating) {
-                    alertSettingsStore.save(
-                        alertSettingsStore.load().copy(resetEnabled = checked),
-                    )
-                    AppLogStore.record(this@SettingsActivity, "额度重置提醒已${if (checked) "开启" else "关闭"}")
-                }
+        resetSwitch = glassToggle("额度重置提醒") {
+            if (!updating) {
+                alertSettingsStore.save(alertSettingsStore.load().copy(resetEnabled = it))
+                AppLogStore.record(this@SettingsActivity, "额度重置提醒已${if (it) "开启" else "关闭"}")
             }
         }
-        content.addView(
-            settingRow(resetSwitch, "检测到额度窗口重置后提醒。"),
-            marginParams(bottom = 24),
+        alertGroup.addItem(
+            SettingsRow(
+                this,
+                palette,
+                "低额度提醒",
+                "额度跨过 50%、20% 或 10% 阈值时提醒。",
+                lowQuotaSwitch,
+            ) { lowQuotaSwitch.toggle() },
         )
-
-        content.addView(sectionTitle("系统"), marginParams(bottom = 6))
-        content.addView(
-            textView("系统通知权限由 Android 管理，关闭后不会收到额度通知。", 14f, Typeface.NORMAL).apply {
-                setTextColor(palette.muted)
-            },
-            marginParams(bottom = 14),
+        alertGroup.addItem(
+            SettingsRow(
+                this,
+                palette,
+                "额度重置提醒",
+                "检测到额度窗口重置后提醒。",
+                resetSwitch,
+            ) { resetSwitch.toggle() },
         )
+        content.addView(alertGroup, marginParams(bottom = 24))
 
-        notificationSwitch = Switch(this).apply {
-            text = "系统通知"
-            textSize = 16f
-            setTextColor(palette.body)
-            setOnCheckedChangeListener { _, checked ->
-                if (updating) return@setOnCheckedChangeListener
-                AppLogStore.record(this@SettingsActivity, "系统通知设置已${if (checked) "开启" else "关闭"}")
-                if (checked) {
-                    requestNotificationPermission()
-                } else {
-                    openNotificationSettings()
-                }
+        content.addView(settingsSectionLabel(this, palette, "通知与后台"), marginParams(bottom = 8))
+        val systemGroup = SettingsGroupCard(this, palette)
+        notificationSwitch = glassToggle("系统通知") {
+            if (!updating) {
+                AppLogStore.record(this@SettingsActivity, "系统通知设置已${if (it) "开启" else "关闭"}")
+                if (it) requestNotificationPermission() else openNotificationSettings()
             }
         }
-        content.addView(
-            settingRow(notificationSwitch, "点击开关可申请或打开 Android 的应用通知设置。"),
-            marginParams(bottom = 8),
+        systemGroup.addItem(
+            SettingsRow(
+                this,
+                palette,
+                "系统通知",
+                "由 Android 管理权限；关闭后不会收到额度通知。",
+                notificationSwitch,
+            ) { notificationSwitch.toggle() },
         )
-        notificationStatus = textView("", 13f, Typeface.NORMAL).apply {
-            setTextColor(palette.muted)
-        }
-        content.addView(notificationStatus, marginParams(bottom = 8, left = 14, right = 14))
-
+        notificationStatus = captionText("")
+        systemGroup.addContent(notificationStatus, bottomMargin = 4)
         notificationTestButton = actionButton("发送测试通知") { sendTestNotification() }
-        content.addView(
-            notificationTestButton,
-            marginParams(bottom = 24, left = 14, right = 14),
-        )
+        systemGroup.addContent(notificationTestButton, bottomMargin = 8)
 
-        backgroundRefreshSwitch = Switch(this).apply {
-            text = "后台自动刷新"
-            textSize = 16f
-            setTextColor(palette.body)
-            setOnCheckedChangeListener { _, checked ->
-                if (updating) return@setOnCheckedChangeListener
-                refreshSettingsStore.save(
-                    refreshSettingsStore.load().copy(enabled = checked),
-                )
+        backgroundRefreshSwitch = glassToggle("后台自动刷新") {
+            if (!updating) {
+                refreshSettingsStore.save(refreshSettingsStore.load().copy(enabled = it))
                 QuotaRefreshScheduler.schedule(this@SettingsActivity)
-                AppLogStore.record(this@SettingsActivity, "后台自动刷新已${if (checked) "开启" else "关闭"}")
+                AppLogStore.record(this@SettingsActivity, "后台自动刷新已${if (it) "开启" else "关闭"}")
                 renderRefreshInterval()
             }
         }
-        content.addView(
-            settingRow(backgroundRefreshSwitch, "按设定频率在网络可用时读取额度。"),
-            marginParams(bottom = 10),
+        systemGroup.addItem(
+            SettingsRow(
+                this,
+                palette,
+                "后台自动刷新",
+                "按设定频率在网络可用时读取额度。",
+                backgroundRefreshSwitch,
+            ) { backgroundRefreshSwitch.toggle() },
         )
 
-        refreshIntervalLabel = textView("刷新频率", 15f, Typeface.BOLD).apply {
+        refreshIntervalLabel = textView("刷新频率", 16f, Typeface.BOLD).apply {
             setTextColor(palette.body)
         }
-        refreshIntervalSpinner = Spinner(this)
+        refreshIntervalSpinner = Spinner(this).apply {
+            backgroundTintList = android.content.res.ColorStateList.valueOf(palette.secondary)
+            setPadding(dp(8), dp(4), dp(4), dp(4))
+        }
         val intervalLabels = listOf("每 15 分钟", "每 30 分钟", "每 1 小时")
         refreshIntervalSpinner.adapter = ArrayAdapter(
             this,
@@ -242,8 +225,7 @@ class SettingsActivity : Activity() {
         val intervalRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(8), dp(8), dp(8))
-            background = cardBackground()
+            setPadding(dp(16), dp(10), dp(12), dp(10))
             addView(
                 refreshIntervalLabel,
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
@@ -253,24 +235,16 @@ class SettingsActivity : Activity() {
                 LinearLayout.LayoutParams(dp(150), LinearLayout.LayoutParams.WRAP_CONTENT),
             )
         }
-        content.addView(intervalRow, marginParams(bottom = 6))
-        content.addView(
-            textView("Android 可能因省电策略延迟后台任务。", 12f, Typeface.NORMAL).apply {
-                setTextColor(palette.muted)
-            },
-            marginParams(bottom = 10, left = 14, right = 14),
-        )
-        content.addView(batteryOptimizationRow(), marginParams(bottom = 24))
+        intervalRow.background = rowBackground(palette)
+        systemGroup.addContent(intervalRow, bottomMargin = 4)
+        systemGroup.addContent(captionText("Android 可能因省电策略延迟后台任务。"), bottomMargin = 4)
+        systemGroup.addContent(batteryOptimizationRow())
+        content.addView(systemGroup, marginParams(bottom = 24))
 
-        content.addView(sectionTitle("外观主题"), marginParams(bottom = 6))
-        content.addView(
-            textView("选择跟随系统、浅色或暗色显示方式。", 14f, Typeface.NORMAL).apply {
-                setTextColor(palette.muted)
-            },
-            marginParams(bottom = 14),
-        )
+        content.addView(settingsSectionLabel(this, palette, "外观主题"), marginParams(bottom = 8))
         val themeOptions = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(8), dp(8), dp(8), dp(8))
         }
         systemThemeOption = themeOption(ThemeMode.SYSTEM, "系统")
         lightThemeOption = themeOption(ThemeMode.LIGHT, "浅色")
@@ -278,31 +252,47 @@ class SettingsActivity : Activity() {
         themeOptions.addView(systemThemeOption, weightParams())
         themeOptions.addView(lightThemeOption, weightParams(left = 8))
         themeOptions.addView(darkThemeOption, weightParams(left = 8))
-        content.addView(themeOptions, marginParams(bottom = 24))
-
-        content.addView(sectionTitle("诊断"), marginParams(bottom = 10))
-        content.addView(logRow(), marginParams(bottom = 24))
-        content.addView(aboutRow())
-
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
-            ),
+        val appearanceGroup = SettingsGroupCard(this, palette)
+        appearanceGroup.addContent(
+            captionText("选择跟随系统、浅色或暗色显示方式。"),
+            bottomMargin = 4,
         )
-        return root
+        appearanceGroup.addContent(themeOptions)
+        content.addView(appearanceGroup, marginParams(bottom = 24))
+
+        content.addView(settingsSectionLabel(this, palette, "诊断与关于"), marginParams(bottom = 8))
+        val diagnosticsGroup = SettingsGroupCard(this, palette)
+        diagnosticsGroup.addItem(logRow())
+        diagnosticsGroup.addItem(aboutRow(), dividerAfter = false)
+        content.addView(diagnosticsGroup)
+
+        ViewCompat.setOnApplyWindowInsetsListener(settingsRoot) { _, insets ->
+            val safeTop = max(
+                insets.getInsets(WindowInsetsCompat.Type.statusBars()).top,
+                insets.getInsets(WindowInsetsCompat.Type.displayCutout()).top,
+            )
+            val safeBottom = max(
+                insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom,
+                insets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures()).bottom,
+            )
+            val headerParams = settingsHeader.layoutParams
+            headerParams.height = dp(64) + safeTop
+            settingsHeader.layoutParams = headerParams
+            settingsHeader.setPadding(0, safeTop, 0, 0)
+            settingsScroll.setPadding(0, dp(64) + safeTop, 0, safeBottom + dp(28))
+            insets
+        }
+        return settingsRoot
     }
 
     private fun render() {
         val alertSettings = alertSettingsStore.load()
         val refreshSettings = refreshSettingsStore.load()
         updating = true
-        lowQuotaSwitch.isChecked = alertSettings.lowQuotaEnabled
-        resetSwitch.isChecked = alertSettings.resetEnabled
-        notificationSwitch.isChecked = notificationsEnabled()
-        backgroundRefreshSwitch.isChecked = refreshSettings.enabled
+        lowQuotaSwitch.setCheckedSilently(alertSettings.lowQuotaEnabled)
+        resetSwitch.setCheckedSilently(alertSettings.resetEnabled)
+        notificationSwitch.setCheckedSilently(notificationsEnabled())
+        backgroundRefreshSwitch.setCheckedSilently(refreshSettings.enabled)
         refreshIntervalSpinner.setSelection(
             QuotaRefreshSettings.SUPPORTED_INTERVAL_MINUTES.indexOf(
                 refreshSettings.normalizedIntervalMinutes,
@@ -426,7 +416,7 @@ class SettingsActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == NOTIFICATION_REQUEST_CODE) {
             updating = true
-            notificationSwitch.isChecked = notificationsEnabled()
+            notificationSwitch.setCheckedSilently(notificationsEnabled())
             updating = false
             renderNotificationPermission()
         }
@@ -443,27 +433,54 @@ class SettingsActivity : Activity() {
         return permissionEnabled && (manager?.areNotificationsEnabled() ?: true)
     }
 
-    private fun sectionTitle(title: String): TextView = textView(title, 18f, Typeface.BOLD).apply {
-        setTextColor(palette.body)
+    private fun buildHeader(): FrameLayout = FrameLayout(this).apply {
+        setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        val title = textView("设置", 21f, Typeface.BOLD).apply {
+            gravity = Gravity.CENTER
+            setTextColor(palette.title)
+        }
+        addView(title, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        ))
+        addView(backButton(), FrameLayout.LayoutParams(dp(48), dp(48), Gravity.START or Gravity.CENTER_VERTICAL).apply {
+            marginStart = dp(16)
+        })
     }
 
-    private fun settingRow(switch: Switch, description: String): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(14), dp(10), dp(14), dp(10))
-        background = cardBackground()
-        addView(switch)
-        addView(
-            textView(description, 13f, Typeface.NORMAL).apply {
-                setTextColor(palette.muted)
-            },
-            marginParams(top = 2),
-        )
+    private fun glassToggle(label: String, onChanged: (Boolean) -> Unit): GlassToggleView =
+        GlassToggleView(this, palette).apply {
+            contentDescription = label
+            setOnCheckedChangeListener { _, checked -> onChanged(checked) }
+        }
+
+    private fun captionText(value: String): TextView = textView(value, 12.5f, Typeface.NORMAL).apply {
+        setTextColor(palette.muted)
+        setPadding(dp(14), dp(2), dp(14), dp(2))
+    }
+
+    private fun rowBackground(palette: ThemePalette): GradientDrawable = GradientDrawable().apply {
+        setColor(if (android.graphics.Color.luminance(palette.background) < 0.35f) {
+            android.graphics.Color.argb(52, 255, 255, 255)
+        } else {
+            android.graphics.Color.argb(34, 0, 0, 0)
+        })
+        cornerRadius = dp(18).toFloat()
+    }
+
+    private fun inputBackground(): GradientDrawable = GradientDrawable().apply {
+        setColor(if (android.graphics.Color.luminance(palette.background) < 0.35f) {
+            android.graphics.Color.argb(70, 255, 255, 255)
+        } else {
+            palette.surface
+        })
+        setStroke(dp(1), android.graphics.Color.argb(48, android.graphics.Color.red(palette.title), android.graphics.Color.green(palette.title), android.graphics.Color.blue(palette.title)))
+        cornerRadius = dp(16).toFloat()
     }
 
     private fun batteryOptimizationRow(): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(14), dp(12), dp(14), dp(12))
-        background = cardBackground()
+        setPadding(dp(12), dp(12), dp(12), dp(12))
         addView(
             textView("电池优化", 16f, Typeface.BOLD).apply { setTextColor(palette.body) },
         )
@@ -486,59 +503,37 @@ class SettingsActivity : Activity() {
         setOnClickListener { selectTheme(mode) }
     }
 
-    private fun logRow(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(16), dp(15), dp(16), dp(15))
-        background = cardBackground()
-        isClickable = true
-        setOnClickListener { startActivity(Intent(this@SettingsActivity, LogActivity::class.java)) }
-        addView(
-            textView("运行日志", 16f, Typeface.BOLD).apply { setTextColor(palette.body) },
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        addView(
-            textView("查看脱敏运行摘要", 13f, Typeface.NORMAL).apply {
-                setTextColor(palette.muted)
-            },
-        )
-        addView(textView("›", 26f, Typeface.NORMAL).apply { setTextColor(palette.muted) })
-    }
+    private fun logRow(): View = SettingsRow(
+        this,
+        palette,
+        "运行日志",
+        "查看脱敏运行摘要",
+        showChevron = true,
+    ) { startActivity(Intent(this@SettingsActivity, LogActivity::class.java)) }
 
-    private fun aboutRow(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(16), dp(15), dp(16), dp(15))
-        background = cardBackground()
-        isClickable = true
-        setOnClickListener {
-            startActivity(Intent(this@SettingsActivity, AboutActivity::class.java))
-        }
-        addView(
-            textView("关于", 16f, Typeface.BOLD).apply { setTextColor(palette.body) },
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        addView(textView("›", 26f, Typeface.NORMAL).apply { setTextColor(palette.muted) })
-    }
+    private fun aboutRow(): View = SettingsRow(
+        this,
+        palette,
+        "关于",
+        "版本、许可与项目信息",
+        showChevron = true,
+    ) { startActivity(Intent(this@SettingsActivity, AboutActivity::class.java)) }
 
-    private fun accountRow(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(16), dp(15), dp(16), dp(15))
-        background = cardBackground()
-        isClickable = true
-        setOnClickListener {
-            startActivity(Intent(this@SettingsActivity, AccountActivity::class.java))
-        }
-        addView(
-            textView("账号管理", 16f, Typeface.BOLD).apply { setTextColor(palette.body) },
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        addView(textView("›", 26f, Typeface.NORMAL).apply { setTextColor(palette.muted) })
-    }
+    private fun accountRow(): View = SettingsRow(
+        this,
+        palette,
+        "账号管理",
+        "查看当前 Codex 登录状态",
+        showChevron = true,
+    ) { startActivity(Intent(this@SettingsActivity, AccountActivity::class.java)) }
 
     private fun tokenSyncSection(): View = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
+        setPadding(dp(12), dp(10), dp(12), dp(12))
+        addView(
+            textView("Token 使用量同步", 16f, Typeface.BOLD).apply { setTextColor(palette.body) },
+            marginParams(bottom = 8),
+        )
         tokenSyncStatus = textView("尚未配对 Windows", 14f, Typeface.NORMAL).apply { setTextColor(palette.muted) }
         addView(tokenSyncStatus, marginParams(bottom = 4))
         tokenSyncDevice = textView("", 14f, Typeface.NORMAL).apply { setTextColor(palette.muted) }
@@ -555,6 +550,8 @@ class SettingsActivity : Activity() {
             setSingleLine(true)
             setTextColor(palette.body)
             setHintTextColor(palette.muted)
+            background = inputBackground()
+            setPadding(dp(14), dp(10), dp(14), dp(10))
         }
         tokenSyncManualContainer.addView(pairingUriInput, marginParams(bottom = 8))
         tokenSyncManualContainer.addView(actionButton("保存粘贴的配对信息") { savePairingUri() }, marginParams(bottom = 12))
@@ -563,6 +560,8 @@ class SettingsActivity : Activity() {
             setSingleLine(true)
             setTextColor(palette.body)
             setHintTextColor(palette.muted)
+            background = inputBackground()
+            setPadding(dp(14), dp(10), dp(14), dp(10))
         }
         tokenSyncManualContainer.addView(tokenSyncHostInput, marginParams(bottom = 8))
         tokenSyncSecretInput = EditText(this@SettingsActivity).apply {
@@ -571,6 +570,8 @@ class SettingsActivity : Activity() {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
             setTextColor(palette.body)
             setHintTextColor(palette.muted)
+            background = inputBackground()
+            setPadding(dp(14), dp(10), dp(14), dp(10))
         }
         tokenSyncManualContainer.addView(tokenSyncSecretInput, marginParams(bottom = 8))
         tokenSyncManualContainer.addView(actionButton("保存手动配置") { saveManualPairing() }, marginParams(bottom = 10))
@@ -581,7 +582,7 @@ class SettingsActivity : Activity() {
         }
         tokenSyncPairedActions.addView(actionButton("立即同步") { syncPairedNow() }, marginParams(bottom = 8))
         tokenSyncPairedActions.addView(actionButton("重新扫码") { scanPairing() }, marginParams(bottom = 8))
-        tokenSyncPairedActions.addView(actionButton("解除配对") { clearPairing() }, marginParams(bottom = 10))
+        tokenSyncPairedActions.addView(actionButton("解除配对", danger = true) { clearPairing() }, marginParams(bottom = 10))
         addView(tokenSyncPairedActions)
 
         addView(textView("LAN 同步仅适用于可信私人 Wi-Fi；不建议在公共 Wi-Fi 使用。", 13f, Typeface.NORMAL).apply {
@@ -694,31 +695,21 @@ class SettingsActivity : Activity() {
             .format(Instant.parse(raw))
     }.getOrDefault("未知")
 
-    private fun cardBackground(): GradientDrawable = GradientDrawable().apply {
-        setColor(palette.surface)
-        setStroke(dp(1), palette.border)
-        cornerRadius = dp(14).toFloat()
-    }
-
-    private fun actionButton(text: String, action: () -> Unit): Button = Button(this).apply {
+    private fun actionButton(
+        text: String,
+        danger: Boolean = false,
+        action: () -> Unit,
+    ): GlassActionButton = GlassActionButton(this, palette, danger).apply {
         this.text = text
-        textSize = 14f
-        isAllCaps = false
-        setTypeface(typeface, Typeface.BOLD)
-        minimumHeight = dp(46)
-        minHeight = dp(46)
-        backgroundTintList = android.content.res.ColorStateList.valueOf(palette.secondaryButton)
-        setTextColor(palette.secondaryButtonText)
         setOnClickListener { action() }
     }
 
-    private fun backButton(): TextView = textView("‹", 34f, Typeface.NORMAL).apply {
-        gravity = Gravity.CENTER
-        setTextColor(palette.secondaryButtonText)
-        isClickable = true
-        setOnClickListener { finish() }
-        layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
-    }
+    private fun backButton(): GlassIconButton = GlassIconButton(
+        this,
+        palette,
+        0,
+        "返回",
+    ).apply { setOnClickListener { finish() } }
 
     private fun textView(text: String, size: Float, style: Int): TextView = TextView(this).apply {
         this.text = text

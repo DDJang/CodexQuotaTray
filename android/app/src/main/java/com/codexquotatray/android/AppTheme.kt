@@ -4,7 +4,9 @@ import android.app.Activity
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
-import android.view.View
+import android.view.Window
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 enum class ThemeMode(val storageValue: String) {
     SYSTEM("system"),
@@ -121,17 +123,31 @@ object AppTheme {
     }
 
     fun applySystemBars(activity: Activity) {
-        val palette = palette(activity)
-        activity.window.statusBarColor = palette.background
-        activity.window.navigationBarColor = palette.background
-        var flags = activity.window.decorView.systemUiVisibility
+        val window = activity.window
         val lightBars = effectiveMode(activity) == ThemeMode.LIGHT
-        flags = if (lightBars) {
-            flags or View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR or View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR
-        } else {
-            flags and View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR.inv() and
-                View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR.inv()
+
+        // core-ktx 1.13.1 is pinned because the repository targets compileSdk 35;
+        // newer core releases require compileSdk 36. Invoke the newer helper when
+        // it is present and retain the equivalent compatibility path otherwise.
+        if (!invokeEnableEdgeToEdge(window)) {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
         }
-        activity.window.decorView.systemUiVisibility = flags
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+            window.isStatusBarContrastEnforced = false
+        }
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.isAppearanceLightStatusBars = lightBars
+        controller.isAppearanceLightNavigationBars = lightBars
     }
+
+    private fun invokeEnableEdgeToEdge(window: Window): Boolean = runCatching {
+        WindowCompat::class.java
+            .getMethod("enableEdgeToEdge", Window::class.java)
+            .invoke(null, window)
+        true
+    }.getOrDefault(false)
 }

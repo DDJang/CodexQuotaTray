@@ -149,6 +149,11 @@ internal class QuotaPageView(private val host: MainActivity) : LinearLayout(host
         worker.shutdownNow()
     }
 
+    /** Keeps the action row above the edge-to-edge bottom navigation overlay. */
+    fun setBottomSafePadding(bottom: Int) {
+        setPadding(paddingLeft, paddingTop, paddingRight, bottom.coerceAtLeast(0))
+    }
+
     private fun buildContent(): View {
         val padding = dp(20)
         val root = LinearLayout(host).apply {

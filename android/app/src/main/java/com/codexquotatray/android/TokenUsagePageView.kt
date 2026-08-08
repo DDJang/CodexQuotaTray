@@ -96,6 +96,11 @@ internal class TokenUsagePageView(private val host: MainActivity) : FrameLayout(
         worker.shutdownNow()
     }
 
+    /** Keeps the scroll content above the edge-to-edge bottom navigation overlay. */
+    fun setBottomSafePadding(bottom: Int) {
+        setPadding(paddingLeft, paddingTop, paddingRight, bottom.coerceAtLeast(0))
+    }
+
     private fun buildContent(): View {
         val content = LinearLayout(host).apply {
             orientation = LinearLayout.VERTICAL
