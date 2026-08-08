@@ -66,6 +66,21 @@ $env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
 .\gradlew.bat :app:assembleRelease
 ```
 
+### HyperOS 3 / Xiaomi 渲染兼容性
+
+QmDeve LiquidGlass 在支持的 Android 版本上使用 `RenderNode` 和系统背景模糊。
+在 Xiaomi/Redmi 的 HyperOS 3（目前观察到 Android API 36，版本串以 `OS3.` 开头）
+上，系统的 `MiBackgroundBlurBlend` 可能在 RenderThread 中递归准备 RenderNode，最终
+以 `SIGSEGV` 和“stack pointer is close to top of stack”退出应用。这不是 Kotlin
+异常，Java 层也没有可捕获的崩溃栈。
+
+`LiquidGlassSurfaceView` 因此保留一个运行时兼容开关：当设备制造商/品牌为
+Xiaomi 或 Redmi 且 API >= 35 时，不创建 QmDeve `LiquidGlassView`，改用同一组件内的
+轻量 Canvas 圆角填充和描边。该回退不截图、不使用位图，也不改变额度、同步或设置逻辑；
+其他设备仍使用 QmDeve 真玻璃效果。若以后 HyperOS 修复该系统渲染问题，只需重新验证
+设备上的启动日志和 RenderThread 稳定性，再调整 `isXiaomiRenderNodeCrashRisk()` 的
+条件，不要直接删除回退路径。
+
 当前构建不读取 `CODEX_ANDROID_RUNTIME`，也不会把 Codex native binary 打入 APK。
 历史 runtime 输入、来源和指纹见 [P0.5 真机结果](P0_5_RESULT.md)，仅作为 P0/P0.5
 证据和开发诊断记录。

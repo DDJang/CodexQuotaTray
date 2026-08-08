@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import com.qmdeve.liquidglass.widget.LiquidGlassView
+import java.util.Locale
 import kotlin.math.min
 
 /**
@@ -29,7 +30,15 @@ internal class LiquidGlassSurfaceView(
     private val fallbackTint: Int = palette.surface,
 ) : FrameLayout(context) {
     private val density = resources.displayMetrics.density
-    private val fullGlassSupported = Build.VERSION.SDK_INT >= 33
+    /**
+     * HyperOS 3's RenderThread currently recurses through the RenderNode used
+     * by QmDeve's background blur and eventually overflows the RenderThread
+     * stack. Keep the native implementation enabled everywhere else, but use
+     * the same deterministic surface fallback on affected Xiaomi builds so a
+     * renderer bug cannot take down the whole activity.
+     */
+    private val fullGlassSupported =
+        Build.VERSION.SDK_INT >= 33 && !isXiaomiRenderNodeCrashRisk()
     private val glassView: LiquidGlassView? = if (fullGlassSupported) {
         LiquidGlassView(context)
     } else {
@@ -172,4 +181,12 @@ internal class LiquidGlassSurfaceView(
     }
 
     private fun dp(value: Float): Float = value * density
+
+    private fun isXiaomiRenderNodeCrashRisk(): Boolean {
+        if (Build.VERSION.SDK_INT < 35) return false
+        val manufacturer = Build.MANUFACTURER.lowercase(Locale.ROOT)
+        val brand = Build.BRAND.lowercase(Locale.ROOT)
+        return manufacturer == "xiaomi" || manufacturer == "redmi" ||
+            brand == "xiaomi" || brand == "redmi"
+    }
 }
