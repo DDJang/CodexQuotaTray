@@ -60,25 +60,25 @@ internal class AgslLiquidGlassView(
         isClickable = false
         isFocusable = false
         fallbackOuterPaint.color = Color.argb(
-            if (darkTheme) 50 else 122,
+            if (darkTheme) 34 else 58,
             Color.red(Color.WHITE),
             Color.green(Color.WHITE),
             Color.blue(Color.WHITE),
         )
         fallbackLensPaint.color = Color.argb(
-            if (darkTheme) 66 else 42,
+            if (darkTheme) 46 else 32,
             Color.red(palette.accent),
             Color.green(palette.accent),
             Color.blue(palette.accent),
         )
         fallbackOuterStroke.color = Color.argb(
-            if (darkTheme) 48 else 34,
+            if (darkTheme) 44 else 34,
             Color.red(palette.title),
             Color.green(palette.title),
             Color.blue(palette.title),
         )
         fallbackLensStroke.color = Color.argb(
-            if (darkTheme) 78 else 56,
+            if (darkTheme) 64 else 48,
             Color.red(palette.accent),
             Color.green(palette.accent),
             Color.blue(palette.accent),
@@ -215,7 +215,7 @@ internal class AgslLiquidGlassView(
     ) : Engine {
         private val outerRenderer = AgslGlassRenderer(palette)
         private val lensRenderer = AgslGlassRenderer(palette)
-        private val outerAlpha = if (darkTheme) 0.18f else 0.34f
+        private val outerAlpha = if (darkTheme) 0.12f else 0.16f
 
         override fun setBackdrop(shader: Shader) {
             outerRenderer.setBackdrop(shader)
@@ -246,6 +246,7 @@ internal class AgslLiquidGlassView(
                     radius = height / 2f,
                     displacementPx = 3f * density * (1f + stretch * 0.32f),
                     surfaceAlpha = outerAlpha,
+                    blurPx = 1.1f * density,
                 ),
             )
             lensRenderer.setGeometry(
@@ -259,7 +260,8 @@ internal class AgslLiquidGlassView(
                     halfHeight = innerHeight / 2f * (1f - stretch * 0.028f),
                     radius = innerHeight / 2f,
                     displacementPx = 7f * density * (1f + stretch * 0.32f),
-                    surfaceAlpha = 0.68f,
+                    surfaceAlpha = 0.26f,
+                    blurPx = 0.9f * density,
                 ),
             )
         }

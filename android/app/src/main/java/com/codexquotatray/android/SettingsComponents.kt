@@ -99,7 +99,20 @@ internal class GlassIconButton(
     override fun onDrawForeground(canvas: Canvas) {
         super.onDrawForeground(canvas)
         // The shared glass child is drawn before the foreground; keep the
-        // interactive arrow crisp above the refracted surface.
+        // pressed state and interactive arrow crisp above the refracted surface.
+        if (glassSurface != null && isPressed) {
+            val radius = min(width, height) / 2f
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = glassPressed
+                style = Paint.Style.FILL
+                canvas.drawRoundRect(
+                    RectF(0f, 0f, width.toFloat(), height.toFloat()),
+                    radius,
+                    radius,
+                    this,
+                )
+            }
+        }
         if (glassSurface != null && iconRes == 0) drawBackArrow(canvas)
     }
 
@@ -112,7 +125,8 @@ internal class GlassIconButton(
             halfHeight = height / 2f,
             radius = min(width, height) / 2f,
             displacementPx = dpFloat(2.5f),
-            surfaceAlpha = if (isDark(palette)) 0.76f else 0.84f,
+            surfaceAlpha = if (isDark(palette)) 0.26f else 0.34f,
+            blurPx = dpFloat(0.9f),
         )
     }
 
@@ -223,7 +237,7 @@ internal class GlassToggleView(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = resolveSize(dp(56), widthMeasureSpec)
-        val height = resolveSize(dp(34), heightMeasureSpec)
+        val height = resolveSize(dp(36), heightMeasureSpec)
         setMeasuredDimension(width, height)
     }
 
@@ -235,48 +249,43 @@ internal class GlassToggleView(
         val top = (height - trackHeight) / 2f
         val radius = trackHeight / 2f
         val track = RectF(left, top, left + trackWidth, top + trackHeight)
-        if (trackGlass == null) {
-            trackPaint.color = lerpColor(
-                withAlpha(palette.title, 42),
-                withAlpha(palette.accent, 198),
-                progress,
-            )
+        // Always draw a native base first. It keeps the control visible when
+        // AGSL or backdrop capture is unavailable on a vendor renderer; the
+        // shared glass children then add refraction and rim detail on top.
+        trackPaint.color = lerpColor(
+            withAlpha(palette.title, 34),
+            withAlpha(palette.accent, 132),
+            progress,
+        )
+        canvas.drawRoundRect(track, radius, radius, trackPaint)
+        strokePaint.strokeWidth = dpFloat(1f)
+        strokePaint.color = lerpColor(
+            withAlpha(palette.title, 70),
+            withAlpha(Color.WHITE, 112),
+            progress,
+        )
+        canvas.drawRoundRect(track, radius, radius, strokePaint)
+        if (trackGlass != null) {
+            trackPaint.color = withAlpha(palette.accent, (14 + (progress * 24f)).toInt())
             canvas.drawRoundRect(track, radius, radius, trackPaint)
-            strokePaint.strokeWidth = dpFloat(1f)
-            strokePaint.color = lerpColor(
-                withAlpha(palette.title, 64),
-                withAlpha(Color.WHITE, 110),
-                progress,
-            )
-            canvas.drawRoundRect(track, radius, radius, strokePaint)
-        } else {
-            // A small tint overlay keeps the enabled state legible while the
-            // backdrop/refraction remains owned by the shared glass surface.
-            trackPaint.color = withAlpha(palette.accent, (28 + (progress * 42f)).toInt())
-            canvas.drawRoundRect(track, radius, radius, trackPaint)
-            strokePaint.strokeWidth = dpFloat(1f)
-            strokePaint.color = withAlpha(palette.title, 42)
-            canvas.drawRoundRect(track, radius, radius, strokePaint)
         }
 
         val thumbRadius = radius - dpFloat(3f)
         val travel = trackWidth - thumbRadius * 2f - dpFloat(6f)
         val centerX = left + thumbRadius + dpFloat(3f) + travel * progress
         val centerY = top + radius
-        if (thumbGlass == null) {
-            thumbPaint.shader = LinearGradient(
-                centerX - thumbRadius,
-                centerY - thumbRadius,
-                centerX + thumbRadius,
-                centerY + thumbRadius,
-                if (progress > 0.5f) Color.WHITE else withAlpha(palette.surface, 220),
-                if (progress > 0.5f) withAlpha(palette.surface, 220) else withAlpha(palette.title, 150),
-                Shader.TileMode.CLAMP,
-            )
-            thumbPaint.alpha = if (isPressed) 220 else 255
-            canvas.drawCircle(centerX, centerY, thumbRadius, thumbPaint)
-            thumbPaint.shader = null
-        }
+        thumbPaint.shader = LinearGradient(
+            centerX - thumbRadius,
+            centerY - thumbRadius,
+            centerX + thumbRadius,
+            centerY + thumbRadius,
+            if (progress > 0.5f) Color.WHITE else withAlpha(palette.surface, 210),
+            if (progress > 0.5f) withAlpha(palette.surface, 210) else withAlpha(palette.title, 140),
+            Shader.TileMode.CLAMP,
+        )
+        thumbPaint.alpha = if (isPressed) 210 else 238
+        canvas.drawCircle(centerX, centerY, thumbRadius, thumbPaint)
+        thumbPaint.shader = null
         updateGlassGeometry(trackWidth, trackHeight, centerX, centerY, thumbRadius)
     }
 
@@ -361,7 +370,8 @@ internal class GlassToggleView(
             halfHeight = measuredTrackHeight / 2f,
             radius = trackRadius,
             displacementPx = dpFloat(1.5f),
-            surfaceAlpha = if (isDark(palette)) 0.42f else 0.54f,
+            surfaceAlpha = if (isDark(palette)) 0.22f else 0.30f,
+            blurPx = dpFloat(0.7f),
         )
         thumbGlass?.setRoundedRect(
             centerX = centerX,
@@ -370,7 +380,8 @@ internal class GlassToggleView(
             halfHeight = thumbRadius,
             radius = thumbRadius,
             displacementPx = dpFloat(3f),
-            surfaceAlpha = if (progress > 0.5f) 0.86f else 0.76f,
+            surfaceAlpha = if (progress > 0.5f) 0.40f else 0.34f,
+            blurPx = dpFloat(0.7f),
         )
     }
 
@@ -418,14 +429,13 @@ internal class SettingsGroupCard(
         }
     }
 
-    fun addItem(view: View, dividerAfter: Boolean = true) {
-        if (childCount > 0) addDivider()
+    fun addItem(view: View, dividerBefore: Boolean = childCount > 0) {
+        if (dividerBefore && childCount > 0) addDivider()
         addView(view, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        if (!dividerAfter) return
     }
 
-    fun addContent(view: View, bottomMargin: Int = 0) {
-        if (childCount > 0) addDivider()
+    fun addContent(view: View, bottomMargin: Int = 0, dividerBefore: Boolean = false) {
+        if (dividerBefore && childCount > 0) addDivider()
         addView(view, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
             if (bottomMargin > 0) this.bottomMargin = dp(bottomMargin)
         })
@@ -490,8 +500,16 @@ internal class SettingsRow(
         }
         addView(labels, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         trailing?.let {
-            it.minimumWidth = dp(52)
-            addView(it, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+            if (it is GlassToggleView) {
+                it.minimumWidth = dp(56)
+                it.minimumHeight = dp(36)
+                it.visibility = VISIBLE
+                it.alpha = 1f
+                addView(it, LayoutParams(dp(56), dp(36)))
+            } else {
+                it.minimumWidth = dp(52)
+                addView(it, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+            }
         }
         if (showChevron) {
             addView(TextView(context).apply {
@@ -553,7 +571,7 @@ internal class GlassActionButton(
         gravity = Gravity.CENTER
         textSize = 14f
         setTypeface(typeface, Typeface.BOLD)
-        minimumHeight = dp(48)
+        minimumHeight = dp(50)
         setPadding(dp(16), dp(10), dp(16), dp(10))
         setTextColor(if (danger) palette.error else palette.secondaryButtonText)
         setOnTouchListener { _, event ->
@@ -567,7 +585,7 @@ internal class GlassActionButton(
     }
 
     override fun onDraw(canvas: Canvas) {
-        val radius = dpFloat(18f)
+        val radius = dpFloat(17f)
         val fill = if (isPressed) {
             withAlpha(if (danger) palette.error else palette.accent, if (danger) 34 else 36)
         } else {

@@ -35,7 +35,7 @@ internal class GlassSurfaceView(
     private var capture: Bitmap? = null
     private var captureCanvas: Canvas? = null
     private var hasBackdrop = false
-    private var geometry = GlassGeometry(0f, 0f, 0f, 0f, 0f, 0f, 0f)
+    private var geometry = GlassGeometry(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f)
     private var captureExclusion: View? = null
     private var renderer: AgslGlassRenderer? = if (Build.VERSION.SDK_INT >= 33) {
         runCatching { AgslGlassRenderer(palette, tintColor = fallbackTint) }.getOrNull()
@@ -51,7 +51,7 @@ internal class GlassSurfaceView(
         isClickable = false
         isFocusable = false
         fallbackFill.color = Color.argb(
-            if (darkTheme) 116 else 148,
+            if (darkTheme) 82 else 102,
             Color.red(fallbackTint),
             Color.green(fallbackTint),
             Color.blue(fallbackTint),
@@ -82,6 +82,7 @@ internal class GlassSurfaceView(
         radius: Float,
         displacementPx: Float,
         surfaceAlpha: Float,
+        blurPx: Float = 0f,
     ) = setGeometry(
         GlassGeometry(
             centerX,
@@ -91,6 +92,7 @@ internal class GlassSurfaceView(
             radius,
             displacementPx,
             surfaceAlpha,
+            blurPx,
         ),
     )
 

@@ -153,7 +153,7 @@ class SettingsActivity : Activity() {
 
         content.addView(settingsSectionLabel(this, palette, "账户与同步"), marginParams(bottom = 8))
         val accountAndSync = SettingsGroupCard(this, palette)
-        accountAndSync.addItem(accountRow(), dividerAfter = false)
+        accountAndSync.addItem(accountRow(), dividerBefore = false)
         accountAndSync.addContent(tokenSyncSection())
         content.addView(accountAndSync, marginParams(bottom = 24))
 
@@ -235,7 +235,9 @@ class SettingsActivity : Activity() {
             setTextColor(palette.body)
         }
         refreshIntervalSpinner = Spinner(this).apply {
-            backgroundTintList = android.content.res.ColorStateList.valueOf(palette.secondary)
+            background = ColorDrawable(Color.TRANSPARENT)
+            backgroundTintList = null
+            minimumHeight = dp(50)
             setPadding(dp(8), dp(4), dp(4), dp(4))
         }
         val intervalLabels = listOf("每 15 分钟", "每 30 分钟", "每 1 小时")
@@ -262,14 +264,15 @@ class SettingsActivity : Activity() {
         val intervalRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(10), dp(12), dp(10))
+            minimumHeight = dp(52)
+            setPadding(dp(16), dp(8), dp(12), dp(8))
             addView(
                 refreshIntervalLabel,
                 LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
             )
             addView(
                 refreshIntervalSpinner,
-                LinearLayout.LayoutParams(dp(150), LinearLayout.LayoutParams.WRAP_CONTENT),
+                LinearLayout.LayoutParams(dp(150), dp(50)),
             )
         }
         intervalRow.background = rowBackground(palette)
@@ -300,7 +303,7 @@ class SettingsActivity : Activity() {
         content.addView(settingsSectionLabel(this, palette, "诊断与关于"), marginParams(bottom = 8))
         val diagnosticsGroup = SettingsGroupCard(this, palette)
         diagnosticsGroup.addItem(logRow())
-        diagnosticsGroup.addItem(aboutRow(), dividerAfter = false)
+        diagnosticsGroup.addItem(aboutRow(), dividerBefore = false)
         content.addView(diagnosticsGroup)
 
         ViewCompat.setOnApplyWindowInsetsListener(settingsRoot) { _, insets ->
@@ -515,7 +518,16 @@ class SettingsActivity : Activity() {
         } else {
             android.graphics.Color.argb(34, 0, 0, 0)
         })
-        cornerRadius = dp(18).toFloat()
+        setStroke(
+            dp(1),
+            Color.argb(
+                if (Color.luminance(palette.background) < 0.35f) 42 else 30,
+                Color.red(palette.title),
+                Color.green(palette.title),
+                Color.blue(palette.title),
+            ),
+        )
+        cornerRadius = dp(17).toFloat()
     }
 
     private fun inputBackground(): GradientDrawable = GradientDrawable().apply {

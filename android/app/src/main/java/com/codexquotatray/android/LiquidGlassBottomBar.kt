@@ -25,10 +25,15 @@ internal class LiquidGlassBottomBar(
     private val backdropHost: ViewGroup,
     private val palette: ThemePalette,
     private val onTabSelected: (MainTab) -> Unit,
+    private val onActionClick: () -> Unit,
 ) : FrameLayout(context) {
     private val barHeight = dp(68f).toInt()
     private val gestureSpacing = dp(10f).toInt()
     private val surfaceInset = dp(6f).toInt()
+    private val dockGap = dp(8f).toInt()
+    private val actionSize = dp(64f).toInt()
+    private val navMinWidth = dp(270f).toInt()
+    private val navMaxWidth = dp(292f).toInt()
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val surface = FrameLayout(context).apply {
         clipChildren = false
@@ -55,6 +60,22 @@ internal class LiquidGlassBottomBar(
     private val usageIcon = usageTab.getChildAt(0) as ImageView
     private val quotaLabel = quotaTab.getChildAt(1) as TextView
     private val usageLabel = usageTab.getChildAt(1) as TextView
+    private val dockRow = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        clipChildren = false
+        clipToPadding = false
+    }
+    private val actionButton = GlassIconButton(
+        context = context,
+        palette = palette,
+        iconRes = R.drawable.ic_refresh,
+        description = "刷新",
+        backdropHost = backdropHost,
+    ).apply {
+        setOnClickListener { onActionClick() }
+        layoutParams = LinearLayout.LayoutParams(actionSize, actionSize)
+    }
 
     private var selectedTab = MainTab.QUOTA
     private var lensProgress = 0f
@@ -100,8 +121,18 @@ internal class LiquidGlassBottomBar(
             gestureLayer,
             FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
         )
-        addView(surface, FrameLayout.LayoutParams(dp(340f).toInt(), barHeight))
+        dockRow.addView(surface, LinearLayout.LayoutParams(navMaxWidth, barHeight))
+        dockRow.addView(actionButton, LinearLayout.LayoutParams(actionSize, actionSize).apply {
+            leftMargin = dockGap
+        })
+        addView(dockRow, FrameLayout.LayoutParams(
+            LayoutParams.MATCH_PARENT,
+            barHeight,
+            Gravity.TOP or Gravity.CENTER_HORIZONTAL,
+        ))
         applyTabVisuals()
+        updateActionDescription()
+        setActionState(enabled = false, busy = false)
         renderer.setLensProgress(0f, 0f)
         post {
             updateSurfaceGeometry()
@@ -156,6 +187,7 @@ internal class LiquidGlassBottomBar(
 
     fun setSelectedTab(tab: MainTab, animate: Boolean) {
         selectedTab = tab
+        updateActionDescription()
         applyTabVisuals()
         val target = targetProgress(tab)
         if (!animate || width == 0 || height == 0) {
@@ -280,22 +312,35 @@ internal class LiquidGlassBottomBar(
 
     private fun targetProgress(tab: MainTab): Float = if (tab == MainTab.USAGE) 1f else 0f
 
+    fun setActionState(enabled: Boolean, busy: Boolean) {
+        actionButton.isEnabled = enabled
+        actionButton.alpha = if (enabled) 1f else 0.48f
+        actionButton.contentDescription = when {
+            busy && selectedTab == MainTab.QUOTA -> "正在刷新额度"
+            busy -> "正在同步 Token 使用量"
+            selectedTab == MainTab.QUOTA -> "刷新额度"
+            else -> "同步 Token 使用量"
+        }
+    }
+
+    private fun updateActionDescription() {
+        actionButton.contentDescription = if (selectedTab == MainTab.QUOTA) "刷新额度" else "同步 Token 使用量"
+    }
+
     private fun updateSurfaceGeometry() {
         if (width <= 0) return
-        val available = (width - dp(48f).toInt()).coerceAtLeast(dp(200f).toInt())
-        val surfaceWidth = min(dp(340f).toInt(), available)
-        val surfaceParams = surface.layoutParams as? FrameLayout.LayoutParams
-            ?: FrameLayout.LayoutParams(surfaceWidth, barHeight)
+        val availableForNav = width - actionSize - dockGap - dp(20f).toInt()
+        val surfaceWidth = min(navMaxWidth, availableForNav.coerceAtLeast(navMinWidth))
+        val surfaceParams = surface.layoutParams as? LinearLayout.LayoutParams
+            ?: LinearLayout.LayoutParams(surfaceWidth, barHeight)
         surfaceParams.width = surfaceWidth
         surfaceParams.height = barHeight
-        surfaceParams.gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-        surfaceParams.topMargin = 0
         surface.layoutParams = surfaceParams
         renderer.setLensProgress(lensProgress, 0f)
     }
 
     private fun lensTravel(): Int {
-        val innerWidth = ((surface.layoutParams as? FrameLayout.LayoutParams)?.width ?: width) -
+        val innerWidth = ((surface.layoutParams as? LinearLayout.LayoutParams)?.width ?: width) -
             surfaceInset * 2
         return innerWidth.coerceAtLeast(0) / 2
     }

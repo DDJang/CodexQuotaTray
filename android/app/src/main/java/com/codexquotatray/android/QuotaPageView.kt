@@ -61,6 +61,7 @@ internal class QuotaPageView(private val host: MainActivity) : LinearLayout(host
     private var lastKnownAuthenticated: Boolean? = null
     private var refreshReceiverRegistered = false
     private var initialized = false
+    private var refreshStateListener: ((enabled: Boolean, busy: Boolean) -> Unit)? = null
 
     private val refreshReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -73,7 +74,6 @@ internal class QuotaPageView(private val host: MainActivity) : LinearLayout(host
     private lateinit var statusView: TextView
     private lateinit var windowsContainer: LinearLayout
     private lateinit var updatedView: TextView
-    private lateinit var refreshButton: Button
     private lateinit var loginButton: Button
 
     init {
@@ -149,6 +149,17 @@ internal class QuotaPageView(private val host: MainActivity) : LinearLayout(host
         worker.shutdownNow()
     }
 
+    fun setRefreshStateListener(listener: ((enabled: Boolean, busy: Boolean) -> Unit)?) {
+        refreshStateListener = listener
+        publishRefreshState()
+    }
+
+    fun requestRefresh() {
+        if (canRequestRefresh()) refresh()
+    }
+
+    fun canRequestRefresh(): Boolean = !busy && OAuthStore(host).load() != null
+
     /** Keeps the action row above the edge-to-edge bottom navigation overlay. */
     fun setBottomSafePadding(bottom: Int) {
         setPadding(paddingLeft, paddingTop, paddingRight, bottom.coerceAtLeast(0))
@@ -195,18 +206,15 @@ internal class QuotaPageView(private val host: MainActivity) : LinearLayout(host
             ),
         )
 
-        val actions = LinearLayout(host).apply { orientation = LinearLayout.HORIZONTAL }
-        refreshButton = button("刷新", primary = true) { refresh() }
         loginButton = button("登录 Codex", primary = false) { openLogin() }
-        actions.addView(refreshButton, weightParams())
-        actions.addView(loginButton, weightParams(left = 8))
-        root.addView(actions, marginParams(top = 8))
+        root.addView(loginButton, marginParams(top = 8))
         return root
     }
 
     private fun refresh() {
         if (busy) return
         busy = true
+        publishRefreshState()
         val previous = lastSuccessfulModel
         render(quotaLoadingUiModel(previous))
         worker.execute {
@@ -245,6 +253,7 @@ internal class QuotaPageView(private val host: MainActivity) : LinearLayout(host
                     },
                 )
                 render(model)
+                publishRefreshState()
             }
         }
     }
@@ -310,11 +319,13 @@ internal class QuotaPageView(private val host: MainActivity) : LinearLayout(host
             model.windows.forEach { windowsContainer.addView(windowCard(it)) }
         }
         updatedView.text = model.updatedAtMillis?.let { "更新于 ${formatTime(it)}" } ?: "尚未更新"
-        refreshButton.text = if (busy) "刷新中…" else "刷新"
-        refreshButton.isEnabled = !busy
-        refreshButton.visibility = if (unauthenticated) GONE else VISIBLE
         loginButton.visibility = if (unauthenticated) VISIBLE else GONE
         loginButton.isEnabled = !busy
+        publishRefreshState()
+    }
+
+    private fun publishRefreshState() {
+        refreshStateListener?.invoke(canRequestRefresh(), busy)
     }
 
     private fun windowCard(window: QuotaCardModel): View = LinearLayout(host).apply {

@@ -3,15 +3,13 @@ package com.codexquotatray.android
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.ApplicationInfo
-import android.content.res.ColorStateList
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.util.Log
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.view.ViewCompat
@@ -25,6 +23,10 @@ class MainActivity : Activity() {
     private lateinit var pageContainer: FrameLayout
     private lateinit var bottomBar: LiquidGlassBottomBar
     private lateinit var headerView: LinearLayout
+    private var quotaActionEnabled = false
+    private var quotaActionBusy = false
+    private var usageActionEnabled = false
+    private var usageActionBusy = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -94,7 +96,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(palette.background)
         }
-        headerView = buildHeader()
+        headerView = buildHeader(content)
         content.addView(headerView, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -105,6 +107,16 @@ class MainActivity : Activity() {
         }
         quotaPage = QuotaPageView(this)
         tokenUsagePage = TokenUsagePageView(this)
+        quotaPage.setRefreshStateListener { enabled, busy ->
+            quotaActionEnabled = enabled
+            quotaActionBusy = busy
+            if (::bottomBar.isInitialized) updateBottomAction()
+        }
+        tokenUsagePage.setSyncStateListener { enabled, busy ->
+            usageActionEnabled = enabled
+            usageActionBusy = busy
+            if (::bottomBar.isInitialized) updateBottomAction()
+        }
         pageContainer.addView(quotaPage, pageLayoutParams())
         pageContainer.addView(tokenUsagePage, pageLayoutParams())
         content.addView(pageContainer, LinearLayout.LayoutParams(
@@ -117,7 +129,13 @@ class MainActivity : Activity() {
             LinearLayout.LayoutParams.MATCH_PARENT,
             LinearLayout.LayoutParams.MATCH_PARENT,
         ))
-        bottomBar = LiquidGlassBottomBar(this, content, palette) { tab -> selectTab(tab) }
+        bottomBar = LiquidGlassBottomBar(
+            context = this,
+            backdropHost = content,
+            palette = palette,
+            onTabSelected = { tab -> selectTab(tab) },
+            onActionClick = { dispatchBottomAction() },
+        )
         root.addView(bottomBar, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             bottomBar.requiredHeight(0),
@@ -149,7 +167,7 @@ class MainActivity : Activity() {
     private val headerBasePaddingTop by lazy { dp(14) }
     private val headerBasePaddingBottom by lazy { dp(10) }
 
-    private fun buildHeader(): LinearLayout = LinearLayout(this).apply {
+    private fun buildHeader(backdropHost: ViewGroup): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(20), headerBasePaddingTop, dp(20), headerBasePaddingBottom)
@@ -160,7 +178,7 @@ class MainActivity : Activity() {
             },
             LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
         )
-        addView(settingsButton())
+        addView(settingsButton(backdropHost))
     }
 
     private fun selectTab(tab: MainTab) {
@@ -174,22 +192,38 @@ class MainActivity : Activity() {
             tokenUsagePage.onHidden()
         }
         bottomBar.setSelectedTab(tab, animate = previousTab != tab)
+        updateBottomAction()
     }
 
-    private fun settingsButton(): ImageButton = ImageButton(this).apply {
-        contentDescription = "设置"
-        setImageResource(R.drawable.ic_settings)
-        imageTintList = ColorStateList.valueOf(palette.secondaryButtonText)
-        setPadding(dp(11), dp(11), dp(11), dp(11))
-        background = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-            setColor(palette.surface)
-            setStroke(dp(1), palette.border)
-        }
+    private fun settingsButton(backdropHost: ViewGroup): GlassIconButton = GlassIconButton(
+        context = this,
+        palette = palette,
+        iconRes = R.drawable.ic_settings,
+        description = "设置",
+        backdropHost = backdropHost,
+    ).apply {
         setOnClickListener {
             startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
         }
         layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+    }
+
+    private fun dispatchBottomAction() {
+        if (tabState.selectedTab == MainTab.QUOTA) {
+            if (quotaActionEnabled && !quotaActionBusy) quotaPage.requestRefresh()
+        } else if (usageActionEnabled && !usageActionBusy) {
+            tokenUsagePage.requestSync()
+        }
+        updateBottomAction()
+    }
+
+    private fun updateBottomAction() {
+        if (!::bottomBar.isInitialized) return
+        if (tabState.selectedTab == MainTab.QUOTA) {
+            bottomBar.setActionState(quotaActionEnabled, quotaActionBusy)
+        } else {
+            bottomBar.setActionState(usageActionEnabled, usageActionBusy)
+        }
     }
 
     private fun pageLayoutParams(): FrameLayout.LayoutParams = FrameLayout.LayoutParams(

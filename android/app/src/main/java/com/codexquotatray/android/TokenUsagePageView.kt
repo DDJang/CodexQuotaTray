@@ -45,6 +45,7 @@ internal class TokenUsagePageView(private val host: MainActivity) : FrameLayout(
     private var visible = false
     private var destroyed = false
     private var lastSnapshot: TokenUsageSnapshot? = null
+    private var syncStateListener: ((enabled: Boolean, busy: Boolean) -> Unit)? = null
 
     private lateinit var status: TextView
     private lateinit var emptyState: LinearLayout
@@ -53,7 +54,6 @@ internal class TokenUsagePageView(private val host: MainActivity) : FrameLayout(
     private lateinit var selectedDay: TextView
     private lateinit var heatmapHost: LinearLayout
     private lateinit var heatmapScroll: HorizontalScrollView
-    private lateinit var syncButton: Button
 
     init {
         setBackgroundColor(palette.background)
@@ -72,6 +72,7 @@ internal class TokenUsagePageView(private val host: MainActivity) : FrameLayout(
         pairingKey = nextKey
         if (tokenUsagePageMode(pairing != null) == TokenUsagePageMode.EMPTY_UNPAIRED) {
             renderEmptyState()
+            publishSyncState()
             return
         }
 
@@ -80,6 +81,7 @@ internal class TokenUsagePageView(private val host: MainActivity) : FrameLayout(
             lastSnapshot = it
             render(it, "上次同步于 ${formatSyncTime(it.generatedAtUtc)}")
         } ?: run { status.text = "暂无 Token 使用量缓存" }
+        publishSyncState()
         sync(pairing)
     }
 
@@ -95,6 +97,17 @@ internal class TokenUsagePageView(private val host: MainActivity) : FrameLayout(
         destroyed = true
         worker.shutdownNow()
     }
+
+    fun setSyncStateListener(listener: ((enabled: Boolean, busy: Boolean) -> Unit)?) {
+        syncStateListener = listener
+        publishSyncState()
+    }
+
+    fun requestSync() {
+        if (canRequestSync()) sync(pairingStore.load())
+    }
+
+    fun canRequestSync(): Boolean = !syncing && pairingStore.load() != null
 
     /** Keeps the scroll content above the edge-to-edge bottom navigation overlay. */
     fun setBottomSafePadding(bottom: Int) {
@@ -151,8 +164,6 @@ internal class TokenUsagePageView(private val host: MainActivity) : FrameLayout(
             addView(heatmapHost)
         }
         dataContainer.addView(heatmapScroll, margins(bottom = 16))
-        syncButton = actionButton("同步") { sync(pairingStore.load()) }
-        dataContainer.addView(syncButton)
         content.addView(dataContainer)
 
         return ScrollView(host).apply {
@@ -175,14 +186,14 @@ internal class TokenUsagePageView(private val host: MainActivity) : FrameLayout(
     private fun sync(pairing: com.codexquotatray.android.usage.TokenSyncPairing?) {
         if (pairing == null || syncing || destroyed) return
         syncing = true
-        syncButton.isEnabled = false
+        publishSyncState()
         status.text = if (lastSnapshot == null) "正在从 Windows 同步…" else "正在同步；当前显示缓存"
         worker.execute {
             val result = runCatching { TokenUsageSyncClient(host).sync(pairing) }
             main.post {
                 if (destroyed) return@post
                 syncing = false
-                syncButton.isEnabled = true
+                publishSyncState()
                 result.onSuccess { synced ->
                     val snapshot = synced.snapshot
                     pairingStore.save(TokenSyncEndpoint.markSynced(synced.pairing, snapshot))
@@ -196,6 +207,10 @@ internal class TokenUsagePageView(private val host: MainActivity) : FrameLayout(
                 }
             }
         }
+    }
+
+    private fun publishSyncState() {
+        syncStateListener?.invoke(canRequestSync(), syncing)
     }
 
     private fun render(snapshot: TokenUsageSnapshot, statusText: String) {

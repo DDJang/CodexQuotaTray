@@ -16,6 +16,7 @@ internal data class GlassGeometry(
     val radius: Float,
     val displacementPx: Float,
     val surfaceAlpha: Float,
+    val blurPx: Float = 0f,
 )
 
 /**
@@ -52,6 +53,7 @@ internal class AgslGlassRenderer(
         shader.setFloatUniform("overscan", overscan)
         shader.setFloatUniform("displacementPx", geometry.displacementPx)
         shader.setFloatUniform("surfaceAlpha", geometry.surfaceAlpha)
+        shader.setFloatUniform("blurPx", geometry.blurPx)
         shader.setFloatUniform("tint", tintR, tintG, tintB)
         shader.setFloatUniform("accent", accentR, accentG, accentB)
     }
@@ -73,6 +75,7 @@ private const val AGSL_GLASS_SHADER_SOURCE = """
     uniform float overscan;
     uniform float displacementPx;
     uniform float surfaceAlpha;
+    uniform float blurPx;
     uniform vec3 tint;
     uniform vec3 accent;
 
@@ -102,21 +105,33 @@ private const val AGSL_GLASS_SHADER_SOURCE = """
         vec2 uv = clamp(samplePoint + vec2(overscan, overscan),
             vec2(0.0, 0.0), resolution - vec2(1.0, 1.0));
 
-        vec4 base = content.eval(uv);
-        float chroma = 0.18;
+        // Five low-cost taps soften the captured backdrop without introducing
+        // a second compositor surface. Keep the blur small so text underneath
+        // remains readable while the material gets a subtle depth cue.
+        float blur = clamp(blurPx, 0.0, 4.0);
+        vec2 maxUv = resolution - vec2(1.0, 1.0);
+        vec4 base = content.eval(uv) * 0.50;
+        base += content.eval(clamp(uv + vec2(blur, 0.0), vec2(0.0), maxUv)) * 0.125;
+        base += content.eval(clamp(uv - vec2(blur, 0.0), vec2(0.0), maxUv)) * 0.125;
+        base += content.eval(clamp(uv + vec2(0.0, blur), vec2(0.0), maxUv)) * 0.125;
+        base += content.eval(clamp(uv - vec2(0.0, blur), vec2(0.0), maxUv)) * 0.125;
+        float chroma = 0.16;
         vec4 redSample = content.eval(clamp(uv + vec2(chroma, 0.0),
-            vec2(0.0, 0.0), resolution - vec2(1.0, 1.0)));
+            vec2(0.0), maxUv));
         vec4 blueSample = content.eval(clamp(uv - vec2(chroma, 0.0),
-            vec2(0.0, 0.0), resolution - vec2(1.0, 1.0)));
+            vec2(0.0), maxUv));
         vec3 refracted = vec3(redSample.r, base.g, blueSample.b);
 
-        float edge = 1.0 - smoothstep(-2.0, 3.0, sdfDistance);
-        float fresnel = pow(clamp(1.0 - inner, 0.0, 1.0), 2.0);
+        float outerRim = 1.0 - smoothstep(-1.4, 2.8, sdfDistance);
+        float innerRim = smoothstep(-shapeRadius * 0.22, -0.6, sdfDistance)
+            * (1.0 - smoothstep(-0.6, 1.6, sdfDistance));
+        float fresnel = pow(clamp(1.0 - inner, 0.0, 1.0), 1.35);
         vec2 lightDirection = normalize(vec2(-0.42, -0.86));
-        float specular = pow(max(dot(normal, lightDirection), 0.0), 72.0);
-        vec3 color = mix(refracted, refracted * 1.025 + tint * 0.16, 0.22);
-        color += accent * (fresnel * 0.08);
-        color += vec3(1.0, 1.0, 1.0) * (specular * 0.12 + edge * 0.035);
+        float softGlare = pow(max(dot(normal, lightDirection), 0.0), 8.0) * 0.042;
+        vec3 color = mix(refracted, refracted * 1.012 + tint * 0.08, 0.20);
+        color += accent * (fresnel * 0.045);
+        color += vec3(1.0, 1.0, 1.0) * (softGlare + outerRim * 0.040 + innerRim * 0.016);
+        color -= tint * (innerRim * 0.008);
         float opacity = mask * surfaceAlpha;
         return vec4(clamp(color, vec3(0.0), vec3(1.0)) * opacity, opacity);
     }
