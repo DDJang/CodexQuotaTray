@@ -19,7 +19,6 @@ import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -47,12 +46,12 @@ class SettingsActivity : Activity() {
     private val themeSettingsStore by lazy { ThemeSettingsStore(this) }
     private var updating = false
 
-    private lateinit var lowQuotaSwitch: GlassToggleView
-    private lateinit var resetSwitch: GlassToggleView
-    private lateinit var notificationSwitch: GlassToggleView
+    private lateinit var lowQuotaSwitch: LiquidGlassToggleView
+    private lateinit var resetSwitch: LiquidGlassToggleView
+    private lateinit var notificationSwitch: LiquidGlassToggleView
     private lateinit var notificationStatus: TextView
     private lateinit var notificationTestButton: GlassActionButton
-    private lateinit var backgroundRefreshSwitch: GlassToggleView
+    private lateinit var backgroundRefreshSwitch: LiquidGlassToggleView
     private lateinit var refreshIntervalLabel: TextView
     private lateinit var refreshIntervalSpinner: Spinner
     private lateinit var systemThemeOption: TextView
@@ -67,11 +66,10 @@ class SettingsActivity : Activity() {
     private lateinit var tokenSyncManualContainer: LinearLayout
     private lateinit var tokenSyncPairedActions: LinearLayout
     private lateinit var settingsRoot: FrameLayout
-    private lateinit var settingsScroll: ScrollView
+    private lateinit var settingsScroll: LiquidGlassBackdropScrollView
     private lateinit var settingsHeader: FrameLayout
     private lateinit var settingsHeaderOverlay: FrameLayout
     private lateinit var settingsHeaderFade: View
-    private lateinit var settingsGlassBackdrop: BlurTarget
     private val settingsHeaderBasePaddingTop = 0
     private val settingsHeaderBasePaddingBottom = 0
     private val pairingWorker = Executors.newSingleThreadExecutor()
@@ -105,13 +103,12 @@ class SettingsActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(18), dp(20), dp(28))
         }
-        settingsScroll = ScrollView(this).apply {
+        settingsScroll = LiquidGlassBackdropScrollView(this).apply {
             isFillViewport = true
             clipToPadding = false
             addView(content)
         }
         val blurTarget = BlurTarget(this)
-        settingsGlassBackdrop = blurTarget
         blurTarget.addView(settingsScroll, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -501,8 +498,8 @@ class SettingsActivity : Activity() {
         )
     }
 
-    private fun glassToggle(label: String, onChanged: (Boolean) -> Unit): GlassToggleView =
-        GlassToggleView(this, palette, settingsGlassBackdrop).apply {
+    private fun glassToggle(label: String, onChanged: (Boolean) -> Unit): LiquidGlassToggleView =
+        LiquidGlassToggleView(this, palette, settingsScroll).apply {
             contentDescription = label
             setOnCheckedChangeListener { _, checked -> onChanged(checked) }
         }
@@ -769,12 +766,12 @@ class SettingsActivity : Activity() {
         setOnClickListener { action() }
     }
 
-    private fun backButton(): GlassIconButton = GlassIconButton(
+    private fun backButton(): LiquidGlassIconButton = LiquidGlassIconButton(
         this,
         palette,
         0,
         "返回",
-        settingsRoot,
+        settingsScroll,
     ).apply { setOnClickListener { finish() } }
 
     private fun textView(text: String, size: Float, style: Int): TextView = TextView(this).apply {

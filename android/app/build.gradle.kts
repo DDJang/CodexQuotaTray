@@ -84,7 +84,23 @@ android {
     }
 }
 
+// Keep the repository's Kotlin 2.0.21 compiler/runtime boundary intact. Some
+// AndroidX metadata in the local repository advertises a newer stdlib, while
+// the app and the Liquid Glass Java-compatible API do not need it.
+configurations.configureEach {
+    resolutionStrategy.force(
+        "org.jetbrains.kotlin:kotlin-stdlib:2.0.21",
+        "org.jetbrains.kotlin:kotlin-stdlib-common:2.0.21",
+    )
+}
+
 dependencies {
+    implementation("com.qmdeve.liquidglass:core:1.0.5") {
+        // The library is compiled with Kotlin 2.2.x. Keep the app's existing
+        // Kotlin 2.0.21 runtime/toolchain; the public Java-compatible API does
+        // not require the newer stdlib at runtime.
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.github.Dimezis:BlurView:version-3.2.0")

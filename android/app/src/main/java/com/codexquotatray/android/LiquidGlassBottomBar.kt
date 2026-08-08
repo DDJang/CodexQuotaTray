@@ -19,7 +19,7 @@ import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.sqrt
 
-/** Edge-to-edge bottom navigation with an AGSL/fallback liquid-glass renderer. */
+/** Edge-to-edge bottom dock built from the official LiquidGlassView surfaces. */
 internal class LiquidGlassBottomBar(
     context: Context,
     private val backdropHost: ViewGroup,
@@ -40,13 +40,39 @@ internal class LiquidGlassBottomBar(
         clipToPadding = false
         setBackgroundColor(Color.TRANSPARENT)
     }
-    private val renderer = AgslLiquidGlassView(
+    private val outerGlass = LiquidGlassSurfaceView(
         context = context,
         backdropHost = backdropHost,
         palette = palette,
-        insetPx = surfaceInset.toFloat(),
         darkTheme = isDarkTheme(),
-    )
+        fallbackTint = palette.surface,
+    ).apply {
+        configure(
+            radiusPx = barHeight / 2f,
+            refractionHeightPx = dp(34f),
+            refractionOffsetPx = dp(48f),
+            tintAlpha = if (isDarkTheme()) 0.16f else 0.22f,
+            dispersion = 0.18f,
+            blurRadiusPx = dp(1.6f),
+        )
+    }
+    private val lensGlass = LiquidGlassSurfaceView(
+        context = context,
+        backdropHost = backdropHost,
+        palette = palette,
+        darkTheme = isDarkTheme(),
+        fallbackTint = palette.accent,
+    ).apply {
+        configure(
+            radiusPx = (barHeight - surfaceInset * 2) / 2f,
+            refractionHeightPx = dp(28f),
+            refractionOffsetPx = dp(46f),
+            tintAlpha = if (isDarkTheme()) 0.30f else 0.34f,
+            dispersion = 0.28f,
+            blurRadiusPx = dp(1.3f),
+            elastic = true,
+        )
+    }
     private val tabRow = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER
@@ -66,7 +92,7 @@ internal class LiquidGlassBottomBar(
         clipChildren = false
         clipToPadding = false
     }
-    private val actionButton = GlassIconButton(
+    private val actionButton = LiquidGlassIconButton(
         context = context,
         palette = palette,
         iconRes = R.drawable.ic_refresh,
@@ -85,17 +111,8 @@ internal class LiquidGlassBottomBar(
     private var downX = 0f
     private var downProgress = 0f
     private var dragging = false
-    private var lastBackdropRefreshNanos = 0L
-    private var backdropRefreshPosted = false
-    private var scrollListener: ViewTreeObserverScrollListener? = null
-    private val layoutChangeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-        scheduleBackdropRefresh()
-    }
-    /**
-     * A single transparent gesture target owns the complete touch sequence.
-     * The tab labels underneath are visual/accessibility-only and never compete
-     * with the drag recognizer on vendor touch dispatchers.
-     */
+
+    /** A single transparent target owns the complete drag/tap sequence. */
     private val gestureLayer = View(context).apply {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         isClickable = true
@@ -108,9 +125,13 @@ internal class LiquidGlassBottomBar(
         setBackgroundColor(Color.TRANSPARENT)
 
         surface.addView(
-            renderer,
+            outerGlass,
             FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
         )
+        // The selected lens is a real, separately bound LiquidGlassView. It
+        // lives below labels so the labels remain crisp while the lens follows
+        // the spring/drag position directly.
+        surface.addView(lensGlass, FrameLayout.LayoutParams(1, 1))
         tabRow.addView(quotaTab, tabLayoutParams())
         tabRow.addView(usageTab, tabLayoutParams())
         surface.addView(
@@ -133,11 +154,7 @@ internal class LiquidGlassBottomBar(
         applyTabVisuals()
         updateActionDescription()
         setActionState(enabled = false, busy = false)
-        renderer.setLensProgress(0f, 0f)
-        post {
-            updateSurfaceGeometry()
-            refreshBackdrop()
-        }
+        post { updateSurfaceGeometry() }
     }
 
     fun requiredHeight(safeBottom: Int): Int = barHeight + gestureSpacing + safeBottom.coerceAtLeast(0)
@@ -155,34 +172,19 @@ internal class LiquidGlassBottomBar(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        scrollListener = ViewTreeObserverScrollListener { scheduleBackdropRefresh() }
-        scrollListener?.let { backdropHost.viewTreeObserver.addOnScrollChangedListener(it) }
-        backdropHost.addOnLayoutChangeListener(layoutChangeListener)
-        post {
-            updateSurfaceGeometry()
-            refreshBackdrop()
-        }
+        post { updateSurfaceGeometry() }
     }
 
     override fun onDetachedFromWindow() {
         progressSpring?.cancel()
         velocityTracker?.recycle()
         velocityTracker = null
-        scrollListener?.let { backdropHost.viewTreeObserver.removeOnScrollChangedListener(it) }
-        backdropHost.removeOnLayoutChangeListener(layoutChangeListener)
-        scrollListener = null
         super.onDetachedFromWindow()
     }
 
     override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
         super.onSizeChanged(width, height, oldWidth, oldHeight)
         updateSurfaceGeometry()
-        if (width > 0 && height > 0) post { refreshBackdrop() }
-    }
-
-    override fun onWindowVisibilityChanged(visibility: Int) {
-        super.onWindowVisibilityChanged(visibility)
-        if (visibility == View.VISIBLE) post { refreshBackdrop() }
     }
 
     fun setSelectedTab(tab: MainTab, animate: Boolean) {
@@ -207,7 +209,6 @@ internal class LiquidGlassBottomBar(
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
-
             MotionEvent.ACTION_MOVE -> {
                 velocityTracker?.addMovement(event)
                 if (!dragging && abs(event.x - downX) > touchSlop) {
@@ -222,20 +223,17 @@ internal class LiquidGlassBottomBar(
                 }
                 return true
             }
-
             MotionEvent.ACTION_UP -> {
                 velocityTracker?.addMovement(event)
                 if (dragging) {
                     velocityTracker?.computeCurrentVelocity(1000)
-                    val velocityX = velocityTracker?.xVelocity ?: 0f
-                    finishDrag(velocityX)
+                    finishDrag(velocityTracker?.xVelocity ?: 0f)
                 } else {
                     finishTap(event.x)
                 }
                 endTouch()
                 return true
             }
-
             MotionEvent.ACTION_CANCEL -> {
                 if (dragging) finishDrag(0f)
                 endTouch()
@@ -306,7 +304,7 @@ internal class LiquidGlassBottomBar(
 
     private fun updateProgress(value: Float, stretch: Float) {
         lensProgress = value.coerceIn(0f, 1f)
-        renderer.setLensProgress(lensProgress, stretch)
+        updateLensGeometry(stretch)
         applyTabVisuals()
     }
 
@@ -315,6 +313,7 @@ internal class LiquidGlassBottomBar(
     fun setActionState(enabled: Boolean, busy: Boolean) {
         actionButton.isEnabled = enabled
         actionButton.alpha = if (enabled) 1f else 0.48f
+        actionButton.setBusy(busy)
         actionButton.contentDescription = when {
             busy && selectedTab == MainTab.QUOTA -> "正在刷新额度"
             busy -> "正在同步 Token 使用量"
@@ -336,33 +335,34 @@ internal class LiquidGlassBottomBar(
         surfaceParams.width = surfaceWidth
         surfaceParams.height = barHeight
         surface.layoutParams = surfaceParams
-        renderer.setLensProgress(lensProgress, 0f)
+        updateLensGeometry(0f, surfaceWidth)
+    }
+
+    private fun updateLensGeometry(stretch: Float = 0f, surfaceWidth: Int? = null) {
+        val widthPx = surfaceWidth ?: surface.width
+        if (widthPx <= 0) return
+        val innerWidth = (widthPx - surfaceInset * 2).coerceAtLeast(2)
+        val lensWidth = (innerWidth / 2).coerceAtLeast(1)
+        val lensHeight = (barHeight - surfaceInset * 2).coerceAtLeast(1)
+        val params = lensGlass.layoutParams as? FrameLayout.LayoutParams
+            ?: FrameLayout.LayoutParams(lensWidth, lensHeight)
+        if (params.width != lensWidth || params.height != lensHeight ||
+            params.leftMargin != surfaceInset || params.topMargin != surfaceInset
+        ) {
+            params.width = lensWidth
+            params.height = lensHeight
+            params.leftMargin = surfaceInset
+            params.topMargin = surfaceInset
+            lensGlass.layoutParams = params
+        }
+        lensGlass.translationX = lensWidth * lensProgress
+        lensGlass.scaleX = 1f + stretch.coerceIn(0f, 1f) * 0.055f
+        lensGlass.scaleY = 1f - stretch.coerceIn(0f, 1f) * 0.028f
     }
 
     private fun lensTravel(): Int {
-        val innerWidth = ((surface.layoutParams as? LinearLayout.LayoutParams)?.width ?: width) -
-            surfaceInset * 2
-        return innerWidth.coerceAtLeast(0) / 2
-    }
-
-    private fun refreshBackdrop() {
-        backdropRefreshPosted = false
-        renderer.refreshBackdrop()
-        lastBackdropRefreshNanos = System.nanoTime()
-    }
-
-    private fun scheduleBackdropRefresh() {
-        val now = System.nanoTime()
-        val intervalNanos = 50_000_000L
-        if (now - lastBackdropRefreshNanos >= intervalNanos) {
-            refreshBackdrop()
-            return
-        }
-        if (backdropRefreshPosted) return
-        backdropRefreshPosted = true
-        val delayMillis = ((intervalNanos - (now - lastBackdropRefreshNanos)) / 1_000_000L)
-            .coerceAtLeast(1L)
-        postDelayed({ refreshBackdrop() }, delayMillis)
+        val surfaceWidth = (surface.layoutParams as? LinearLayout.LayoutParams)?.width ?: surface.width
+        return ((surfaceWidth - surfaceInset * 2).coerceAtLeast(0) / 2)
     }
 
     private fun tabItem(
@@ -422,12 +422,6 @@ internal class LiquidGlassBottomBar(
     private fun isDarkTheme(): Boolean = AppTheme.effectiveMode(context) == ThemeMode.DARK
 
     private fun dp(value: Float): Float = value * resources.displayMetrics.density
-
-    private class ViewTreeObserverScrollListener(
-        private val callback: () -> Unit,
-    ) : android.view.ViewTreeObserver.OnScrollChangedListener {
-        override fun onScrollChanged() = callback()
-    }
 
     /** Choreographer spring; no duration-based linear interpolation. */
     private class ProgressSpring(

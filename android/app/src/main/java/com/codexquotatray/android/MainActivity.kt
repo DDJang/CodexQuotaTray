@@ -92,7 +92,7 @@ class MainActivity : Activity() {
             clipChildren = false
         }
 
-        val content = LinearLayout(this).apply {
+        val content = LiquidGlassBackdropLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(palette.background)
         }
@@ -195,7 +195,7 @@ class MainActivity : Activity() {
         updateBottomAction()
     }
 
-    private fun settingsButton(backdropHost: ViewGroup): GlassIconButton = GlassIconButton(
+    private fun settingsButton(backdropHost: ViewGroup): LiquidGlassIconButton = LiquidGlassIconButton(
         context = this,
         palette = palette,
         iconRes = R.drawable.ic_settings,
