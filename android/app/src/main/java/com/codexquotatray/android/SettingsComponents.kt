@@ -15,6 +15,7 @@ import android.graphics.drawable.StateListDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -27,8 +28,18 @@ internal class GlassIconButton(
     private val palette: ThemePalette,
     private val iconRes: Int,
     description: String,
+    backdropHost: ViewGroup? = null,
 ) : FrameLayout(context) {
     private val density = resources.displayMetrics.density
+    private val glassSurface = backdropHost?.let {
+        GlassSurfaceView(
+            context = context,
+            backdropHost = it,
+            palette = palette,
+            darkTheme = isDark(palette),
+            fallbackTint = palette.surface,
+        )
+    }
     private val glassFill = withAlpha(palette.surface, if (isDark(palette)) 94 else 150)
     private val glassPressed = withAlpha(palette.accent, if (isDark(palette)) 72 else 48)
     private val glassStroke = withAlpha(palette.title, if (isDark(palette)) 58 else 42)
@@ -48,8 +59,14 @@ internal class GlassIconButton(
         contentDescription = description
         minimumWidth = dp(48)
         minimumHeight = dp(48)
+        glassSurface?.let {
+            addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            it.setCaptureExclusion(this)
+        }
         icon?.let { addView(it, LayoutParams(dp(24), dp(24), Gravity.CENTER)) }
-        setPadding(dp(9), dp(9), dp(9), dp(9))
+        // The reusable glass surface fills the button. The icon itself is
+        // already centered by FrameLayout and needs no extra inset.
+        setPadding(0, 0, 0, 0)
         setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> animate().scaleX(0.95f).scaleY(0.95f).setDuration(90).start()
@@ -62,6 +79,7 @@ internal class GlassIconButton(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+        if (glassSurface != null) return
         val radius = min(width, height) / 2f
         val fill = if (isPressed) glassPressed else glassFill
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = fill }
@@ -76,6 +94,26 @@ internal class GlassIconButton(
             paint,
         )
         if (iconRes == 0) drawBackArrow(canvas)
+    }
+
+    override fun onDrawForeground(canvas: Canvas) {
+        super.onDrawForeground(canvas)
+        // The shared glass child is drawn before the foreground; keep the
+        // interactive arrow crisp above the refracted surface.
+        if (glassSurface != null && iconRes == 0) drawBackArrow(canvas)
+    }
+
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        glassSurface?.setRoundedRect(
+            centerX = width / 2f,
+            centerY = height / 2f,
+            halfWidth = width / 2f,
+            halfHeight = height / 2f,
+            radius = min(width, height) / 2f,
+            displacementPx = dpFloat(2.5f),
+            surfaceAlpha = if (isDark(palette)) 0.76f else 0.84f,
+        )
     }
 
     override fun drawableStateChanged() {
@@ -121,11 +159,30 @@ internal class GlassIconButton(
 internal class GlassToggleView(
     context: Context,
     private val palette: ThemePalette,
-) : View(context) {
+    backdropHost: ViewGroup? = null,
+) : FrameLayout(context) {
     private val density = resources.displayMetrics.density
     private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val trackGlass = backdropHost?.let {
+        GlassSurfaceView(
+            context = context,
+            backdropHost = it,
+            palette = palette,
+            darkTheme = isDark(palette),
+            fallbackTint = palette.surface,
+        )
+    }
+    private val thumbGlass = backdropHost?.let {
+        GlassSurfaceView(
+            context = context,
+            backdropHost = it,
+            palette = palette,
+            darkTheme = isDark(palette),
+            fallbackTint = palette.surface,
+        )
+    }
     private var progress = 0f
     private var checkedValue = false
     private var animator: ValueAnimator? = null
@@ -141,6 +198,15 @@ internal class GlassToggleView(
         minimumWidth = dp(56)
         minimumHeight = dp(36)
         contentDescription = "开关"
+        clipChildren = false
+        trackGlass?.let {
+            addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            it.setCaptureExclusion(this)
+        }
+        thumbGlass?.let {
+            addView(it, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            it.setCaptureExclusion(this)
+        }
     }
 
     fun setOnCheckedChangeListener(callback: ((GlassToggleView, Boolean) -> Unit)?) {
@@ -169,36 +235,54 @@ internal class GlassToggleView(
         val top = (height - trackHeight) / 2f
         val radius = trackHeight / 2f
         val track = RectF(left, top, left + trackWidth, top + trackHeight)
-        trackPaint.color = lerpColor(
-            withAlpha(palette.title, 42),
-            withAlpha(palette.accent, 198),
-            progress,
-        )
-        canvas.drawRoundRect(track, radius, radius, trackPaint)
-        strokePaint.strokeWidth = dpFloat(1f)
-        strokePaint.color = lerpColor(
-            withAlpha(palette.title, 64),
-            withAlpha(Color.WHITE, 110),
-            progress,
-        )
-        canvas.drawRoundRect(track, radius, radius, strokePaint)
+        if (trackGlass == null) {
+            trackPaint.color = lerpColor(
+                withAlpha(palette.title, 42),
+                withAlpha(palette.accent, 198),
+                progress,
+            )
+            canvas.drawRoundRect(track, radius, radius, trackPaint)
+            strokePaint.strokeWidth = dpFloat(1f)
+            strokePaint.color = lerpColor(
+                withAlpha(palette.title, 64),
+                withAlpha(Color.WHITE, 110),
+                progress,
+            )
+            canvas.drawRoundRect(track, radius, radius, strokePaint)
+        } else {
+            // A small tint overlay keeps the enabled state legible while the
+            // backdrop/refraction remains owned by the shared glass surface.
+            trackPaint.color = withAlpha(palette.accent, (28 + (progress * 42f)).toInt())
+            canvas.drawRoundRect(track, radius, radius, trackPaint)
+            strokePaint.strokeWidth = dpFloat(1f)
+            strokePaint.color = withAlpha(palette.title, 42)
+            canvas.drawRoundRect(track, radius, radius, strokePaint)
+        }
 
         val thumbRadius = radius - dpFloat(3f)
         val travel = trackWidth - thumbRadius * 2f - dpFloat(6f)
         val centerX = left + thumbRadius + dpFloat(3f) + travel * progress
         val centerY = top + radius
-        thumbPaint.shader = LinearGradient(
-            centerX - thumbRadius,
-            centerY - thumbRadius,
-            centerX + thumbRadius,
-            centerY + thumbRadius,
-            if (progress > 0.5f) Color.WHITE else withAlpha(palette.surface, 220),
-            if (progress > 0.5f) withAlpha(palette.surface, 220) else withAlpha(palette.title, 150),
-            Shader.TileMode.CLAMP,
-        )
-        thumbPaint.alpha = if (isPressed) 220 else 255
-        canvas.drawCircle(centerX, centerY, thumbRadius, thumbPaint)
-        thumbPaint.shader = null
+        if (thumbGlass == null) {
+            thumbPaint.shader = LinearGradient(
+                centerX - thumbRadius,
+                centerY - thumbRadius,
+                centerX + thumbRadius,
+                centerY + thumbRadius,
+                if (progress > 0.5f) Color.WHITE else withAlpha(palette.surface, 220),
+                if (progress > 0.5f) withAlpha(palette.surface, 220) else withAlpha(palette.title, 150),
+                Shader.TileMode.CLAMP,
+            )
+            thumbPaint.alpha = if (isPressed) 220 else 255
+            canvas.drawCircle(centerX, centerY, thumbRadius, thumbPaint)
+            thumbPaint.shader = null
+        }
+        updateGlassGeometry(trackWidth, trackHeight, centerX, centerY, thumbRadius)
+    }
+
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        updateGlassGeometry()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -240,15 +324,54 @@ internal class GlassToggleView(
                 duration = 220L
                 addUpdateListener {
                     progress = it.animatedValue as Float
+                    updateGlassGeometry()
                     invalidate()
                 }
                 start()
             }
         } else {
             progress = target
+            updateGlassGeometry()
             invalidate()
         }
         if (notify && changed) listener?.invoke(this, value)
+    }
+
+    private fun updateGlassGeometry(
+        measuredTrackWidth: Float = width.toFloat().coerceAtLeast(dpFloat(52f)),
+        measuredTrackHeight: Float = height.toFloat().coerceAtMost(dpFloat(32f)),
+        measuredCenterX: Float? = null,
+        measuredCenterY: Float? = null,
+        measuredThumbRadius: Float? = null,
+    ) {
+        if (width <= 0 || height <= 0) return
+        val trackLeft = (width - measuredTrackWidth) / 2f
+        val trackTop = (height - measuredTrackHeight) / 2f
+        val trackRadius = measuredTrackHeight / 2f
+        val thumbRadius = measuredThumbRadius ?: (trackRadius - dpFloat(3f))
+        val centerX = measuredCenterX ?: run {
+            val travel = measuredTrackWidth - thumbRadius * 2f - dpFloat(6f)
+            trackLeft + thumbRadius + dpFloat(3f) + travel * progress
+        }
+        val centerY = measuredCenterY ?: trackTop + trackRadius
+        trackGlass?.setRoundedRect(
+            centerX = width / 2f,
+            centerY = height / 2f,
+            halfWidth = measuredTrackWidth / 2f,
+            halfHeight = measuredTrackHeight / 2f,
+            radius = trackRadius,
+            displacementPx = dpFloat(1.5f),
+            surfaceAlpha = if (isDark(palette)) 0.42f else 0.54f,
+        )
+        thumbGlass?.setRoundedRect(
+            centerX = centerX,
+            centerY = centerY,
+            halfWidth = thumbRadius,
+            halfHeight = thumbRadius,
+            radius = thumbRadius,
+            displacementPx = dpFloat(3f),
+            surfaceAlpha = if (progress > 0.5f) 0.86f else 0.76f,
+        )
     }
 
     private fun lerpColor(from: Int, to: Int, amount: Float): Int {
@@ -263,6 +386,9 @@ internal class GlassToggleView(
 
     private fun withAlpha(color: Int, alpha: Int): Int =
         Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+
+    private fun isDark(palette: ThemePalette): Boolean =
+        Color.luminance(palette.background) < 0.35f
 
     private fun dp(value: Int): Int = (value * density).toInt().coerceAtLeast(value)
     private fun dpFloat(value: Float): Float = value * density
@@ -283,6 +409,8 @@ internal class SettingsGroupCard(
 
     init {
         orientation = VERTICAL
+        clipChildren = false
+        clipToPadding = false
         setPadding(dp(4), dp(4), dp(4), dp(4))
         background = GradientDrawable().apply {
             setColor(palette.surface)

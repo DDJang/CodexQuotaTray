@@ -15,6 +15,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 
 class LogActivity : Activity() {
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -28,7 +29,9 @@ class LogActivity : Activity() {
         AppTheme.prepare(this)
         super.onCreate(savedInstanceState)
         AppTheme.applySystemBars(this)
-        setContentView(buildContent())
+        val root = buildContent()
+        setContentView(root)
+        ViewCompat.requestApplyInsets(root)
         renderLog()
     }
 
@@ -43,6 +46,7 @@ class LogActivity : Activity() {
             setPadding(dp(20), dp(22), dp(20), dp(18))
             setBackgroundColor(palette.background)
         }
+        AppTheme.installTopSafePadding(root)
         val toolbar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL

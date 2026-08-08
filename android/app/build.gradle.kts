@@ -87,6 +87,7 @@ android {
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    implementation("com.github.Dimezis:BlurView:version-3.2.0")
     implementation("androidx.work:work-runtime:2.9.1")
     implementation("androidx.core:core-ktx:1.13.1")
     testImplementation("junit:junit:4.13.2")

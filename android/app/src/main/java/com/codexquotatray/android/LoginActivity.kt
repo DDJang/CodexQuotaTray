@@ -13,6 +13,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 import com.codexquotatray.android.auth.OAuthLoginUpdate
 import com.codexquotatray.android.quota.CodexQuotaRepository
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
@@ -34,7 +35,9 @@ class LoginActivity : Activity() {
         AppTheme.prepare(this)
         super.onCreate(savedInstanceState)
         AppTheme.applySystemBars(this)
-        setContentView(buildContent())
+        val root = buildContent()
+        setContentView(root)
+        ViewCompat.requestApplyInsets(root)
         beginLogin()
     }
 
@@ -44,6 +47,7 @@ class LoginActivity : Activity() {
             setPadding(dp(20), dp(22), dp(20), dp(18))
             setBackgroundColor(palette.background)
         }
+        AppTheme.installTopSafePadding(root)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL

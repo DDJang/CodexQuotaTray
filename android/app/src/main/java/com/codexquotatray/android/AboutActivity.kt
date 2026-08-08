@@ -11,6 +11,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 
 class AboutActivity : Activity() {
     private val palette by lazy { AppTheme.palette(this) }
@@ -19,7 +20,9 @@ class AboutActivity : Activity() {
         AppTheme.prepare(this)
         super.onCreate(savedInstanceState)
         AppTheme.applySystemBars(this)
-        setContentView(buildContent())
+        val root = buildContent()
+        setContentView(root)
+        ViewCompat.requestApplyInsets(root)
     }
 
     private fun buildContent(): View {
@@ -28,6 +31,7 @@ class AboutActivity : Activity() {
             setPadding(dp(20), dp(22), dp(20), dp(18))
             setBackgroundColor(palette.background)
         }
+        AppTheme.installTopSafePadding(root)
         val scroll = ScrollView(this).apply { isFillViewport = true }
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL

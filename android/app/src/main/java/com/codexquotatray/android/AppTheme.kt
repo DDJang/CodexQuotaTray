@@ -4,8 +4,11 @@ import android.app.Activity
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
+import android.view.View
 import android.view.Window
 import androidx.core.view.WindowCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 enum class ThemeMode(val storageValue: String) {
@@ -142,6 +145,39 @@ object AppTheme {
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.isAppearanceLightStatusBars = lightBars
         controller.isAppearanceLightNavigationBars = lightBars
+    }
+
+    /** Returns the top inset that keeps interactive content below status/cutout areas. */
+    fun safeTopInset(insets: WindowInsetsCompat): Int = maxOf(
+        insets.getInsets(WindowInsetsCompat.Type.statusBars()).top,
+        insets.getInsets(WindowInsetsCompat.Type.displayCutout()).top,
+    )
+
+    /** Returns the bottom inset that keeps content above navigation/gesture areas. */
+    fun safeBottomInset(insets: WindowInsetsCompat): Int = maxOf(
+        insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom,
+        insets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures()).bottom,
+    )
+
+    /**
+     * Applies a stable top-safe padding without accumulating the inset when the
+     * system dispatches it more than once (common after an Activity attaches).
+     */
+    fun installTopSafePadding(root: View): View {
+        val baseLeft = root.paddingLeft
+        val baseTop = root.paddingTop
+        val baseRight = root.paddingRight
+        val baseBottom = root.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            view.setPadding(
+                baseLeft,
+                baseTop + safeTopInset(insets),
+                baseRight,
+                baseBottom,
+            )
+            insets
+        }
+        return root
     }
 
     private fun invokeEnableEdgeToEdge(window: Window): Boolean = runCatching {

@@ -12,6 +12,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 import com.codexquotatray.android.alerts.QuotaAlertStateStore
 import com.codexquotatray.android.auth.JwtClaims
 import com.codexquotatray.android.auth.CodexProcessLock
@@ -30,7 +31,9 @@ class AccountActivity : Activity() {
         AppTheme.prepare(this)
         super.onCreate(savedInstanceState)
         AppTheme.applySystemBars(this)
-        setContentView(buildContent())
+        val root = buildContent()
+        setContentView(root)
+        ViewCompat.requestApplyInsets(root)
         render()
     }
 
@@ -45,6 +48,7 @@ class AccountActivity : Activity() {
             setPadding(dp(20), dp(22), dp(20), dp(18))
             setBackgroundColor(palette.background)
         }
+        AppTheme.installTopSafePadding(root)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(8), 0, dp(20))

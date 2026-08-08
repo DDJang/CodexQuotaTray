@@ -8,7 +8,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.RectF
-import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.content.pm.ApplicationInfo
 import android.os.Build
@@ -51,7 +50,7 @@ internal class AgslLiquidGlassView(
     private var progress = 0f
     private var dragStretch = 0f
     private var engine: Engine? = if (Build.VERSION.SDK_INT >= 33) {
-        runCatching { Api33Engine(palette, darkTheme) }.getOrNull()
+        runCatching { Api33Engine(palette, darkTheme, resources.displayMetrics.density) }.getOrNull()
     } else {
         null
     }
@@ -60,7 +59,6 @@ internal class AgslLiquidGlassView(
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         isClickable = false
         isFocusable = false
-        setLayerType(View.LAYER_TYPE_HARDWARE, null)
         fallbackOuterPaint.color = Color.argb(
             if (darkTheme) 50 else 122,
             Color.red(Color.WHITE),
@@ -211,32 +209,17 @@ internal class AgslLiquidGlassView(
     }
 
     private class Api33Engine(
-        private val palette: ThemePalette,
+        palette: ThemePalette,
         darkTheme: Boolean,
+        private val density: Float,
     ) : Engine {
-        private val outerShader = RuntimeShader(SHADER_SOURCE)
-        private val lensShader = RuntimeShader(SHADER_SOURCE)
-        private val outerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = outerShader }
-        private val lensPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { shader = lensShader }
-        private var input: Shader? = null
-        private var width = 0f
-        private var height = 0f
-        private var inset = 0f
-        private var progress = 0f
-        private var stretch = 0f
-        private var overscan = 0f
-        private val tintR = Color.red(palette.surface) / 255f
-        private val tintG = Color.green(palette.surface) / 255f
-        private val tintB = Color.blue(palette.surface) / 255f
-        private val accentR = Color.red(palette.accent) / 255f
-        private val accentG = Color.green(palette.accent) / 255f
-        private val accentB = Color.blue(palette.accent) / 255f
+        private val outerRenderer = AgslGlassRenderer(palette)
+        private val lensRenderer = AgslGlassRenderer(palette)
         private val outerAlpha = if (darkTheme) 0.18f else 0.34f
 
         override fun setBackdrop(shader: Shader) {
-            input = shader
-            outerShader.setInputShader("content", shader)
-            lensShader.setInputShader("content", shader)
+            outerRenderer.setBackdrop(shader)
+            lensRenderer.setBackdrop(shader)
         }
 
         override fun setGeometry(
@@ -247,118 +230,47 @@ internal class AgslLiquidGlassView(
             stretch: Float,
             overscan: Float,
         ) {
-            this.width = width
-            this.height = height
-            this.inset = inset
-            this.progress = progress
-            this.stretch = stretch
-            this.overscan = overscan
             val innerWidth = (width - inset * 2f).coerceAtLeast(0f)
             val lensWidth = innerWidth / 2f
             val lensCenterX = inset + lensWidth / 2f + lensWidth * progress
             val innerHeight = (height - inset * 2f).coerceAtLeast(0f)
-            setShape(
-                outerShader,
-                width / 2f,
-                height / 2f,
-                width / 2f,
-                height / 2f,
-                height / 2f,
-                0.22f,
-                outerAlpha,
+            outerRenderer.setGeometry(
+                width,
+                height,
+                overscan,
+                GlassGeometry(
+                    centerX = width / 2f,
+                    centerY = height / 2f,
+                    halfWidth = width / 2f,
+                    halfHeight = height / 2f,
+                    radius = height / 2f,
+                    displacementPx = 3f * density * (1f + stretch * 0.32f),
+                    surfaceAlpha = outerAlpha,
+                ),
             )
-            setShape(
-                lensShader,
-                lensCenterX,
-                height / 2f,
-                lensWidth / 2f * (1f + stretch * 0.055f),
-                innerHeight / 2f * (1f - stretch * 0.028f),
-                innerHeight / 2f,
-                0.62f,
-                0.68f,
+            lensRenderer.setGeometry(
+                width,
+                height,
+                overscan,
+                GlassGeometry(
+                    centerX = lensCenterX,
+                    centerY = height / 2f,
+                    halfWidth = lensWidth / 2f * (1f + stretch * 0.055f),
+                    halfHeight = innerHeight / 2f * (1f - stretch * 0.028f),
+                    radius = innerHeight / 2f,
+                    displacementPx = 7f * density * (1f + stretch * 0.32f),
+                    surfaceAlpha = 0.68f,
+                ),
             )
         }
 
         override fun draw(canvas: Canvas, width: Float, height: Float) {
-            if (input == null) return
-            canvas.drawRect(0f, 0f, width, height, outerPaint)
-            canvas.drawRect(0f, 0f, width, height, lensPaint)
-        }
-
-        private fun setShape(
-            shader: RuntimeShader,
-            centerX: Float,
-            centerY: Float,
-            halfWidth: Float,
-            halfHeight: Float,
-            radius: Float,
-            strength: Float,
-            alpha: Float,
-        ) {
-            shader.setFloatUniform("resolution", width + overscan * 2f, height + overscan * 2f)
-            shader.setFloatUniform("shapeCenter", centerX, centerY)
-            shader.setFloatUniform("shapeHalfSize", halfWidth, halfHeight)
-            shader.setFloatUniform("shapeRadius", radius)
-            shader.setFloatUniform("overscan", overscan)
-            shader.setFloatUniform("refractionStrength", strength * (1f + stretch * 0.32f))
-            shader.setFloatUniform("surfaceAlpha", alpha)
-            shader.setFloatUniform("tint", tintR, tintG, tintB)
-            shader.setFloatUniform("accent", accentR, accentG, accentB)
+            outerRenderer.draw(canvas, width, height)
+            lensRenderer.draw(canvas, width, height)
         }
     }
 
     private companion object {
         private const val TAG = "CodexQuotaGlass"
-
-        private const val SHADER_SOURCE = """
-            uniform shader content;
-            uniform vec2 resolution;
-            uniform vec2 shapeCenter;
-            uniform vec2 shapeHalfSize;
-            uniform float shapeRadius;
-            uniform float overscan;
-            uniform float refractionStrength;
-            uniform float surfaceAlpha;
-            uniform vec3 tint;
-            uniform vec3 accent;
-
-            float roundedSdf(vec2 point, vec2 center, vec2 halfSize, float radius) {
-                vec2 q = abs(point - center) - halfSize + vec2(radius, radius);
-                return length(max(q, vec2(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
-            }
-
-            vec4 main(vec2 point) {
-                float sdfDistance = roundedSdf(point, shapeCenter, shapeHalfSize, shapeRadius);
-                float mask = 1.0 - smoothstep(0.0, 1.8, sdfDistance);
-                if (mask <= 0.0) return vec4(0.0);
-
-                vec2 radial = point - shapeCenter;
-                float radialLength = max(length(radial), 0.001);
-                vec2 normal = radial / radialLength;
-                float inner = 1.0 - smoothstep(-shapeRadius * 0.25, shapeRadius * 0.85, sdfDistance);
-                vec2 magnifiedPoint = shapeCenter + radial * (1.0 - inner * 0.016);
-                vec2 samplePoint = magnifiedPoint + normal * refractionStrength * (0.35 + inner * 0.65);
-                vec2 uv = clamp(samplePoint + vec2(overscan, overscan),
-                    vec2(0.0, 0.0), resolution - vec2(1.0, 1.0));
-
-                vec4 base = content.eval(uv);
-                float chroma = 0.45;
-                vec4 redSample = content.eval(clamp(uv + vec2(chroma, 0.0),
-                    vec2(0.0, 0.0), resolution - vec2(1.0, 1.0)));
-                vec4 blueSample = content.eval(clamp(uv - vec2(chroma, 0.0),
-                    vec2(0.0, 0.0), resolution - vec2(1.0, 1.0)));
-                vec3 refracted = vec3(redSample.r, base.g, blueSample.b);
-
-                float edge = 1.0 - smoothstep(-2.0, 3.0, sdfDistance);
-                float fresnel = pow(clamp(1.0 - inner, 0.0, 1.0), 2.0);
-                vec2 lightDirection = normalize(vec2(-0.42, -0.86));
-                float specular = pow(max(dot(normal, lightDirection), 0.0), 72.0);
-                vec3 color = mix(refracted, refracted * 1.025 + tint * 0.16, 0.22);
-                color += accent * (fresnel * 0.08);
-                color += vec3(1.0, 1.0, 1.0) * (specular * 0.12 + edge * 0.035);
-                float opacity = mask * surfaceAlpha;
-                return vec4(clamp(color, vec3(0.0), vec3(1.0)) * opacity, opacity);
-            }
-        """
     }
 }

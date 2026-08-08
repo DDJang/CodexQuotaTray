@@ -16,7 +16,6 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -50,12 +49,8 @@ internal class LiquidGlassBottomBar(
         clipChildren = false
         clipToPadding = false
     }
-    private val quotaTab = tabItem("额度", R.drawable.ic_quota, "切换到额度页面") {
-        onTabSelected(MainTab.QUOTA)
-    }
-    private val usageTab = tabItem("统计", R.drawable.ic_usage, "切换到统计页面") {
-        onTabSelected(MainTab.USAGE)
-    }
+    private val quotaTab = tabItem("额度", R.drawable.ic_quota, "切换到额度页面")
+    private val usageTab = tabItem("统计", R.drawable.ic_usage, "切换到统计页面")
     private val quotaIcon = quotaTab.getChildAt(0) as ImageView
     private val usageIcon = usageTab.getChildAt(0) as ImageView
     private val quotaLabel = quotaTab.getChildAt(1) as TextView
@@ -75,13 +70,21 @@ internal class LiquidGlassBottomBar(
     private val layoutChangeListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
         scheduleBackdropRefresh()
     }
+    /**
+     * A single transparent gesture target owns the complete touch sequence.
+     * The tab labels underneath are visual/accessibility-only and never compete
+     * with the drag recognizer on vendor touch dispatchers.
+     */
+    private val gestureLayer = View(context).apply {
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+        isClickable = true
+        setOnTouchListener { _, event -> handleGestureTouch(event) }
+    }
 
     init {
         setClipChildren(false)
         clipToPadding = false
         setBackgroundColor(Color.TRANSPARENT)
-        isClickable = true
-        elevation = dp(3f)
 
         surface.addView(
             renderer,
@@ -91,6 +94,10 @@ internal class LiquidGlassBottomBar(
         tabRow.addView(usageTab, tabLayoutParams())
         surface.addView(
             tabRow,
+            FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
+        )
+        surface.addView(
+            gestureLayer,
             FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),
         )
         addView(surface, FrameLayout.LayoutParams(dp(340f).toInt(), barHeight))
@@ -159,31 +166,13 @@ internal class LiquidGlassBottomBar(
         }
     }
 
-    override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+    private fun handleGestureTouch(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 beginTouch(event)
                 dragging = false
-                return false
-            }
-
-            MotionEvent.ACTION_MOVE -> {
-                if (!dragging && abs(event.x - downX) > touchSlop) {
-                    dragging = true
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                    progressSpring?.cancel()
-                    return true
-                }
-                if (!dragging) velocityTracker?.addMovement(event)
-            }
-        }
-        return dragging
-    }
-
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                beginTouch(event)
+                progressSpring?.cancel()
+                parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
 
@@ -209,7 +198,7 @@ internal class LiquidGlassBottomBar(
                     val velocityX = velocityTracker?.xVelocity ?: 0f
                     finishDrag(velocityX)
                 } else {
-                    performClick()
+                    finishTap(event.x)
                 }
                 endTouch()
                 return true
@@ -222,6 +211,16 @@ internal class LiquidGlassBottomBar(
             }
         }
         return true
+    }
+
+    private fun finishTap(x: Float) {
+        val targetTab = if (x < gestureLayer.width / 2f) MainTab.QUOTA else MainTab.USAGE
+        val changed = targetTab != selectedTab
+        selectedTab = targetTab
+        applyTabVisuals()
+        if (changed) onTabSelected(targetTab)
+        progressSpring().animateTo(targetProgress(targetTab), 0f, lensProgress)
+        performClick()
     }
 
     override fun performClick(): Boolean {
@@ -325,15 +324,13 @@ internal class LiquidGlassBottomBar(
         label: String,
         icon: Int,
         description: String,
-        action: () -> Unit,
     ): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
-        isClickable = true
         isFocusable = true
+        importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
         minimumHeight = dp(48f).toInt()
         contentDescription = description
-        setOnClickListener { action() }
         addView(ImageView(context).apply {
             setImageResource(icon)
             contentDescription = description

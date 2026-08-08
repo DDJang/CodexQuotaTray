@@ -5,7 +5,9 @@ import android.app.Activity
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
@@ -22,7 +24,6 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import com.codexquotatray.android.alerts.QuotaNotifications
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import com.codexquotatray.android.quota.QuotaRefreshSettings
@@ -32,11 +33,12 @@ import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenUsageException
 import com.codexquotatray.android.usage.TokenUsageSyncClient
 import com.google.zxing.integration.android.IntentIntegrator
+import eightbitlab.com.blurview.BlurTarget
+import eightbitlab.com.blurview.BlurView
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.Executors
-import kotlin.math.max
 
 class SettingsActivity : Activity() {
     private val palette by lazy { AppTheme.palette(this) }
@@ -67,6 +69,11 @@ class SettingsActivity : Activity() {
     private lateinit var settingsRoot: FrameLayout
     private lateinit var settingsScroll: ScrollView
     private lateinit var settingsHeader: FrameLayout
+    private lateinit var settingsHeaderOverlay: FrameLayout
+    private lateinit var settingsHeaderFade: View
+    private lateinit var settingsGlassBackdrop: BlurTarget
+    private val settingsHeaderBasePaddingTop = 0
+    private val settingsHeaderBasePaddingBottom = 0
     private val pairingWorker = Executors.newSingleThreadExecutor()
     private val pairingMain = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -103,14 +110,44 @@ class SettingsActivity : Activity() {
             clipToPadding = false
             addView(content)
         }
-        settingsRoot.addView(settingsScroll, FrameLayout.LayoutParams(
+        val blurTarget = BlurTarget(this)
+        settingsGlassBackdrop = blurTarget
+        blurTarget.addView(settingsScroll, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        ))
+        settingsRoot.addView(blurTarget, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT,
         ))
         settingsHeader = buildHeader()
-        settingsRoot.addView(settingsHeader, FrameLayout.LayoutParams(
+        settingsHeaderOverlay = FrameLayout(this).apply {
+            clipChildren = false
+            setBackgroundColor(Color.TRANSPARENT)
+        }
+        val headerBlur = BlurView(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            setupWith(blurTarget)
+                .setFrameClearDrawable(ColorDrawable(palette.background))
+                .setBlurRadius(dp(20).toFloat())
+        }
+        settingsHeaderFade = View(this).apply { setBackgroundColor(Color.TRANSPARENT) }
+        settingsHeaderOverlay.addView(headerBlur, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        ))
+        settingsHeaderOverlay.addView(settingsHeaderFade, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        ))
+        settingsHeaderOverlay.addView(settingsHeader, FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             dp(64),
+            Gravity.TOP,
+        ))
+        settingsRoot.addView(settingsHeaderOverlay, FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            dp(64) + dp(44),
             Gravity.TOP,
         ))
 
@@ -267,19 +304,22 @@ class SettingsActivity : Activity() {
         content.addView(diagnosticsGroup)
 
         ViewCompat.setOnApplyWindowInsetsListener(settingsRoot) { _, insets ->
-            val safeTop = max(
-                insets.getInsets(WindowInsetsCompat.Type.statusBars()).top,
-                insets.getInsets(WindowInsetsCompat.Type.displayCutout()).top,
-            )
-            val safeBottom = max(
-                insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom,
-                insets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures()).bottom,
-            )
+            val safeTop = AppTheme.safeTopInset(insets)
+            val safeBottom = AppTheme.safeBottomInset(insets)
             val headerParams = settingsHeader.layoutParams
             headerParams.height = dp(64) + safeTop
             settingsHeader.layoutParams = headerParams
-            settingsHeader.setPadding(0, safeTop, 0, 0)
-            settingsScroll.setPadding(0, dp(64) + safeTop, 0, safeBottom + dp(28))
+            settingsHeader.setPadding(
+                settingsHeader.paddingLeft,
+                settingsHeaderBasePaddingTop + safeTop,
+                settingsHeader.paddingRight,
+                settingsHeaderBasePaddingBottom,
+            )
+            val overlayParams = settingsHeaderOverlay.layoutParams
+            overlayParams.height = safeTop + dp(64) + dp(44)
+            settingsHeaderOverlay.layoutParams = overlayParams
+            settingsHeaderFade.background = headerFadeDrawable()
+            settingsScroll.setPadding(0, safeTop + dp(64) + dp(44), 0, safeBottom + dp(28))
             insets
         }
         return settingsRoot
@@ -331,11 +371,7 @@ class SettingsActivity : Activity() {
 
     private fun styleThemeOption(option: TextView, mode: ThemeMode, selected: ThemeMode) {
         val isSelected = mode == selected
-        option.text = if (isSelected) {
-            "${themeTitle(mode)}\n当前使用"
-        } else {
-            themeTitle(mode)
-        }
+        option.text = "${themeTitle(mode)}\n${if (isSelected) "当前使用" else "\u00A0"}"
         option.setTextColor(if (isSelected) palette.onPrimary else palette.body)
         option.background = GradientDrawable().apply {
             setColor(if (isSelected) palette.primaryButton else palette.surface)
@@ -448,8 +484,22 @@ class SettingsActivity : Activity() {
         })
     }
 
+    private fun headerFadeDrawable(): GradientDrawable {
+        val background = palette.background
+        fun withAlpha(alpha: Int): Int = Color.argb(
+            alpha,
+            Color.red(background),
+            Color.green(background),
+            Color.blue(background),
+        )
+        return GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(withAlpha(232), withAlpha(172), withAlpha(70), Color.TRANSPARENT),
+        )
+    }
+
     private fun glassToggle(label: String, onChanged: (Boolean) -> Unit): GlassToggleView =
-        GlassToggleView(this, palette).apply {
+        GlassToggleView(this, palette, settingsGlassBackdrop).apply {
             contentDescription = label
             setOnCheckedChangeListener { _, checked -> onChanged(checked) }
         }
@@ -495,9 +545,12 @@ class SettingsActivity : Activity() {
         addView(actionButton("打开电池设置") { openBatterySettings() })
     }
 
-    private fun themeOption(mode: ThemeMode, title: String): TextView = textView(title, 15f, Typeface.BOLD).apply {
+    private fun themeOption(mode: ThemeMode, title: String): TextView = textView("$title\n\u00A0", 15f, Typeface.BOLD).apply {
         gravity = Gravity.CENTER
         minHeight = dp(76)
+        minLines = 2
+        maxLines = 2
+        includeFontPadding = true
         setPadding(dp(8), dp(10), dp(8), dp(10))
         isClickable = true
         setOnClickListener { selectTheme(mode) }
@@ -709,6 +762,7 @@ class SettingsActivity : Activity() {
         palette,
         0,
         "返回",
+        settingsRoot,
     ).apply { setOnClickListener { finish() } }
 
     private fun textView(text: String, size: Float, style: Int): TextView = TextView(this).apply {

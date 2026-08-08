@@ -14,9 +14,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.ViewCompat
-import kotlin.math.max
 
 class MainActivity : Activity() {
     private val palette by lazy { AppTheme.palette(this) }
@@ -35,7 +33,10 @@ class MainActivity : Activity() {
         appliedTheme = AppTheme.effectiveMode(this)
         AppLogStore.record(this, "应用启动")
 
-        setContentView(buildContent())
+        val root = buildContent()
+        setContentView(root)
+        // The root must be attached before asking Android to dispatch insets.
+        ViewCompat.requestApplyInsets(root)
         quotaPage.initialize()
         selectTab(MainTab.QUOTA)
     }
@@ -123,32 +124,35 @@ class MainActivity : Activity() {
             Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
         ))
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-            val safeTop = max(
-                insets.getInsets(WindowInsetsCompat.Type.statusBars()).top,
-                insets.getInsets(WindowInsetsCompat.Type.displayCutout()).top,
-            )
-            val safeBottom = max(
-                insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom,
-                insets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures()).bottom,
-            )
+            val safeTop = AppTheme.safeTopInset(insets)
+            val safeBottom = AppTheme.safeBottomInset(insets)
             if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
                 Log.d("CodexQuotaInsets", "safeTop=$safeTop safeBottom=$safeBottom")
             }
-            headerView.setPadding(dp(20), dp(14) + safeTop, dp(20), dp(10))
+            headerView.setPadding(
+                headerView.paddingLeft,
+                headerBasePaddingTop + safeTop,
+                headerView.paddingRight,
+                headerBasePaddingBottom,
+            )
             bottomBar.setSafeBottomInset(safeBottom)
             val pageBottom = bottomBar.requiredHeight(safeBottom)
             quotaPage.setBottomSafePadding(pageBottom)
             tokenUsagePage.setBottomSafePadding(pageBottom)
             insets
         }
-        ViewCompat.requestApplyInsets(root)
         return root
     }
+
+    // Activity resources are not available during constructor/property
+    // initialization. Resolve these only after the Activity is attached.
+    private val headerBasePaddingTop by lazy { dp(14) }
+    private val headerBasePaddingBottom by lazy { dp(10) }
 
     private fun buildHeader(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(20), dp(14), dp(20), dp(10))
+        setPadding(dp(20), headerBasePaddingTop, dp(20), headerBasePaddingBottom)
         setBackgroundColor(palette.background)
         addView(
             textView("CodexQuota", 28f, Typeface.BOLD).apply {
