@@ -42,11 +42,15 @@ layout(color) uniform half4 tint;
 uniform float tintIntensity;
 
 half4 main(float2 coord) {
-    float blurAlpha =
-        smoothstep(size.y, size.y * 0.5, coord.y);
+    float fade =
+        1.0 - smoothstep(
+            size.y * 0.42,
+            size.y,
+            coord.y
+        );
 
-    float tintAlpha =
-        smoothstep(size.y, size.y * 0.5, coord.y);
+    float blurAlpha = fade;
+    float tintAlpha = fade;
 
     return mix(
         content.eval(coord) * blurAlpha,
@@ -70,7 +74,7 @@ internal fun SettingsGradientBlurHeader(
         label = "settings-header-blur",
     )
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val overlayHeight = statusBarHeight + 116.dp
+    val overlayHeight = statusBarHeight + 136.dp
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         RuntimeGradientBlur(
@@ -126,9 +130,9 @@ private fun RuntimeGradientBlur(
     Box(
         modifier
             .onSizeChanged { measuredSize = it }
-            .alpha(currentAlpha)
             .graphicsLayer {
                 compositingStrategy = CompositingStrategy.Offscreen
+                alpha = currentAlpha
                 this.renderEffect = renderEffect
             }
             .drawBackdrop(
