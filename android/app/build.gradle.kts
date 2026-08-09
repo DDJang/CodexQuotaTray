@@ -1,6 +1,9 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 fun rawPropertyOrEnv(propertyName: String, envName: String): String? {
@@ -79,31 +82,27 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
+    buildFeatures {
+        compose = true
     }
 }
 
-// Keep the repository's Kotlin 2.0.21 compiler/runtime boundary intact. Some
-// AndroidX metadata in the local repository advertises a newer stdlib, while
-// the app and the Liquid Glass Java-compatible API do not need it.
-configurations.configureEach {
-    resolutionStrategy.force(
-        "org.jetbrains.kotlin:kotlin-stdlib:2.0.21",
-        "org.jetbrains.kotlin:kotlin-stdlib-common:2.0.21",
-    )
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+    }
 }
 
 dependencies {
-    implementation("com.qmdeve.liquidglass:core:1.0.5") {
-        // The library is compiled with Kotlin 2.2.x. Keep the app's existing
-        // Kotlin 2.0.21 runtime/toolchain; the public Java-compatible API does
-        // not require the newer stdlib at runtime.
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
-    }
+    implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("org.jetbrains.compose.animation:animation:1.11.0")
+    implementation("org.jetbrains.compose.foundation:foundation:1.11.0")
+    implementation("org.jetbrains.compose.ui:ui:1.11.0")
+    implementation("androidx.compose.material3:material3:1.4.0")
+    implementation("io.github.kyant0:backdrop:2.0.0")
+    implementation("io.github.kyant0:shapes:1.2.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
-    implementation("com.github.Dimezis:BlurView:version-3.2.0")
     implementation("androidx.work:work-runtime:2.9.1")
     implementation("androidx.core:core-ktx:1.13.1")
     testImplementation("junit:junit:4.13.2")

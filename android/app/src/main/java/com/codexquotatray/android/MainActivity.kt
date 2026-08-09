@@ -1,32 +1,37 @@
 package com.codexquotatray.android
 
-import android.app.Activity
 import android.content.Intent
-import android.content.pm.ApplicationInfo
-import android.graphics.Typeface
 import android.os.Bundle
-import android.util.Log
-import android.view.Gravity
-import android.view.View
-import android.view.ViewGroup
-import android.widget.FrameLayout
-import android.widget.LinearLayout
-import android.widget.TextView
-import androidx.core.view.ViewCompat
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
-class MainActivity : Activity() {
-    private val palette by lazy { AppTheme.palette(this) }
+class MainActivity : ComponentActivity() {
+    private lateinit var quota: QuotaPageController
+    private lateinit var usage: TokenUsagePageController
+    private var selectedIndex by mutableIntStateOf(0)
     private var appliedTheme: ThemeMode? = null
-    private var tabState = MainTabState()
-    private lateinit var quotaPage: QuotaPageView
-    private lateinit var tokenUsagePage: TokenUsagePageView
-    private lateinit var pageContainer: FrameLayout
-    private lateinit var bottomBar: LiquidGlassBottomBar
-    private lateinit var headerView: LinearLayout
-    private var quotaActionEnabled = false
-    private var quotaActionBusy = false
-    private var usageActionEnabled = false
-    private var usageActionBusy = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -34,209 +39,71 @@ class MainActivity : Activity() {
         AppTheme.applySystemBars(this)
         appliedTheme = AppTheme.effectiveMode(this)
         AppLogStore.record(this, "应用启动")
-
-        val root = buildContent()
-        setContentView(root)
-        // The root must be attached before asking Android to dispatch insets.
-        ViewCompat.requestApplyInsets(root)
-        quotaPage.initialize()
-        selectTab(MainTab.QUOTA)
+        quota = QuotaPageController(this)
+        usage = TokenUsagePageController(this)
+        quota.initialize()
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (selectedIndex == 1) selectTab(0) else { isEnabled = false; onBackPressedDispatcher.onBackPressed() }
+            }
+        })
+        setContent {
+            val palette = AppTheme.palette(this)
+            CodexQuotaTheme(palette) {
+                val pageBackdrop = rememberLayerBackdrop()
+                Box(Modifier.fillMaxSize().background(palette.color(palette.background))) {
+                    Column(
+                        Modifier.fillMaxSize().layerBackdrop(pageBackdrop).statusBarsPadding(),
+                    ) {
+                        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 72.dp, top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text("CodexQuota", color = palette.color(palette.title), fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Box(Modifier.weight(1f)) {
+                            if (selectedIndex == 0) QuotaPage(quota) else TokenUsagePage(usage, ::openSettings)
+                        }
+                    }
+                    Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 8.dp, end = 20.dp)) {
+                        GlassIconButton("⚙", "设置", pageBackdrop, onClick = ::openSettings)
+                    }
+                    LiquidMainDock(
+                        selectedIndex = selectedIndex,
+                        onSelected = ::selectTab,
+                        backdrop = pageBackdrop,
+                        actionEnabled = if (selectedIndex == 0) quota.canRefresh else usage.canSync,
+                        actionBusy = if (selectedIndex == 0) quota.busy else usage.syncing,
+                        onAction = { if (selectedIndex == 0) quota.refresh() else usage.requestSync() },
+                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp),
+                    )
+                }
+            }
+        }
     }
 
-    override fun onStart() {
-        super.onStart()
-        if (::quotaPage.isInitialized) quotaPage.onStartPage()
-    }
-
-    override fun onStop() {
-        if (::quotaPage.isInitialized) quotaPage.onStopPage()
-        super.onStop()
-    }
-
+    override fun onStart() { super.onStart(); if (::quota.isInitialized) quota.onStart() }
+    override fun onStop() { if (::quota.isInitialized) quota.onStop(); super.onStop() }
     override fun onResume() {
         super.onResume()
-        if (appliedTheme != AppTheme.effectiveMode(this)) {
-            recreate()
-            return
-        }
-        if (::quotaPage.isInitialized) quotaPage.onResumePage()
-        if (tabState.selectedTab == MainTab.USAGE && ::tokenUsagePage.isInitialized) {
-            tokenUsagePage.onResumed()
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    override fun onBackPressed() {
-        tabState.backToQuota()?.let {
-            selectTab(MainTab.QUOTA)
-            return
-        }
-        super.onBackPressed()
+        if (appliedTheme != AppTheme.effectiveMode(this)) { recreate(); return }
+        if (::quota.isInitialized) quota.onResume()
+        if (selectedIndex == 1 && ::usage.isInitialized) usage.onResume()
     }
 
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        quotaPage.onLoginResult(requestCode, resultCode)
+        if (::quota.isInitialized) quota.onLoginResult(requestCode, resultCode)
     }
 
     override fun onDestroy() {
-        if (::quotaPage.isInitialized) quotaPage.onDestroyPage()
-        if (::tokenUsagePage.isInitialized) tokenUsagePage.onDestroyPage()
+        if (::quota.isInitialized) quota.destroy()
+        if (::usage.isInitialized) usage.destroy()
         super.onDestroy()
     }
 
-    private fun buildContent(): View {
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(palette.background)
-            clipChildren = false
-        }
-
-        val content = LiquidGlassBackdropLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(palette.background)
-        }
-        headerView = buildHeader(content)
-        content.addView(headerView, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-        ))
-
-        pageContainer = FrameLayout(this).apply {
-            setBackgroundColor(palette.background)
-        }
-        quotaPage = QuotaPageView(this)
-        tokenUsagePage = TokenUsagePageView(this)
-        quotaPage.setRefreshStateListener { enabled, busy ->
-            quotaActionEnabled = enabled
-            quotaActionBusy = busy
-            if (::bottomBar.isInitialized) updateBottomAction()
-        }
-        tokenUsagePage.setSyncStateListener { enabled, busy ->
-            usageActionEnabled = enabled
-            usageActionBusy = busy
-            if (::bottomBar.isInitialized) updateBottomAction()
-        }
-        pageContainer.addView(quotaPage, pageLayoutParams())
-        pageContainer.addView(tokenUsagePage, pageLayoutParams())
-        content.addView(pageContainer, LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            0,
-            1f,
-        ))
-
-        root.addView(content, FrameLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.MATCH_PARENT,
-        ))
-        bottomBar = LiquidGlassBottomBar(
-            context = this,
-            backdropHost = content,
-            palette = palette,
-            onTabSelected = { tab -> selectTab(tab) },
-            onActionClick = { dispatchBottomAction() },
-        )
-        root.addView(bottomBar, FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            bottomBar.requiredHeight(0),
-            Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL,
-        ))
-        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-            val safeTop = AppTheme.safeTopInset(insets)
-            val safeBottom = AppTheme.safeBottomInset(insets)
-            if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
-                Log.d("CodexQuotaInsets", "safeTop=$safeTop safeBottom=$safeBottom")
-            }
-            headerView.setPadding(
-                headerView.paddingLeft,
-                headerBasePaddingTop + safeTop,
-                headerView.paddingRight,
-                headerBasePaddingBottom,
-            )
-            bottomBar.setSafeBottomInset(safeBottom)
-            val pageBottom = bottomBar.requiredHeight(safeBottom)
-            quotaPage.setBottomSafePadding(pageBottom)
-            tokenUsagePage.setBottomSafePadding(pageBottom)
-            insets
-        }
-        return root
+    private fun selectTab(index: Int) {
+        selectedIndex = index.coerceIn(0, 1)
+        if (selectedIndex == 1) usage.onVisible() else usage.onHidden()
     }
 
-    // Activity resources are not available during constructor/property
-    // initialization. Resolve these only after the Activity is attached.
-    private val headerBasePaddingTop by lazy { dp(14) }
-    private val headerBasePaddingBottom by lazy { dp(10) }
-
-    private fun buildHeader(backdropHost: ViewGroup): LinearLayout = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(20), headerBasePaddingTop, dp(20), headerBasePaddingBottom)
-        setBackgroundColor(palette.background)
-        addView(
-            textView("CodexQuota", 28f, Typeface.BOLD).apply {
-                setTextColor(palette.title)
-            },
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        addView(settingsButton(backdropHost))
-    }
-
-    private fun selectTab(tab: MainTab) {
-        val previousTab = tabState.selectedTab
-        tabState = tabState.select(tab)
-        quotaPage.visibility = if (tab == MainTab.QUOTA) View.VISIBLE else View.GONE
-        tokenUsagePage.visibility = if (tab == MainTab.USAGE) View.VISIBLE else View.GONE
-        if (tab == MainTab.USAGE) {
-            tokenUsagePage.onVisible()
-        } else {
-            tokenUsagePage.onHidden()
-        }
-        bottomBar.setSelectedTab(tab, animate = previousTab != tab)
-        updateBottomAction()
-    }
-
-    private fun settingsButton(backdropHost: ViewGroup): LiquidGlassIconButton = LiquidGlassIconButton(
-        context = this,
-        palette = palette,
-        iconRes = R.drawable.ic_settings,
-        description = "设置",
-        backdropHost = backdropHost,
-    ).apply {
-        setOnClickListener {
-            startActivity(Intent(this@MainActivity, SettingsActivity::class.java))
-        }
-        layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
-    }
-
-    private fun dispatchBottomAction() {
-        if (tabState.selectedTab == MainTab.QUOTA) {
-            if (quotaActionEnabled && !quotaActionBusy) quotaPage.requestRefresh()
-        } else if (usageActionEnabled && !usageActionBusy) {
-            tokenUsagePage.requestSync()
-        }
-        updateBottomAction()
-    }
-
-    private fun updateBottomAction() {
-        if (!::bottomBar.isInitialized) return
-        if (tabState.selectedTab == MainTab.QUOTA) {
-            bottomBar.setActionState(quotaActionEnabled, quotaActionBusy)
-        } else {
-            bottomBar.setActionState(usageActionEnabled, usageActionBusy)
-        }
-    }
-
-    private fun pageLayoutParams(): FrameLayout.LayoutParams = FrameLayout.LayoutParams(
-        FrameLayout.LayoutParams.MATCH_PARENT,
-        FrameLayout.LayoutParams.MATCH_PARENT,
-    )
-
-    private fun textView(text: String, size: Float, style: Int): TextView = TextView(this).apply {
-        this.text = text
-        textSize = size
-        setTypeface(typeface, style)
-    }
-
-    private fun dp(value: Int): Int =
-        (value * resources.displayMetrics.density).toInt().coerceAtLeast(value)
+    private fun openSettings() = startActivity(Intent(this, SettingsActivity::class.java))
 }
