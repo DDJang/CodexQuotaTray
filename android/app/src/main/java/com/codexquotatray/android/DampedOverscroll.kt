@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -33,14 +34,22 @@ import kotlin.math.sqrt
  * visual hard stop; only the additional visible distance gets smaller as the drag grows.
  */
 @Composable
-internal fun Modifier.dampedVerticalOverscroll(): Modifier {
+internal fun Modifier.dampedVerticalOverscroll(
+    onUpwardOverscrollChanged: (Boolean) -> Unit = {},
+): Modifier {
     val resistanceDistance = with(LocalDensity.current) { 180.dp.toPx() }
     val animationScope = rememberCoroutineScope()
+    val currentOnUpwardOverscrollChanged by rememberUpdatedState(onUpwardOverscrollChanged)
     var unconsumedDrag by remember { mutableFloatStateOf(0f) }
     var reboundJob by remember { mutableStateOf<Job?>(null) }
 
     val connection = remember(resistanceDistance, animationScope) {
         object : NestedScrollConnection {
+            private fun updateUnconsumedDrag(value: Float) {
+                unconsumedDrag = value
+                currentOnUpwardOverscrollChanged(value < 0f)
+            }
+
             private fun stopRebound() {
                 reboundJob?.cancel()
                 reboundJob = null
@@ -61,7 +70,7 @@ internal fun Modifier.dampedVerticalOverscroll(): Modifier {
                 } else {
                     available.y.coerceAtMost(-unconsumedDrag)
                 }
-                unconsumedDrag += consumed
+                updateUnconsumedDrag(unconsumedDrag + consumed)
                 return Offset(0f, consumed)
             }
 
@@ -75,7 +84,7 @@ internal fun Modifier.dampedVerticalOverscroll(): Modifier {
                 }
 
                 stopRebound()
-                unconsumedDrag += available.y
+                updateUnconsumedDrag(unconsumedDrag + available.y)
                 return Offset(0f, available.y)
             }
 
@@ -92,9 +101,9 @@ internal fun Modifier.dampedVerticalOverscroll(): Modifier {
                             stiffness = Spring.StiffnessMediumLow,
                         ),
                     ) { value, _ ->
-                        unconsumedDrag = value
+                        updateUnconsumedDrag(value)
                     }
-                    unconsumedDrag = 0f
+                    updateUnconsumedDrag(0f)
                 }
                 return available
             }

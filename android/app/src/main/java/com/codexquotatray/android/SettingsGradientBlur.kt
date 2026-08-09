@@ -55,11 +55,12 @@ half4 main(float2 coord) {
 internal fun SettingsGradientBlurHeader(
     backdrop: Backdrop,
     scrollState: ScrollState,
+    isScrolled: Boolean = scrollState.value > 0,
     tint: Color,
     modifier: Modifier = Modifier,
 ) {
     val blurAlpha by animateFloatAsState(
-        targetValue = if (scrollState.value > 0) 1f else 0f,
+        targetValue = if (isScrolled) 1f else 0f,
         animationSpec = tween(durationMillis = 200),
         label = "blurAlpha",
     )

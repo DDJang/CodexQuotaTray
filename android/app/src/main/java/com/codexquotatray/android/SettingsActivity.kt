@@ -11,7 +11,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,30 +25,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.alerts.QuotaAlertSettingsStore
 import com.codexquotatray.android.alerts.QuotaNotifications
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
@@ -120,6 +107,7 @@ class SettingsActivity : ComponentActivity() {
             CodexQuotaTheme(palette) {
                 val backdrop = rememberLayerBackdrop()
                 val scrollState = rememberScrollState()
+                var upwardOverscrollActive by remember { mutableStateOf(false) }
                 val backgroundColor = palette.color(palette.background)
                 Box(Modifier.fillMaxSize().background(backgroundColor)) {
                     Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
@@ -127,6 +115,7 @@ class SettingsActivity : ComponentActivity() {
                             SettingsContent(
                                 page = destination,
                                 scrollState = scrollState,
+                                onUpwardOverscrollChanged = { upwardOverscrollActive = it },
                                 modifier = Modifier.fillMaxSize(),
                             )
                         }
@@ -134,6 +123,7 @@ class SettingsActivity : ComponentActivity() {
                     SettingsGradientBlurHeader(
                         backdrop = backdrop,
                         scrollState = scrollState,
+                        isScrolled = scrollState.value > 0 || upwardOverscrollActive,
                         tint = backgroundColor,
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
@@ -191,11 +181,12 @@ class SettingsActivity : ComponentActivity() {
     private fun SettingsContent(
         page: SettingsDestination,
         scrollState: androidx.compose.foundation.ScrollState,
+        onUpwardOverscrollChanged: (Boolean) -> Unit,
         modifier: Modifier = Modifier,
     ) {
         Column(
             modifier
-                .dampedVerticalOverscroll()
+                .dampedVerticalOverscroll(onUpwardOverscrollChanged)
                 .verticalScroll(scrollState, overscrollEffect = null)
                 .statusBarsPadding()
                 .navigationBarsPadding()
@@ -215,46 +206,47 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun ColumnScope.SettingsHome() {
         SettingsSection("账号") {
-            NavigationRow("Codex 额度账号") {
-                startActivity(Intent(this@SettingsActivity, AccountActivity::class.java))
+            SettingsGroup {
+                SettingsNavigationRow("Codex 额度账号") {
+                    startActivity(Intent(this@SettingsActivity, AccountActivity::class.java))
+                }
+                SettingsDivider()
+                SettingsNavigationRow(
+                    title = "Token 用量账号",
+                    trailing = pairing?.displayName ?: "未配对",
+                ) { openDestination(SettingsDestination.TOKEN_PAIRING) }
             }
-            SettingsDivider()
-            NavigationRow(
-                title = "Token 用量账号",
-                trailing = pairing?.displayName ?: "未配对",
-            ) { openDestination(SettingsDestination.TOKEN_PAIRING) }
         }
         SettingsSection("通知与同步") {
-            if (!backgroundRefresh) {
-                Text(
-                    "未开启同步时，通知可能会延迟",
-                    color = CodexColors.danger,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                )
+            SettingsGroup {
+                if (!backgroundRefresh) {
+                    SettingsWarningCaption("未开启同步时，通知可能会延迟")
+                }
+                SettingsNavigationRow("通知", if (notificationEnabled) "已开启" else "未开启") {
+                    openDestination(SettingsDestination.NOTIFICATIONS)
+                }
                 SettingsDivider()
-            }
-            NavigationRow("通知", if (notificationEnabled) "已开启" else "未开启") {
-                openDestination(SettingsDestination.NOTIFICATIONS)
-            }
-            SettingsDivider()
-            NavigationRow("同步", if (backgroundRefresh) "已开启" else "已关闭") {
-                openDestination(SettingsDestination.SYNC)
+                SettingsNavigationRow("同步", if (backgroundRefresh) "已开启" else "已关闭") {
+                    openDestination(SettingsDestination.SYNC)
+                }
             }
         }
         SettingsSection("个性化") {
-            NavigationRow("主题", themeLabel(themeMode)) {
-                openDestination(SettingsDestination.THEME)
+            SettingsGroup {
+                SettingsNavigationRow("主题", themeLabel(themeMode)) {
+                    openDestination(SettingsDestination.THEME)
+                }
             }
         }
         SettingsSection("其他") {
-            NavigationRow("运行日志") {
-                startActivity(Intent(this@SettingsActivity, LogActivity::class.java))
-            }
-            SettingsDivider()
-            NavigationRow("关于") {
-                startActivity(Intent(this@SettingsActivity, AboutActivity::class.java))
+            SettingsGroup {
+                SettingsNavigationRow("运行日志") {
+                    startActivity(Intent(this@SettingsActivity, LogActivity::class.java))
+                }
+                SettingsDivider()
+                SettingsNavigationRow("关于") {
+                    startActivity(Intent(this@SettingsActivity, AboutActivity::class.java))
+                }
             }
         }
     }
@@ -262,22 +254,26 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun ColumnScope.NotificationSettings() {
         SettingsSection("系统通知") {
-            ToggleRow("系统通知", notificationEnabled) {
-                if (it) requestNotificationPermission() else openNotificationSettings()
+            SettingsGroup {
+                SettingsToggleRow("系统通知", notificationEnabled) {
+                    if (it) requestNotificationPermission() else openNotificationSettings()
+                }
+                SettingsActionButton("发送测试通知", enabled = notificationEnabled, onClick = ::sendTestNotification)
             }
-            SettingsButton("发送测试通知", enabled = notificationEnabled, onClick = ::sendTestNotification)
         }
         SettingsSection("额度提醒") {
-            ToggleRow("低额度提醒", lowQuota, enabled = notificationEnabled) {
-                lowQuota = it
-                alertStore.save(alertStore.load().copy(lowQuotaEnabled = it))
-                AppLogStore.record(this@SettingsActivity, "低额度提醒已${if (it) "开启" else "关闭"}")
-            }
-            SettingsDivider()
-            ToggleRow("额度重置提醒", resetAlert, enabled = notificationEnabled) {
-                resetAlert = it
-                alertStore.save(alertStore.load().copy(resetEnabled = it))
-                AppLogStore.record(this@SettingsActivity, "额度重置提醒已${if (it) "开启" else "关闭"}")
+            SettingsGroup {
+                SettingsToggleRow("低额度提醒", lowQuota, enabled = notificationEnabled) {
+                    lowQuota = it
+                    alertStore.save(alertStore.load().copy(lowQuotaEnabled = it))
+                    AppLogStore.record(this@SettingsActivity, "低额度提醒已${if (it) "开启" else "关闭"}")
+                }
+                SettingsDivider()
+                SettingsToggleRow("额度重置提醒", resetAlert, enabled = notificationEnabled) {
+                    resetAlert = it
+                    alertStore.save(alertStore.load().copy(resetEnabled = it))
+                    AppLogStore.record(this@SettingsActivity, "额度重置提醒已${if (it) "开启" else "关闭"}")
+                }
             }
         }
     }
@@ -285,244 +281,90 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun ColumnScope.SyncSettings() {
         SettingsSection("剩余额度") {
-            ToggleRow("后台自动刷新", backgroundRefresh, onChange = ::updateBackgroundRefresh)
-            SettingsDivider()
-            Text(
-                "刷新频率",
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
-                    .alpha(if (backgroundRefresh) 1f else 0.45f),
-            )
-            RefreshIntervalButtons(enabled = backgroundRefresh)
-            SettingsDivider()
-            NavigationRow("电池优化", enabled = backgroundRefresh, onClick = ::openBatterySettings)
+            SettingsGroup {
+                SettingsToggleRow("后台自动刷新", backgroundRefresh, onChange = ::updateBackgroundRefresh)
+                SettingsDivider()
+                SettingsInlineLabel("刷新频率", enabled = backgroundRefresh)
+                SettingsSegmentedSelector(
+                    options = QuotaRefreshSettings.SUPPORTED_INTERVAL_MINUTES.map { minutes ->
+                        SettingsSegmentOption(
+                            value = minutes,
+                            label = if (minutes < 60) "$minutes 分" else "1 小时",
+                        )
+                    },
+                    selectedValue = refreshInterval,
+                    enabled = backgroundRefresh,
+                    onSelected = ::selectRefreshInterval,
+                )
+                SettingsDivider()
+                SettingsNavigationRow("电池优化", enabled = backgroundRefresh, onClick = ::openBatterySettings)
+            }
         }
         SettingsSection("Token 使用量") {
-            ToggleRow("打开统计页时自动同步", tokenAutoSync, onChange = ::updateTokenAutoSync)
+            SettingsGroup {
+                SettingsToggleRow("打开统计页时自动同步", tokenAutoSync, onChange = ::updateTokenAutoSync)
+            }
         }
     }
 
     @Composable
     private fun ColumnScope.ThemeSettings() {
         SettingsSection("外观") {
-            SelectionRow("跟随系统", themeMode == ThemeMode.SYSTEM) { selectTheme(ThemeMode.SYSTEM) }
-            SettingsDivider()
-            SelectionRow("浅色模式", themeMode == ThemeMode.LIGHT) { selectTheme(ThemeMode.LIGHT) }
-            SettingsDivider()
-            SelectionRow("深色模式", themeMode == ThemeMode.DARK) { selectTheme(ThemeMode.DARK) }
+            SettingsGroup {
+                SettingsSelectionRow("跟随系统", themeMode == ThemeMode.SYSTEM) { selectTheme(ThemeMode.SYSTEM) }
+                SettingsDivider()
+                SettingsSelectionRow("浅色模式", themeMode == ThemeMode.LIGHT) { selectTheme(ThemeMode.LIGHT) }
+                SettingsDivider()
+                SettingsSelectionRow("深色模式", themeMode == ThemeMode.DARK) { selectTheme(ThemeMode.DARK) }
+            }
         }
     }
 
     @Composable
     private fun ColumnScope.TokenPairingSettings() {
         SettingsSection("Windows") {
-            Text(
-                tokenStatus,
-                color = LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondary),
-                fontSize = 15.sp,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-            )
-            pairing?.let {
-                SettingsDivider()
-                Text(
-                    "${it.displayName ?: "Windows PC"} · ${it.host}:${it.port}",
-                    color = LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondary),
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                )
-                Text(
-                    it.lastSyncUtc?.let { raw -> "上次同步 ${formatPairingTime(raw)}" } ?: "尚未成功同步",
-                    color = LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondary),
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                )
-            }
-            if (pairing == null) {
-                SettingsButton("扫码配对", onClick = ::scanPairing)
-                OutlinedTextField(
-                    pairingUri,
-                    { pairingUri = it },
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    label = { Text("粘贴 codexquota://pair?…") },
-                    singleLine = true,
-                )
-                SettingsButton("保存粘贴的配对信息") {
-                    savePairing(runCatching { TokenSyncEndpoint.parsePairingUri(pairingUri) })
-                }
-                OutlinedTextField(
-                    pairingHost,
-                    { pairingHost = it },
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    label = { Text("Windows 地址") },
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    pairingSecret,
-                    { pairingSecret = it },
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                    label = { Text("配对密钥") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                )
-                SettingsButton("保存手动配置") {
-                    savePairing(runCatching { TokenSyncEndpoint.parseManual(pairingHost, pairingSecret) })
-                }
-            } else {
-                SettingsButton("立即同步", onClick = ::syncPairedNow)
-                SettingsButton("重新扫码配对", onClick = ::scanPairing)
-                SettingsButton("解除配对", danger = true) { showClearPairingDialog = true }
-            }
-        }
-    }
-
-    @Composable
-    private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
-        val palette = LocalQuotaPalette.current
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                title,
-                color = palette.color(palette.secondary),
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-            Card(
-                Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(CodexDimensions.cardRadius),
-                colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface)),
-            ) {
-                Column(Modifier.fillMaxWidth().padding(vertical = 5.dp), content = content)
-            }
-        }
-    }
-
-    @Composable
-    private fun SettingsDivider() {
-        val palette = LocalQuotaPalette.current
-        HorizontalDivider(
-            modifier = Modifier.padding(horizontal = 18.dp),
-            thickness = 0.5.dp,
-            color = palette.color(palette.border),
-        )
-    }
-
-    @Composable
-    private fun ToggleRow(
-        title: String,
-        checked: Boolean,
-        enabled: Boolean = true,
-        onChange: (Boolean) -> Unit,
-    ) {
-        val hapticOnChange = rememberSystemHapticChange(onChange)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(enabled = enabled) { hapticOnChange(!checked) }
-                .alpha(if (enabled) 1f else 0.45f)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(title, Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Switch(
-                checked = checked,
-                onCheckedChange = if (enabled) hapticOnChange else null,
-                enabled = enabled,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = LocalQuotaPalette.current.color(LocalQuotaPalette.current.accent),
-                    uncheckedThumbColor = Color(0xFFF1F1F1),
-                    uncheckedTrackColor = Color(0xFF4A4A4A),
-                    uncheckedBorderColor = Color.Transparent,
-                ),
-            )
-        }
-    }
-
-    @Composable
-    private fun NavigationRow(
-        title: String,
-        trailing: String? = null,
-        enabled: Boolean = true,
-        onClick: () -> Unit,
-    ) {
-        val hapticOnClick = rememberSystemHapticClick(onClick)
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .clickable(enabled = enabled, onClick = hapticOnClick)
-                .alpha(if (enabled) 1f else 0.45f)
-                .padding(horizontal = 16.dp, vertical = 15.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(title, Modifier.weight(1f), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            trailing?.let {
-                Text(it, color = LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondary), fontSize = 14.sp)
-                Spacer(Modifier.size(8.dp))
-            }
-            Text("›", fontSize = 24.sp)
-        }
-    }
-
-    @Composable
-    private fun SelectionRow(title: String, selected: Boolean, onClick: () -> Unit) {
-        val hapticOnClick = rememberSystemHapticClick(onClick)
-        Row(
-            Modifier.fillMaxWidth().clickable(onClick = hapticOnClick)
-                .padding(horizontal = 16.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(title, Modifier.weight(1f), fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            if (selected) {
-                Text("✓", color = LocalQuotaPalette.current.color(LocalQuotaPalette.current.accent), fontSize = 24.sp)
-            }
-        }
-    }
-
-    @Composable
-    private fun RefreshIntervalButtons(enabled: Boolean) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            QuotaRefreshSettings.SUPPORTED_INTERVAL_MINUTES.forEach { minutes ->
-                val hapticOnClick = rememberSystemHapticClick { selectRefreshInterval(minutes) }
-                Button(
-                    onClick = hapticOnClick,
-                    enabled = enabled,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (refreshInterval == minutes) {
-                            LocalQuotaPalette.current.color(LocalQuotaPalette.current.primaryButton)
-                        } else {
-                            LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButton)
-                        },
-                        contentColor = if (refreshInterval == minutes) Color.White
-                        else LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButtonText),
-                        disabledContainerColor = LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButton).copy(alpha = 0.45f),
-                        disabledContentColor = LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButtonText).copy(alpha = 0.5f),
-                    ),
-                    shape = RoundedCornerShape(CodexDimensions.buttonRadius),
-                    modifier = Modifier.weight(1f).height(CodexDimensions.rowHeight),
-                ) {
-                    Text(if (minutes < 60) "$minutes 分" else "1 小时", fontSize = 13.sp)
+            SettingsGroup {
+                SettingsInfoRow("状态", tokenStatus)
+                pairing?.let {
+                    SettingsDivider()
+                    SettingsInfoRow("电脑", "${it.displayName ?: "Windows PC"} · ${it.host}:${it.port}")
+                    SettingsInfoRow(
+                        "上次同步",
+                        it.lastSyncUtc?.let { raw -> formatPairingTime(raw) } ?: "尚未成功同步",
+                    )
+                    SettingsActionButton("立即同步", onClick = ::syncPairedNow)
+                    SettingsActionButton("重新扫码配对", onClick = ::scanPairing)
+                    SettingsActionButton("解除配对", danger = true) { showClearPairingDialog = true }
+                } ?: run {
+                    SettingsActionButton("扫码配对", onClick = ::scanPairing)
+                    SettingsInlineLabel("粘贴配对信息")
+                    SettingsTextInput(
+                        value = pairingUri,
+                        onValueChange = { pairingUri = it },
+                        label = "codexquota://pair?…",
+                    )
+                    SettingsActionButton("保存粘贴的配对信息") {
+                        savePairing(runCatching { TokenSyncEndpoint.parsePairingUri(pairingUri) })
+                    }
+                    SettingsDivider()
+                    SettingsInlineLabel("手动配置")
+                    SettingsTextInput(
+                        value = pairingHost,
+                        onValueChange = { pairingHost = it },
+                        label = "Windows 地址",
+                    )
+                    SettingsTextInput(
+                        value = pairingSecret,
+                        onValueChange = { pairingSecret = it },
+                        label = "配对密钥",
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                    SettingsActionButton("保存手动配置") {
+                        savePairing(runCatching { TokenSyncEndpoint.parseManual(pairingHost, pairingSecret) })
+                    }
                 }
             }
         }
-    }
-
-    @Composable
-    private fun SettingsButton(
-        label: String,
-        danger: Boolean = false,
-        enabled: Boolean = true,
-        onClick: () -> Unit,
-    ) {
-        CodexButton(
-            text = label,
-            onClick = onClick,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            enabled = enabled,
-            style = if (danger) CodexButtonStyle.DANGER else CodexButtonStyle.SECONDARY,
-        )
     }
 
     private fun openDestination(value: SettingsDestination) {
