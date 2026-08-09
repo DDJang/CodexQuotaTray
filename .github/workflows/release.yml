@@ -52,9 +52,14 @@ jobs:
             throw "Tag version '$tagVersion' does not match project version '$projectVersion'."
           }
 
-          git fetch --no-tags origin main
+          git fetch --no-tags origin 'refs/heads/main:refs/remotes/origin/main'
           if ($LASTEXITCODE -ne 0) {
             throw 'Could not fetch origin/main for ancestry verification.'
+          }
+
+          $mainCommit = (git rev-parse 'refs/remotes/origin/main').Trim()
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($mainCommit)) {
+            throw 'Could not resolve fetched origin/main.'
           }
 
           $tagCommit = (git rev-parse "$($env:TAG_SHA)^{commit}").Trim()
@@ -62,16 +67,16 @@ jobs:
             throw "Could not resolve tagged commit '$($env:TAG_SHA)'."
           }
 
-          git merge-base --is-ancestor $tagCommit 'origin/main'
+          git merge-base --is-ancestor $tagCommit $mainCommit
           if ($LASTEXITCODE -ne 0) {
-            throw "Tagged commit $tagCommit is not contained in origin/main."
+            throw "Tagged commit $tagCommit is not contained in origin/main ($mainCommit)."
           }
 
           $isPrerelease = $projectVersion -match '(?i)(preview|alpha|beta|rc)'
           "version=$projectVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "is_prerelease=$($isPrerelease.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Tag $($env:TAG_NAME) matches project version $projectVersion."
-          Write-Host "Tagged commit $tagCommit is contained in origin/main."
+          Write-Host "Tagged commit $tagCommit is contained in origin/main ($mainCommit)."
 
       - name: Verify SDK selected from global.json
         shell: pwsh
