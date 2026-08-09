@@ -30,7 +30,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -43,6 +45,7 @@ import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenUsageCache
 import com.codexquotatray.android.usage.TokenUsageDay
 import com.codexquotatray.android.usage.TokenUsageException
+import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenUsageSnapshot
 import com.codexquotatray.android.usage.TokenUsageSyncClient
 import java.text.SimpleDateFormat
@@ -55,6 +58,7 @@ import java.util.concurrent.Executors
 internal class TokenUsagePageController(private val host: MainActivity) {
     private val cache by lazy { TokenUsageCache(host) }
     private val store by lazy { TokenSyncStore(host) }
+    private val refreshSettings by lazy { TokenUsageRefreshSettingsStore(host) }
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var pairingKey: String? = null
@@ -75,12 +79,13 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     fun onVisible() {
         visible = true
         val pairing = store.load()
-        val key = pairing?.let { "${it.deviceId}|${it.pairingSecret}" }
+        val autoSyncOnOpen = refreshSettings.load().autoSyncOnOpen
+        val key = pairing?.let { "${it.deviceId}|${it.pairingSecret}|$autoSyncOnOpen" }
         if (pairingLoaded && key == pairingKey) return
         pairingLoaded = true; pairingKey = key; paired = pairing != null
         if (pairing == null) { snapshot = null; status = "尚未配对 Windows"; return }
         cache.load()?.let { snapshot = it; status = "上次同步于 ${formatSyncTime(it.generatedAtUtc)}" } ?: run { status = "暂无 Token 使用量缓存" }
-        sync(pairing)
+        if (autoSyncOnOpen) sync(pairing) else if (snapshot == null) status = "自动同步已关闭"
     }
 
     fun onResume() { if (visible) onVisible() }
@@ -122,7 +127,7 @@ internal fun TokenUsagePage(controller: TokenUsagePageController, onSettings: ()
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Token 使用统计", fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text("连接 Windows CodexQuotaTray 后，即可查看本机 Codex Token 使用历史。", color = palette.color(palette.secondary))
-                    Button(onClick = onSettings, modifier = Modifier.fillMaxWidth()) { Text("前往设置") }
+                    Button(onClick = rememberSystemHapticClick(onSettings), modifier = Modifier.fillMaxWidth()) { Text("前往设置") }
                 }
             }
         } else controller.snapshot?.let { TokenUsageContent(it) }
@@ -159,6 +164,7 @@ private fun SummaryRow(items: List<Pair<String, Long>>) {
 @Composable
 private fun TokenHeatmap(days: List<TokenUsageDay>, selected: (TokenUsageDay) -> Unit) {
     val palette = LocalQuotaPalette.current
+    val hapticFeedback = LocalHapticFeedback.current
     val start = LocalDate.now().minusDays(364)
     val values = days.associateBy { it.date }
     val nonZero = days.map { it.totalTokens }.filter { it > 0L }
@@ -168,7 +174,11 @@ private fun TokenHeatmap(days: List<TokenUsageDay>, selected: (TokenUsageDay) ->
         Modifier.horizontalScroll(scroll).size(width = 954.dp, height = 126.dp).pointerInput(days) {
             detectTapGestures { point ->
                 val column = (point.x / 18.dp.toPx()).toInt(); val row = (point.y / 18.dp.toPx()).toInt(); val index = column * 7 + row
-                if (index in 0 until 365) { val date = start.plusDays(index.toLong()); selected(values[date] ?: TokenUsageDay(date, 0, null, null, null, null)) }
+                if (index in 0 until 365) {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    val date = start.plusDays(index.toLong())
+                    selected(values[date] ?: TokenUsageDay(date, 0, null, null, null, null))
+                }
             }
         },
     ) {

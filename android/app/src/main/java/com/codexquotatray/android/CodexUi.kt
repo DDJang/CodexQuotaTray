@@ -23,10 +23,14 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -64,6 +68,30 @@ internal object CodexTypography {
 internal enum class CodexButtonStyle { PRIMARY, SECONDARY, DANGER }
 
 @Composable
+internal fun rememberSystemHapticClick(onClick: () -> Unit): () -> Unit {
+    val hapticFeedback = LocalHapticFeedback.current
+    val currentOnClick = rememberUpdatedState(onClick)
+    return remember(hapticFeedback) {
+        {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
+            currentOnClick.value()
+        }
+    }
+}
+
+@Composable
+internal fun rememberSystemHapticChange(onChange: (Boolean) -> Unit): (Boolean) -> Unit {
+    val hapticFeedback = LocalHapticFeedback.current
+    val currentOnChange = rememberUpdatedState(onChange)
+    return remember(hapticFeedback) {
+        { value ->
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
+            currentOnChange.value(value)
+        }
+    }
+}
+
+@Composable
 internal fun CodexButton(
     text: String,
     onClick: () -> Unit,
@@ -72,6 +100,7 @@ internal fun CodexButton(
     style: CodexButtonStyle = CodexButtonStyle.SECONDARY,
 ) {
     val palette = LocalQuotaPalette.current
+    val hapticOnClick = rememberSystemHapticClick(onClick)
     val dark = palette.color(palette.background).luminance() < 0.1f
     val container = when (style) {
         CodexButtonStyle.PRIMARY -> palette.color(palette.accent)
@@ -84,7 +113,7 @@ internal fun CodexButton(
         CodexButtonStyle.DANGER -> CodexColors.danger
     }
     Button(
-        onClick = onClick,
+        onClick = hapticOnClick,
         modifier = modifier.height(CodexDimensions.rowHeight),
         enabled = enabled,
         shape = RoundedCornerShape(CodexDimensions.buttonRadius),
@@ -125,6 +154,8 @@ internal fun CodexConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val hapticConfirm = rememberSystemHapticClick { onConfirm(); onDismiss() }
+    val hapticDismiss = rememberSystemHapticClick(onDismiss)
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -133,12 +164,12 @@ internal fun CodexConfirmDialog(
         title = { Text(title) },
         text = { Text(message) },
         confirmButton = {
-            TextButton(onClick = { onConfirm(); onDismiss() }) {
+            TextButton(onClick = hapticConfirm) {
                 Text(confirmText, color = CodexColors.danger)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = hapticDismiss) { Text("取消") }
         },
     )
 }

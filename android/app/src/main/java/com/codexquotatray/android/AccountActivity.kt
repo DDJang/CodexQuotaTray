@@ -38,7 +38,7 @@ class AccountActivity : ComponentActivity() {
         setContent {
             val palette = AppTheme.palette(this)
             CodexQuotaTheme(palette) {
-                SecondaryScreenScaffold(title = "账号管理", onBack = ::finish) {
+                SecondaryScreenScaffold(title = "Codex 额度账号", onBack = ::finish) {
                     Column(
                         Modifier.fillMaxSize().padding(
                             horizontal = CodexDimensions.screenPadding,

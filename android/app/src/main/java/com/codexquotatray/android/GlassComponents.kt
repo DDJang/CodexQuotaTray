@@ -51,9 +51,11 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -102,6 +104,7 @@ internal fun GlassIconButton(
     onClick: () -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
+    val hapticOnClick = rememberSystemHapticClick(onClick)
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val pressProgress by animateFloatAsState(
@@ -140,7 +143,7 @@ internal fun GlassIconButton(
                 indication = null,
                 enabled = enabled,
                 role = Role.Button,
-                onClick = onClick,
+                onClick = hapticOnClick,
             )
             .semantics { contentDescription = description }
             .alpha(if (enabled) 1f else 0.45f),
@@ -168,10 +171,11 @@ private val LocalDockTabScale = compositionLocalOf { { 1f } }
 @Composable
 private fun RowScope.DockTab(onClick: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     val scale = LocalDockTabScale.current
+    val hapticOnClick = rememberSystemHapticClick(onClick)
     Column(
         Modifier
             .clip(KyantShapes.capsule())
-            .clickable(interactionSource = null, indication = null, role = Role.Tab, onClick = onClick)
+            .clickable(interactionSource = null, indication = null, role = Role.Tab, onClick = hapticOnClick)
             .fillMaxHeight()
             .weight(1f)
             .graphicsLayer { scaleX = scale(); scaleY = scale() },
@@ -260,6 +264,7 @@ private fun LiquidTabCapsule(
     }
     val tabsBackdrop = rememberLayerBackdrop()
     val scope = rememberCoroutineScope()
+    val hapticFeedback = LocalHapticFeedback.current
     val debugLogging = LocalContext.current.applicationInfo.flags and
         ApplicationInfo.FLAG_DEBUGGABLE != 0
 
@@ -277,7 +282,7 @@ private fun LiquidTabCapsule(
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         var currentIndex by remember { mutableIntStateOf(selectedIndex) }
         var settledLogJob by remember { mutableStateOf<Job?>(null) }
-        val drag = remember(scope) {
+        val drag = remember(scope, hapticFeedback) {
             BottomDockDampedDragAnimation(
                 animationScope = scope,
                 initialValue = selectedIndex.toFloat(),
@@ -294,6 +299,10 @@ private fun LiquidTabCapsule(
                     settledLogJob?.cancel()
                     logBottomDockState(debugLogging, "UP", currentIndex, this)
                     val target = targetValue.fastRoundToInt().fastCoerceIn(0, 1)
+                    if (target != currentIndex) {
+                        logBottomDockState(debugLogging, "HAPTIC", target, this)
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    }
                     currentIndex = target
                     settleToValue(target.toFloat())
                     scope.launch { offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f)) }

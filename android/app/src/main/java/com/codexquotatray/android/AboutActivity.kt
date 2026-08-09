@@ -54,7 +54,7 @@ class AboutActivity : ComponentActivity() {
                         )
                         Text(
                             PROJECT_URL,
-                            modifier = Modifier.padding(top = 18.dp).clickable(onClick = ::openProjectPage),
+                            modifier = Modifier.padding(top = 18.dp).clickable(onClick = rememberSystemHapticClick(::openProjectPage)),
                             color = palette.color(palette.accent),
                             fontSize = 14.sp,
                         )

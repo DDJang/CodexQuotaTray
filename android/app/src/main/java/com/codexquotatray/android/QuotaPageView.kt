@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -21,14 +22,22 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.auth.OAuthStore
@@ -49,6 +58,22 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+
+private val QuotaProgressGreen = Color(0xFF35E66B)
+private val QuotaProgressYellow = Color(0xFFFFD84D)
+private val QuotaProgressRed = Color(0xFFFF4D5D)
+
+internal fun quotaProgressColor(remainingPercent: Int): Color {
+    val remaining = remainingPercent.coerceIn(0, 100) / 100f
+    return if (remaining >= 0.5f) {
+        lerp(QuotaProgressYellow, QuotaProgressGreen, (remaining - 0.5f) * 2f)
+    } else {
+        lerp(QuotaProgressRed, QuotaProgressYellow, remaining * 2f)
+    }
+}
+
+internal fun quotaProgress(remainingPercent: Int): Float =
+    remainingPercent.coerceIn(0, 100) / 100f
 
 internal fun formatResetRemaining(remainingSeconds: Long): String {
     if (remainingSeconds <= 0L) return "已到期或正在刷新"
@@ -207,7 +232,7 @@ internal fun QuotaPage(controller: QuotaPageController, modifier: Modifier = Mod
             model.windows.forEach { QuotaWindowCard(it) }
             Text(model.updatedAtMillis?.let { "更新于 ${formatClockTime(it)}" } ?: "尚未更新", color = palette.color(palette.muted), fontSize = 13.sp)
         } else {
-            Button(onClick = controller::openLogin, enabled = !controller.busy, modifier = Modifier.fillMaxWidth()) { Text("登录 Codex") }
+            Button(onClick = rememberSystemHapticClick(controller::openLogin), enabled = !controller.busy, modifier = Modifier.fillMaxWidth()) { Text("登录 Codex") }
         }
         Spacer(Modifier.height(96.dp))
     }
@@ -216,6 +241,19 @@ internal fun QuotaPage(controller: QuotaPageController, modifier: Modifier = Mod
 @Composable
 private fun QuotaWindowCard(window: QuotaCardModel) {
     val palette = LocalQuotaPalette.current
+    val remainingPercent = window.remainingPercent
+    val progressTarget = remainingPercent?.let(::quotaProgress) ?: 0f
+    val colorTarget = remainingPercent?.let(::quotaProgressColor) ?: palette.color(palette.accent)
+    val animatedProgress by animateFloatAsState(
+        targetValue = progressTarget,
+        animationSpec = tween(durationMillis = QUOTA_PROGRESS_ANIMATION_MILLIS),
+        label = "quota-progress",
+    )
+    val animatedColor by animateColorAsState(
+        targetValue = colorTarget,
+        animationSpec = tween(durationMillis = QUOTA_PROGRESS_ANIMATION_MILLIS),
+        label = "quota-progress-color",
+    )
     Card(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -224,12 +262,61 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(window.title, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Text(window.remainingPercent?.let { "剩余 $it%" } ?: "剩余未知", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.accent))
-            window.remainingPercent?.let { LinearProgressIndicator(progress = { it.coerceIn(0, 100) / 100f }, modifier = Modifier.fillMaxWidth().height(8.dp), color = palette.color(palette.accent), trackColor = palette.color(palette.progressTrack)) }
+            Text(
+                remainingPercent?.let { "剩余 $it%" } ?: "剩余未知",
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold,
+                color = animatedColor,
+            )
+            remainingPercent?.let {
+                QuotaGlowProgressBar(
+                    progress = animatedProgress,
+                    progressColor = animatedColor,
+                    trackColor = palette.color(palette.progressTrack),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             Text(formatResetAt(window.resetsAt), color = palette.color(palette.secondary), fontSize = 14.sp)
         }
     }
 }
+
+@Composable
+private fun QuotaGlowProgressBar(
+    progress: Float,
+    progressColor: Color,
+    trackColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    val capsule = RoundedCornerShape(percent = 50)
+    Box(modifier.height(21.dp), contentAlignment = Alignment.CenterStart) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(7.dp)
+                .background(trackColor, capsule),
+        )
+        if (progress > 0f) {
+            Box(
+                Modifier
+                    .fillMaxWidth(progress.coerceIn(0f, 1f))
+                    .height(7.dp)
+                    .dropShadow(
+                        shape = capsule,
+                        shadow = Shadow(
+                            radius = 8.dp,
+                            spread = 1.dp,
+                            color = progressColor.copy(alpha = 0.28f),
+                            offset = DpOffset.Zero,
+                        ),
+                    )
+                    .background(progressColor, capsule),
+            )
+        }
+    }
+}
+
+private const val QUOTA_PROGRESS_ANIMATION_MILLIS = 350
 
 private fun formatResetAt(epochSeconds: Long?): String {
     if (epochSeconds == null) return "重置时间未知"
