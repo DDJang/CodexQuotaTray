@@ -1,115 +1,110 @@
 package com.codexquotatray.android
 
-import android.app.Activity
 import android.content.Intent
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.Gravity
-import android.view.View
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ScrollView
-import android.widget.TextView
-import androidx.core.view.ViewCompat
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.auth.OAuthLoginUpdate
 import com.codexquotatray.android.quota.CodexQuotaRepository
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import java.util.concurrent.Executors
 
-class LoginActivity : Activity() {
-    private val palette by lazy { AppTheme.palette(this) }
+class LoginActivity : ComponentActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val repository by lazy { CodexQuotaRepository(this) }
-    private var verificationUrl: String? = null
-    private var busy = false
-
-    private lateinit var statusView: TextView
-    private lateinit var openBrowserButton: Button
-    private lateinit var loginButton: Button
+    private var verificationUrl: String? by mutableStateOf(null)
+    private var statusText by mutableStateOf("正在准备登录…")
+    private var userCode: String? by mutableStateOf(null)
+    private var busy by mutableStateOf(false)
+    private var failed by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
         super.onCreate(savedInstanceState)
         AppTheme.applySystemBars(this)
-        val root = buildContent()
-        setContentView(root)
-        ViewCompat.requestApplyInsets(root)
+        setContent {
+            val palette = AppTheme.palette(this)
+            CodexQuotaTheme(palette) {
+                SecondaryScreenScaffold(title = "登录 Codex", onBack = ::finish) {
+                    Column(
+                        Modifier.fillMaxSize().padding(horizontal = CodexDimensions.screenPadding),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        CodexCard(Modifier.fillMaxWidth()) {
+                            Text(
+                                statusText,
+                                modifier = Modifier.fillMaxWidth(),
+                                color = palette.color(if (failed) palette.error else palette.secondary),
+                                fontSize = 16.sp,
+                                lineHeight = 23.sp,
+                                textAlign = TextAlign.Center,
+                            )
+                            userCode?.let { code ->
+                                Text(
+                                    code,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
+                                    color = palette.color(palette.accent),
+                                    fontSize = 25.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    letterSpacing = 2.sp,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                        if (!verificationUrl.isNullOrBlank()) {
+                            CodexButton(
+                                text = "打开浏览器",
+                                onClick = ::openVerificationBrowser,
+                                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
+                                style = CodexButtonStyle.PRIMARY,
+                            )
+                        }
+                        CodexButton(
+                            text = if (busy) "登录处理中…" else "重新登录",
+                            onClick = ::beginLogin,
+                            enabled = !busy,
+                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                        )
+                    }
+                }
+            }
+        }
         beginLogin()
-    }
-
-    private fun buildContent(): View {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(22), dp(20), dp(18))
-            setBackgroundColor(palette.background)
-        }
-        AppTheme.installTopSafePadding(root)
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(18), 0, dp(18))
-        }
-        val scroll = ScrollView(this).apply {
-            isFillViewport = true
-            addView(content)
-        }
-
-        val toolbar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        toolbar.addView(backButton())
-        toolbar.addView(
-            textView("登录 Codex", 24f, Typeface.BOLD).apply {
-                setTextColor(palette.title)
-            },
-            LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
-        )
-        content.addView(toolbar, marginParams(bottom = 28))
-
-        statusView = textView("正在准备登录…", 16f, Typeface.NORMAL).apply {
-            setTextColor(palette.secondary)
-            setLineSpacing(dp(4).toFloat(), 1.0f)
-        }
-        content.addView(statusView, marginParams(bottom = 20))
-
-        openBrowserButton = actionButton("打开浏览器") { openVerificationBrowser() }
-        openBrowserButton.visibility = View.GONE
-        content.addView(openBrowserButton, marginParams(bottom = 10))
-
-        loginButton = actionButton("重新登录") { beginLogin() }
-        content.addView(loginButton)
-
-        root.addView(
-            scroll,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                0,
-                1f,
-            ),
-        )
-        return root
     }
 
     private fun beginLogin() {
         if (busy) return
         busy = true
+        failed = false
         AppLogStore.record(this, "登录流程开始")
         verificationUrl = null
-        statusView.text = "正在准备登录…"
-        statusView.setTextColor(palette.secondary)
-        openBrowserButton.visibility = View.GONE
-        loginButton.text = "登录处理中…"
-        loginButton.isEnabled = false
+        userCode = null
+        statusText = "正在准备登录…"
         worker.execute {
             val result = runCatching {
-                repository.login { update ->
-                    mainHandler.post { renderLoginUpdate(update) }
-                }
+                repository.login { update -> mainHandler.post { renderLoginUpdate(update) } }
             }
             mainHandler.post {
                 busy = false
@@ -121,16 +116,11 @@ class LoginActivity : Activity() {
                         finish()
                     },
                     onFailure = { error ->
-                        AppLogStore.record(
-                            this@LoginActivity,
-                            "登录失败：${error.message ?: "未知错误"}",
-                            "WARN",
-                        )
-                        statusView.text = error.message ?: "登录失败，请重试"
-                        statusView.setTextColor(palette.error)
-                        loginButton.text = "重新登录"
-                        loginButton.isEnabled = true
-                        openBrowserButton.visibility = View.GONE
+                        AppLogStore.record(this@LoginActivity, "登录失败：${error.message ?: "未知错误"}", "WARN")
+                        statusText = error.message ?: "登录失败，请重试"
+                        failed = true
+                        verificationUrl = null
+                        userCode = null
                     },
                 )
             }
@@ -140,74 +130,31 @@ class LoginActivity : Activity() {
     private fun renderLoginUpdate(update: OAuthLoginUpdate) {
         verificationUrl = update.verificationUrl ?: verificationUrl
         if (update.state != "waiting_for_user") {
-            statusView.text = when (update.state) {
+            userCode = null
+            statusText = when (update.state) {
                 "login_starting" -> "正在准备登录…"
                 "exchanging_token" -> "登录完成，正在保存登录状态…"
                 else -> update.message ?: "正在处理登录…"
             }
             return
         }
-        val details = buildString {
-            append("请在浏览器完成 Codex 登录")
-            update.userCode?.let { append("\n登录码：$it") }
-            if (!verificationUrl.isNullOrBlank()) append("\n然后点击下方按钮")
-        }
-        statusView.text = details
-        statusView.setTextColor(palette.body)
-        openBrowserButton.visibility = if (verificationUrl.isNullOrBlank()) View.GONE else View.VISIBLE
-        openBrowserButton.isEnabled = !verificationUrl.isNullOrBlank()
+        statusText = "请在浏览器完成 Codex 登录"
+        userCode = update.userCode
     }
 
     private fun openVerificationBrowser() {
         val url = verificationUrl ?: return
         val uri = runCatching { Uri.parse(url) }.getOrNull()
         if (uri?.scheme != "https") {
-            statusView.text = "登录地址无效，请重新开始登录"
+            statusText = "登录地址无效，请重新开始登录"
+            failed = true
             return
         }
-        runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, uri))
-        }.onFailure {
-            statusView.text = "没有可用的浏览器，请手动打开登录地址"
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }.onFailure {
+            statusText = "没有可用的浏览器，请手动打开登录地址"
+            failed = true
         }
     }
-
-    private fun backButton(): TextView = textView("‹", 34f, Typeface.NORMAL).apply {
-        gravity = Gravity.CENTER
-        setTextColor(palette.secondaryButtonText)
-        isClickable = true
-        setOnClickListener { finish() }
-        layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
-    }
-
-    private fun actionButton(text: String, action: () -> Unit): Button = Button(this).apply {
-        this.text = text
-        textSize = 15f
-        isAllCaps = false
-        setTypeface(typeface, Typeface.BOLD)
-        minimumHeight = dp(52)
-        minHeight = dp(52)
-        backgroundTintList = android.content.res.ColorStateList.valueOf(palette.secondaryButton)
-        setTextColor(palette.secondaryButtonText)
-        setOnClickListener { action() }
-    }
-
-    private fun textView(text: String, size: Float, style: Int): TextView = TextView(this).apply {
-        this.text = text
-        textSize = size
-        setTypeface(typeface, style)
-    }
-
-    private fun marginParams(bottom: Int = 0): LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-        ).apply {
-            setMargins(0, 0, 0, dp(bottom))
-        }
-
-    private fun dp(value: Int): Int =
-        (value * resources.displayMetrics.density).toInt().coerceAtLeast(value)
 
     override fun onDestroy() {
         worker.shutdownNow()

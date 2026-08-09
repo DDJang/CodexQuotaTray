@@ -1,0 +1,187 @@
+package com.codexquotatray.android
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+
+internal object CodexColors {
+    val backgroundDark = Color.Black
+    val surfaceDark = Color(0xFF252525)
+    val surfaceSecondaryDark = Color(0xFF303030)
+    val textPrimaryDark = Color(0xFFF5F5F5)
+    val textSecondaryDark = Color(0xFF969696)
+    val accentDark = Color(0xFF0091FF)
+    val accentLight = Color(0xFF0088FF)
+    val danger = Color(0xFFFF5A5F)
+    val dividerDark = Color(0xFF343434)
+}
+
+internal object CodexDimensions {
+    val screenPadding = 20.dp
+    val cardRadius = 24.dp
+    val buttonRadius = 18.dp
+    val rowHeight = 52.dp
+    val headerHeight = 68.dp
+}
+
+internal object CodexTypography {
+    val title = TextStyle(fontSize = 21.sp, fontWeight = FontWeight.Bold)
+    val body = TextStyle(fontSize = 15.sp)
+    val caption = TextStyle(fontSize = 12.sp)
+}
+
+internal enum class CodexButtonStyle { PRIMARY, SECONDARY, DANGER }
+
+@Composable
+internal fun CodexButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    style: CodexButtonStyle = CodexButtonStyle.SECONDARY,
+) {
+    val palette = LocalQuotaPalette.current
+    val dark = palette.color(palette.background).luminance() < 0.1f
+    val container = when (style) {
+        CodexButtonStyle.PRIMARY -> palette.color(palette.accent)
+        CodexButtonStyle.SECONDARY -> if (dark) CodexColors.surfaceSecondaryDark else palette.color(palette.secondaryButton)
+        CodexButtonStyle.DANGER -> if (dark) CodexColors.surfaceSecondaryDark else palette.color(palette.secondaryButton)
+    }
+    val content = when (style) {
+        CodexButtonStyle.PRIMARY -> Color.White
+        CodexButtonStyle.SECONDARY -> if (dark) CodexColors.textPrimaryDark else palette.color(palette.secondaryButtonText)
+        CodexButtonStyle.DANGER -> CodexColors.danger
+    }
+    Button(
+        onClick = onClick,
+        modifier = modifier.height(CodexDimensions.rowHeight),
+        enabled = enabled,
+        shape = RoundedCornerShape(CodexDimensions.buttonRadius),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = container,
+            contentColor = content,
+            disabledContainerColor = container.copy(alpha = 0.45f),
+            disabledContentColor = content.copy(alpha = 0.55f),
+        ),
+    ) {
+        Text(text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+internal fun CodexCard(
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val palette = LocalQuotaPalette.current
+    val dark = palette.color(palette.background).luminance() < 0.1f
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(CodexDimensions.cardRadius),
+        colors = CardDefaults.cardColors(
+            containerColor = if (dark) CodexColors.surfaceDark else palette.color(palette.surface),
+        ),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), content = content)
+    }
+}
+
+@Composable
+internal fun CodexConfirmDialog(
+    title: String,
+    message: String,
+    confirmText: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh,
+        titleContentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+        textContentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+        title = { Text(title) },
+        text = { Text(message) },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(); onDismiss() }) {
+                Text(confirmText, color = CodexColors.danger)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
+
+@Composable
+internal fun SecondaryScreenScaffold(
+    title: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val palette = LocalQuotaPalette.current
+    val backdrop = rememberLayerBackdrop()
+    Box(modifier.fillMaxSize().background(palette.color(palette.background))) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .layerBackdrop(backdrop)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(top = CodexDimensions.headerHeight),
+            content = content,
+        )
+        Row(
+            Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            GlassIconButton(
+                iconRes = R.drawable.ic_back,
+                description = "返回",
+                backdrop = backdrop,
+                size = 52.dp,
+                iconSize = 25.dp,
+                onClick = onBack,
+            )
+            Text(
+                title,
+                Modifier.weight(1f),
+                style = CodexTypography.title,
+                color = palette.color(palette.title),
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.size(52.dp))
+        }
+    }
+}

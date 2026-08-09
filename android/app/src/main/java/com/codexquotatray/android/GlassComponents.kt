@@ -257,8 +257,7 @@ private fun LiquidTabCapsule(
             DampedDockDrag(
                 scope, selectedIndex.toFloat(), 0f..1f,
                 onStopped = {
-                    val projected = targetValue + (velocity / 10f).fastCoerceIn(-0.35f, 0.35f)
-                    val target = projected.fastRoundToInt().fastCoerceIn(0, 1)
+                    val target = targetValue.fastRoundToInt().fastCoerceIn(0, 1)
                     currentIndex = target
                     animateToValue(target.toFloat())
                     scope.launch { offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f)) }
@@ -270,8 +269,10 @@ private fun LiquidTabCapsule(
             )
         }
         LaunchedEffect(selectedIndex) {
-            currentIndex = selectedIndex
-            drag.animateToValue(selectedIndex.toFloat())
+            if (currentIndex != selectedIndex) {
+                currentIndex = selectedIndex
+                drag.animateToValue(selectedIndex.toFloat())
+            }
         }
         LaunchedEffect(drag) {
             snapshotFlow { currentIndex }.drop(1).collectLatest { onSelected(it) }
@@ -313,7 +314,10 @@ private fun LiquidTabCapsule(
             verticalAlignment = Alignment.CenterVertically,
             content = tabs,
         )
-        CompositionLocalProvider(LocalDockTabScale provides { lerp(1f, 1.2f, drag.pressProgress) }) {
+        // Keep the hidden accent content geometrically identical to the visible
+        // row. Lens/refraction provides the motion; scaling this layer creates
+        // a separately readable blue duplicate with larger app icons.
+        CompositionLocalProvider(LocalDockTabScale provides { 1f }) {
             Row(
                 Modifier.clearAndSetSemantics {}.alpha(0f).layerBackdrop(tabsBackdrop)
                     .graphicsLayer { translationX = panelOffset }
@@ -355,6 +359,11 @@ private fun LiquidTabCapsule(
     }
 }
 
+/**
+ * Adapted from Kyant0/AndroidLiquidGlass's Apache-2.0 DampedDragAnimation
+ * example. Spring constants, release timing, velocity tracking and mutex
+ * behavior intentionally follow the upstream catalog component.
+ */
 private class DampedDockDrag(
     private val scope: CoroutineScope,
     initial: Float,
@@ -384,7 +393,7 @@ private class DampedDockDrag(
     }
     private fun press() { scope.launch { launch { pressAnim.animateTo(1f, spring(1f, 1000f, 0.001f)) }; launch { scaleXAnim.animateTo(78f / 56f, spring(0.6f, 250f, 0.001f)) }; launch { scaleYAnim.animateTo(78f / 56f, spring(0.7f, 250f, 0.001f)) } } }
     private fun release() { scope.launch { androidx.compose.runtime.withFrameNanos {}; if (value != targetValue) snapshotFlow { valueAnim.value }.filter { abs(it - valueAnim.targetValue) < 0.025f }.first(); launch { pressAnim.animateTo(0f, spring(1f, 1000f, 0.001f)) }; launch { scaleXAnim.animateTo(1f, spring(0.6f, 250f, 0.001f)) }; launch { scaleYAnim.animateTo(1f, spring(0.7f, 250f, 0.001f)) } } }
-    fun updateValue(value: Float) { scope.launch { valueAnim.animateTo(value.coerceIn(range), spring(1f, 1000f, 0.001f)) { tracker.addPosition(Clock.System.now().toEpochMilliseconds(), Offset(this.value, 0f)); val v = tracker.calculateVelocity().x; scope.launch { velocityAnim.animateTo(v, spring(0.5f, 300f, 0.01f)) } } } }
+    fun updateValue(value: Float) { scope.launch { valueAnim.animateTo(value.coerceIn(range), spring(1f, 1000f, 0.001f)) { tracker.addPosition(Clock.System.now().toEpochMilliseconds(), Offset(this.value, 0f)); val span = range.endInclusive - range.start; val v = tracker.calculateVelocity().x / span; scope.launch { velocityAnim.animateTo(v, spring(0.5f, 300f, 0.01f)) } } } }
     fun animateToValue(value: Float) { scope.launch { mutex.mutate { press(); launch { valueAnim.animateTo(value.coerceIn(range), spring(1f, 1000f, 0.001f)) }; if (velocity != 0f) launch { velocityAnim.animateTo(0f, spring(0.5f, 300f, 0.01f)) }; release() } } }
 }
 

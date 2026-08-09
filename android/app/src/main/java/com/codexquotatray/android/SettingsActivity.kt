@@ -85,6 +85,7 @@ class SettingsActivity : ComponentActivity() {
     private var pairingUri by mutableStateOf("")
     private var pairingHost by mutableStateOf("")
     private var pairingSecret by mutableStateOf("")
+    private var showClearPairingDialog by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -118,9 +119,18 @@ class SettingsActivity : ComponentActivity() {
                             iconSize = 25.dp,
                             onClick = ::finish,
                         )
-                        Text("设置", Modifier.weight(1f), color = palette.color(palette.title), fontSize = 21.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                        Text("设置", Modifier.weight(1f), color = palette.color(palette.title), style = CodexTypography.title, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                         Spacer(Modifier.size(52.dp))
                     }
+                }
+                if (showClearPairingDialog) {
+                    CodexConfirmDialog(
+                        title = "解除配对",
+                        message = "确定解除当前 Windows Token Usage 配对吗？",
+                        confirmText = "解除",
+                        onConfirm = ::clearPairing,
+                        onDismiss = { showClearPairingDialog = false },
+                    )
                 }
             }
         }
@@ -164,8 +174,14 @@ class SettingsActivity : ComponentActivity() {
                     QuotaRefreshSettings.SUPPORTED_INTERVAL_MINUTES.forEach { minutes ->
                         Button(
                             onClick = { selectRefreshInterval(minutes) }, enabled = backgroundRefresh,
-                            colors = ButtonDefaults.buttonColors(containerColor = if (refreshInterval == minutes) LocalQuotaPalette.current.color(LocalQuotaPalette.current.primaryButton) else LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButton)),
-                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (refreshInterval == minutes) LocalQuotaPalette.current.color(LocalQuotaPalette.current.primaryButton) else LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButton),
+                                contentColor = if (refreshInterval == minutes) Color.White else LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButtonText),
+                                disabledContainerColor = LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButton).copy(alpha = 0.45f),
+                                disabledContentColor = LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButtonText).copy(alpha = 0.5f),
+                            ),
+                            shape = RoundedCornerShape(CodexDimensions.buttonRadius),
+                            modifier = Modifier.weight(1f).height(CodexDimensions.rowHeight),
                         ) { Text(if (minutes < 60) "$minutes 分" else "1 小时", fontSize = 12.sp) }
                     }
                 }
@@ -175,7 +191,15 @@ class SettingsActivity : ComponentActivity() {
             SettingsSection("外观主题") {
                 Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     listOf(ThemeMode.SYSTEM to "系统", ThemeMode.LIGHT to "浅色", ThemeMode.DARK to "暗色").forEach { (mode, label) ->
-                        Button(onClick = { selectTheme(mode) }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if (themeMode == mode) LocalQuotaPalette.current.color(LocalQuotaPalette.current.primaryButton) else LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButton))) { Text(label) }
+                        Button(
+                            onClick = { selectTheme(mode) },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (themeMode == mode) LocalQuotaPalette.current.color(LocalQuotaPalette.current.primaryButton) else LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButton),
+                                contentColor = if (themeMode == mode) Color.White else LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondaryButtonText),
+                            ),
+                            shape = RoundedCornerShape(CodexDimensions.buttonRadius),
+                            modifier = Modifier.weight(1f).height(CodexDimensions.rowHeight),
+                        ) { Text(label) }
                     }
                 }
             }
@@ -192,7 +216,7 @@ class SettingsActivity : ComponentActivity() {
         val palette = LocalQuotaPalette.current
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text(title, color = palette.color(palette.secondary), fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface))) {
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(CodexDimensions.cardRadius), colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface))) {
                 Column(Modifier.fillMaxWidth().padding(vertical = 5.dp), content = content)
             }
         }
@@ -236,7 +260,12 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun SettingsButton(label: String, danger: Boolean = false, onClick: () -> Unit) {
-        Button(onClick, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), colors = ButtonDefaults.buttonColors(containerColor = LocalQuotaPalette.current.color(if (danger) LocalQuotaPalette.current.error else LocalQuotaPalette.current.secondaryButton))) { Text(label) }
+        CodexButton(
+            text = label,
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            style = if (danger) CodexButtonStyle.DANGER else CodexButtonStyle.SECONDARY,
+        )
     }
 
     @Composable
@@ -259,7 +288,7 @@ class SettingsActivity : ComponentActivity() {
             } else {
                 SettingsButton("立即同步", onClick = ::syncPairedNow)
                 SettingsButton("重新扫码", onClick = ::scanPairing)
-                SettingsButton("解除配对", danger = true, onClick = ::clearPairing)
+                SettingsButton("解除配对", danger = true) { showClearPairingDialog = true }
             }
             Text("LAN 同步仅适用于可信私人 Wi-Fi；不建议在公共 Wi-Fi 使用。", color = palette.color(palette.muted), fontSize = 12.sp)
         }
