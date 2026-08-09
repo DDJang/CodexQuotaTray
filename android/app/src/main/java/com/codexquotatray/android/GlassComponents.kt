@@ -1,15 +1,15 @@
 package com.codexquotatray.android
 
+import android.content.pm.ApplicationInfo
+import android.util.Log
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.MutatorMutex
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -41,33 +42,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.paint
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.input.pointer.AwaitPointerEventScope
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.PointerId
-import androidx.compose.ui.input.pointer.PointerInputChange
-import androidx.compose.ui.input.pointer.PointerInputScope
-import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
 import androidx.annotation.DrawableRes
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastFirstOrNull
@@ -85,14 +79,12 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sign
-import kotlin.time.Clock
 
 @Composable
 internal fun GlassIconButton(
@@ -179,9 +171,33 @@ private fun RowScope.DockTab(onClick: () -> Unit, content: @Composable ColumnSco
             .fillMaxHeight()
             .weight(1f)
             .graphicsLayer { scaleX = scale(); scaleY = scale() },
-        verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically),
+        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content,
+    )
+}
+
+@Composable
+private fun DockTabContent(
+    @DrawableRes iconRes: Int,
+    label: String,
+    contentColor: Color,
+) {
+    Box(
+        Modifier
+            .size(27.dp)
+            .paint(
+                painter = painterResource(iconRes),
+                colorFilter = ColorFilter.tint(contentColor),
+            ),
+    )
+    BasicText(
+        text = label,
+        style = TextStyle(
+            color = contentColor,
+            fontSize = 11.sp,
+            lineHeight = 12.sp,
+        ),
     )
 }
 
@@ -205,7 +221,7 @@ internal fun LiquidMainDock(
                 selectedIndex,
                 onSelected,
                 backdrop,
-                Modifier.size(width = navigationWidth, height = 58.dp),
+                Modifier.size(width = navigationWidth, height = 64.dp),
             )
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             GlassIconButton(
@@ -240,6 +256,8 @@ private fun LiquidTabCapsule(
     }
     val tabsBackdrop = rememberLayerBackdrop()
     val scope = rememberCoroutineScope()
+    val debugLogging = LocalContext.current.applicationInfo.flags and
+        ApplicationInfo.FLAG_DEBUGGABLE != 0
 
     BoxWithConstraints(modifier, contentAlignment = Alignment.CenterStart) {
         val density = LocalDensity.current
@@ -254,13 +272,27 @@ private fun LiquidTabCapsule(
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         var currentIndex by remember { mutableIntStateOf(selectedIndex) }
         val drag = remember(scope) {
-            DampedDockDrag(
-                scope, selectedIndex.toFloat(), 0f..1f,
-                onStopped = {
+            BottomDockDampedDragAnimation(
+                animationScope = scope,
+                initialValue = selectedIndex.toFloat(),
+                valueRange = 0f..1f,
+                visibilityThreshold = 0.001f,
+                initialScale = 1f,
+                pressedScale = 78f / 56f,
+                onDragStarted = {
+                    logBottomDockState(debugLogging, "DOWN", currentIndex, this)
+                },
+                onDragStopped = {
+                    logBottomDockState(debugLogging, "UP", currentIndex, this)
                     val target = targetValue.fastRoundToInt().fastCoerceIn(0, 1)
                     currentIndex = target
                     animateToValue(target.toFloat())
                     scope.launch { offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f)) }
+                    val animation = this
+                    scope.launch {
+                        delay(600)
+                        logBottomDockState(debugLogging, "SETTLED", currentIndex, animation)
+                    }
                 },
                 onDrag = { _, amount ->
                     updateValue((targetValue + amount.x / tabWidth * if (isLtr) 1f else -1f).fastCoerceIn(0f, 1f))
@@ -269,33 +301,33 @@ private fun LiquidTabCapsule(
             )
         }
         LaunchedEffect(selectedIndex) {
-            if (currentIndex != selectedIndex) {
-                currentIndex = selectedIndex
-                drag.animateToValue(selectedIndex.toFloat())
-            }
+            currentIndex = selectedIndex
         }
         LaunchedEffect(drag) {
-            snapshotFlow { currentIndex }.drop(1).collectLatest { onSelected(it) }
+            snapshotFlow { currentIndex }.drop(1).collectLatest { index ->
+                drag.animateToValue(index.toFloat())
+                onSelected(index)
+            }
+        }
+        val interactiveHighlight = remember(scope) {
+            BottomDockInteractiveHighlight(
+                animationScope = scope,
+                position = { size, _ ->
+                    Offset(
+                        if (isLtr) (drag.value + 0.5f) * tabWidth + panelOffset
+                        else size.width - (drag.value + 0.5f) * tabWidth + panelOffset,
+                        size.height / 2f,
+                    )
+                },
+            )
         }
 
         val tabs: @Composable RowScope.() -> Unit = {
             DockTab({ currentIndex = 0 }) {
-                Icon(
-                    painterResource(R.drawable.ic_quota),
-                    contentDescription = null,
-                    modifier = Modifier.size(25.dp),
-                    tint = unselectedContentColor,
-                )
-                Text("额度", color = unselectedContentColor, fontSize = 11.sp)
+                DockTabContent(R.drawable.ic_quota, "额度", unselectedContentColor)
             }
             DockTab({ currentIndex = 1 }) {
-                Icon(
-                    painterResource(R.drawable.ic_usage),
-                    contentDescription = null,
-                    modifier = Modifier.size(25.dp),
-                    tint = unselectedContentColor,
-                )
-                Text("统计", color = unselectedContentColor, fontSize = 11.sp)
+                DockTabContent(R.drawable.ic_usage, "统计", unselectedContentColor)
             }
         }
         Row(
@@ -310,14 +342,14 @@ private fun LiquidTabCapsule(
                     },
                     onDrawSurface = { drawRect(containerColor) },
                 )
-                .height(58.dp).fillMaxWidth().padding(4.dp),
+                .then(interactiveHighlight.modifier)
+                .height(64.dp).fillMaxWidth().padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
             content = tabs,
         )
-        // Keep the hidden accent content geometrically identical to the visible
-        // row. Lens/refraction provides the motion; scaling this layer creates
-        // a separately readable blue duplicate with larger app icons.
-        CompositionLocalProvider(LocalDockTabScale provides { 1f }) {
+        CompositionLocalProvider(
+            LocalDockTabScale provides { lerp(1f, 1.2f, drag.pressProgress) },
+        ) {
             Row(
                 Modifier.clearAndSetSemantics {}.alpha(0f).layerBackdrop(tabsBackdrop)
                     .graphicsLayer { translationX = panelOffset }
@@ -327,7 +359,8 @@ private fun LiquidTabCapsule(
                         highlight = { Highlight.Default.copy(alpha = drag.pressProgress) },
                         onDrawSurface = { drawRect(containerColor) },
                     )
-                    .height(50.dp).fillMaxWidth().padding(horizontal = 4.dp)
+                    .then(interactiveHighlight.modifier)
+                    .height(56.dp).fillMaxWidth().padding(horizontal = 4.dp)
                     .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
                 verticalAlignment = Alignment.CenterVertically,
                 content = tabs,
@@ -336,6 +369,7 @@ private fun LiquidTabCapsule(
         Box(
             Modifier.padding(horizontal = 4.dp)
                 .graphicsLayer { translationX = if (isLtr) drag.value * tabWidth + panelOffset else size.width - (drag.value + 1f) * tabWidth + panelOffset }
+                .then(interactiveHighlight.gestureModifier)
                 .then(drag.modifier)
                 .drawBackdrop(
                     rememberCombinedBackdrop(backdrop, tabsBackdrop), { KyantShapes.capsule() },
@@ -354,72 +388,22 @@ private fun LiquidTabCapsule(
                         drawRect(Color.Black.copy(alpha = 0.03f * drag.pressProgress))
                     },
                 )
-                .height(50.dp).fillMaxWidth(0.5f),
+                .height(56.dp).fillMaxWidth(0.5f),
         )
     }
 }
 
-/**
- * Adapted from Kyant0/AndroidLiquidGlass's Apache-2.0 DampedDragAnimation
- * example. Spring constants, release timing, velocity tracking and mutex
- * behavior intentionally follow the upstream catalog component.
- */
-private class DampedDockDrag(
-    private val scope: CoroutineScope,
-    initial: Float,
-    private val range: ClosedRange<Float>,
-    private val onStopped: DampedDockDrag.() -> Unit,
-    private val onDrag: DampedDockDrag.(IntSize, Offset) -> Unit,
+private fun logBottomDockState(
+    enabled: Boolean,
+    event: String,
+    currentIndex: Int,
+    animation: BottomDockDampedDragAnimation,
 ) {
-    private val valueAnim = Animatable(initial, 0.001f)
-    private val velocityAnim = Animatable(0f, 5f)
-    private val pressAnim = Animatable(0f, 0.001f)
-    private val scaleXAnim = Animatable(1f, 0.001f)
-    private val scaleYAnim = Animatable(1f, 0.001f)
-    private val mutex = MutatorMutex()
-    private val tracker = VelocityTracker()
-    val value get() = valueAnim.value
-    val targetValue get() = valueAnim.targetValue
-    val pressProgress get() = pressAnim.value
-    val scaleX get() = scaleXAnim.value
-    val scaleY get() = scaleYAnim.value
-    val velocity get() = velocityAnim.value
-    val modifier = Modifier.pointerInput(Unit) {
-        inspectDockDrag(
-            onStart = { tracker.resetTracking(); press() },
-            onEnd = { onStopped(); release() },
-            onCancel = { onStopped(); release() },
-        ) { _, amount -> onDrag(size, amount) }
-    }
-    private fun press() { scope.launch { launch { pressAnim.animateTo(1f, spring(1f, 1000f, 0.001f)) }; launch { scaleXAnim.animateTo(78f / 56f, spring(0.6f, 250f, 0.001f)) }; launch { scaleYAnim.animateTo(78f / 56f, spring(0.7f, 250f, 0.001f)) } } }
-    private fun release() { scope.launch { androidx.compose.runtime.withFrameNanos {}; if (value != targetValue) snapshotFlow { valueAnim.value }.filter { abs(it - valueAnim.targetValue) < 0.025f }.first(); launch { pressAnim.animateTo(0f, spring(1f, 1000f, 0.001f)) }; launch { scaleXAnim.animateTo(1f, spring(0.6f, 250f, 0.001f)) }; launch { scaleYAnim.animateTo(1f, spring(0.7f, 250f, 0.001f)) } } }
-    fun updateValue(value: Float) { scope.launch { valueAnim.animateTo(value.coerceIn(range), spring(1f, 1000f, 0.001f)) { tracker.addPosition(Clock.System.now().toEpochMilliseconds(), Offset(this.value, 0f)); val span = range.endInclusive - range.start; val v = tracker.calculateVelocity().x / span; scope.launch { velocityAnim.animateTo(v, spring(0.5f, 300f, 0.01f)) } } } }
-    fun animateToValue(value: Float) { scope.launch { mutex.mutate { press(); launch { valueAnim.animateTo(value.coerceIn(range), spring(1f, 1000f, 0.001f)) }; if (velocity != 0f) launch { velocityAnim.animateTo(0f, spring(0.5f, 300f, 0.01f)) }; release() } } }
-}
-
-private suspend fun PointerInputScope.inspectDockDrag(
-    onStart: (PointerInputChange) -> Unit,
-    onEnd: (PointerInputChange) -> Unit,
-    onCancel: () -> Unit,
-    onDrag: (PointerInputChange, Offset) -> Unit,
-) = awaitEachGesture {
-    val initial = awaitFirstDown(false, PointerEventPass.Initial)
-    val down = awaitFirstDown(false)
-    onStart(down); onDrag(initial, Offset.Zero)
-    val up = dragOrUp(initial.id) { onDrag(it, it.positionChange()) }
-    if (up == null) onCancel() else onEnd(up)
-}
-
-private suspend inline fun AwaitPointerEventScope.dragOrUp(id: PointerId, onDrag: (PointerInputChange) -> Unit): PointerInputChange? {
-    if (currentEvent.changes.fastFirstOrNull { it.id == id }?.pressed != true) return null
-    var pointer = id
-    while (true) {
-        val event = awaitPointerEvent()
-        val change = event.changes.fastFirstOrNull { it.id == pointer } ?: return null
-        if (change.isConsumed) return null
-        if (change.changedToUpIgnoreConsumed()) {
-            val other = event.changes.fastFirstOrNull { it.pressed } ?: return change
-            pointer = other.id
-        } else if (change.previousPosition != change.position) onDrag(change)
-    }
+    if (!enabled) return
+    Log.d(
+        "BottomLiquidGlass",
+        "event=$event currentIndex=$currentIndex value=${animation.value} " +
+            "targetValue=${animation.targetValue} pressProgress=${animation.pressProgress} " +
+            "scaleX=${animation.scaleX} scaleY=${animation.scaleY} velocity=${animation.velocity}",
+    )
 }
