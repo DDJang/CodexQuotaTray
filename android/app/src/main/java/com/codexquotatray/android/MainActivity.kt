@@ -63,7 +63,14 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 8.dp, end = 20.dp)) {
-                        GlassIconButton("⚙", "设置", pageBackdrop, onClick = ::openSettings)
+                        GlassIconButton(
+                            iconRes = R.drawable.ic_settings,
+                            description = "设置",
+                            backdrop = pageBackdrop,
+                            size = 52.dp,
+                            iconSize = 24.dp,
+                            onClick = ::openSettings,
+                        )
                     }
                     LiquidMainDock(
                         selectedIndex = selectedIndex,
@@ -72,7 +79,7 @@ class MainActivity : ComponentActivity() {
                         actionEnabled = if (selectedIndex == 0) quota.canRefresh else usage.canSync,
                         actionBusy = if (selectedIndex == 0) quota.busy else usage.syncing,
                         onAction = { if (selectedIndex == 0) quota.refresh() else usage.requestSync() },
-                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp),
+                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp).fillMaxWidth(),
                     )
                 }
             }

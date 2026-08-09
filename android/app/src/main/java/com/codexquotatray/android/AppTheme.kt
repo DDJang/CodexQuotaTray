@@ -95,15 +95,15 @@ object AppTheme {
         )
 
         ThemeMode.DARK -> ThemePalette(
-            background = Color.rgb(18, 22, 32),
+            background = Color.rgb(0, 0, 0),
             surface = Color.rgb(30, 37, 52),
             border = Color.rgb(63, 73, 92),
             title = Color.rgb(239, 243, 251),
             body = Color.rgb(224, 230, 242),
             secondary = Color.rgb(184, 194, 214),
             muted = Color.rgb(151, 163, 187),
-            accent = Color.rgb(111, 165, 255),
-            primaryButton = Color.rgb(66, 119, 224),
+            accent = Color.rgb(94, 168, 255),
+            primaryButton = Color.rgb(65, 143, 255),
             onPrimary = Color.WHITE,
             secondaryButton = Color.rgb(49, 61, 84),
             secondaryButtonText = Color.rgb(215, 226, 247),

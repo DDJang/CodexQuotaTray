@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,8 +32,10 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -40,6 +43,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -88,18 +92,34 @@ class SettingsActivity : ComponentActivity() {
         AppTheme.applySystemBars(this)
         renderState()
         setContent {
-            val palette = AppTheme.palette(this)
+            val palette = settingsPalette(AppTheme.palette(this))
             CodexQuotaTheme(palette) {
                 val backdrop = rememberLayerBackdrop()
+                val scrollState = rememberScrollState()
                 Box(Modifier.fillMaxSize().background(palette.color(palette.background))) {
-                    SettingsContent(backdrop = backdrop, modifier = Modifier.fillMaxSize().layerBackdrop(backdrop))
+                    SettingsContent(
+                        scrollState = scrollState,
+                        modifier = Modifier.fillMaxSize().layerBackdrop(backdrop),
+                    )
+                    SettingsGradientBlurHeader(
+                        backdrop = backdrop,
+                        scrollState = scrollState,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
                     Row(
-                        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp),
+                        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        GlassIconButton("‹", "返回", backdrop, onClick = ::finish)
+                        GlassIconButton(
+                            iconRes = R.drawable.ic_back,
+                            description = "返回",
+                            backdrop = backdrop,
+                            size = 52.dp,
+                            iconSize = 25.dp,
+                            onClick = ::finish,
+                        )
                         Text("设置", Modifier.weight(1f), color = palette.color(palette.title), fontSize = 21.sp, fontWeight = FontWeight.Bold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                        Spacer(Modifier.height(48.dp).weight(0.12f))
+                        Spacer(Modifier.size(52.dp))
                     }
                 }
             }
@@ -110,19 +130,24 @@ class SettingsActivity : ComponentActivity() {
     override fun onDestroy() { pairingWorker.shutdownNow(); super.onDestroy() }
 
     @Composable
-    private fun SettingsContent(backdrop: com.kyant.backdrop.Backdrop, modifier: Modifier = Modifier) {
+    private fun SettingsContent(
+        scrollState: androidx.compose.foundation.ScrollState,
+        modifier: Modifier = Modifier,
+    ) {
         Column(
-            modifier.verticalScroll(rememberScrollState()).statusBarsPadding().navigationBarsPadding().padding(start = 20.dp, end = 20.dp, top = 82.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
+            modifier.verticalScroll(scrollState).statusBarsPadding().navigationBarsPadding().padding(start = 20.dp, end = 20.dp, top = 86.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(28.dp),
         ) {
             SettingsSection("账户与同步") {
                 NavigationRow("账号管理", "查看当前 Codex 登录状态") { startActivity(Intent(this@SettingsActivity, AccountActivity::class.java)) }
+                SettingsDivider()
                 TokenSyncSettings()
             }
             SettingsSection("额度提醒") {
                 ToggleRow("低额度提醒", "额度跨过 50%、20% 或 10% 阈值时提醒。", lowQuota) {
                     lowQuota = it; alertStore.save(alertStore.load().copy(lowQuotaEnabled = it)); AppLogStore.record(this@SettingsActivity, "低额度提醒已${if (it) "开启" else "关闭"}")
                 }
+                SettingsDivider()
                 ToggleRow("额度重置提醒", "检测到额度窗口重置后提醒。", resetAlert) {
                     resetAlert = it; alertStore.save(alertStore.load().copy(resetEnabled = it)); AppLogStore.record(this@SettingsActivity, "额度重置提醒已${if (it) "开启" else "关闭"}")
                 }
@@ -156,6 +181,7 @@ class SettingsActivity : ComponentActivity() {
             }
             SettingsSection("诊断与关于") {
                 NavigationRow("运行日志", "查看脱敏运行摘要") { startActivity(Intent(this@SettingsActivity, LogActivity::class.java)) }
+                SettingsDivider()
                 NavigationRow("关于", "版本、许可与项目信息") { startActivity(Intent(this@SettingsActivity, AboutActivity::class.java)) }
             }
         }
@@ -164,19 +190,39 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun SettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
         val palette = LocalQuotaPalette.current
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, color = palette.color(palette.secondary), fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 6.dp))
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface).copy(alpha = 0.88f))) {
-                Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), content = content)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, color = palette.color(palette.secondary), fontSize = 14.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 8.dp))
+            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface))) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 5.dp), content = content)
             }
         }
+    }
+
+    @Composable
+    private fun SettingsDivider() {
+        val palette = LocalQuotaPalette.current
+        HorizontalDivider(
+            modifier = Modifier.padding(horizontal = 18.dp),
+            thickness = 0.5.dp,
+            color = palette.color(palette.border),
+        )
     }
 
     @Composable
     private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
         Row(Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Bold); Text(subtitle, fontSize = 12.sp, color = LocalQuotaPalette.current.color(LocalQuotaPalette.current.muted)) }
-            Switch(checked, onCheckedChange = onChange)
+            Switch(
+                checked,
+                onCheckedChange = onChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = LocalQuotaPalette.current.color(LocalQuotaPalette.current.accent),
+                    uncheckedThumbColor = Color(0xFFF1F1F1),
+                    uncheckedTrackColor = Color(0xFF4A4A4A),
+                    uncheckedBorderColor = Color.Transparent,
+                ),
+            )
         }
     }
 
@@ -226,6 +272,24 @@ class SettingsActivity : ComponentActivity() {
         pairing = tokenStore.load(); tokenStatus = if (pairing == null) "尚未配对 Windows" else "已配对"
         pairingHost = pairing?.let { "${it.host}:${it.port}" } ?: pairingHost
     }
+
+    private fun settingsPalette(base: ThemePalette): ThemePalette =
+        if (AppTheme.effectiveMode(this) == ThemeMode.DARK) {
+            base.copy(
+                background = 0xff000000.toInt(),
+                surface = 0xff252525.toInt(),
+                border = 0xff343434.toInt(),
+                title = 0xfff5f5f5.toInt(),
+                body = 0xffeeeeee.toInt(),
+                secondary = 0xff969696.toInt(),
+                muted = 0xff8d8d8d.toInt(),
+                secondaryButton = 0xff333333.toInt(),
+                secondaryButtonText = 0xfff2f2f2.toInt(),
+                progressTrack = 0xff3a3a3a.toInt(),
+            )
+        } else {
+            base
+        }
 
     private fun selectRefreshInterval(minutes: Int) { refreshInterval = minutes; refreshStore.save(refreshStore.load().copy(intervalMinutes = minutes)); QuotaRefreshScheduler.schedule(this); AppLogStore.record(this, "后台刷新频率设为 $minutes 分钟") }
     private fun selectTheme(mode: ThemeMode) { if (themeStore.load() == mode) return; themeStore.save(mode); AppLogStore.record(this, "主题已切换"); recreate() }

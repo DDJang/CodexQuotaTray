@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -44,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerId
@@ -62,8 +65,10 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.annotation.DrawableRes
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastFirstOrNull
 import androidx.compose.ui.util.fastRoundToInt
@@ -91,10 +96,13 @@ import kotlin.time.Clock
 
 @Composable
 internal fun GlassIconButton(
-    text: String,
+    @DrawableRes iconRes: Int,
     description: String,
     backdrop: Backdrop,
     enabled: Boolean = true,
+    busy: Boolean = false,
+    size: Dp = 52.dp,
+    iconSize: Dp = 24.dp,
     onClick: () -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
@@ -107,24 +115,28 @@ internal fun GlassIconButton(
     )
     Box(
         Modifier
-            .size(48.dp)
+            .size(size)
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { KyantShapes.capsule() },
                 effects = {
                     vibrancy()
-                    blur(8.dp.toPx())
-                    lens(18.dp.toPx() * (0.7f + 0.3f * pressProgress), 18.dp.toPx(), chromaticAberration = true)
+                    blur(7.dp.toPx())
+                    lens(
+                        11.dp.toPx() * (0.8f + 0.2f * pressProgress),
+                        10.dp.toPx(),
+                        chromaticAberration = false,
+                    )
                 },
-                highlight = { Highlight.Default },
-                shadow = { Shadow(alpha = 0.7f) },
-                innerShadow = { InnerShadow(radius = 5.dp, alpha = 0.55f) },
+                highlight = { Highlight.Default.copy(alpha = 0.7f) },
+                shadow = { Shadow(alpha = 0.55f) },
+                innerShadow = { InnerShadow(radius = 5.dp, alpha = 0.5f) },
                 layerBlock = {
                     val scale = lerp(1f, 0.9f, pressProgress)
                     scaleX = scale
                     scaleY = scale
                 },
-                onDrawSurface = { drawRect(palette.color(palette.surface).copy(alpha = 0.36f)) },
+                onDrawSurface = { drawRect(palette.color(palette.surface).copy(alpha = 0.2f)) },
             )
             .clip(KyantShapes.capsule())
             .clickable(
@@ -138,7 +150,20 @@ internal fun GlassIconButton(
             .alpha(if (enabled) 1f else 0.45f),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text, color = palette.color(palette.title), fontSize = 21.sp)
+        if (busy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(iconSize),
+                color = palette.color(palette.title),
+                strokeWidth = 2.dp,
+            )
+        } else {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                modifier = Modifier.size(iconSize),
+                tint = palette.color(palette.title),
+            )
+        }
     }
 }
 
@@ -154,7 +179,7 @@ private fun RowScope.DockTab(onClick: () -> Unit, content: @Composable ColumnSco
             .fillMaxHeight()
             .weight(1f)
             .graphicsLayer { scaleX = scale(); scaleY = scale() },
-        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
+        verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content,
     )
@@ -170,10 +195,30 @@ internal fun LiquidMainDock(
     onAction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val palette = LocalQuotaPalette.current
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        LiquidTabCapsule(selectedIndex, onSelected, backdrop, Modifier.weight(1f))
-        GlassIconButton(if (actionBusy) "…" else "↻", "刷新当前页面", backdrop, actionEnabled && !actionBusy, onAction)
+    BoxWithConstraints(modifier) {
+        val actionSize = 56.dp
+        val minimumGap = 16.dp
+        val preferredNavigationWidth = (maxWidth * 0.60f).coerceIn(196.dp, 248.dp)
+        val navigationWidth = minOf(preferredNavigationWidth, maxWidth - actionSize - minimumGap)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            LiquidTabCapsule(
+                selectedIndex,
+                onSelected,
+                backdrop,
+                Modifier.size(width = navigationWidth, height = 58.dp),
+            )
+            androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+            GlassIconButton(
+                iconRes = R.drawable.ic_refresh,
+                description = "刷新当前页面",
+                backdrop = backdrop,
+                enabled = actionEnabled && !actionBusy,
+                busy = actionBusy,
+                size = actionSize,
+                iconSize = 24.dp,
+                onClick = onAction,
+            )
+        }
     }
 }
 
@@ -188,6 +233,11 @@ private fun LiquidTabCapsule(
     val isLight = Color(palette.background).luminance() > 0.35f
     val containerColor = palette.color(palette.surface).copy(alpha = 0.4f)
     val accentColor = palette.color(palette.accent)
+    val unselectedContentColor = if (isLight) {
+        palette.color(palette.body)
+    } else {
+        Color(0xFFF1F3F7)
+    }
     val tabsBackdrop = rememberLayerBackdrop()
     val scope = rememberCoroutineScope()
 
@@ -228,8 +278,24 @@ private fun LiquidTabCapsule(
         }
 
         val tabs: @Composable RowScope.() -> Unit = {
-            DockTab({ currentIndex = 0 }) { Text("额度", fontSize = 13.sp) }
-            DockTab({ currentIndex = 1 }) { Text("统计", fontSize = 13.sp) }
+            DockTab({ currentIndex = 0 }) {
+                Icon(
+                    painterResource(R.drawable.ic_quota),
+                    contentDescription = null,
+                    modifier = Modifier.size(25.dp),
+                    tint = unselectedContentColor,
+                )
+                Text("额度", color = unselectedContentColor, fontSize = 11.sp)
+            }
+            DockTab({ currentIndex = 1 }) {
+                Icon(
+                    painterResource(R.drawable.ic_usage),
+                    contentDescription = null,
+                    modifier = Modifier.size(25.dp),
+                    tint = unselectedContentColor,
+                )
+                Text("统计", color = unselectedContentColor, fontSize = 11.sp)
+            }
         }
         Row(
             Modifier
@@ -243,7 +309,7 @@ private fun LiquidTabCapsule(
                     },
                     onDrawSurface = { drawRect(containerColor) },
                 )
-                .height(64.dp).fillMaxWidth().padding(4.dp),
+                .height(58.dp).fillMaxWidth().padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
             content = tabs,
         )
@@ -257,7 +323,7 @@ private fun LiquidTabCapsule(
                         highlight = { Highlight.Default.copy(alpha = drag.pressProgress) },
                         onDrawSurface = { drawRect(containerColor) },
                     )
-                    .height(56.dp).fillMaxWidth().padding(horizontal = 4.dp)
+                    .height(50.dp).fillMaxWidth().padding(horizontal = 4.dp)
                     .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
                 verticalAlignment = Alignment.CenterVertically,
                 content = tabs,
@@ -284,7 +350,7 @@ private fun LiquidTabCapsule(
                         drawRect(Color.Black.copy(alpha = 0.03f * drag.pressProgress))
                     },
                 )
-                .height(56.dp).fillMaxWidth(0.5f),
+                .height(50.dp).fillMaxWidth(0.5f),
         )
     }
 }
