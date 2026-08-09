@@ -12,8 +12,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.MutatorMutex
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -37,10 +35,12 @@ import com.kyant.backdrop.RuntimeShader
 import com.kyant.backdrop.asComposeShader
 import com.kyant.backdrop.isRuntimeShaderSupported
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlin.math.abs
+import kotlinx.coroutines.withContext
 import kotlin.time.Clock
 
 internal class BottomDockDampedDragAnimation(
@@ -49,7 +49,8 @@ internal class BottomDockDampedDragAnimation(
     private val valueRange: ClosedRange<Float>,
     visibilityThreshold: Float,
     private val initialScale: Float,
-    private val pressedScale: Float,
+    private val pressedScaleX: Float,
+    private val pressedScaleY: Float,
     private val onDragStarted: BottomDockDampedDragAnimation.(position: Offset) -> Unit,
     private val onDragStopped: BottomDockDampedDragAnimation.() -> Unit,
     private val onDrag: BottomDockDampedDragAnimation.(size: IntSize, dragAmount: Offset) -> Unit,
@@ -64,8 +65,9 @@ internal class BottomDockDampedDragAnimation(
     private val pressProgressAnimation = Animatable(0f, 0.001f)
     private val scaleXAnimation = Animatable(initialScale, 0.001f)
     private val scaleYAnimation = Animatable(initialScale, 0.001f)
-    private val mutatorMutex = MutatorMutex()
+    private val valueMutatorMutex = MutatorMutex()
     private val velocityTracker = VelocityTracker()
+    private var physicalVisualJob: Job? = null
 
     val value: Float get() = valueAnimation.value
     val targetValue: Float get() = valueAnimation.targetValue
@@ -93,25 +95,30 @@ internal class BottomDockDampedDragAnimation(
 
     fun press() {
         velocityTracker.resetTracking()
-        animationScope.launch {
-            launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
-            launch { scaleXAnimation.animateTo(pressedScale, scaleXAnimationSpec) }
-            launch { scaleYAnimation.animateTo(pressedScale, scaleYAnimationSpec) }
+        replacePhysicalVisualJob {
+            coroutineScope {
+                launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
+                launch { scaleXAnimation.animateTo(pressedScaleX, scaleXAnimationSpec) }
+                launch { scaleYAnimation.animateTo(pressedScaleY, scaleYAnimationSpec) }
+            }
         }
     }
 
     fun release() {
-        animationScope.launch {
-            withFrameNanos { }
-            if (value != targetValue) {
-                val threshold = (valueRange.endInclusive - valueRange.start) * 0.025f
-                snapshotFlow { valueAnimation.value }
-                    .filter { abs(it - valueAnimation.targetValue) < threshold }
-                    .first()
+        replacePhysicalVisualJob {
+            try {
+                coroutineScope {
+                    launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+                    launch { scaleXAnimation.animateTo(initialScale, scaleXAnimationSpec) }
+                    launch { scaleYAnimation.animateTo(initialScale, scaleYAnimationSpec) }
+                }
+            } finally {
+                withContext(NonCancellable) {
+                    pressProgressAnimation.snapTo(0f)
+                    scaleXAnimation.snapTo(initialScale)
+                    scaleYAnimation.snapTo(initialScale)
+                }
             }
-            launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
-            launch { scaleXAnimation.animateTo(initialScale, scaleXAnimationSpec) }
-            launch { scaleYAnimation.animateTo(initialScale, scaleYAnimationSpec) }
         }
     }
 
@@ -122,17 +129,25 @@ internal class BottomDockDampedDragAnimation(
         }
     }
 
-    fun animateToValue(value: Float) {
+    fun settleToValue(value: Float) {
         animationScope.launch {
-            mutatorMutex.mutate {
-                press()
+            valueMutatorMutex.mutate {
                 val targetValue = value.coerceIn(valueRange)
-                launch { valueAnimation.animateTo(targetValue, valueAnimationSpec) }
-                if (velocity != 0f) {
-                    launch { velocityAnimation.animateTo(0f, velocityAnimationSpec) }
+                coroutineScope {
+                    launch { valueAnimation.animateTo(targetValue, valueAnimationSpec) }
+                    if (velocity != 0f) {
+                        launch { velocityAnimation.animateTo(0f, velocityAnimationSpec) }
+                    }
                 }
-                release()
             }
+        }
+    }
+
+    private fun replacePhysicalVisualJob(block: suspend () -> Unit) {
+        val previousJob = physicalVisualJob
+        physicalVisualJob = animationScope.launch {
+            previousJob?.cancelAndJoin()
+            block()
         }
     }
 

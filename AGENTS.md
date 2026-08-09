@@ -195,6 +195,30 @@ For an environment failure:
 
 Do not mark a task complete while required checks are failing.
 
+### Owner workstation Android paths
+
+On the owner's current Windows workstation, do not assume the Android SDK is
+under `%LOCALAPPDATA%`. The verified local paths are:
+
+- Android SDK / `ANDROID_HOME` / `ANDROID_SDK_ROOT`: `D:\Android\Sdk`
+- ADB: `D:\Android\Sdk\platform-tools\adb.exe`
+- Currently available JDK: `C:\Users\18456\.jdks\openjdk-23.0.1`
+
+The repository's supported Android toolchain remains JDK 17. Until a local JDK
+17 is provided, the JDK path above is the already verified fallback for this
+workstation; do not install or silently substitute another JDK.
+
+In a sandboxed Codex session, the Gradle wrapper/cache and ADB device access are
+outside the writable workspace. Request the required escalation on the first
+Gradle or ADB command instead of first attempting a sandboxed wrapper download.
+Set both Android SDK environment variables explicitly before invoking Gradle:
+
+```powershell
+$env:JAVA_HOME = 'C:\Users\18456\.jdks\openjdk-23.0.1'
+$env:ANDROID_HOME = 'D:\Android\Sdk'
+$env:ANDROID_SDK_ROOT = 'D:\Android\Sdk'
+```
+
 ## Privacy and diagnostics
 
 Never log:
