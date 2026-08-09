@@ -24,16 +24,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.effect
 
 private const val GRADIENT_BLUR_SHADER = """
 uniform shader content;
@@ -42,15 +41,11 @@ layout(color) uniform half4 tint;
 uniform float tintIntensity;
 
 half4 main(float2 coord) {
-    float fade =
-        1.0 - smoothstep(
-            size.y * 0.42,
-            size.y,
-            coord.y
-        );
+    float blurAlpha =
+        smoothstep(size.y, size.y * 0.5, coord.y);
 
-    float blurAlpha = fade;
-    float tintAlpha = fade;
+    float tintAlpha =
+        smoothstep(size.y, size.y * 0.5, coord.y);
 
     return mix(
         content.eval(coord) * blurAlpha,
@@ -130,15 +125,15 @@ private fun RuntimeGradientBlur(
     Box(
         modifier
             .onSizeChanged { measuredSize = it }
-            .graphicsLayer {
-                compositingStrategy = CompositingStrategy.Offscreen
-                alpha = currentAlpha
-                this.renderEffect = renderEffect
-            }
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { RectangleShape },
-                effects = {},
+                effects = {
+                    renderEffect?.let(::effect)
+                },
+                layerBlock = {
+                    alpha = currentAlpha
+                },
                 onDrawSurface = {},
             ),
     )
