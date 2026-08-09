@@ -120,12 +120,12 @@ internal class TokenUsagePageController(private val host: MainActivity) {
 internal fun TokenUsagePage(controller: TokenUsagePageController, onSettings: () -> Unit, modifier: Modifier = Modifier) {
     val palette = LocalQuotaPalette.current
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Token 使用统计", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.title))
-        Text(controller.status, fontSize = 14.sp, color = palette.color(palette.muted))
+        Text("Token 用量", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.title))
+        TokenUsageStatusLine(controller.status)
         if (!controller.paired) {
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface))) {
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Token 使用统计", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    Text("Token 用量", fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text("连接 Windows CodexQuotaTray 后，即可查看本机 Codex Token 使用历史。", color = palette.color(palette.secondary))
                     Button(onClick = rememberSystemHapticClick(onSettings), modifier = Modifier.fillMaxWidth()) { Text("前往设置") }
                 }
@@ -136,13 +136,33 @@ internal fun TokenUsagePage(controller: TokenUsagePageController, onSettings: ()
 }
 
 @Composable
+private fun TokenUsageStatusLine(status: String) {
+    val palette = LocalQuotaPalette.current
+    val separator = " · "
+    val separatorIndex = status.indexOf(separator)
+    if (separatorIndex >= 0) {
+        Row {
+            Text(status.substring(0, separatorIndex), fontSize = 14.sp, color = palette.color(palette.muted))
+            Text(separator, fontSize = 14.sp, color = palette.color(palette.muted))
+            Text(status.substring(separatorIndex + separator.length), fontSize = 14.sp, color = palette.color(palette.error))
+        }
+    } else {
+        Text(
+            status,
+            fontSize = 14.sp,
+            color = palette.color(if (status.contains("Windows 当前不可用")) palette.error else palette.muted),
+        )
+    }
+}
+
+@Composable
 private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
     val palette = LocalQuotaPalette.current
     val first = listOf("今日 Token" to snapshot.summary.todayTokens, "7 天 Token" to snapshot.summary.last7DaysTokens, "30 天 Token" to snapshot.summary.last30DaysTokens, "累计 Token" to snapshot.summary.lifetimeTokens)
     val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续天数" to snapshot.summary.currentStreak.toLong(), "最长连续天数" to snapshot.summary.longestStreak.toLong())
     SummaryRow(first)
     SummaryRow(second)
-    Text("Token 活动", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.title), modifier = Modifier.padding(top = 10.dp))
+    Text("Token 热力图", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.title), modifier = Modifier.padding(top = 10.dp))
     var selected by androidx.compose.runtime.remember { mutableStateOf<TokenUsageDay?>(null) }
     Text(selected?.let { "${it.date.monthValue} 月 ${it.date.dayOfMonth} 日  ${String.format(Locale.US, "%,d", it.totalTokens)} Token" } ?: "触摸方格查看当日用量", color = palette.color(palette.secondary), fontSize = 14.sp)
     TokenHeatmap(snapshot.days) { selected = it }

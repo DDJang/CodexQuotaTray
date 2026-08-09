@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -216,26 +217,53 @@ internal fun QuotaPage(controller: QuotaPageController, modifier: Modifier = Mod
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        if (model.status != QuotaUiStatus.UNAUTHENTICATED) Text("${model.accountLabel} / 当前账户", color = palette.color(palette.secondary), fontSize = 16.sp)
         Text(
-            model.message ?: when (model.status) {
-                QuotaUiStatus.LOADING -> "正在读取额度…"
-                QuotaUiStatus.UNAUTHENTICATED -> "尚未登录 Codex"
-                QuotaUiStatus.LOADED -> "额度读取成功"
-                QuotaUiStatus.ERROR -> "额度读取失败"
-            },
-            color = palette.color(if (model.status == QuotaUiStatus.ERROR) palette.error else palette.body),
-            fontSize = 16.sp,
+            "额度卡片",
+            fontSize = 21.sp,
+            fontWeight = FontWeight.Bold,
+            color = palette.color(palette.title),
         )
+        QuotaStatusLine(model)
         if (model.status != QuotaUiStatus.UNAUTHENTICATED) {
             if (model.status == QuotaUiStatus.LOADED && model.windows.isEmpty()) Text("当前没有可用额度窗口")
             model.windows.forEach { QuotaWindowCard(it) }
-            Text(model.updatedAtMillis?.let { "更新于 ${formatClockTime(it)}" } ?: "尚未更新", color = palette.color(palette.muted), fontSize = 13.sp)
         } else {
             Button(onClick = rememberSystemHapticClick(controller::openLogin), enabled = !controller.busy, modifier = Modifier.fillMaxWidth()) { Text("登录 Codex") }
         }
         Spacer(Modifier.height(96.dp))
     }
+}
+
+@Composable
+private fun QuotaStatusLine(model: QuotaUiModel) {
+    val palette = LocalQuotaPalette.current
+    val isNetworkError = model.status == QuotaUiStatus.ERROR && model.message?.contains("无法连接") == true
+    val lastSync = model.updatedAtMillis?.let { "上次同步于 ${formatClockTime(it)}" }
+    if (isNetworkError && lastSync != null) {
+        Row {
+            Text(lastSync, color = palette.color(palette.muted), fontSize = 14.sp)
+            Text(" · ", color = palette.color(palette.muted), fontSize = 14.sp)
+            Text("网络连接异常", color = palette.color(palette.error), fontSize = 14.sp)
+        }
+        return
+    }
+    Text(
+        text = if (isNetworkError) "网络连接异常" else quotaStatusLine(model),
+        color = palette.color(if (model.status == QuotaUiStatus.ERROR) palette.error else palette.muted),
+        fontSize = 14.sp,
+    )
+}
+
+private fun quotaStatusLine(model: QuotaUiModel): String {
+    val status = model.message ?: when (model.status) {
+        QuotaUiStatus.LOADING -> "正在读取额度…"
+        QuotaUiStatus.UNAUTHENTICATED -> "尚未登录 Codex"
+        QuotaUiStatus.LOADED -> "额度读取成功"
+        QuotaUiStatus.ERROR -> "额度读取失败"
+    }
+    if (model.status != QuotaUiStatus.LOADED) return status
+    val updatedAt = model.updatedAtMillis?.let { "更新于 ${formatClockTime(it)}" } ?: "尚未更新"
+    return "$status · $updatedAt"
 }
 
 @Composable
