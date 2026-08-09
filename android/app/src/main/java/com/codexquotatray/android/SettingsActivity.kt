@@ -116,17 +116,21 @@ class SettingsActivity : ComponentActivity() {
             CodexQuotaTheme(palette) {
                 val backdrop = rememberLayerBackdrop()
                 val scrollState = rememberScrollState()
-                Box(Modifier.fillMaxSize().background(palette.color(palette.background))) {
+                val backgroundColor = palette.color(palette.background)
+                Box(Modifier.fillMaxSize().background(backgroundColor)) {
                     Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
-                        SettingsContent(
-                            page = destination,
-                            scrollState = scrollState,
-                            modifier = Modifier.fillMaxSize(),
-                        )
+                        Box(Modifier.fillMaxSize().background(backgroundColor)) {
+                            SettingsContent(
+                                page = destination,
+                                scrollState = scrollState,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
                     }
                     SettingsGradientBlurHeader(
                         backdrop = backdrop,
                         scrollState = scrollState,
+                        tint = backgroundColor,
                         modifier = Modifier.align(Alignment.TopCenter),
                     )
                     Row(
