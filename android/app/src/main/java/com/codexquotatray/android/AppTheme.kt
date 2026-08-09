@@ -35,7 +35,10 @@ class ThemeSettingsStore(context: Context) {
     fun load(): ThemeMode = ThemeMode.fromStorage(preferences.getString(KEY_MODE, null))
 
     fun save(mode: ThemeMode) {
-        preferences.edit().putString(KEY_MODE, mode.storageValue).apply()
+        // Theme changes are consumed immediately by the active Compose host.
+        // Commit before that host recomposes so a palette read cannot observe the
+        // previous value while SharedPreferences.apply() is still flushing.
+        preferences.edit().putString(KEY_MODE, mode.storageValue).commit()
     }
 
     companion object {
@@ -64,8 +67,9 @@ data class ThemePalette(
 object AppTheme {
     fun mode(context: Context): ThemeMode = ThemeSettingsStore(context).load()
 
-    fun effectiveMode(context: Context): ThemeMode {
-        val selected = mode(context)
+    fun effectiveMode(context: Context): ThemeMode = effectiveMode(context, mode(context))
+
+    fun effectiveMode(context: Context, selected: ThemeMode): ThemeMode {
         if (selected != ThemeMode.SYSTEM) return selected
         return if ((context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
@@ -76,7 +80,8 @@ object AppTheme {
         }
     }
 
-    fun palette(context: Context): ThemePalette = when (effectiveMode(context)) {
+    fun palette(context: Context, selected: ThemeMode = mode(context)): ThemePalette =
+        when (effectiveMode(context, selected)) {
         ThemeMode.LIGHT -> ThemePalette(
             background = Color.rgb(248, 250, 253),
             surface = Color.WHITE,

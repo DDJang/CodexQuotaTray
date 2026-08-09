@@ -112,7 +112,11 @@ class SettingsActivity : ComponentActivity() {
         AppTheme.applySystemBars(this)
         renderState()
         setContent {
-            val palette = settingsPalette(AppTheme.palette(this))
+            // Keep the outer visual tree subscribed to the selection. Previously
+            // only the child theme rows observed themeMode, so returning to the
+            // root could show the new label with the old palette.
+            val effectiveTheme = AppTheme.effectiveMode(this, themeMode)
+            val palette = settingsPalette(AppTheme.palette(this, themeMode), effectiveTheme)
             CodexQuotaTheme(palette) {
                 val backdrop = rememberLayerBackdrop()
                 val scrollState = rememberScrollState()
@@ -543,8 +547,8 @@ class SettingsActivity : ComponentActivity() {
         pairingHost = pairing?.let { "${it.host}:${it.port}" } ?: pairingHost
     }
 
-    private fun settingsPalette(base: ThemePalette): ThemePalette =
-        if (AppTheme.effectiveMode(this) == ThemeMode.DARK) {
+    private fun settingsPalette(base: ThemePalette, effectiveTheme: ThemeMode): ThemePalette =
+        if (effectiveTheme == ThemeMode.DARK) {
             base.copy(
                 background = 0xff000000.toInt(),
                 surface = 0xff252525.toInt(),
@@ -582,11 +586,11 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun selectTheme(mode: ThemeMode) {
-        if (themeStore.load() == mode) return
+        if (themeMode == mode) return
         themeStore.save(mode)
         themeMode = mode
+        AppTheme.applySystemBars(this)
         AppLogStore.record(this, "主题已切换")
-        recreate()
     }
 
     private fun themeLabel(mode: ThemeMode): String = when (mode) {
