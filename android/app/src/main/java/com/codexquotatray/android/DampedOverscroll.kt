@@ -6,7 +6,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -17,29 +19,49 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.sign
+import kotlin.math.sqrt
 
 /**
- * Adds an unbounded rubber-band translation after the scrollable reaches either edge.
- * Continued finger movement always moves the content, with progressively stronger resistance.
+ * Applies an unbounded, progressively damped translation once the scrollable reaches an edge.
+ *
+ * The state stores the full unconsumed finger distance, while the layer receives only its
+ * damped projection. Keeping those quantities separate means a continued drag can never hit a
+ * visual hard stop; only the additional visible distance gets smaller as the drag grows.
  */
 @Composable
 internal fun Modifier.dampedVerticalOverscroll(): Modifier {
     val resistanceDistance = with(LocalDensity.current) { 180.dp.toPx() }
-    var offset by remember { mutableFloatStateOf(0f) }
-    val connection = remember(resistanceDistance) {
+    val animationScope = rememberCoroutineScope()
+    var unconsumedDrag by remember { mutableFloatStateOf(0f) }
+    var reboundJob by remember { mutableStateOf<Job?>(null) }
+
+    val connection = remember(resistanceDistance, animationScope) {
         object : NestedScrollConnection {
+            private fun stopRebound() {
+                reboundJob?.cancel()
+                reboundJob = null
+            }
+
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput || offset == 0f || offset * available.y >= 0f) {
+                if (
+                    source != NestedScrollSource.UserInput ||
+                    unconsumedDrag == 0f ||
+                    unconsumedDrag * available.y >= 0f
+                ) {
                     return Offset.Zero
                 }
 
-                val consumed = if (offset > 0f) {
-                    available.y.coerceAtLeast(-offset)
+                stopRebound()
+                val consumed = if (unconsumedDrag > 0f) {
+                    available.y.coerceAtLeast(-unconsumedDrag)
                 } else {
-                    available.y.coerceAtMost(-offset)
+                    available.y.coerceAtMost(-unconsumedDrag)
                 }
-                offset += consumed
+                unconsumedDrag += consumed
                 return Offset(0f, consumed)
             }
 
@@ -48,29 +70,49 @@ internal fun Modifier.dampedVerticalOverscroll(): Modifier {
                 available: Offset,
                 source: NestedScrollSource,
             ): Offset {
-                if (source != NestedScrollSource.UserInput || available.y == 0f) return Offset.Zero
+                if (source != NestedScrollSource.UserInput || available.y == 0f) {
+                    return Offset.Zero
+                }
 
-                val resistance = 0.55f / (1f + abs(offset) / resistanceDistance)
-                offset += available.y * resistance
+                stopRebound()
+                unconsumedDrag += available.y
                 return Offset(0f, available.y)
             }
 
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (offset != 0f) {
+                if (unconsumedDrag == 0f) return Velocity.Zero
+
+                stopRebound()
+                reboundJob = animationScope.launch {
                     animate(
-                        initialValue = offset,
+                        initialValue = unconsumedDrag,
                         targetValue = 0f,
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioNoBouncy,
                             stiffness = Spring.StiffnessMediumLow,
                         ),
-                    ) { value, _ -> offset = value }
-                    offset = 0f
+                    ) { value, _ ->
+                        unconsumedDrag = value
+                    }
+                    unconsumedDrag = 0f
                 }
-                return Velocity.Zero
+                return available
             }
         }
     }
 
-    return nestedScroll(connection).graphicsLayer { translationY = offset }
+    return nestedScroll(connection).graphicsLayer {
+        translationY = dampedOverscrollDisplacement(unconsumedDrag, resistanceDistance)
+    }
+}
+
+internal fun dampedOverscrollDisplacement(
+    unconsumedDrag: Float,
+    resistanceDistance: Float,
+): Float {
+    require(resistanceDistance > 0f) { "resistanceDistance must be positive" }
+    val magnitude = abs(unconsumedDrag)
+    val dampedMagnitude = resistanceDistance *
+        (sqrt(1f + 2f * magnitude / resistanceDistance) - 1f)
+    return dampedMagnitude * unconsumedDrag.sign
 }

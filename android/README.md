@@ -67,6 +67,24 @@ $env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
 .\gradlew.bat :app:assembleRelease
 ```
 
+### Codex 沙箱构建与测试结果文件锁
+
+在 Codex 沙箱中，Gradle 缓存和 ADB 都位于工作区外；首次 Gradle 或 ADB 命令应直接请求
+相应权限。命令超时只会中断调用端，不一定会立即结束 Gradle daemon。若随后
+`:app:testDebugUnitTest` 报告无法删除
+`app/build/test-results/testDebugUnitTest/binary/output.bin`，说明前一次 daemon 仍持有测试
+结果文件，而不是测试断言失败。
+
+先使用与构建相同的 JDK 和 Android SDK 环境执行：
+
+```powershell
+.\gradlew.bat --stop
+```
+
+等待 daemon 退出后，再用一次具有足够超时的完整命令重跑测试和构建。不要手动删除
+`app/build/test-results`，也不要结束未确认归属的 Java/Kotlin 进程；`--stop` 只会正常停止
+Gradle daemon，能够安全释放这类测试结果锁。
+
 ### HyperOS 3 / Xiaomi 渲染兼容性
 
 Android UI 已迁移到 Jetpack Compose 与 Kyant Backdrop 2.0。玻璃控件通过 Compose
