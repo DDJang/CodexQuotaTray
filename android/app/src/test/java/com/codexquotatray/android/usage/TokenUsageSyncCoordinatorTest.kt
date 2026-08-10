@@ -67,6 +67,17 @@ class TokenUsageSyncCoordinatorTest {
     }
 
     @Test
+    fun cacheClearFailureDoesNotPreventPairingCredentialsRemoval() {
+        val pairingStore = MemoryPairingStore(mutableListOf(), pairing())
+        val cache = MemoryCache(mutableListOf(), clearResult = false)
+
+        assertTrue(TokenUsagePairingLifecycle.clear(pairingStore, cache))
+
+        assertNull(pairingStore.saved)
+        assertTrue(cache.cleared)
+    }
+
+    @Test
     fun syncThatWasUnpairedInFlightDoesNotCommitOrRestoreOldPairing() {
         val source = pairing()
         val pairingStore = MemoryPairingStore(mutableListOf(), source)
@@ -162,6 +173,43 @@ class TokenUsageSyncCoordinatorTest {
         assertNull(failure)
     }
 
+    @Test
+    fun sameDeviceWithChangedSecretDoesNotShareSingleFlightResults() {
+        val oldPairing = pairing(secret = "old-secret")
+        val newPairing = pairing(secret = "new-secret")
+        val oldStarted = CountDownLatch(1)
+        val newStarted = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val transport = TokenUsageSyncTransport { pairing ->
+            if (pairing.pairingSecret == oldPairing.pairingSecret) oldStarted.countDown() else newStarted.countDown()
+            assertTrue(release.await(2, TimeUnit.SECONDS))
+            TokenUsageSyncResult(snapshot(), pairing)
+        }
+        val oldCoordinator = TokenUsageSyncCoordinator(
+            transport,
+            MemoryCache(mutableListOf()),
+            MemoryPairingStore(mutableListOf(), oldPairing),
+        )
+        val newCoordinator = TokenUsageSyncCoordinator(
+            transport,
+            MemoryCache(mutableListOf()),
+            MemoryPairingStore(mutableListOf(), newPairing),
+        )
+        var failure: Throwable? = null
+        val first = thread { runCatching { oldCoordinator.sync(oldPairing) }.onFailure { failure = it } }
+        assertTrue(oldStarted.await(2, TimeUnit.SECONDS))
+        val second = thread { runCatching { newCoordinator.sync(newPairing) }.onFailure { failure = it } }
+        assertTrue(newStarted.await(2, TimeUnit.SECONDS))
+
+        release.countDown()
+        first.join(2_000)
+        second.join(2_000)
+
+        assertFalse(first.isAlive)
+        assertFalse(second.isAlive)
+        assertNull(failure)
+    }
+
     private class MemoryPairingStore(
         private val calls: MutableList<String>,
         var saved: TokenSyncPairing?,
@@ -182,6 +230,7 @@ class TokenUsageSyncCoordinatorTest {
     private class MemoryCache(
         private val calls: MutableList<String>,
         private val saveResult: Boolean = true,
+        private val clearResult: Boolean = true,
     ) : TokenUsageCacheStore {
         var saved: TokenUsageSnapshot? = null
         var cleared = false
@@ -195,15 +244,18 @@ class TokenUsageSyncCoordinatorTest {
         override fun clear(): Boolean {
             cleared = true
             saved = null
-            return true
+            return clearResult
         }
     }
 
-    private fun pairing(deviceId: String = "123e4567-e89b-12d3-a456-426614174000") = TokenSyncEndpoint.validated(
+    private fun pairing(
+        deviceId: String = "123e4567-e89b-12d3-a456-426614174000",
+        secret: String = "secret",
+    ) = TokenSyncEndpoint.validated(
         deviceId,
         "192.168.1.10",
         43821,
-        "secret",
+        secret,
     )
 
     private fun snapshot() = TokenUsageSnapshot(

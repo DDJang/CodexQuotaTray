@@ -1,144 +1,84 @@
 # CodexQuotaTray 技术设计
 
-本文只描述 Windows + WinUI 架构。Android 独立 APK 的当前结构和范围见
-[`android/README.md`](../android/README.md) 与 [Android Roadmap](ANDROID_ROADMAP.md)。
+本文只记录当前架构和兼容边界。产品行为见 [PRD](PRD.md)，wire 与持久化字段见
+[API_CONTRACT](API_CONTRACT.md)，发布流程见 [RELEASE](RELEASE.md)。
 
-## 当前技术基线
-
-当前正式入口是 C# + WinUI 3，位于 `winui/`。旧 Rust/Win32 实现仅作为归档参考，不参与当前构建、测试、验证或发布。
-
-协议生成基线由 [`schemas/CODEX_VERSION`](../schemas/CODEX_VERSION) 指定，对应 wire schema 位于该版本目录。运行时不读取 `schemas/`；这些文件只用于协议审计、升级 diff 和测试 fixture 校准。
-
-## 分层架构
+## Windows 架构
 
 ```text
-Codex App Server
-        │ UTF-8 JSONL over stdio
-        ▼
+codex app-server --stdio
+        ↓ UTF-8 JSONL
 Core/Protocol
-        ▼ typed response + normalized quota
-Core/Runtime ─── Core/Persistence
-        │              │
-        ├──── Core/Alerts
-        ▼
+        ↓ normalized quota
+Core/Runtime ── Core/Persistence ── Core/Alerts
+        ↓
 Core/Presentation
-        ▼
-WinUI App / Views / Services / Interop / Themes
+        ↓
+WinUI Views / Services / Interop / Themes
 ```
 
-- `Core/Protocol`：App Server 进程、JSONL transport、请求路由、typed DTO、通知解析和额度规范化。
-- `Core/Runtime`：连接生命周期、刷新协调、稀疏通知应用、当前状态和缓存提交。
-- `Core/Persistence`：设置、额度缓存和提醒防重复状态。
-- `Core/Presentation`：将归一化状态投影为 UI 状态和 ViewModel。
-- `Core/Alerts`：可靠百分比阈值、周期重置和跨重启 at-most-once reducer。
-- `App/Views`：WinUI 窗口和 XAML。
-- `App/Services`：托盘、主题、通知和平台操作。
-- `App/Interop`：Win32、AppWindow、DWM、显示器和 DPI 互操作。
-- `App/Themes`：颜色、控件样式和主题资源。
-- `Tests/FakeAppServer`：匿名 fixture 和确定性的离线验证。
+- `Core/Protocol` 管理 CLI 定位、子进程、JSONL transport、DTO、通知和规范化。
+- `Core/Runtime` 统一 Startup、Manual、Scheduled、Resume、NetworkRestored 和通知恢复刷新，保证
+  单 in-flight、有界退避和失败时保留最后有效状态。
+- `Core/Persistence` 只保存设置、最小归一化额度缓存和提醒状态。
+- `Core/Presentation` 是 UI 的唯一产品状态入口；UI 不解析 RPC。
+- `Core/TokenUsage` 流式扫描 session 文件中的 Token 计数事件并生成聚合，不进入额度协议层。
 
-UI 只消费 `AppUiState` 和 ViewModel，不解析 wire JSON，也不依赖协议 DTO。
+完整读取形成通知合并基线。`account/rateLimits/updated` 只覆盖实际出现的字段；无安全基线、通知
+溢出或 generation 变化时触发完整补读。
 
-## App Server 和只读边界
+## Android 架构
 
-应用启动受控的 `codex app-server --stdio` 子进程，通过 UTF-8 JSONL 通信。连接使用唯一请求 ID 路由响应，持续排空 stdout/stderr，并通过超时、取消和受控进程树回收限制生命周期。
+```text
+OAuthStore → DirectQuotaClient → CodexQuotaRepository
+                                  ├─ QuotaSnapshotStore
+                                  ├─ QuotaAlertEvaluator
+                                  └─ QuotaRefreshWorker
 
-当前 outbound 边界只有：
+TokenSyncStore → TokenUsageSyncCoordinator → TokenUsageCache
+                                           └─ TokenUsageRefreshWorker
+```
 
-- `initialize` request；
-- `initialized` notification；
-- `account/rateLimits/read` request。
+- `auth` 保存最小 OAuth 状态，Keystore key 不离开 App 私有环境。
+- `protocol` 解析 Direct HTTPS usage 响应并保持动态窗口与缺失值语义。
+- `quota` 把 Direct 或 Windows fallback 的成功结果提交到同一快照、提醒和通知路径。
+- `usage` 通过 process-local single-flight 统一前台、设置和 Worker 同步；提交前重新验证 pairing，
+  先写 cache，再写成功时间与最新地址。
+- Compose 页面只消费 domain state；前台通过 refresh event 接收后台成功结果。
 
-服务端 `account/rateLimits/updated` 只作为入站通知处理。应用不构造登录、购买、重置卡消费或其他账户写请求。任何 outbound 扩展都必须先更新协议合同、隐私评审和离线序列测试。
+额度 Direct 请求与 Windows LAN fallback 保持串行：只有 Direct 的 `NETWORK` 失败才尝试已保存
+地址、必要时 DNS-SD、再重试 Windows。LAN 请求绑定实际 Wi-Fi network，不在移动网络等待。
 
-原始响应、RPC error 正文和 stderr 原文不写日志或磁盘。额度窗口不依赖 `primary`、`secondary` 的固定周期含义；重置卡数量只接受 `availableCount`。
+## LAN 服务
 
-## Runtime 与状态
+Windows 在用户启用后以同一私人 IPv4 listener 提供：
 
-所有 Startup、Manual、Scheduled、CardOpened、Resume、NetworkRestored 和通知补读进入同一个刷新协调器。协调器保证单 in-flight、最小请求间隔和有界失败退避。
+- `GET /v1/token-usage`：聚合 Token 使用量；
+- `GET /v1/quota`：Runtime 已有的最后成功归一化额度快照。
 
-完整读取形成协议基线；稀疏通知只覆盖明确出现的字段。缺少可靠基线、通知溢出或通知不能形成安全独立快照时，Runtime 请求完整读取。失败保留最后有效状态，并由 Presentation 投影刷新中、警告、过期、离线或不可用表现。
+Bearer secret 使用固定时间比较。DNS-SD 只发布 `deviceId`、显示名和实际端口；secret 不广播。
+地址变化以同一 `deviceId` 重启 listener/registration。Android 只在 offline 类错误时发现相同
+`deviceId`，401 不触发发现。
 
-归一化阶段：
+## 身份边界
 
-- 优先使用非空 multi-bucket 数据，否则使用 legacy snapshot；
-- 缺少 `usedPercent` 的窗口不进入有效列表；
-- 越界百分比只在显示范围内 clamp，并标记为不可靠；
-- opaque limit 标识只用于生成本地伪匿名键；
-- reset-credit 归一化为 unavailable、empty、count-only、partial-details 或 complete-details。
+身份常量以代码为唯一事实源：Windows 见 `AppLaunchProfile`、`TrayIconIdentity` 和
+`TokenUsageServiceIdentity`；Android 见 `app/build.gradle.kts`。
 
-## Persistence 与 Alerts
+- Windows Production、Dev、Preview 使用独立单实例、托盘、数据目录、启动项能力和 LAN identity。
+- Release 默认 Production；Debug 默认 Dev；Demo 与 isolated preview 使用 Preview。
+- Android Release 与 Debug 使用不同 application ID，因此凭据、配对和缓存自然隔离。
+- 一个身份不得删除、覆盖或关闭另一个身份的状态。
 
-Production、Debug Dev 与 Live Preview 使用不同数据目录；Demo Runtime 不写持久化数据。
+## 持久化和并发边界
 
-持久化分为：
+- 所有磁盘缓存都是最小产品投影，不是 raw response archive。
+- 文件提交使用临时文件/原子替换或平台原子 preferences commit。
+- Token cache 绑定当前 Windows device identity；同步期间配对改变时丢弃旧结果。
+- 同步 single-flight 必须包含完整 pairing 配置的不可逆 fingerprint，不能让换 secret 的请求共享结果。
+- 解除配对以删除凭据为强保证，缓存清理仅 best-effort。
 
-- settings：刷新、外观、缓存、提醒和启动偏好；
-- quota cache：套餐、窗口百分比及可靠性、时长、重置时间、重置卡数量和最早已知到期时间；
-- alert state：本地伪匿名窗口键、可靠百分比基线、已处理阈值和周期状态。
+## Composition roots
 
-缓存不是 wire response archive，不保存 token、邮箱、原始 limit/reset-credit ID、原始响应或用户路径。JSON 文件有大小和条目上限，并使用受控替换提交。
-
-提醒 reducer 只处理可靠百分比。首次快照和新启用阈值只建立基线；同一周期同一阈值最多提醒一次，确认新周期后重新激活。
-
-## Token Usage 与手机同步
-
-`Core/TokenUsage` 只流式读取 `CODEX_HOME`（或 `%USERPROFILE%\.codex`）下的
-`sessions/YYYY/MM/DD/*.jsonl` 和 `archived_sessions/*.jsonl`。累计计数优先使用
-`last_token_usage.total_tokens` 的单次增量；缺失时对 `total_token_usage.total_tokens`
-做差，并在计数下降时从新基线继续。时间戳与 Token 数字快照的 SHA-256 本地散列用于
-抑制 archive 与 fork 复制历史；散列、session 标识和原始 JSON 不发送到 Android。
-
-用户开启“手机 Token 同步”后，进程内 `TcpListener` 只绑定一个 RFC1918 IPv4，提供
-`GET /v1/token-usage`。listener 端口由当前启动身份决定，并且总是写入二维码和 DNS-SD
-metadata。256-bit 随机配对密钥保存在应用私有数据目录，
-Bearer 比较使用固定时间比较。关闭设置或退出应用会立即停止唯一 listener；应用不自动
-提升权限或修改 Windows 防火墙。
-
-配对设置记录另存为 schema 2，包含首次生成且长期稳定的 `deviceId` UUID；重新生成
-`pairingSecret` 时保持该 ID 不变。设置页用本地 QR encoder 展示
-`codexquota://pair?...`，并保留复制 URI 的 fallback。Token Sync listener 启动后通过
-Windows DNS-SD API 发布 `_codexquota._tcp`，只把 deviceId、display name 和 SRV/TXT
-port 作为发现 metadata；注销 listener 时同步注销唯一 registration。地址监视器每 15 秒
-检查当前 RFC1918 IPv4，DHCP 地址变化时以同一 deviceId/secret 重启 listener 与 publication。
-
-Android `TokenUsageSyncClient` 先请求加密保存的 `lastKnownHost`。仅连接离线失败会调用
-`NsdManager` 做最多 4 秒的一次性发现，并要求 resolved IPv4 仍是 RFC1918 且 TXT deviceId
-匹配；成功后更新 host。401 被视为 pairing secret 失效，不做 discovery。Android 扫码路径
-由用户按钮触发并在需要时申请相机权限，手动地址仍作为 fallback；这一流程不改变 quota
-WorkManager 或 Token scanner。
-
-## Production、Dev 与 Preview 身份
-
-具体托盘 GUID 的唯一事实源是 [`TrayIconIdentity.cs`](../winui/src/CodexQuotaTray.App/Services/TrayIconIdentity.cs)，文档不复制其值。启动参数、单实例 key 和能力选择由 [`AppLaunchProfile.cs`](../winui/src/CodexQuotaTray.Core/Runtime/AppLaunchProfile.cs) 决定。
-
-| 构建 / 启动参数 | 数据源 | 数据位置 | 单实例与托盘身份 | 开机启动能力 |
-| --- | --- | --- | --- | --- |
-| Release / 无参数 | Live Runtime | Production | Production | 允许 |
-| Debug / 无参数 | Live Runtime | Dev | Development | 允许（独立启动项） |
-| `--demo` | Demo Runtime | 不持久化 | Preview | 不允许 |
-| `--isolated-preview-data` | Live Runtime | Preview | Preview | 不允许 |
-| `--demo --isolated-preview-data` | Demo Runtime | 不持久化 | Preview | 不允许 |
-
-Production、Dev 与 Preview 使用不同单实例 key、托盘 GUID 和 LocalAppData 目录，可以并存。
-Debug 的 Dev 显示名称为 `CodexQuotaTray Dev`，使用独立启动项；Release 的 Production 名称、
-启动项、托盘 GUID、数据目录与 LAN 默认端口 43821 保持不变。Dev/Preview LAN listener 分别使用
-43822/43823，且 DNS-SD 实例名前缀不同；服务类型仍是兼容 Android 发现的 `_codexquota._tcp`，
-二维码始终携带实际端口。Demo 始终使用 Preview 身份。Preview/Demo 不读取、写入或覆盖 Production
-开机启动项，也不创建 Preview 启动项。
-
-`--shutdown-existing` 根据同一启动配置选择目标身份，并在创建窗口、Runtime 或托盘前完成转发或退出。
-
-## WinUI composition root
-
-`App.xaml.cs` 负责组合运行配置、Runtime、主窗口、设置窗口、托盘和平台服务。Tooltip 的基础名称由当前 `TrayIconIdentity` 注入，再由 `TrayTooltipFormatter` 附加额度与状态摘要；动态更新不能硬编码 Production 名称。
-
-产品版本的唯一声明位于 App 项目文件。`ProductVersion` 从入口程序集的 informational version 读取语义版本并移除构建元数据，供 About、诊断和 `initialize.clientInfo.version` 共用。
-
-窗口、托盘 callback、Explorer 重建处理和应用生命周期相互隔离。窗口关闭通常只隐藏；显式退出或目标身份的 `--shutdown-existing` 才结束进程。
-
-## 验证与发布
-
-普通验证统一使用 [`scripts/verify-winui.ps1`](../scripts/verify-winui.ps1)。Quick、Full 和 Release 的准确行为由脚本本身定义；本文不复制日常命令。
-
-真实账户和 Explorer 托盘 smoke 需要特定本机环境，所以不属于默认验证。安装器、签名和更广的 Windows/DPI 组合按发布阶段逐步检查，具体见 [Roadmap](ROADMAP.md) 和 [构建与发布](RELEASE.md)。
+Windows `App.xaml.cs` 组合启动配置、Runtime、窗口、托盘和 LAN 服务。Android Activity/Worker
+只创建现有 repository/coordinator，不建立第二套网络或缓存逻辑。

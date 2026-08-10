@@ -1,34 +1,13 @@
-# CodexQuotaTray WinUI 3
+# CodexQuotaTray WinUI
 
-`winui/` 是 CodexQuotaTray 当前的 C# + WinUI 3 正式入口。本文件只说明项目结构、
-工具链、启动模式和统一验证入口；产品语义与发布细节分别以根 README 和
-`docs/RELEASE.md` 为准。
+`winui/` 是 Windows 正式客户端。产品行为见 [PRD](../docs/PRD.md)，架构见
+[TECH_DESIGN](../docs/TECH_DESIGN.md)，依赖版本以项目文件和
+[`Directory.Packages.props`](Directory.Packages.props) 为准。
 
-## 项目结构
+## 本地开发
 
-| 路径 | 职责 |
-| --- | --- |
-| `winui/src/CodexQuotaTray.Core` | 协议、运行时、持久化、提醒和展示模型 |
-| `winui/src/CodexQuotaTray.App` | WinUI 窗口、XAML、托盘和平台集成 |
-| `winui/tests/CodexQuotaTray.Tests` | 完整离线单元与回归测试 |
-| `winui/tests/CodexQuotaTray.FakeAppServer` | 可控的离线 App Server 测试进程 |
-| `winui/tests/fixtures` | 匿名协议 fixture |
-
-## 工具链
-
-- .NET SDK `10.0.302`，由仓库根目录 `global.json` 固定。
-- `rollForward` 为 `latestPatch`，不允许预发布 SDK。
-- 测试运行器为 Microsoft Testing Platform。
-- Windows SDK 目标为 `10.0.26100`。
-- Microsoft Windows App SDK 为 `2.2.0`。
-- MSTest.Sdk 为 `4.3.2`。
-- NuGet 源固定使用 `winui/NuGet.Config`。
-
-仓库内 SDK 优先于 PATH；验证和发布脚本不会自动下载或安装 SDK。
-
-## 本地运行
-
-所有命令都从仓库根目录执行。先完成 Quick 验证，再启动已构建应用：
+所有命令从仓库根目录执行。SDK 由 [`global.json`](../global.json) 选择，NuGet 只使用
+[`winui/NuGet.Config`](NuGet.Config)。
 
 ```powershell
 pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Quick
@@ -36,46 +15,28 @@ dotnet run --project .\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj `
   -c Debug -p:Platform=x64 --no-build
 ```
 
-Demo 示例：
+Debug 默认启动 **CodexQuotaTray Dev**。静态 Demo 可追加 `--demo`，真实数据隔离预览可追加
+`--isolated-preview-data`；`--codex-bin <PATH>` 可指定 Codex CLI。
 
-```powershell
-dotnet run --project .\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj `
-  -c Debug -p:Platform=x64 --no-build -- --demo
-```
+| 构建 / 参数 | 数据 | 身份 | 启动项 |
+| --- | --- | --- | --- |
+| Release | Production | Production | 允许 |
+| Debug | Dev | Dev | 独立允许 |
+| `--demo` | 静态、不持久化 | Preview | 禁止 |
+| `--isolated-preview-data` | Live Preview | Preview | 禁止 |
 
-日常本地开发只构建和运行 Debug 的 **CodexQuotaTray Dev**，不得生成、安装或影响正式
-Production Release。Debug 使用独立单实例 key、托盘 GUID、LocalAppData、启动项和 LAN
-listener identity，因此可与已安装的正式版同时运行。正式 Windows Release 只由 GitHub
-Actions 在 `main` 提交的 `windows-v*` tag 上构建和发布。可用 `--codex-bin <PATH>` 覆盖
-Codex CLI 路径；`--startup` 和 `--shutdown-existing` 始终作用于当前 build 的身份。
+Production、Dev、Preview 使用独立单实例 key、托盘 GUID、数据目录和 LAN listener identity，
+可以并存。具体身份来源见 [技术设计](../docs/TECH_DESIGN.md)。
 
-## 启动参数矩阵
-
-| 构建 / 参数 | 数据源 | 数据位置 | 单实例与托盘身份 | 开机启动设置 |
-| --- | --- | --- | --- | --- |
-| Release / 无参数 | Live Runtime | Production 数据目录 | Production | 允许 |
-| Debug / 无参数 | Live Runtime | Dev 数据目录 | Development | 允许（独立启动项） |
-| `--demo` | Demo Runtime | 不持久化 | Preview | 不允许 |
-| `--isolated-preview-data` | Live Runtime | Preview 数据目录 | Preview | 不允许 |
-| `--demo --isolated-preview-data` | Demo Runtime | 不持久化 | Preview | 不允许 |
-
-Production 使用真实 App Server 和正式数据；Debug 默认使用同一运行时但隔离的 Dev 数据；
-Demo 使用静态数据；Live Preview 使用真实 App Server 但隔离数据。Dev、Demo 和 Live
-Preview 可以与 Production 并存，且不会读取、写入或覆盖 Production 开机启动项。
-
-## 统一验证入口
+## 验证
 
 ```powershell
 pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Quick
 pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Full
-pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Release
 ```
 
-- `Quick`：工具链信息、显式 NuGet restore、Debug/Dev x64 build、差异检查。
-- `Full`：格式校验、Debug/Dev x64 build、完整离线测试、差异检查。
-- `Release`：Production Release x64 build，加自包含 publish 和发布目录检查；供 GitHub
-  Actions 正式发布流程使用，不是日常本地开发步骤。
+Quick 与 Full 都构建 Debug/Dev；Full 额外运行格式检查和完整离线测试。`-Mode Release` 只供
+GitHub Actions 正式发布路径，不是日常开发命令。三种模式默认都不安装、不签名、不运行真实
+账户或 Explorer 托盘 smoke。
 
-三种模式默认都不会运行真实 Codex smoke 或 Explorer 托盘 smoke。`Release` 也不会
-生成 ZIP、编译 Inno、安装或签名。托盘 smoke 仅能通过验证脚本的显式开关调用现有
-`scripts/test-winui-tray.ps1`，并要求交互式 Explorer 桌面和关闭所有现有实例。
+正式发布规则集中在 [RELEASE.md](../docs/RELEASE.md)。

@@ -34,7 +34,8 @@ internal object TokenUsagePairingLifecycle {
     fun <T> withLock(block: () -> T): T = synchronized(lock, block)
 
     fun clear(pairingStore: TokenSyncPairingStore, cache: TokenUsageCacheStore): Boolean = withLock {
-        cache.clear() && pairingStore.clear()
+        runCatching { cache.clear() }
+        pairingStore.clear()
     }
 }
 

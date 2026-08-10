@@ -25,7 +25,7 @@ internal class TokenUsageSyncCoordinator(
         notifyCompleted = { TokenUsageRefreshEvents.notifyCompleted(context.applicationContext) },
     )
 
-    fun sync(pairing: TokenSyncPairing): TokenUsageSyncResult = TokenUsageSyncSingleFlight.run(pairing.cacheIdentity()) {
+    fun sync(pairing: TokenSyncPairing): TokenUsageSyncResult = TokenUsageSyncSingleFlight.run(pairing.singleFlightIdentity()) {
         val synced = transport.sync(pairing)
         TokenUsagePairingLifecycle.withLock {
             val current = pairingStore.load()

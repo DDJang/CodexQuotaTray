@@ -1,107 +1,44 @@
-# 构建与发布（Windows / WinUI）
+# CodexQuotaTray 发布流程
 
-本文只描述 Windows + WinUI 的构建与发布。Android APK 构建见
-[`android/README.md`](../android/README.md)。
+Windows 与 Android 版本完全独立，但所有正式 Release 都必须来自 `main`。本文件是 tag、签名和
+产物规则的唯一文档；具体执行逻辑以 `.github/workflows/windows-release.yml` 与
+`android-release.yml` 为准。
 
-产品版本写在 [App 项目文件](../winui/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj)，SDK 由仓库根目录 [`global.json`](../global.json) 选择。所有命令从仓库根目录执行。准备正式 tag 前，建议先确认工作区干净并检查目标提交；`target/`、`dist/`、`dist-inno/`、`bin/`、`obj/` 和 `TestResults/` 都是本地产物，不应提交。
+## 平台规则
 
-## 日常开发与正式发布边界
+| 平台 | Tag | 版本来源 | Workflow | 产物 |
+| --- | --- | --- | --- | --- |
+| Windows | `windows-v<version>` | WinUI App 项目 `Version` | `windows-release.yml` | x64 ZIP、Inno installer、Windows `SHA256SUMS.txt` |
+| Android | `android-v<version>` | `android/app/build.gradle.kts` 的 `versionName` | `android-release.yml` | 已签名 APK、Android `SHA256SUMS.txt` |
 
-日常本地开发只构建和运行 Debug 的 **CodexQuotaTray Dev**。Dev 与 Production 使用独立的
-single-instance identity、托盘 GUID、LocalAppData、启动项和 LAN listener identity，因此
-不得在日常开发中生成、安装或修改正式 Release，也不得影响已安装的 Production。
+两个 workflow 都会 fetch `origin/main`，并拒绝不属于 `main` 历史的 tagged commit。Tag 版本必须
+与对应项目版本完全一致。平台更新器未来只能识别自身 tag 前缀，不能依赖 GitHub “latest release”。
 
-正式 Windows Release 只由 GitHub Actions 从 `main` 提交上的 `windows-v*` tag 构建和发布。
-本地 `publish`、ZIP 或 Inno 脚本只能用于验证发布目录或安装器输入，不能作为正式发布，也不应
-作为日常开发步骤。
+## 日常开发边界
 
-## 默认验证
+- Windows 本地只构建/运行 Debug 的 **CodexQuotaTray Dev**；Quick/Full 都验证 Debug/Dev。
+- Android 本地只构建/安装 Debug 的 **CodexQuotaTray Dev**，使用默认 debug 签名。
+- 日常开发不生成、安装或签名 Production/Release，不读取 Release JKS 或 secret。
+- 真实账户、Explorer 托盘、系统通知和真机网络 smoke 都必须显式授权。
 
-日常 Dev 开发验证使用：
+## 正式发布步骤
 
-```powershell
-pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Quick
-pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Full
-```
+1. 在开发分支完成测试和审查，将目标提交 fast-forward/merge 到 `main` 并 push。
+2. 确认项目版本正确；Android `versionCode` 必须大于既有 `android-v*` tag 历史中的最大值。
+3. 在目标 `main` commit 创建对应平台 tag 并 push。
+4. Workflow 重新验证版本与 ancestry、运行平台测试、构建产物、生成该平台专属 SHA-256，再创建
+   GitHub Release。任何校验、签名或构建失败都不得发布。
 
-GitHub Actions 正式发布验证使用：
+Windows workflow 运行 `verify-winui.ps1 -Mode Release`，再生成 portable ZIP 和 Inno installer。
+本地 `publish-winui.ps1`、`package-winui.ps1`、`package-inno.ps1` 仅供显式发布输入诊断，不是
+正式发布路径。
 
-```powershell
-pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Release
-```
+Android workflow 使用 JDK 17、Android SDK、Gradle Wrapper，运行测试与 `assembleRelease`，再
+定位 SDK build-tools 中的 `apksigner` 验证签名。签名缺少任一 Secret 时 fail closed：
 
-Quick/Full 都只构建 Debug/Dev；Release 模式才构建 Production Release，并在 Full 基础上生成
-和检查 self-contained publish 目录。它不会生成 `dist/` ZIP、编译安装器、安装应用、签名或运行
-交互式 smoke。
+- `ANDROID_RELEASE_KEYSTORE_BASE64`
+- `ANDROID_RELEASE_STORE_PASSWORD`
+- `ANDROID_RELEASE_KEY_ALIAS`
+- `ANDROID_RELEASE_KEY_PASSWORD`
 
-真实账户测试保持显式 opt-in，普通离线测试不需要真实 Codex 账户。
-
-## 本地发布输入验证（非正式发布）
-
-以下脚本只用于验证可发布目录、ZIP 或安装器输入；它们不会创建 GitHub Release，也不能替代
-正式 tag workflow。日常开发通常无需运行这些命令。
-
-### Publish
-
-需要单独生成 folder-based、self-contained x64 发布目录时执行：
-
-```powershell
-pwsh -NoProfile -File .\scripts\publish-winui.ps1
-```
-
-默认输出目录为 `target/winui-publish/`。脚本使用仓库 SDK 和 NuGet 配置，并检查应用 EXE、图标和运行时文件。
-
-发布目录至少应包含：
-
-- `codex-quota-tray-gui.exe`；
-- `Assets/AppIcon.ico`；
-- 应用和 Windows App SDK 所需运行时文件。
-
-Publish 只是可运行目录，不等同于安装器或签名产物。
-
-### 可选便携归档
-
-项目不要求每次发布都生成 `dist/` ZIP。需要便携版时可以运行：
-
-```powershell
-pwsh -NoProfile -File .\scripts\package-winui.ps1
-```
-
-脚本默认先 publish，再打包运行文件、README、隐私和依赖说明，并生成 `VERSION` 与递归 `MANIFEST.sha256`。
-
-ZIP 是额外下载形式，不是安装器的中间输入。当前 GitHub tag workflow 仍会附带该 ZIP，但它不是手工发布前置条件。
-
-### Inno 安装器
-
-Inno 安装器由现有脚本显式生成：
-
-```powershell
-pwsh -NoProfile -File .\scripts\package-inno.ps1
-```
-
-[`package-inno.ps1`](../scripts/package-inno.ps1) 从 App 项目文件读取版本并传给 [`CodexQuotaTray.iss`](../installer/CodexQuotaTray.iss)。缺少版本时安装器会停止编译，避免生成版本错误的安装包。
-
-脚本默认先 publish，验证应用 EXE 和 PE 图标，再把 publish 目录交给 Inno。需要本机已安装 Inno Setup，并能找到 `ISCC.exe`。
-
-安装器当前定义为：
-
-- per-user、无需管理员权限；
-- 安装到当前用户程序目录；
-- 使用固定 AppId 进行原位升级；
-- 安装和卸载前通过 Production `--shutdown-existing` 请求已有实例正常退出；
-- 可选当前用户开机启动；
-- 默认卸载用户数据，交互模式或 `/KEEPUSERDATA` 可保留。
-
-## GitHub Actions 正式发布
-
-1. 将目标提交合入并推送到 `main`，确认工作区干净以及 Windows 项目版本正确。
-2. 可在推 tag 前显式完成 `verify-winui.ps1 -Mode Release` 和必要的交互式桌面 smoke；后者不是
-   workflow 的替代品，也不会自动执行。
-3. 在该 `main` 提交创建并推送 `windows-v<version>` tag，且 `<version>` 必须与 Windows 项目
-   `Version` 完全一致。
-4. `windows-release.yml` 校验 tag 及其提交属于 `origin/main`，执行 Release 验证，生成 ZIP、Inno
-   安装器及只含本次 Windows 产物的 `SHA256SUMS.txt`，然后创建 GitHub Release。
-
-正式发布不依赖 GitHub 的“latest release”：Windows 后续更新只识别 `windows-v*`；Android 使用
-独立的 `android-v*` 规则。Windows 代码签名状态、兼容性限制和发布说明应随对应 Release 记录，
-而不是由本地脚本推断。
+Keystore 只在 runner 临时目录解码，不得提交到仓库或写入本地开发文档。

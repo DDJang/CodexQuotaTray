@@ -1,85 +1,43 @@
-# CodexQuotaTray privacy notice
+# CodexQuotaTray 隐私说明
 
-CodexQuotaTray has two local, read-only clients: the Windows + WinUI tray app and a
-personal-use Android APK. Neither client has analytics, an account backend, a web scraper,
-an embedded browser, or a reset-credit consumption path.
+CodexQuotaTray 包含本地 Windows 客户端和个人使用 Android APK。两者均无分析埋点、账户后端、
+网页抓取、嵌入式浏览器或账户写路径。
 
-## Shared boundaries
+## 共同边界
 
-- WinUI reads quota data from a locally started Codex App Server; Android's current product
-  path reads the Direct HTTPS usage endpoint after local OAuth authentication.
-- Raw App Server/HTTP JSON is parsed in memory and discarded.
-- stdout/stderr is drained only to prevent process deadlock; its text is not persisted or
-  shown in the product UI.
-- Neither client reads browser cookies, browser DOM content, conversations, project files,
-  or code.
-- Neither client logs access tokens, refresh tokens, email addresses, full account
-  identifiers, raw limit identifiers, device codes, or raw authentication responses. WinUI
-  delegates token persistence to Codex CLI; Android persists the minimum OAuth credentials
-  (including the routing account ID) encrypted with Android Keystore in its App-private
-  store so the personal APK can reopen without logging in again.
-- Quota reads remain read-only. The clients do not purchase, consume reset credits, or send
-  other account write requests.
+- 不读取浏览器 Cookie、网页 DOM、项目代码或对话内容。
+- 不记录 access/refresh token、邮箱、完整账户 ID、设备代码、配对 secret 或原始认证响应。
+- 网络/RPC body 只在内存解析，raw response、stderr 和错误正文不持久化。
+- 额度功能只读，不购买或消费 reset credit。
 
-## Windows + WinUI data flow
+## Windows 数据
 
-- WinUI starts the locally installed `codex app-server --stdio` and communicates over UTF-8
-  JSONL.
-- Codex CLI remains responsible for authentication; CodexQuotaTray does not read Codex token
-  files.
-- Clicking “official Usage” asks Windows to open the official Usage page in the default
-  browser.
+WinUI 通过本机 `codex app-server --stdio` 读取额度，认证由 Codex CLI 管理；应用不读取 CLI
+token 文件。Production、Dev 和 Preview 使用相互隔离的数据目录，保存各自设置、最小额度缓存、
+提醒去重状态和可选 LAN pairing。
 
-Windows Production settings, optional normalized quota cache, and reminder de-duplication
-state are stored under `%LOCALAPPDATA%\CodexQuotaTray`. Debug Dev uses the separate
-`%LOCALAPPDATA%\CodexQuotaTray-Dev` directory, and Preview uses
-`%LOCALAPPDATA%\CodexQuotaTray-WinUI-Preview`; the identities do not share these files.
+启用 Token 使用量同步后，scanner 只遍历 Codex `sessions` 与 `archived_sessions` 中的 JSONL，
+过滤 `token_count` 事件，并只消费事件 timestamp 与 `total_token_usage` / `last_token_usage` 的数字
+计数。它不会提取、保存、聚合或传输 prompt、response、工具内容、session 正文、项目路径或账户
+身份。用于去重的散列仅由 timestamp 与数字计数组成；Android 只收到日聚合和摘要。
 
-When phone Token sync is enabled, WinUI streams only `token_count` and timestamp fields from
-the current user's Codex `sessions` and `archived_sessions`. It sends only daily aggregate
-numbers and an all-history summary over the selected private LAN IPv4. Prompts, responses,
-tool contents, project paths, session JSON and account identity are neither returned nor
-logged. The 256-bit pairing secret is stored in the same App-private identity directory and
-is never included in diagnostics.
+Windows LAN 服务只绑定私人 IPv4。DNS-SD 公开稳定随机 deviceId、显示名和端口，不公开 secret。
+二维码包含 LAN 地址、deviceId 和独立 pairing secret，不包含 OpenAI 凭据或 Token 数据。应用不
+自动提权或修改防火墙。
 
-The pairing record also contains a random stable Windows `deviceId` used only to match the
-same installation after a DHCP address change. QR pairing is generated locally and contains
-only that deviceId, a private-LAN address/port, an optional display name, and the independent
-LAN pairing secret; it never contains OpenAI credentials, account identifiers, email, session
-data, prompts, responses, or Token Usage data. Windows DNS-SD publication exposes only the
-deviceId, display name, and port. Android stores the pairing record with its separate
-Keystore/AES-GCM key. Discovery is a short on-demand lookup during an eligible foreground or
-background sync, not a permanent LAN listener; a 401 is treated as an invalid pairing rather
-than an invitation to discover another device.
+## Android 数据
 
-The cache contains only normalized display data. `alert-state.json` may contain cycle times,
-handled thresholds, and a locally derived pseudonymous key; original opaque IDs are not
-stored. The WinUI settings page can disable or clear the quota cache. The uninstaller removes
-local data unless the user explicitly keeps it.
+- OAuth 凭据与路由 account ID 使用 Android Keystore 保护并存于 App 私有空间。当前仍支持从旧
+  App 私有认证文件一次性迁移；成功加密保存后尽力删除旧文件。
+- `QuotaSnapshotStore` 保存最后成功的脱敏额度产品快照：套餐、状态、来源、更新时间，以及窗口
+  名称/本地标识、百分比、时长和重置时间；另存本机成功时间用于 freshness。它不保存 OAuth
+  token、account ID、HTTP header/body、错误正文或额度历史。
+- Token pairing 使用独立 Keystore key。`token-usage-cache.json` 只含 Windows 返回的聚合 schema，
+  绑定当前 deviceId；解除或更换 pairing 时清理，不能跨设备显示。
+- WorkManager 使用相同 repository/coordinator，不建立额外数据副本。Android LAN 客户端只接受
+  RFC1918 IPv4，不跟随 redirect；移动网络不会用于等待 Windows。
+- `android:allowBackup` 已关闭。Debug 使用独立 application ID，凭据、配对和缓存不与正式 APK
+  共享。卸载对应 APK 会移除其 App 私有数据。
 
-## Android data flow
-
-- The APK performs OAuth device-code login through the system browser and does not embed a
-  WebView or inspect browser data.
-- OAuth access/refresh credentials are stored in an App-private SharedPreferences store.
-  A legacy `<filesDir>/codex-home/.codex/auth.json` can be parsed once for migration; after a
-  successful encrypted save the app makes a best-effort deletion, and its contents are never
-  logged or shown.
-- Daily quota reads use `GET https://chatgpt.com/backend-api/wham/usage` with the access
-  token and, when available, the account ID. The APK does not start App Server, Termux, or
-  a local HTTP service on this path.
-- Optional Token Usage sync is a separate, user-paired HTTP client restricted to RFC1918
-  IPv4. Its pairing secret is encrypted with a separate Android Keystore key. The cached
-  `token-usage-cache.json` contains only the aggregate schema returned by Windows, is bound to
-  the paired Windows `deviceId`, and is cleared when that pairing is removed or replaced. It
-  remains visible only while the same paired Windows device is offline.
-- The APK does not persist a full quota response or history. It persists only the minimum
-  alert de-duplication state and refresh timestamp. WorkManager and notifications are part
-  of the current implementation; their real-device behavior remains a separate smoke check.
-- `android:allowBackup` is disabled. Uninstalling the APK removes its App-private data;
-  force-stop or ordinary process exit does not remove authentication.
-- The Debug/Dev APK uses the separate `com.codexquotatray.android.debug` application ID, so its
-  OAuth credentials, pairing and caches are isolated from the formally released APK.
-
-The Android route is for personal use and is not an application-store privacy or compliance
-program. Its current product scope is defined in [Android Roadmap](ANDROID_ROADMAP.md).
+系统浏览器只用于 OAuth 授权，应用不嵌入 WebView 或检查浏览器内容。详细字段合同见
+[API_CONTRACT](API_CONTRACT.md)。

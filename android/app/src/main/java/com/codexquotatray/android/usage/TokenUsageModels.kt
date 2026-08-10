@@ -2,6 +2,8 @@ package com.codexquotatray.android.usage
 
 import org.json.JSONObject
 import java.net.URI
+import java.nio.ByteBuffer
+import java.security.MessageDigest
 import java.time.LocalDate
 import java.util.UUID
 import kotlin.math.ln
@@ -61,6 +63,17 @@ internal fun TokenSyncPairing.cacheIdentity(): String = deviceId
     .takeIf { it.isNotEmpty() }
     ?.lowercase()
     ?: "legacy:$lastKnownHost:$port"
+
+/** Process-local single-flight key covering the complete immutable pairing configuration. */
+internal fun TokenSyncPairing.singleFlightIdentity(): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    listOf(deviceId.lowercase(), lastKnownHost, port.toString(), pairingSecret).forEach { value ->
+        val bytes = value.toByteArray(Charsets.UTF_8)
+        digest.update(ByteBuffer.allocate(Int.SIZE_BYTES).putInt(bytes.size).array())
+        digest.update(bytes)
+    }
+    return digest.digest().joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
+}
 
 /** Ignores mutable sync metadata while detecting a pairing replacement. */
 internal fun TokenSyncPairing.matchesConfiguration(other: TokenSyncPairing): Boolean =

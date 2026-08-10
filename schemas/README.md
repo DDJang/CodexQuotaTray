@@ -1,11 +1,15 @@
 # App Server schemas
 
-The checked-in protocol baseline is Codex CLI 0.144.5. Its generated stable schema is stored in `codex-0.144.5/`:
+[`CODEX_VERSION`](CODEX_VERSION) 是仓库中 Codex CLI 协议基线版本的唯一事实源；对应生成文件
+位于 `codex-<version>/`。运行时不读取本目录，schema 仅用于协议升级审计、DTO 校准和匿名测试。
+
+升级时由维护者显式修改 `CODEX_VERSION`，再从仓库根目录生成：
 
 ```powershell
-npx --yes @openai/codex@0.144.5 --version
-# codex-cli 0.144.5
-npx --yes @openai/codex@0.144.5 app-server generate-json-schema --out schemas/codex-0.144.5
+$version = (Get-Content .\schemas\CODEX_VERSION -Raw).Trim()
+npx --yes "@openai/codex@$version" app-server generate-json-schema `
+  --out ".\schemas\codex-$version"
 ```
 
-The generator was run without `--experimental`. Do not edit generated JSON manually. Update this directory and `CODEX_VERSION` only when a maintainer intentionally upgrades the checked-in protocol baseline to a new Codex CLI version.
+生成时不使用 `--experimental`，也不手工编辑生成 JSON。升级后必须同步审查
+[API_CONTRACT](../docs/API_CONTRACT.md)、DTO、fixture 和完整离线测试。

@@ -1,246 +1,106 @@
 # CodexQuotaTray Development Instructions
 
-## Project scope
+## Scope
 
-CodexQuotaTray has two read-only, separately scoped clients for displaying
-Codex quota windows and reset times.
+CodexQuotaTray 有两个独立、只读的客户端：
 
-- The current production entry point is C# with WinUI 3 under `winui/`.
-- `android/` contains a personal-use standalone `arm64-v8a` APK. Its P0-P3
-  baseline is complete; its only current roadmap goals are background refresh,
-  notifications, a Widget, and boot startup.
-- Android work must not modify `winui/`, and WinUI work must not change Android
-  behavior, unless the owner explicitly requests cross-platform changes.
-- The Rust/Win32 implementation is archived and does not participate in the
-  current build, test, packaging, or release process.
-- The WinUI client targets Windows 10 and Windows 11.
-- Prefer low idle CPU usage and low memory usage.
-- Do not use Electron, embed a browser runtime, or scrape web interfaces.
-- Do not read browser cookies or store authentication tokens in logs or
-  plaintext configuration.
-- The MVP is always read-only. It must not consume reset credits or perform
-  account writes.
+- `winui/`：Windows 10/11 的 C# + WinUI 3 正式客户端；
+- `android/`：个人使用的 Kotlin + Jetpack Compose APK，额度主路径为 OAuth + Direct HTTPS。
 
-## Documentation routing
+除非任务明确要求跨平台修改，Android 工作不得改变 WinUI 行为，WinUI 工作不得改变 Android
+行为。旧 Rust/Win32 与 Android runtime/Bridge 实验只保留在 Git history，不参与当前仓库构建。
 
-Read only the material needed for the current task:
+不得使用 Electron、嵌入浏览器、网页抓取、浏览器 Cookie 或账户写接口。两个客户端都不得消费
+reset credit。
 
-- Ordinary WinUI task: this file and the relevant XAML and code.
-- Ordinary Android task: this file, `android/README.md`, and the relevant
-  Android source and tests.
-- WinUI product-semantics task: also read `docs/PRD.md`.
-- Android product-semantics task: also read `docs/ANDROID_ROADMAP.md`.
-- WinUI architecture or Core task: also read `docs/TECH_DESIGN.md`.
-- Android runtime or architecture task: also read `android/README.md`.
-- Protocol task: also read `docs/API_CONTRACT.md` and the relevant `schemas/`.
-- WinUI release or packaging task: also read `docs/RELEASE.md`.
-- Android release or packaging task: also read `android/README.md`.
-- Windows roadmap or milestone task only: read `docs/ROADMAP.md`.
-- Android roadmap or milestone task only: read `docs/ANDROID_ROADMAP.md`.
+## Documentation authority
 
-Do not require every task to load the complete documentation set.
+只读取与任务有关的权威文档：
 
-## Task start
+- 产品行为：[PRD](docs/PRD.md)
+- 架构与身份：[TECH_DESIGN](docs/TECH_DESIGN.md)
+- 协议与持久化合同：[API_CONTRACT](docs/API_CONTRACT.md)
+- 发布：[RELEASE](docs/RELEASE.md)
+- 隐私：[PRIVACY](docs/PRIVACY.md)
+- Windows / Android 本地命令：各自 README
+- 平台后续方向：对应 Roadmap
 
-At the start of every task, report:
+不要在多个文档重复维护版本、端口、依赖版本或发布步骤；优先链接到权威来源。
 
-1. Repository root.
-2. Current branch.
-3. Current HEAD.
-4. Working-tree status, including untracked files.
-5. The validation level selected for the task.
+## Task lifecycle
 
-Inspect existing implementation and tests before changing files. Make the
-smallest coherent change that satisfies the requested scope.
+任务开始时报告仓库根目录、分支、HEAD、包含未跟踪文件的工作区状态和验证级别。修改前先读
+实现与测试，保留用户已有改动，只做满足任务的最小一致变更。
 
-## Module responsibilities
+任务结束时只报告本轮改动、验证、跳过的 opt-in 检查、剩余风险和最终工作区状态。
 
-The following responsibilities describe the WinUI implementation:
+## Architecture boundaries
 
-- `Core/Protocol`: Codex App Server process and protocol transport.
-- `Core/Runtime`: connection lifecycle, refresh coordination, and current state.
-- `Core/Persistence`: settings, cache, and notification deduplication state.
-- `Core/Presentation`: UI projection and ViewModels.
-- `Core/Alerts`: notification reducer and threshold decisions.
-- `App/Views`: WinUI windows and XAML.
-- `App/Services`: tray integration, themes, and platform actions.
-- `App/Interop`: Win32 interop boundaries.
-- `App/Themes`: colors, styles, and visual resources.
-- `Tests` and `FakeAppServer`: deterministic offline verification.
+WinUI：
 
-Keep these responsibilities separate. The UI must never parse raw JSON-RPC
-responses directly.
+- `Core/Protocol`：App Server 进程、JSONL transport、DTO 与规范化；
+- `Core/Runtime`：连接、刷新协调和当前状态；
+- `Core/Persistence`：设置、缓存和提醒去重；
+- `Core/Presentation`：UI 投影；
+- `Core/Alerts`：提醒状态机；
+- `App/Views`、`Services`、`Interop`、`Themes`：WinUI 与平台集成；
+- `Tests`、`FakeAppServer`：确定性离线验证。
 
-For Android:
+Android：
 
-- `android/app/src/main/.../protocol`: App Server transport and typed quota input.
-- `android/app/src/main/.../runtime`: embedded runtime and process lifecycle.
-- `android/app/src/main/.../ui`: product projection; it must not parse raw RPC.
-- `android/app/src/test`: deterministic offline Android regressions.
-- `android/poc` and `android/bridge`: development diagnostics only, never APK
-  runtime dependencies.
+- `auth`：OAuth 与 Keystore 持久化；
+- `protocol`：Direct HTTPS DTO 与解析；
+- `quota`：额度仓库、快照、提醒提交、WorkManager 与 Windows fallback；
+- `usage`：Windows 配对、LAN 同步、缓存和后台 Worker；
+- Activity / Compose 文件：产品投影，不解析原始网络响应；
+- `app/src/test`：匿名、离线回归测试。
 
-## Protocol and domain rules
+UI 不得直接解析 raw JSON/RPC。前后台读取必须复用同一数据提交路径，不能维护相互冲突的缓存。
 
-- Treat App Server response fields as optional unless the generated schema
-  marks them as required.
-- Do not assume `primary` always represents five hours.
-- Do not assume `secondary` always represents seven days.
-- Use `windowDurationMins`, `limitId`, and `limitName` to identify quota windows.
-- Treat `rateLimitResetCredits.availableCount` as authoritative.
-- Do not silently replace unknown or missing values with zero.
-- Preserve the last valid quota state when refresh fails.
-- Distinguish fresh, refreshing, stale, offline, unauthenticated, and
-  unavailable states.
-- Use bounded retries and backoff when restarting App Server.
+## Domain rules
 
-## Runtime identity boundaries
+- 字段默认可缺失，除非权威 schema 明确 required；未知或 malformed 不得变成零。
+- 不把 `primary` / `secondary` 固定解释为五小时或七天；按时长、名称和标识识别窗口。
+- 刷新失败保留最后有效状态，并区分 refreshing、stale、offline、unauthenticated 与 unavailable。
+- WinUI reset-credit 数量只接受 `availableCount`。
+- Android Direct HTTPS 永远优先；只有网络失败才允许 Windows LAN fallback。
+- 重试、超时、进程恢复和局域网发现必须有界。
 
-Production and Preview identities are separate compatibility boundaries.
+## Build identities
 
-- Production keeps its existing instance key, tray GUID, data directory, and
-  startup registration.
-- Demo uses static data with Preview process and tray identity.
-- Live Preview uses isolated data with Preview process and tray identity.
-- Preview and Demo must not read, write, or overwrite the Production startup
-  registration.
-- Never let one identity delete or replace the other identity's tray icon.
+- Windows Release/Production 保持既有实例、托盘、数据、启动项和安装器身份；Debug 使用独立 Dev
+  身份；Demo/isolated preview 使用 Preview 身份。
+- Android Release 保持正式 application ID；Debug 使用 `.debug` 后缀和独立应用数据。
+- 日常开发只构建/运行 Dev 或 Debug，不安装或签名正式版。
+- 正式 Release 只由 GitHub Actions 从 `main` 上的平台 tag 构建。
 
-Do not change these without explicit owner approval:
+未经明确授权，不修改产品版本、协议基线、依赖版本、target framework/SDK、Production identity、
+tray GUID 或 Installer AppId。
 
-- Product version.
-- Protocol baseline.
-- Dependency versions.
-- Target framework or test SDK.
-- Production instance key.
-- Production tray GUID.
-- Installer AppId.
+## Working-tree and environment safety
 
-## Working-tree safety
+- 不使用 `git reset`、`clean`、`restore`、`stash` 覆盖用户工作；不碰无关改动。
+- 未经授权不 commit、push、创建 PR/tag/Release、安装应用、打包、签名或运行真实账户 smoke。
+- 不安装 SDK，不修改用户 NuGet/Gradle 配置，不创建替代 `global.json`，不降级依赖解决环境问题。
+- 第一次失败先区分代码与环境；环境失败只允许使用仓库现有配置做一次修正重试，然后停止并报告。
 
-- Preserve all existing user changes, including untracked files.
-- Never use `git reset`, `git clean`, `git restore`, or `git stash` unless the
-  owner explicitly requests that exact operation.
-- Never overwrite unrelated work to make a check pass.
-- Do not install an SDK or change the user's NuGet configuration.
-- Do not create an alternative `global.json`.
-- Do not downgrade the target framework, Windows App SDK, or MSTest SDK.
-- Do not add a production dependency without explaining maintenance status,
-  binary-size impact, runtime impact, and why existing dependencies are
-  insufficient.
+## Validation
 
-Without an explicit request, do not:
+WinUI 从仓库根目录运行 `scripts/verify-winui.ps1`：
 
-- Commit changes.
-- Push a branch.
-- Create a pull request.
-- Publish binaries.
-- Generate ZIP or installer artifacts.
-- Install, upgrade, uninstall, or sign the application.
-- Run real-account or interactive Explorer smoke tests.
+- `Quick`：仓库配置 restore、Debug/Dev x64 build、基础检查；
+- `Full`：Quick 加格式和完整离线测试，仍使用 Debug/Dev；
+- `Release`：Production Release build 与 publish 检查，只供正式发布流程。
 
-## Validation levels
+Core、协议、持久化和 runtime 改动至少运行 Full。真实账户和 Explorer 托盘 smoke 始终显式 opt-in。
 
-For WinUI, use `scripts/verify-winui.ps1` from the repository root.
+Android 使用仓库 Gradle Wrapper、JDK 17 和 Android SDK 35：
 
-- `Quick`: toolchain report, repository-configured restore, Release x64 build,
-  and `git diff --check`.
-- `Full`: repository-configured restore, format verification, Release x64
-  build, complete offline tests, and `git diff --check`.
-- `Release`: Full validation plus the existing publish script and publish-output
-  checks. It does not package, install, sign, or run smoke tests by default.
+- Kotlin、协议、UI 或持久化：`:app:testDebugUnitTest` 与 `:app:assembleDebug`；
+- 文档：链接/引用检查与 `git diff --check`；
+- 本地开发不得读取 Release JKS、密码、alias 或签名配置。
 
-Choose validation proportionate to the change:
+## Privacy
 
-- Documentation-only: focused checks and `git diff --check`; use Quick when
-  scripts or commands changed.
-- XAML, theme, or window layout: Full plus task-authorized visual validation.
-- Core, protocol, refresh, alerts, or persistence: Full and relevant regression
-  tests.
-- Tray or native window interop: Full; interactive tray smoke is explicit
-  opt-in only.
-- Packaging or installer: Release first; packaging and installation remain
-  separately authorized operations.
-
-For Android, use the repository Gradle Wrapper with JDK 17 and Android SDK 35:
-
-- Kotlin/UI/protocol changes: `:app:testDebugUnitTest` and `:app:assembleDebug`.
-- Runtime packaging or release changes: also run `:app:assembleRelease` with the
-  owner-provided `CODEX_ANDROID_RUNTIME` input.
-- Documentation-only Android changes: focused checks and `git diff --check`.
-- ADB installation, real-account login, signing, and real-device smoke remain
-  explicit opt-in operations.
-
-Unit tests must use anonymized fixtures and must not require a real Codex
-account. Add regression tests for parser defects, state transitions, missing or
-null fields, unknown quota windows, and malformed responses.
-
-## Environment failures
-
-On the first failure, distinguish code failure from environment failure.
-
-Environment failures include unavailable SDKs, NuGet permission/configuration
-errors, test-host failures, and lack of an interactive Explorer desktop.
-
-For an environment failure:
-
-1. Record the working directory, original command, selected SDK, repository
-   configuration source, and original error.
-2. Make at most one correction retry using configuration already present in the
-   repository.
-3. Do not install an SDK, edit user NuGet settings, add another `global.json`, or
-   downgrade framework and test dependencies.
-4. If the retry fails, stop and report both failures without trying another
-   workaround.
-
-Do not mark a task complete while required checks are failing.
-
-### Owner workstation Android paths
-
-On the owner's current Windows workstation, do not assume the Android SDK is
-under `%LOCALAPPDATA%`. The verified local paths are:
-
-- Android SDK / `ANDROID_HOME` / `ANDROID_SDK_ROOT`: `D:\Android\Sdk`
-- ADB: `D:\Android\Sdk\platform-tools\adb.exe`
-- Currently available JDK: `C:\Users\18456\.jdks\openjdk-23.0.1`
-
-The repository's supported Android toolchain remains JDK 17. Until a local JDK
-17 is provided, the JDK path above is the already verified fallback for this
-workstation; do not install or silently substitute another JDK.
-
-In a sandboxed Codex session, the Gradle wrapper/cache and ADB device access are
-outside the writable workspace. Request the required escalation on the first
-Gradle or ADB command instead of first attempting a sandboxed wrapper download.
-Set both Android SDK environment variables explicitly before invoking Gradle:
-
-```powershell
-$env:JAVA_HOME = 'C:\Users\18456\.jdks\openjdk-23.0.1'
-$env:ANDROID_HOME = 'D:\Android\Sdk'
-$env:ANDROID_SDK_ROOT = 'D:\Android\Sdk'
-```
-
-## Privacy and diagnostics
-
-Never log:
-
-- Access or refresh tokens.
-- Browser cookies.
-- User email addresses.
-- Full account identifiers.
-- Full reset-credit identifiers.
-- Raw authentication responses.
-
-Keep diagnostics concise and redact potentially identifying values.
-
-## Task completion
-
-Report only the current task:
-
-- What changed.
-- Files changed.
-- Commands executed and their results.
-- Skipped opt-in checks with complete names and reasons.
-- Remaining limitations or unresolved risks.
-- Final working-tree status.
-
-Do not proactively implement or recommend a next task.
+不得记录 access/refresh token、Cookie、邮箱、完整账户标识、完整 reset-credit ID、配对 secret、
+原始认证响应或对话正文。日志和 fixture 必须匿名、最小且离线。
