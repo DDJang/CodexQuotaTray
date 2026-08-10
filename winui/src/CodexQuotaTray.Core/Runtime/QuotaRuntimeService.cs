@@ -3,6 +3,7 @@ using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Protocol;
+using CodexQuotaTray.Core.TokenUsage;
 using System.Runtime.ExceptionServices;
 using System.Threading.Channels;
 
@@ -62,6 +63,7 @@ public sealed class QuotaRuntimeService :
     private long clientGeneration;
     private RateLimitsReadResult? latestProtocol;
     private NormalizedQuotaSnapshot? latestNormalized;
+    private QuotaLanSnapshot? latestLanQuotaSnapshot;
     private AlertStateDocument? alertState;
     private QuotaCacheDocument? lastPersistedCache;
     private Task? notificationTask;
@@ -115,6 +117,13 @@ public sealed class QuotaRuntimeService :
     public event EventHandler<AppUiState>? StateChanged;
 
     public AppSettings Settings { get; private set; } = AppSettings.Defaults;
+
+    /// <summary>
+    /// Returns only the last successful normalized quota snapshot for the paired-phone
+    /// LAN endpoint. This never starts, restarts, or otherwise drives the Codex runtime.
+    /// </summary>
+    public QuotaLanSnapshot? GetLastSuccessfulLanQuotaSnapshot() =>
+        Volatile.Read(ref latestLanQuotaSnapshot);
 
     public async ValueTask<AppUiState> GetSnapshotAsync(CancellationToken cancellationToken)
     {
@@ -548,6 +557,7 @@ public sealed class QuotaRuntimeService :
             latestNormalized = normalized;
             now = timeProvider.GetUtcNow();
             lastAppliedSuccessUtc = now;
+            Volatile.Write(ref latestLanQuotaSnapshot, ToLanSnapshot(normalized, now));
             lastError = null;
             SetCurrent(projector.Project(normalized, now, Settings.ShowRemainingPercent, Settings.Use24HourTime));
         }
@@ -1029,8 +1039,26 @@ public sealed class QuotaRuntimeService :
             cache.ResetCreditAvailableCount is not null,
             cache.ResetCreditAvailableCount,
             null);
+        lastAppliedSuccessUtc = cache.LastSuccessUtc;
+        Volatile.Write(ref latestLanQuotaSnapshot, ToLanSnapshot(latestNormalized, cache.LastSuccessUtc));
         SetCurrent(projector.Project(latestNormalized, cache.LastSuccessUtc, Settings.ShowRemainingPercent, Settings.Use24HourTime));
     }
+
+    private static QuotaLanSnapshot ToLanSnapshot(NormalizedQuotaSnapshot snapshot, DateTimeOffset generatedAtUtc) => new(
+        SchemaVersion: 1,
+        GeneratedAtUtc: generatedAtUtc,
+        PlanType: snapshot.PlanType,
+        QuotaState: snapshot.Windows.Count == 0 ? "zero_windows" : "available",
+        Windows: snapshot.Windows.Select(window => new QuotaLanWindow(
+            LimitId: window.LocalKey,
+            LimitName: window.LimitName,
+            PlanType: null,
+            SourceSlot: window.SourceSlot,
+            UsedPercent: window.UsedPercent,
+            RemainingPercent: window.RemainingPercent,
+            PercentageReliable: window.PercentageReliable,
+            WindowDurationMins: window.WindowDurationMinutes,
+            ResetsAt: window.ResetAtUtc?.ToUnixTimeSeconds())).ToArray());
 
     private static QuotaCacheDocument ToCache(NormalizedQuotaSnapshot snapshot, DateTimeOffset now) => new(
         1,

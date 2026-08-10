@@ -51,6 +51,7 @@ import com.codexquotatray.android.quota.QuotaSnapshotStore
 import com.codexquotatray.android.ui.QuotaCardModel
 import com.codexquotatray.android.ui.QuotaUiModel
 import com.codexquotatray.android.ui.QuotaUiStatus
+import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.ui.quotaErrorUiModel
 import com.codexquotatray.android.ui.quotaLoadingUiModel
 import com.codexquotatray.android.ui.toQuotaUiModel
@@ -263,7 +264,8 @@ private fun quotaStatusLine(model: QuotaUiModel): String {
     }
     if (model.status != QuotaUiStatus.LOADED) return status
     val updatedAt = model.updatedAtMillis?.let { "更新于 ${formatClockTime(it)}" } ?: "尚未更新"
-    return "$status · $updatedAt"
+    val source = if (model.source == QuotaSource.WINDOWS) " · Windows" else ""
+    return "$status · $updatedAt$source"
 }
 
 @Composable

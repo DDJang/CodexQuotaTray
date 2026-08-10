@@ -4,6 +4,7 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import com.codexquotatray.android.protocol.DirectQuotaResult
+import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.protocol.QuotaWindow
 
 /**
@@ -21,6 +22,7 @@ class QuotaSnapshotStore(context: Context) {
             .putNullable("planType", result.planType)
             .put("quotaState", result.quotaState)
             .put("updatedAtMillis", result.updatedAtMillis)
+            .put("source", result.source.name)
             .put(
                 "windows",
                 JSONArray().apply {
@@ -69,6 +71,9 @@ class QuotaSnapshotStore(context: Context) {
                 windows = windows,
                 quotaState = root.stringOrNull("quotaState") ?: "unavailable",
                 updatedAtMillis = root.longOrNull("updatedAtMillis") ?: return null,
+                source = root.stringOrNull("source")
+                    ?.let { runCatching { QuotaSource.valueOf(it) }.getOrNull() }
+                    ?: QuotaSource.DIRECT,
             )
         }.getOrNull()
     }

@@ -264,12 +264,13 @@ resetCreditEarliestExpiryUtc?
 
 缓存恢复后只代表最后已知数据；实时读取成功后才以新的服务端快照替换。关闭缓存会清除额度缓存，但不清除独立的提醒防重复状态。
 
-## LAN Token Usage schemaVersion 1
+## LAN Token Usage and quota schemaVersion 1
 
 该合同独立于 Codex App Server 与 Android Direct HTTPS quota 合同。Windows 仅在用户
-开启手机同步时，通过一个 RFC1918 IPv4 的 `http://<private-ip>:43821/v1/token-usage`
-提供只读 `GET`。请求必须包含 `Authorization: Bearer <pairing-secret>`；无效或缺失密钥
-返回 401，其他方法返回 405，未知路径返回 404，所有响应包含 `Cache-Control: no-store`。
+开启手机同步时，通过同一个 RFC1918 IPv4 listener 在
+`http://<private-ip>:43821/v1/token-usage` 与 `/v1/quota` 提供只读 `GET`。请求必须包含
+`Authorization: Bearer <pairing-secret>`；无效或缺失密钥返回 401，其他方法返回 405，
+未知路径返回 404，所有响应包含 `Cache-Control: no-store`。
 
 成功响应使用 camelCase，包含 `schemaVersion=1`、`generatedAtUtc`、`sourceTimeZone`、
 全历史 `summary`，以及最近 365 天内实际存在的 `days`。summary 字段为
@@ -280,6 +281,35 @@ day 字段为 `date`、`totalTokens` 及可为 null 的 input/cached-input/outpu
 
 Android 仅接受 RFC1918 IPv4，不接受 hostname、公网 IP、loopback、其他 scheme 或 redirect。
 这一 HTTP 例外只属于 `TokenUsageSyncClient`；OpenAI OAuth 与 quota 请求继续固定 HTTPS。
+
+### LAN quota fallback schemaVersion 1
+
+`GET /v1/quota` 只暴露 Windows `QuotaRuntimeService` 已维护的最后一次成功、已归一化
+额度快照；它不会启动、重连或刷新 Codex App Server。没有可用快照时返回 503，不伪造空窗口。
+成功响应使用 camelCase：
+
+```text
+schemaVersion: 1
+generatedAtUtc: ISO-8601 UTC timestamp
+planType: string | null
+quotaState: "available" | "zero_windows"
+windows[]:
+  limitId: locally derived opaque key | null
+  limitName: string | null
+  planType: string | null
+  sourceSlot: string
+  usedPercent: integer | null
+  remainingPercent: integer | null
+  percentageReliable: boolean | null
+  windowDurationMins: integer | null
+  resetsAt: Unix seconds | null
+```
+
+Android 的 direct HTTPS usage 仍为默认且唯一主路径。只有它映射为 `NETWORK`、手机存在
+Wi-Fi LAN、并且已有 Windows 配对时，才请求该 endpoint；`LOGIN_REQUIRED`、
+`INVALID_RESPONSE` 和 `SERVER` 不会 fallback。成功 fallback 进入同一 Android quota
+cache 和 alert state，并以弱来源标记显示 `Windows`。保存地址仅在 offline 时做一次
+DNS-SD deviceId 匹配、更新 host 后重试；401 不触发 discovery。
 
 ### 配对身份与局域网发现
 

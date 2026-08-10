@@ -169,6 +169,53 @@ public sealed class TokenUsageTests
         }
     }
 
+    [TestMethod]
+    public async Task LanServerServesOnlyInjectedQuotaSnapshotAndKeepsTokenUsageContract()
+    {
+        var quota = new QuotaLanSnapshot(
+            SchemaVersion: 1,
+            GeneratedAtUtc: new DateTimeOffset(2026, 8, 10, 12, 0, 0, TimeSpan.Zero),
+            PlanType: "Plus",
+            QuotaState: "available",
+            Windows:
+            [
+                new QuotaLanWindow(
+                    LimitId: "local:primary",
+                    LimitName: null,
+                    PlanType: null,
+                    SourceSlot: "primary",
+                    UsedPercent: 20,
+                    RemainingPercent: 80,
+                    PercentageReliable: true,
+                    WindowDurationMins: 300,
+                    ResetsAt: null),
+            ]);
+        QuotaLanSnapshot? availableQuota = quota;
+        await using var server = new TokenUsageSyncServer(
+            new TokenUsageScanner(),
+            "test-secret",
+            quotaSnapshotProvider: () => availableQuota);
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{server.Port}") };
+
+        var unauthorized = await client.GetAsync("/v1/quota");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-secret");
+        var quotaResponse = await client.GetAsync("/v1/quota");
+        availableQuota = null;
+        var unavailable = await client.GetAsync("/v1/quota");
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+        Assert.AreEqual(HttpStatusCode.OK, quotaResponse.StatusCode);
+        Assert.AreEqual(HttpStatusCode.ServiceUnavailable, unavailable.StatusCode);
+        Assert.AreEqual("no-store", quotaResponse.Headers.CacheControl?.ToString());
+        using var document = JsonDocument.Parse(await quotaResponse.Content.ReadAsStringAsync());
+        Assert.AreEqual(1, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.AreEqual("available", document.RootElement.GetProperty("quotaState").GetString());
+        var window = document.RootElement.GetProperty("windows")[0];
+        Assert.AreEqual(80, window.GetProperty("remainingPercent").GetInt32());
+        Assert.AreEqual(JsonValueKind.Null, window.GetProperty("resetsAt").ValueKind);
+    }
+
     private static Task<TokenUsageSnapshot> Scan(TokenCorpus corpus) => new TokenUsageScanner().ScanAsync(
         corpus.Root,
         TimeZoneInfo.CreateCustomTimeZone("Test/+08", TimeSpan.FromHours(8), "Test/+08", "Test/+08"),

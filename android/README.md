@@ -24,6 +24,7 @@ App-private OAuth credentials
 - 50/20/10% 跨阈值提醒和重置恢复提醒。
 - 设置页支持浅色/深色主题、通知测试、电池优化引导和脱敏运行日志。
 - 可选的 Windows Token Usage 私人局域网配对、按需同步、聚合缓存和 365 天活动热力图。
+- 直接 HTTPS 额度读取发生网络失败时，可选使用已配对 Windows 的最后成功额度快照作为 Wi-Fi LAN fallback；Windows 不是默认额度来源。
 
 ## Windows Token Usage 同步
 
@@ -34,6 +35,13 @@ App-private OAuth credentials
 并根据“打开统计页时自动同步”设置决定是否同步一次；同一 MainActivity 生命周期内重复切换不会重复发起
 自动同步，也可随时手动点击“同步”。
 该功能不接入 quota WorkManager。
+
+同一 Windows listener 还可在 direct usage API 的 `NETWORK` 失败时提供只读 `/v1/quota`
+fallback。Android 只有在已配对、仍连接 Wi-Fi，且 direct quota 请求失败为网络错误时才会
+请求它；认证失效、服务端错误和非法响应不 fallback。成功的 Windows quota 使用现有 quota
+snapshot cache、提醒去重状态和 UI，只在更新时间后显示弱的 `· Windows` 来源标记。保存的
+LAN 地址先直连，只有 offline 才做最多 3 秒的同 deviceId DNS-SD 发现并重试一次；401 不会
+触发 discovery。Windows 未维护成功额度快照时返回非 2xx，绝不伪造零额度。
 
 配对后的同步先直连保存的 `lastKnownHost`；只有离线连接失败才通过 Android `NsdManager` 在
 `_codexquota._tcp` 上做一次 4 秒以内的短发现，匹配稳定 `deviceId` 后更新地址并重试。Windows

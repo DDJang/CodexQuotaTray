@@ -17,4 +17,10 @@ data class DirectQuotaResult(
     val windows: List<QuotaWindow>,
     val quotaState: String,
     val updatedAtMillis: Long,
+    val source: QuotaSource = QuotaSource.DIRECT,
 )
+
+enum class QuotaSource {
+    DIRECT,
+    WINDOWS,
+}

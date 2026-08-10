@@ -17,8 +17,13 @@ import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.auth.ProcessCredentialRefreshCoordinator
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.usage.CodexUsageClient
+import com.codexquotatray.android.usage.QuotaNetworkTimeouts
+import com.codexquotatray.android.usage.TokenSyncPairingStore
+import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.UsageException
 import com.codexquotatray.android.usage.UsageFailureKind
+import com.codexquotatray.android.usage.WindowsQuotaFallback
+import com.codexquotatray.android.usage.WindowsQuotaFallbackClient
 import java.io.IOException
 
 enum class QuotaReadFailureKind {
@@ -47,8 +52,21 @@ class CodexQuotaRepository(
     private val notificationPublisher: QuotaNotificationPublisher =
         QuotaNotificationPublisher(context),
     private val snapshotStore: QuotaSnapshotStore = QuotaSnapshotStore(context),
+    private val tokenSyncStore: TokenSyncPairingStore = TokenSyncStore(context),
+    private val lanAvailability: LanAvailability = AndroidLanAvailability(context),
+    private val windowsQuotaFallback: WindowsQuotaFallback = WindowsQuotaFallbackClient(context),
 ) {
     private val appContext = context.applicationContext
+    private val fallbackResolver by lazy {
+        WindowsQuotaFallbackResolver(
+            pairingStore = tokenSyncStore,
+            lanAvailability = lanAvailability,
+            fallbackClient = windowsQuotaFallback,
+            recordFailure = { failure ->
+                AppLogStore.record(appContext, "Windows 局域网额度 fallback 未成功：${failure.kind}", "WARN")
+            },
+        )
+    }
 
     fun refresh(): DirectQuotaResult {
         val generation = CredentialGeneration.current()
@@ -89,10 +107,24 @@ class CodexQuotaRepository(
     private fun fetchWithRecovery(
         initial: OAuthCredentials,
         initialGeneration: Long,
+    ): DirectQuotaResult = fallbackResolver.fetch {
+        fetchDirectWithRecovery(
+            initial,
+            initialGeneration,
+            QuotaNetworkTimeouts.directCallTimeoutMillis(
+                windowsPairingOnWifi = tokenSyncStore.load() != null && lanAvailability.isAvailable(),
+            ),
+        )
+    }
+
+    private fun fetchDirectWithRecovery(
+        initial: OAuthCredentials,
+        initialGeneration: Long,
+        directCallTimeoutMillis: Long,
     ): DirectQuotaResult {
         try {
             return publishAndReturn(
-                result = usageClient.fetch(initial),
+                result = usageClient.fetch(initial, directCallTimeoutMillis),
                 credentials = initial,
                 generation = initialGeneration,
             )
@@ -112,7 +144,7 @@ class CodexQuotaRepository(
         val retryGeneration = initialGeneration
         return try {
             publishAndReturn(
-                result = usageClient.fetch(refreshed),
+                result = usageClient.fetch(refreshed, directCallTimeoutMillis),
                 credentials = refreshed,
                 generation = retryGeneration,
             )

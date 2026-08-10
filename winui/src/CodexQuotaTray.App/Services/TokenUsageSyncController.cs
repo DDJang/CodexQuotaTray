@@ -7,7 +7,9 @@ using CodexQuotaTray.Core.TokenUsage;
 
 namespace CodexQuotaTray.App.Services;
 
-internal sealed class TokenUsageSyncController(TokenUsageSettingsService settingsService) : IAsyncDisposable
+internal sealed class TokenUsageSyncController(
+    TokenUsageSettingsService settingsService,
+    Func<QuotaLanSnapshot?> quotaSnapshotProvider) : IAsyncDisposable
 {
     private static readonly TimeSpan AddressCheckInterval = TimeSpan.FromSeconds(15);
     private readonly SemaphoreSlim stateGate = new(1, 1);
@@ -105,7 +107,10 @@ internal sealed class TokenUsageSyncController(TokenUsageSettingsService setting
 
     private async Task StartCoreAsync(IPAddress address, CancellationToken cancellationToken)
     {
-        var nextServer = new TokenUsageSyncServer(new TokenUsageScanner(), settings!.PairingSecret);
+        var nextServer = new TokenUsageSyncServer(
+            new TokenUsageScanner(),
+            settings!.PairingSecret,
+            quotaSnapshotProvider: quotaSnapshotProvider);
         try
         {
             nextServer.Start(address);

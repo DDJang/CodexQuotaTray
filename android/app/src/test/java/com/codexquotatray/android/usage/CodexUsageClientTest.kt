@@ -136,6 +136,23 @@ class CodexUsageClientTest {
     }
 
     @Test
+    fun quotaTimeoutProfileUsesShortDirectTimeoutsAndPairedWifiOverride() {
+        val defaultClient = CodexUsageClient.defaultClient()
+        val pairedWifiClient = CodexUsageClient().clientFor(
+            QuotaNetworkTimeouts.directCallTimeoutMillis(windowsPairingOnWifi = true),
+        )
+
+        assertEquals(QuotaNetworkTimeouts.DIRECT_CONNECT_TIMEOUT_MILLIS.toInt(), defaultClient.connectTimeoutMillis)
+        assertEquals(QuotaNetworkTimeouts.DIRECT_READ_TIMEOUT_MILLIS.toInt(), defaultClient.readTimeoutMillis)
+        assertEquals(QuotaNetworkTimeouts.DIRECT_CALL_TIMEOUT_MILLIS.toInt(), defaultClient.callTimeoutMillis)
+        assertEquals(QuotaNetworkTimeouts.DIRECT_PAIRED_WIFI_CALL_TIMEOUT_MILLIS.toInt(), pairedWifiClient.callTimeoutMillis)
+        assertEquals(
+            QuotaNetworkTimeouts.DIRECT_CALL_TIMEOUT_MILLIS,
+            QuotaNetworkTimeouts.directCallTimeoutMillis(windowsPairingOnWifi = false),
+        )
+    }
+
+    @Test
     fun additionalWindowIdentityDoesNotDependOnArrayOrder() {
         val ordered = client().parseUsage(additionalPayload(listOf("alpha", "beta")), 1L)
         val reversed = client().parseUsage(additionalPayload(listOf("beta", "alpha")), 1L)

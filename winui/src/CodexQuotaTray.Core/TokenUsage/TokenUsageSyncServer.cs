@@ -15,6 +15,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly TokenUsageScanner scanner;
     private readonly string secret;
+    private readonly Func<QuotaLanSnapshot?> quotaSnapshotProvider;
     private readonly string? codexHome;
     private readonly TimeSpan minimumScanInterval;
     private readonly CancellationTokenSource lifetime = new();
@@ -28,12 +29,14 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         TokenUsageScanner scanner,
         string secret,
         string? codexHome = null,
-        TimeSpan? minimumScanInterval = null)
+        TimeSpan? minimumScanInterval = null,
+        Func<QuotaLanSnapshot?>? quotaSnapshotProvider = null)
     {
         this.scanner = scanner;
         this.secret = secret;
         this.codexHome = codexHome;
         this.minimumScanInterval = minimumScanInterval ?? TimeSpan.FromSeconds(60);
+        this.quotaSnapshotProvider = quotaSnapshotProvider ?? (() => null);
     }
 
     public IPAddress? Address { get; private set; }
@@ -142,7 +145,8 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                 return;
             }
 
-            if (!string.Equals(request.Path, "/v1/token-usage", StringComparison.Ordinal))
+            if (!string.Equals(request.Path, "/v1/token-usage", StringComparison.Ordinal)
+                && !string.Equals(request.Path, "/v1/quota", StringComparison.Ordinal))
             {
                 await WriteResponseAsync(stream, 404, "Not Found", null, cancellationToken).ConfigureAwait(false);
                 return;
@@ -151,6 +155,20 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
             if (!Authorized(request.Authorization))
             {
                 await WriteResponseAsync(stream, 401, "Unauthorized", null, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            if (string.Equals(request.Path, "/v1/quota", StringComparison.Ordinal))
+            {
+                var quota = quotaSnapshotProvider();
+                if (quota is null)
+                {
+                    await WriteResponseAsync(stream, 503, "Service Unavailable", null, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                var quotaBody = JsonSerializer.SerializeToUtf8Bytes(quota, JsonOptions);
+                await WriteResponseAsync(stream, 200, "OK", quotaBody, cancellationToken).ConfigureAwait(false);
                 return;
             }
 

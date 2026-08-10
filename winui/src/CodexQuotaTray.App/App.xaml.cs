@@ -94,7 +94,9 @@ public partial class App : Application
                     trayIcon?.UpdateTooltip(TrayTooltipFormatter.Create(trayIdentity.Tooltip, state));
                 });
             };
-            tokenUsageSync = new TokenUsageSyncController(new TokenUsageSettingsService(jsonStore, paths));
+            tokenUsageSync = new TokenUsageSyncController(
+                new TokenUsageSettingsService(jsonStore, paths),
+                liveRuntime.GetLastSuccessfulLanQuotaSnapshot);
             settingsActions = new SettingsPlatformActions(
                 paths,
                 persistence,

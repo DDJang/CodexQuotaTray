@@ -12,14 +12,19 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-class TokenSyncStore(context: Context) {
+interface TokenSyncPairingStore {
+    fun load(): TokenSyncPairing?
+    fun save(pairing: TokenSyncPairing): Boolean
+}
+
+class TokenSyncStore(context: Context) : TokenSyncPairingStore {
     private val preferences = context.applicationContext.getSharedPreferences("token_sync_pairing", Context.MODE_PRIVATE)
 
-    fun load(): TokenSyncPairing? = synchronized(lock) {
+    override fun load(): TokenSyncPairing? = synchronized(lock) {
         preferences.getString(KEY_PAIRING, null)?.let(::decrypt)
     }
 
-    fun save(pairing: TokenSyncPairing): Boolean = synchronized(lock) {
+    override fun save(pairing: TokenSyncPairing): Boolean = synchronized(lock) {
         runCatching {
             val payload = JSONObject()
                 .put("deviceId", pairing.deviceId)

@@ -1,6 +1,7 @@
 package com.codexquotatray.android.ui
 
 import com.codexquotatray.android.protocol.DirectQuotaResult
+import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.protocol.QuotaWindow
 import kotlin.math.abs
 
@@ -24,6 +25,7 @@ data class QuotaUiModel(
     val accountLabel: String = "Codex",
     val windows: List<QuotaCardModel> = emptyList(),
     val updatedAtMillis: Long? = null,
+    val source: QuotaSource = QuotaSource.DIRECT,
     val message: String? = null,
 )
 
@@ -34,7 +36,7 @@ fun DirectQuotaResult.toQuotaUiModel(): QuotaUiModel {
             message = "额度详情暂不可用",
         )
     }
-    return loadedQuota(windows, planType, quotaState, updatedAtMillis)
+    return loadedQuota(windows, planType, quotaState, updatedAtMillis, source)
 }
 
 fun unauthenticatedQuotaUiModel(): QuotaUiModel = QuotaUiModel(
@@ -50,6 +52,7 @@ fun quotaLoadingUiModel(
     accountLabel = previous?.accountLabel ?: "Codex",
     windows = previous?.windows ?: emptyList(),
     updatedAtMillis = previous?.updatedAtMillis,
+    source = previous?.source ?: QuotaSource.DIRECT,
     message = message,
 )
 
@@ -61,6 +64,7 @@ fun quotaErrorUiModel(
     accountLabel = previous?.accountLabel ?: "Codex",
     windows = previous?.windows ?: emptyList(),
     updatedAtMillis = previous?.updatedAtMillis,
+    source = previous?.source ?: QuotaSource.DIRECT,
     message = message,
 )
 
@@ -69,6 +73,7 @@ private fun loadedQuota(
     planType: String?,
     quotaState: String,
     updatedAtMillis: Long,
+    source: QuotaSource,
 ): QuotaUiModel {
     val cards = windows.mapIndexed { index, window ->
         QuotaCardModel(
@@ -87,6 +92,7 @@ private fun loadedQuota(
         accountLabel = resolvedPlanType?.replaceFirstChar { it.uppercase() } ?: "Codex",
         windows = cards,
         updatedAtMillis = updatedAtMillis,
+        source = source,
         message = if (quotaState == "zero_windows") "当前没有可用额度窗口" else null,
     )
 }

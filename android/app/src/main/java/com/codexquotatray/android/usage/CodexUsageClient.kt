@@ -28,7 +28,10 @@ class CodexUsageClient(
     private val httpClient: OkHttpClient = defaultClient(),
     private val usageUrl: String = OAuthCredentials.USAGE_URL,
 ) {
-    fun fetch(credentials: OAuthCredentials): DirectQuotaResult {
+    fun fetch(
+        credentials: OAuthCredentials,
+        callTimeoutMillis: Long? = null,
+    ): DirectQuotaResult {
         val requestBuilder = Request.Builder()
             .url(usageUrl)
             .get()
@@ -41,7 +44,7 @@ class CodexUsageClient(
             ?.let { requestBuilder.header("ChatGPT-Account-Id", it) }
 
         val response = try {
-            httpClient.newCall(requestBuilder.build()).execute().use { result ->
+            clientFor(callTimeoutMillis).newCall(requestBuilder.build()).execute().use { result ->
                 HttpPayload(result.code, result.body?.string().orEmpty())
             }
         } catch (_: IOException) {
@@ -167,11 +170,18 @@ class CodexUsageClient(
 
     private data class HttpPayload(val code: Int, val body: String)
 
+    internal fun clientFor(callTimeoutMillis: Long?): OkHttpClient = callTimeoutMillis
+        ?.let { timeout ->
+            require(timeout > 0L) { "quota call timeout must be positive" }
+            httpClient.newBuilder().callTimeout(timeout, TimeUnit.MILLISECONDS).build()
+        }
+        ?: httpClient
+
     companion object {
-        private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .callTimeout(45, TimeUnit.SECONDS)
+        internal fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+            .connectTimeout(QuotaNetworkTimeouts.DIRECT_CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+            .readTimeout(QuotaNetworkTimeouts.DIRECT_READ_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+            .callTimeout(QuotaNetworkTimeouts.DIRECT_CALL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
             .build()
     }
 }
