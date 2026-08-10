@@ -72,8 +72,10 @@ $env:ANDROID_HOME = $env:ANDROID_SDK_ROOT
 
 .\gradlew.bat :app:testDebugUnitTest
 .\gradlew.bat :app:assembleDebug
-.\gradlew.bat :app:assembleRelease
 ```
+
+日常 Android 开发只构建、安装和验证 `debug` variant；不要在本机运行 release 签名流程，
+也不要索取、读取或使用 Release JKS 的密码或 alias。
 
 ### Codex 沙箱构建与测试结果文件锁
 
@@ -111,17 +113,20 @@ Kyant 2.0 发布物声明 compileSdk 37，但当前仓库仍按 SDK 35 构建并
 历史 runtime 输入、来源和指纹见 [P0.5 真机结果](P0_5_RESULT.md)，仅作为 P0/P0.5
 证据和开发诊断记录。
 
-未配置 signing 时，`assembleRelease` 生成未签名 APK。个人签名仍可通过以下四项
-环境变量或对应 Gradle property 配置，四项必须同时提供：
+正式 Release 的签名仅由 GitHub Actions Release workflow 使用 GitHub Actions Secrets 完成。
+本机开发环境不得索取、读取或使用 Release JKS 的密码、alias 或任何 signing 配置；不得把
+keystore、密码或本地 signing property 提交到仓库。
 
-```text
-CODEX_ANDROID_RELEASE_KEYSTORE
-CODEX_ANDROID_RELEASE_STORE_PASSWORD
-CODEX_ANDROID_RELEASE_KEY_ALIAS
-CODEX_ANDROID_RELEASE_KEY_PASSWORD
-```
+### Debug / Release 可同时安装
 
-不要把 keystore、密码或本地 signing property 提交到仓库。
+`debug` variant 使用 `applicationIdSuffix ".debug"`，因此包名为
+`com.codexquotatray.android.debug`，应用名称为 **CodexQuotaTray Dev**，并继续采用默认
+debug 签名。它可与正式版同时安装，使用独立的 Android 应用数据。
+
+`release` 保持包名 `com.codexquotatray.android`、应用名称 **CodexQuotaTray**。正式 Release
+签名只在 GitHub Actions 中完成；本机的 Release JKS（包括
+`D:\AndroidKeys\CodexQuotaTray\codexquotatray-release.jks`）不属于日常开发流程，绝不读取
+其密码或将本地签名配置写入仓库、文档命令或 Release workflow。
 
 ## 安装与日常使用
 
@@ -130,8 +135,8 @@ $adb = 'D:\Android\Sdk\platform-tools\adb.exe'
 & $adb devices
 & $adb shell getprop ro.product.cpu.abi
 & $adb install -r 'android\app\build\outputs\apk\debug\app-debug.apk'
-& $adb shell am force-stop com.codexquotatray.android
-& $adb shell monkey -p com.codexquotatray.android 1
+& $adb shell am force-stop com.codexquotatray.android.debug
+& $adb shell monkey -p com.codexquotatray.android.debug 1
 ```
 
 首次打开时点击“登录 Codex”，按页面显示的设备代码完成浏览器授权。成功后 token
