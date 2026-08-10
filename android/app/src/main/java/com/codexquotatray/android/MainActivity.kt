@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
@@ -42,6 +43,8 @@ class MainActivity : ComponentActivity() {
         quota = QuotaPageController(this)
         usage = TokenUsagePageController(this)
         quota.initialize()
+        quota.onVisible()
+        TokenUsageRefreshScheduler.schedule(this)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (selectedIndex == 1) selectTab(0) else { isEnabled = false; onBackPressedDispatcher.onBackPressed() }
@@ -86,12 +89,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() { super.onStart(); if (::quota.isInitialized) quota.onStart() }
-    override fun onStop() { if (::quota.isInitialized) quota.onStop(); super.onStop() }
+    override fun onStart() {
+        super.onStart()
+        if (::quota.isInitialized) quota.onStart()
+        if (::usage.isInitialized) usage.onStart()
+    }
+    override fun onStop() {
+        if (::quota.isInitialized) quota.onStop()
+        if (::usage.isInitialized) usage.onStop()
+        super.onStop()
+    }
     override fun onResume() {
         super.onResume()
         if (appliedTheme != AppTheme.effectiveMode(this)) { recreate(); return }
         if (::quota.isInitialized) quota.onResume()
+        if (selectedIndex == 0 && ::quota.isInitialized) quota.onVisible()
         if (selectedIndex == 1 && ::usage.isInitialized) usage.onResume()
     }
 
@@ -109,7 +121,13 @@ class MainActivity : ComponentActivity() {
 
     private fun selectTab(index: Int) {
         selectedIndex = index.coerceIn(0, 1)
-        if (selectedIndex == 1) usage.onVisible() else usage.onHidden()
+        if (selectedIndex == 1) {
+            quota.onHidden()
+            usage.onVisible()
+        } else {
+            usage.onHidden()
+            quota.onVisible()
+        }
     }
 
     private fun openSettings() = startActivity(Intent(this, SettingsActivity::class.java))

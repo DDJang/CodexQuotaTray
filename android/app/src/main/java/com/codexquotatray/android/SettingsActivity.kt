@@ -47,6 +47,8 @@ import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenUsageException
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
+import com.codexquotatray.android.usage.TokenUsageRefreshSettings
+import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
 import com.codexquotatray.android.usage.TokenUsageSyncClient
 import com.google.zxing.integration.android.IntentIntegrator
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -77,9 +79,12 @@ class SettingsActivity : ComponentActivity() {
     private var lowQuota by mutableStateOf(false)
     private var resetAlert by mutableStateOf(false)
     private var notificationEnabled by mutableStateOf(false)
+    private var quotaAutoRefresh by mutableStateOf(true)
     private var backgroundRefresh by mutableStateOf(false)
     private var refreshInterval by mutableStateOf(QuotaRefreshSettings.DEFAULT_INTERVAL_MINUTES)
     private var tokenAutoSync by mutableStateOf(true)
+    private var tokenBackgroundSync by mutableStateOf(false)
+    private var tokenSyncInterval by mutableStateOf(TokenUsageRefreshSettings.DEFAULT_INTERVAL_MINUTES)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var pairing by mutableStateOf<TokenSyncPairing?>(null)
     private var tokenStatus by mutableStateOf("尚未配对 Windows")
@@ -219,14 +224,14 @@ class SettingsActivity : ComponentActivity() {
         }
         SettingsSection("通知与同步") {
             SettingsGroup {
-                if (!backgroundRefresh) {
+                if (!backgroundRefresh && !tokenBackgroundSync) {
                     SettingsWarningCaption("未开启同步时，通知可能会延迟")
                 }
                 SettingsNavigationRow("通知", if (notificationEnabled) "已开启" else "未开启") {
                     openDestination(SettingsDestination.NOTIFICATIONS)
                 }
                 SettingsDivider()
-                SettingsNavigationRow("同步", if (backgroundRefresh) "已开启" else "已关闭") {
+                SettingsNavigationRow("同步", if (backgroundRefresh || tokenBackgroundSync) "已开启" else "已关闭") {
                     openDestination(SettingsDestination.SYNC)
                 }
             }
@@ -282,6 +287,8 @@ class SettingsActivity : ComponentActivity() {
     private fun ColumnScope.SyncSettings() {
         SettingsSection("剩余额度") {
             SettingsGroup {
+                SettingsToggleRow("打开额度页时自动刷新", quotaAutoRefresh, onChange = ::updateQuotaAutoRefresh)
+                SettingsDivider()
                 SettingsToggleRow("后台自动刷新", backgroundRefresh, onChange = ::updateBackgroundRefresh)
                 SettingsDivider()
                 SettingsInlineLabel("刷新频率", enabled = backgroundRefresh)
@@ -296,13 +303,31 @@ class SettingsActivity : ComponentActivity() {
                     enabled = backgroundRefresh,
                     onSelected = ::selectRefreshInterval,
                 )
-                SettingsDivider()
-                SettingsNavigationRow("电池优化", enabled = backgroundRefresh, onClick = ::openBatterySettings)
             }
         }
         SettingsSection("Token 使用量") {
             SettingsGroup {
                 SettingsToggleRow("打开统计页时自动同步", tokenAutoSync, onChange = ::updateTokenAutoSync)
+                SettingsDivider()
+                SettingsToggleRow("后台自动同步", tokenBackgroundSync, onChange = ::updateTokenBackgroundSync)
+                SettingsDivider()
+                SettingsInlineLabel("同步频率", enabled = tokenBackgroundSync)
+                SettingsSegmentedSelector(
+                    options = TokenUsageRefreshSettings.SUPPORTED_INTERVAL_MINUTES.map { minutes ->
+                        SettingsSegmentOption(
+                            value = minutes,
+                            label = if (minutes < 60) "$minutes 分" else "1 小时",
+                        )
+                    },
+                    selectedValue = tokenSyncInterval,
+                    enabled = tokenBackgroundSync,
+                    onSelected = ::selectTokenSyncInterval,
+                )
+            }
+        }
+        SettingsSection("电池优化") {
+            SettingsGroup {
+                SettingsNavigationRow("电池优化", onClick = ::openBatterySettings)
             }
         }
     }
@@ -380,9 +405,14 @@ class SettingsActivity : ComponentActivity() {
         lowQuota = alert.lowQuotaEnabled
         resetAlert = alert.resetEnabled
         notificationEnabled = notificationsEnabled()
+        quotaAutoRefresh = refresh.autoRefreshOnOpen
         backgroundRefresh = refresh.enabled
         refreshInterval = refresh.normalizedIntervalMinutes
-        tokenAutoSync = tokenRefreshStore.load().autoSyncOnOpen
+        tokenRefreshStore.load().also { tokenRefresh ->
+            tokenAutoSync = tokenRefresh.autoSyncOnOpen
+            tokenBackgroundSync = tokenRefresh.backgroundSyncEnabled
+            tokenSyncInterval = tokenRefresh.normalizedIntervalMinutes
+        }
         themeMode = themeStore.load()
         pairing = tokenStore.load()
         tokenStatus = if (pairing == null) "尚未配对 Windows" else "已配对"
@@ -407,24 +437,44 @@ class SettingsActivity : ComponentActivity() {
             base
         }
 
+    private fun updateQuotaAutoRefresh(enabled: Boolean) {
+        quotaAutoRefresh = enabled
+        refreshStore.save(refreshStore.load().copy(autoRefreshOnOpen = enabled))
+        AppLogStore.record(this, "打开额度页时自动刷新已${if (enabled) "开启" else "关闭"}")
+    }
+
     private fun updateBackgroundRefresh(enabled: Boolean) {
         backgroundRefresh = enabled
         refreshStore.save(refreshStore.load().copy(enabled = enabled))
         QuotaRefreshScheduler.schedule(this)
-        AppLogStore.record(this, "后台自动刷新已${if (enabled) "开启" else "关闭"}")
+        AppLogStore.record(this, "额度后台自动刷新已${if (enabled) "开启" else "关闭"}")
     }
 
     private fun updateTokenAutoSync(enabled: Boolean) {
         tokenAutoSync = enabled
         tokenRefreshStore.save(tokenRefreshStore.load().copy(autoSyncOnOpen = enabled))
-        AppLogStore.record(this, "Token 使用量自动同步已${if (enabled) "开启" else "关闭"}")
+        AppLogStore.record(this, "打开统计页时 Token 自动同步已${if (enabled) "开启" else "关闭"}")
+    }
+
+    private fun updateTokenBackgroundSync(enabled: Boolean) {
+        tokenBackgroundSync = enabled
+        tokenRefreshStore.save(tokenRefreshStore.load().copy(backgroundSyncEnabled = enabled))
+        TokenUsageRefreshScheduler.schedule(this)
+        AppLogStore.record(this, "Token 后台自动同步已${if (enabled) "开启" else "关闭"}")
     }
 
     private fun selectRefreshInterval(minutes: Int) {
         refreshInterval = minutes
         refreshStore.save(refreshStore.load().copy(intervalMinutes = minutes))
         QuotaRefreshScheduler.schedule(this)
-        AppLogStore.record(this, "后台刷新频率设为 $minutes 分钟")
+        AppLogStore.record(this, "额度后台刷新频率设为 $minutes 分钟")
+    }
+
+    private fun selectTokenSyncInterval(minutes: Int) {
+        tokenSyncInterval = minutes
+        tokenRefreshStore.save(tokenRefreshStore.load().copy(intervalMinutes = minutes))
+        TokenUsageRefreshScheduler.schedule(this)
+        AppLogStore.record(this, "Token 后台同步频率设为 $minutes 分钟")
     }
 
     private fun selectTheme(mode: ThemeMode) {
@@ -489,6 +539,7 @@ class SettingsActivity : ComponentActivity() {
                 pairingSecret = ""
                 pairingHost = "${value.host}:${value.port}"
                 renderState()
+                TokenUsageRefreshScheduler.schedule(this)
                 Toast.makeText(this, "Token 同步配对已保存", Toast.LENGTH_SHORT).show()
                 testPairing(value)
             } else {
@@ -548,6 +599,7 @@ class SettingsActivity : ComponentActivity() {
 
     private fun clearPairing() {
         if (tokenStore.clear()) {
+            TokenUsageRefreshScheduler.cancel(this)
             renderState()
             Toast.makeText(this, "Windows 配对已解除", Toast.LENGTH_SHORT).show()
         } else {

@@ -47,7 +47,9 @@ import com.codexquotatray.android.quota.QuotaReadException
 import com.codexquotatray.android.quota.QuotaReadFailureKind
 import com.codexquotatray.android.quota.QuotaRefreshEvents
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
+import com.codexquotatray.android.quota.QuotaRefreshSettingsStore
 import com.codexquotatray.android.quota.QuotaSnapshotStore
+import com.codexquotatray.android.refresh.ForegroundRefreshPolicy
 import com.codexquotatray.android.ui.QuotaCardModel
 import com.codexquotatray.android.ui.QuotaUiModel
 import com.codexquotatray.android.ui.QuotaUiStatus
@@ -94,6 +96,7 @@ internal class QuotaPageController(private val host: MainActivity) {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val repository by lazy { CodexQuotaRepository(host) }
+    private val refreshSettings by lazy { QuotaRefreshSettingsStore(host) }
     private val snapshotStore by lazy { QuotaSnapshotStore(host) }
     var model by mutableStateOf(unauthenticatedQuotaUiModel())
         private set
@@ -103,6 +106,7 @@ internal class QuotaPageController(private val host: MainActivity) {
     private var lastAuthenticated: Boolean? = null
     private var registered = false
     private var initialized = false
+    private var visible = false
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -119,9 +123,33 @@ internal class QuotaPageController(private val host: MainActivity) {
         QuotaRefreshScheduler.schedule(host)
         if (lastAuthenticated == true) {
             lastSuccessful = loadLatestModel()
-            model = quotaLoadingUiModel(lastSuccessful)
-            refresh()
+            model = lastSuccessful ?: quotaLoadingUiModel(null)
         } else model = unauthenticatedQuotaUiModel()
+    }
+
+    fun onVisible() {
+        visible = true
+        val authenticated = OAuthStore(host).load() != null
+        if (lastAuthenticated != authenticated) {
+            lastAuthenticated = authenticated
+            if (!authenticated) {
+                lastSuccessful = null
+                snapshotStore.clear()
+                if (!busy) model = unauthenticatedQuotaUiModel()
+                return
+            }
+            lastSuccessful = null
+            QuotaRefreshScheduler.schedule(host)
+        }
+        if (!authenticated || busy) return
+
+        renderLatestSnapshot()
+        val lastSuccessfulAtMillis = lastSuccessful?.updatedAtMillis
+        refresh(force = false, lastSuccessfulAtMillis = lastSuccessfulAtMillis)
+    }
+
+    fun onHidden() {
+        visible = false
     }
 
     fun onStart() {
@@ -140,20 +168,20 @@ internal class QuotaPageController(private val host: MainActivity) {
 
     fun onResume() {
         val authenticated = OAuthStore(host).load() != null
-        if (lastAuthenticated == authenticated) {
-            if (authenticated && !busy) renderLatestSnapshot()
-            return
+        if (lastAuthenticated != authenticated) {
+            lastAuthenticated = authenticated
+            if (!authenticated) {
+                lastSuccessful = null
+                snapshotStore.clear()
+                if (!busy) model = unauthenticatedQuotaUiModel()
+            } else {
+                lastSuccessful = null
+                QuotaRefreshScheduler.schedule(host)
+            }
+        } else if (authenticated && !busy) {
+            renderLatestSnapshot()
         }
-        lastAuthenticated = authenticated
-        if (!authenticated) {
-            lastSuccessful = null
-            snapshotStore.clear()
-            if (!busy) model = unauthenticatedQuotaUiModel()
-        } else if (!busy) {
-            lastSuccessful = null
-            QuotaRefreshScheduler.schedule(host)
-            refresh()
-        }
+        if (visible) onVisible()
     }
 
     fun onLoginResult(requestCode: Int, resultCode: Int) {
@@ -162,7 +190,15 @@ internal class QuotaPageController(private val host: MainActivity) {
 
     fun destroy() { onStop(); worker.shutdownNow() }
 
-    fun refresh() {
+    /** Manual refreshes deliberately bypass the two-minute foreground freshness window. */
+    fun refresh() = refresh(force = true, lastSuccessfulAtMillis = lastSuccessful?.updatedAtMillis)
+
+    private fun refresh(force: Boolean, lastSuccessfulAtMillis: Long?) {
+        if (!force && !ForegroundRefreshPolicy.shouldRunOnVisible(
+                enabled = refreshSettings.load().autoRefreshOnOpen,
+                lastSuccessfulAtMillis = lastSuccessfulAtMillis,
+            )
+        ) return
         if (!canRefresh) return
         busy = true
         val previous = lastSuccessful

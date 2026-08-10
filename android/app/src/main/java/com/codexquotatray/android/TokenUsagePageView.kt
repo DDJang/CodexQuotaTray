@@ -1,6 +1,9 @@
 package com.codexquotatray.android
 
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.Canvas
@@ -46,6 +49,8 @@ import com.codexquotatray.android.usage.TokenUsageCache
 import com.codexquotatray.android.usage.TokenUsageDay
 import com.codexquotatray.android.usage.TokenUsageException
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
+import com.codexquotatray.android.usage.TokenUsageRefreshEvents
+import com.codexquotatray.android.refresh.ForegroundRefreshPolicy
 import com.codexquotatray.android.usage.TokenUsageSnapshot
 import com.codexquotatray.android.usage.TokenUsageSyncClient
 import java.text.SimpleDateFormat
@@ -61,10 +66,9 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     private val refreshSettings by lazy { TokenUsageRefreshSettingsStore(host) }
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
-    private var pairingKey: String? = null
-    private var pairingLoaded = false
     private var destroyed = false
     private var visible = false
+    private var registered = false
     var syncing by mutableStateOf(false)
         private set
     var snapshot by mutableStateOf<TokenUsageSnapshot?>(null)
@@ -76,21 +80,51 @@ internal class TokenUsagePageController(private val host: MainActivity) {
 
     val canSync get() = !syncing && store.load() != null
 
+    private val receiver = object : BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            if (intent?.action == TokenUsageRefreshEvents.ACTION_COMPLETED && visible && !syncing) {
+                renderCachedSnapshot()
+            }
+        }
+    }
+
     fun onVisible() {
         visible = true
         val pairing = store.load()
-        val autoSyncOnOpen = refreshSettings.load().autoSyncOnOpen
-        val key = pairing?.let { "${it.deviceId}|${it.pairingSecret}|$autoSyncOnOpen" }
-        if (pairingLoaded && key == pairingKey) return
-        pairingLoaded = true; pairingKey = key; paired = pairing != null
+        paired = pairing != null
         if (pairing == null) { snapshot = null; status = "尚未配对 Windows"; return }
-        cache.load()?.let { snapshot = it; status = "上次同步于 ${formatSyncTime(it.generatedAtUtc)}" } ?: run { status = "暂无 Token 使用量缓存" }
-        if (autoSyncOnOpen) sync(pairing) else if (snapshot == null) status = "自动同步已关闭"
+        renderCachedSnapshot()
+        val lastSuccessfulAtMillis = pairing.lastSuccessfulSyncAtMillis
+            ?: snapshot?.generatedAtUtc?.let(::parseSyncMillis)
+        if (ForegroundRefreshPolicy.shouldRunOnVisible(
+                enabled = refreshSettings.load().autoSyncOnOpen,
+                lastSuccessfulAtMillis = lastSuccessfulAtMillis,
+            )
+        ) {
+            sync(pairing)
+        } else if (snapshot == null && !refreshSettings.load().autoSyncOnOpen) {
+            status = "自动同步已关闭"
+        }
     }
 
     fun onResume() { if (visible) onVisible() }
     fun onHidden() { visible = false }
-    fun destroy() { destroyed = true; worker.shutdownNow() }
+    fun onStart() {
+        if (registered) return
+        val filter = IntentFilter(TokenUsageRefreshEvents.ACTION_COMPLETED)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            host.registerReceiver(receiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
+        } else @Suppress("DEPRECATION") host.registerReceiver(receiver, filter)
+        registered = true
+    }
+
+    fun onStop() {
+        if (!registered) return
+        host.unregisterReceiver(receiver)
+        registered = false
+    }
+
+    fun destroy() { onStop(); destroyed = true; worker.shutdownNow() }
     fun requestSync() { if (canSync) sync(store.load()) }
 
     private fun sync(pairing: TokenSyncPairing?) {
@@ -112,6 +146,16 @@ internal class TokenUsagePageController(private val host: MainActivity) {
                     status = snapshot?.let { "上次同步于 ${formatSyncTime(it.generatedAtUtc)} · $message" } ?: message
                 }
             }
+        }
+    }
+
+    private fun renderCachedSnapshot() {
+        cache.load()?.let {
+            snapshot = it
+            status = "上次同步于 ${formatSyncTime(it.generatedAtUtc)}"
+        } ?: run {
+            snapshot = null
+            status = "暂无 Token 使用量缓存"
         }
     }
 }
@@ -153,6 +197,7 @@ private fun TokenUsageStatusLine(status: String) {
             color = palette.color(if (status.contains("Windows 当前不可用")) palette.error else palette.muted),
         )
     }
+
 }
 
 @Composable
@@ -211,3 +256,5 @@ private fun TokenHeatmap(days: List<TokenUsageDay>, selected: (TokenUsageDay) ->
 }
 
 private fun formatSyncTime(raw: String) = runCatching { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date.from(Instant.parse(raw))) }.getOrDefault("未知")
+
+private fun parseSyncMillis(raw: String): Long? = runCatching { Instant.parse(raw).toEpochMilli() }.getOrNull()

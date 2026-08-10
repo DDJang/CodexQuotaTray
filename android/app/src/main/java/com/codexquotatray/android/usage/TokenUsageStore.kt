@@ -33,6 +33,7 @@ class TokenSyncStore(context: Context) : TokenSyncPairingStore {
                 .put("secret", pairing.pairingSecret)
                 .put("displayName", pairing.displayName ?: JSONObject.NULL)
                 .put("lastSyncUtc", pairing.lastSyncUtc ?: JSONObject.NULL)
+                .put("lastSuccessfulSyncAtMillis", pairing.lastSuccessfulSyncAtMillis ?: JSONObject.NULL)
                 .toString().toByteArray(Charsets.UTF_8)
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, key())
@@ -54,6 +55,7 @@ class TokenSyncStore(context: Context) : TokenSyncPairingStore {
             json.getString("secret"),
             (json.opt("displayName") as? String)?.takeIf { it.isNotBlank() },
             (json.opt("lastSyncUtc") as? String)?.takeIf { it.isNotBlank() },
+            (json.opt("lastSuccessfulSyncAtMillis") as? Number)?.toLong(),
         )
     }.getOrNull()
 

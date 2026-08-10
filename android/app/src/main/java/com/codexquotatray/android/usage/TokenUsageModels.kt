@@ -42,6 +42,7 @@ data class TokenSyncPairing(
     val port: Int,
     val displayName: String? = null,
     val lastSyncUtc: String? = null,
+    val lastSuccessfulSyncAtMillis: Long? = null,
 ) {
     constructor(host: String, port: Int, secret: String) : this("", secret, host, port)
 
@@ -96,12 +97,21 @@ object TokenSyncEndpoint {
         secret: String,
         displayName: String? = null,
         lastSyncUtc: String? = null,
+        lastSuccessfulSyncAtMillis: Long? = null,
     ): TokenSyncPairing {
         require(deviceId.isBlank() || isValidDeviceId(deviceId)) { "Windows 设备标识无效" }
         require(isPrivateIpv4(host)) { "仅允许私人局域网 IPv4 地址" }
         require(port in 1..65535) { "端口无效" }
         require(secret.isNotBlank()) { "配对密钥不能为空" }
-        return TokenSyncPairing(deviceId.trim(), secret, host, port, displayName?.takeIf { it.isNotBlank() }, lastSyncUtc)
+        return TokenSyncPairing(
+            deviceId.trim(),
+            secret,
+            host,
+            port,
+            displayName?.takeIf { it.isNotBlank() },
+            lastSyncUtc,
+            lastSuccessfulSyncAtMillis,
+        )
     }
 
     fun isValidDeviceId(value: String): Boolean = runCatching {
@@ -121,10 +131,24 @@ object TokenSyncEndpoint {
     ): TokenSyncDiscoveryCandidate? = candidates.firstOrNull { it.deviceId.equals(deviceId, ignoreCase = true) }
 
     fun updateHost(pairing: TokenSyncPairing, candidate: TokenSyncDiscoveryCandidate): TokenSyncPairing =
-        validated(pairing.deviceId, candidate.host, candidate.port, pairing.pairingSecret, candidate.displayName ?: pairing.displayName, pairing.lastSyncUtc)
+        validated(
+            pairing.deviceId,
+            candidate.host,
+            candidate.port,
+            pairing.pairingSecret,
+            candidate.displayName ?: pairing.displayName,
+            pairing.lastSyncUtc,
+            pairing.lastSuccessfulSyncAtMillis,
+        )
 
-    fun markSynced(pairing: TokenSyncPairing, snapshot: TokenUsageSnapshot): TokenSyncPairing =
-        pairing.copy(lastSyncUtc = snapshot.generatedAtUtc)
+    fun markSynced(
+        pairing: TokenSyncPairing,
+        snapshot: TokenUsageSnapshot,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): TokenSyncPairing = pairing.copy(
+        lastSyncUtc = snapshot.generatedAtUtc,
+        lastSuccessfulSyncAtMillis = nowMillis,
+    )
 
     fun isPrivateIpv4(host: String): Boolean {
         val parts = host.split('.')

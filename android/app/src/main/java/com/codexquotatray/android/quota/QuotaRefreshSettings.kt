@@ -3,6 +3,7 @@ package com.codexquotatray.android.quota
 import android.content.Context
 
 data class QuotaRefreshSettings(
+    val autoRefreshOnOpen: Boolean = true,
     val enabled: Boolean = true,
     val intervalMinutes: Int = DEFAULT_INTERVAL_MINUTES,
 ) {
@@ -26,6 +27,7 @@ class QuotaRefreshSettingsStore(context: Context) {
     )
 
     fun load(): QuotaRefreshSettings = QuotaRefreshSettings(
+        autoRefreshOnOpen = preferences.getBoolean(KEY_AUTO_REFRESH_ON_OPEN, true),
         enabled = preferences.getBoolean(KEY_ENABLED, true),
         intervalMinutes = preferences.getInt(
             KEY_INTERVAL_MINUTES,
@@ -35,6 +37,7 @@ class QuotaRefreshSettingsStore(context: Context) {
 
     fun save(settings: QuotaRefreshSettings) {
         preferences.edit()
+            .putBoolean(KEY_AUTO_REFRESH_ON_OPEN, settings.autoRefreshOnOpen)
             .putBoolean(KEY_ENABLED, settings.enabled)
             .putInt(KEY_INTERVAL_MINUTES, settings.normalizedIntervalMinutes)
             .apply()
@@ -42,6 +45,7 @@ class QuotaRefreshSettingsStore(context: Context) {
 
     companion object {
         private const val PREFERENCES_NAME = "quota_refresh_settings"
+        private const val KEY_AUTO_REFRESH_ON_OPEN = "auto_refresh_on_open"
         private const val KEY_ENABLED = "enabled"
         private const val KEY_INTERVAL_MINUTES = "interval_minutes"
     }
