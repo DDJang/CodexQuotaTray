@@ -491,6 +491,7 @@ public sealed class AppServerPhase2Tests
     public async Task QuotaRuntime_OverflowRecoveryTransportClosedDoesNotSelfAwaitAndNextRefreshRecreatesClient()
     {
         using var directory = new TemporaryDirectory();
+        using var recoveryTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var factory = new OverflowRecoveryFactory();
         await using var service = new QuotaRuntimeService(
             factory,
@@ -498,17 +499,19 @@ public sealed class AppServerPhase2Tests
             new PreviewPersistence(new JsonFileStore(), new PreviewDataPaths(directory.Path)));
 
         _ = await service.GetSnapshotAsync(CancellationToken.None);
-        await factory.First.NotificationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await factory.First.NotificationStarted.Task.WaitAsync(recoveryTimeout.Token);
         factory.First.Publish(new RateLimitsUpdatedNotification(
             new RateLimitsResponse(),
             false,
             IsOverflow: true));
 
-        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        await service.RefreshAsync(CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(1));
+        await factory.First.Disposed.Task.WaitAsync(recoveryTimeout.Token);
+        var nextRefresh = service.RefreshAsync(CancellationToken.None).AsTask();
+        await factory.Second.ReadStarted.Task.WaitAsync(recoveryTimeout.Token);
+        await nextRefresh.WaitAsync(recoveryTimeout.Token);
 
         Assert.AreEqual(2, factory.CreateCount);
-        Assert.IsTrue(factory.Second.ReadCount > 0);
+        Assert.AreEqual(1, factory.Second.ReadCount);
     }
 
     [TestMethod]
@@ -1225,6 +1228,7 @@ public sealed class AppServerPhase2Tests
 
         public TaskCompletionSource NotificationStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int ReadCount => Volatile.Read(ref readCount);
         public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
 
@@ -1234,6 +1238,7 @@ public sealed class AppServerPhase2Tests
         public Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
         {
             var count = Interlocked.Increment(ref readCount);
+            ReadStarted.TrySetResult();
             if (failAfterFirstRead && count > 1)
             {
                 return Task.FromException<RateLimitsReadResult>(new CodexClientException(
