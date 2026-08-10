@@ -19,9 +19,9 @@
 
 - 在准备稳定版时评估代码签名。
 - 需要升级 Codex CLI 协议基线时，更新 schema、DTO、fixture 和回归测试。
-- 如果用户规模和维护需求增长，再增加更系统的兼容性矩阵与发布自动化。
+- 如果用户规模和维护需求增长，再增加更系统的兼容性矩阵、发布监控与更新策略。
 
 当前发布步骤见 [构建与发布](RELEASE.md)，运行身份与技术边界见 [技术设计](TECH_DESIGN.md)。
 
-个人使用的 Android 独立 APK 已完成 P0–P3；后续只规划后台自动刷新、通知、Widget
-和开机启动，见 [Android Roadmap](ANDROID_ROADMAP.md)。
+个人使用的 Android 独立 APK 已完成 P0–P3，后台刷新和通知已有实现并继续做真机可靠性
+验证；Widget 和开机启动仍待实现，见 [Android Roadmap](ANDROID_ROADMAP.md)。

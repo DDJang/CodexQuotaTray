@@ -34,7 +34,8 @@ Codex 用户需要在不打开官方 Usage 页面、不打断当前工作的情�
 
 ### 设置、缓存和提醒
 
-- Production 支持开机启动和静默启动；Preview 与 Demo 不修改 Production 启动项。
+- Production 与 Debug Dev 均支持各自独立的开机启动和静默启动；Preview 与 Demo 不修改
+  Production 或 Dev 启动项。
 - 支持刷新模式、网络恢复刷新、剩余/已用显示、时间格式、主题和额度缓存设置。
 - 支持剩余 50%、20%、10% 阈值提醒及额度周期重置提醒。
 - 非敏感缓存可关闭和清除，只用于快速展示最后已知数据。
@@ -45,7 +46,7 @@ Codex 用户需要在不打开官方 Usage 页面、不打断当前工作的情�
 - 动态额度窗口和重置卡摘要的只读展示。
 - 自动、固定间隔和仅手动刷新模式。
 - 设置、非敏感缓存和提醒去重。
-- Production、Live Preview 和 Demo 的隔离运行。
+- Production、Debug Dev、Live Preview 和 Demo 的隔离运行。
 - 官方 Usage 页面入口、额度摘要和脱敏诊断复制。
 - 可选的手机 Token 同步：从本机 Codex session history 只读聚合 Token 数字，并仅在用户开启时通过私人局域网提供带密钥鉴权的只读接口。
 
@@ -64,7 +65,7 @@ Codex 用户需要在不打开官方 Usage 页面、不打断当前工作的情�
 - 重置时间按当前 Windows 时区显示，缺失时明确表示未知。
 - 刷新失败保留最后有效数据，并显示相应状态。
 - 提醒不会在同一额度周期内重复轰炸用户。
-- Demo 和 Preview 不影响 Production 数据、托盘身份或开机启动项。
+- Debug Dev、Demo 和 Preview 不影响 Production 数据、托盘身份或开机启动项。
 - 任意 UI 操作都不会消费重置卡或发送其他账户写请求。
 
 协议字段、合并规则和异常值处理见 [API 合同](API_CONTRACT.md)；本地数据和隐私边界见 [隐私说明](PRIVACY.md)。

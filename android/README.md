@@ -1,4 +1,4 @@
-# CodexQuota Android v0.1.0
+# CodexQuotaTray Android v0.6.1
 
 这是 CodexQuotaTray 的个人使用 Android 版本。它是一个轻量的独立 APK，当前主路径
 不依赖 Windows、Termux、Python、Node/npm、HTTP Bridge 或 Codex App Server。
@@ -19,7 +19,7 @@ App-private OAuth credentials
 - 从旧的 `filesDir/codex-home/.codex/auth.json` 一次迁移认证信息，成功写入加密存储后尽力删除旧文件；
 - Direct HTTPS 读取 `plan_type`、主/次窗口和 additional rate-limit 窗口；
 - 缺失值保持未知，零窗口和额度详情不可用状态明确区分；
-- Android 原生 Views 主页面、动态窗口名称、绝对/相对重置时间和手动刷新；
+- Jetpack Compose 主页面、动态窗口名称、绝对/相对重置时间和手动刷新；
 - WorkManager 分别支持额度与已配对 Windows Token 使用量的 15 分钟、30 分钟和 1 小时后台刷新；
 - 50/20/10% 跨阈值提醒和重置恢复提醒。
 - 设置页支持浅色/深色主题、通知测试、电池优化引导和脱敏运行日志。
@@ -28,8 +28,10 @@ App-private OAuth credentials
 
 ## Windows Token Usage 同步
 
-设置页优先点击“扫码配对”，扫码保存 `codexquota://pair?deviceId=...&host=...&port=43821&token=...`；
+设置页优先点击“扫码配对”，扫码保存 `codexquota://pair?deviceId=...&host=...&port=<listener-port>&token=...`；
 相机只在点击扫描后请求，拒绝相机时仍可粘贴 URI 或手动输入 Windows 私人 IPv4 与配对密钥。
+Production Windows 默认使用端口 `43821`；Windows Dev/Preview 会在二维码中写入各自实际端口，
+Android 必须使用二维码或 DNS-SD metadata 提供的端口，不能自行假定为 `43821`。
 配对信息使用独立 Android Keystore/AES-GCM 存储，不与 OAuth 凭据混合，退出 Codex 登录也不会删除配对。
 已配对状态提供立即同步、重新扫码配对和解除配对。主页面底部的“统计”页总是先显示上次成功缓存；
 “打开统计页时自动同步”开启时，仅在没有缓存或距本机上次成功同步已满两分钟后发起同步，手动“同步”
@@ -59,7 +61,7 @@ HTTPS 地址。LAN 同步仅适用于可信私人 Wi-Fi，不建议在不可信�
 
 ## 构建
 
-固定工具链：Gradle 8.9、AGP 8.7.3、JDK 17、compile/target SDK 35。Android SDK 示例
+固定工具链：Gradle 8.11.1、AGP 8.9.1、JDK 17、compile/target SDK 35。Android SDK 示例
 路径为 `D:\Android\Sdk`，请按本机实际 JDK 17 路径调整。
 
 从仓库根目录执行：
@@ -116,6 +118,11 @@ Kyant 2.0 发布物声明 compileSdk 37，但当前仓库仍按 SDK 35 构建并
 正式 Release 的签名仅由 GitHub Actions Release workflow 使用 GitHub Actions Secrets 完成。
 本机开发环境不得索取、读取或使用 Release JKS 的密码、alias 或任何 signing 配置；不得把
 keystore、密码或本地 signing property 提交到仓库。
+
+正式 Android 发布必须先把目标提交合入 `main`，再在该提交上推送与 `versionName` 完全一致的
+`android-v<version>` tag。GitHub Actions 负责校验 `main` ancestry、历史 `android-v*` tag
+对应的递增 `versionCode`、Release 签名、APK 签名和本次 APK 的 SHA-256；本机不生成或发布
+正式签名 APK。
 
 ### Debug / Release 可同时安装
 

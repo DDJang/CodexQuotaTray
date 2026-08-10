@@ -69,7 +69,7 @@ UI 只消费 `AppUiState` 和 ViewModel，不解析 wire JSON，也不依赖协�
 
 ## Persistence 与 Alerts
 
-Production 和 Live Preview 使用不同数据目录；Demo Runtime 不写持久化数据。
+Production、Debug Dev 与 Live Preview 使用不同数据目录；Demo Runtime 不写持久化数据。
 
 持久化分为：
 
@@ -89,8 +89,9 @@ Production 和 Live Preview 使用不同数据目录；Demo Runtime 不写持久
 做差，并在计数下降时从新基线继续。时间戳与 Token 数字快照的 SHA-256 本地散列用于
 抑制 archive 与 fork 复制历史；散列、session 标识和原始 JSON 不发送到 Android。
 
-用户开启“手机 Token 同步”后，进程内 `TcpListener` 只绑定一个 RFC1918 IPv4 和固定
-端口 43821，提供 `GET /v1/token-usage`。256-bit 随机配对密钥保存在应用私有数据目录，
+用户开启“手机 Token 同步”后，进程内 `TcpListener` 只绑定一个 RFC1918 IPv4，提供
+`GET /v1/token-usage`。listener 端口由当前启动身份决定，并且总是写入二维码和 DNS-SD
+metadata。256-bit 随机配对密钥保存在应用私有数据目录，
 Bearer 比较使用固定时间比较。关闭设置或退出应用会立即停止唯一 listener；应用不自动
 提升权限或修改 Windows 防火墙。
 

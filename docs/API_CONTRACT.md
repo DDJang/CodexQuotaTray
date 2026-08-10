@@ -42,7 +42,7 @@ Android 产品范围以
 ### Android 当前 Direct HTTPS
 
 - OAuth device-code 登录和 refresh token 只保存在 App 私有存储；旧
-  `filesDir/codex-home/.codex/auth.json` 只作为一次性迁移输入，旧文件保留。
+  `filesDir/codex-home/.codex/auth.json` 只作为一次性迁移输入，成功迁移后尽力删除，且不会再次导入。
 - 日常额度读取是：
 
   ```text
@@ -58,7 +58,8 @@ Android 产品范围以
   `additional_rate_limits[]` 中的动态窗口。窗口的 `used_percent`、`reset_at` 和
   `limit_window_seconds` 均可缺失；缺失不转换为零。
 - Android 正常路径不启动 App Server，不使用 WebSocket、JSONL、Termux Bridge、
-  HTTP 中转或 `ProcessBuilder`。WorkManager 只调度同一个 Direct HTTPS 读取函数。
+  HTTP 中转或 `ProcessBuilder`。`QuotaRefreshWorker` 只调度同一个 Direct HTTPS
+  读取函数；Token 使用量 Worker 适用本文后面的独立 LAN 合同。
 
 请求、成功响应、错误响应和通知的最小 envelope 分别为：
 
@@ -268,7 +269,9 @@ resetCreditEarliestExpiryUtc?
 
 该合同独立于 Codex App Server 与 Android Direct HTTPS quota 合同。Windows 仅在用户
 开启手机同步时，通过同一个 RFC1918 IPv4 listener 在
-`http://<private-ip>:43821/v1/token-usage` 与 `/v1/quota` 提供只读 `GET`。请求必须包含
+`http://<private-ip>:<listener-port>/v1/token-usage` 与 `/v1/quota` 提供只读 `GET`。Production
+listener 的默认端口为 43821；Debug Dev 使用独立端口，客户端始终以二维码或 DNS-SD metadata
+提供的实际端口连接。请求必须包含
 `Authorization: Bearer <pairing-secret>`；无效或缺失密钥返回 401，其他方法返回 405，
 未知路径返回 404，所有响应包含 `Cache-Control: no-store`。
 
@@ -320,7 +323,7 @@ UUID `deviceId` 和 256-bit `pairingSecret`。首次创建或从 schema 1 迁移
 
 二维码和手动 fallback 使用本地 URI：
 `codexquota://pair?deviceId=<uuid>&host=<private-ip>&port=<listener-port>&token=<secret>&name=<optional>`。
-Production listener 的默认端口为 43821；Debug Dev 使用独立端口，二维码始终携带实际监听端口。
+二维码始终携带实际 listener 端口，Android 不能假定固定端口。
 二维码只包含 LAN 配对密钥，不包含 OAuth/Codex credential、账号、邮箱、session 或统计内容。
 Android 扫码必须验证 scheme、`pair` host、deviceId、RFC1918 IPv4、端口和非空 token；旧式
 手动地址没有 deviceId 时仍可直连，但不会启用自动发现。

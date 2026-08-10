@@ -36,7 +36,12 @@ Quick/Full 都只构建 Debug/Dev；Release 模式才构建 Production Release�
 
 真实账户测试保持显式 opt-in，普通离线测试不需要真实 Codex 账户。
 
-## Publish
+## 本地发布输入验证（非正式发布）
+
+以下脚本只用于验证可发布目录、ZIP 或安装器输入；它们不会创建 GitHub Release，也不能替代
+正式 tag workflow。日常开发通常无需运行这些命令。
+
+### Publish
 
 需要单独生成 folder-based、self-contained x64 发布目录时执行：
 
@@ -54,7 +59,7 @@ pwsh -NoProfile -File .\scripts\publish-winui.ps1
 
 Publish 只是可运行目录，不等同于安装器或签名产物。
 
-## 可选便携归档
+### 可选便携归档
 
 项目不要求每次发布都生成 `dist/` ZIP。需要便携版时可以运行：
 
@@ -66,7 +71,7 @@ pwsh -NoProfile -File .\scripts\package-winui.ps1
 
 ZIP 是额外下载形式，不是安装器的中间输入。当前 GitHub tag workflow 仍会附带该 ZIP，但它不是手工发布前置条件。
 
-## Inno 安装器
+### Inno 安装器
 
 Inno 安装器由现有脚本显式生成：
 
@@ -87,16 +92,16 @@ pwsh -NoProfile -File .\scripts\package-inno.ps1
 - 可选当前用户开机启动；
 - 默认卸载用户数据，交互模式或 `/KEEPUSERDATA` 可保留。
 
-## 0.x Preview/Beta 发布检查
+## GitHub Actions 正式发布
 
-个人维护的 0.x 版本按常用场景检查即可：
+1. 将目标提交合入并推送到 `main`，确认工作区干净以及 Windows 项目版本正确。
+2. 可在推 tag 前显式完成 `verify-winui.ps1 -Mode Release` 和必要的交互式桌面 smoke；后者不是
+   workflow 的替代品，也不会自动执行。
+3. 在该 `main` 提交创建并推送 `windows-v<version>` tag，且 `<version>` 必须与 Windows 项目
+   `Version` 完全一致。
+4. `windows-release.yml` 校验 tag 及其提交属于 `origin/main`，执行 Release 验证，生成 ZIP、Inno
+   安装器及只含本次 Windows 产物的 `SHA256SUMS.txt`，然后创建 GitHub Release。
 
-1. 运行 `verify-winui.ps1 -Mode Release`。
-2. 生成 Inno 安装器。
-3. 在常用 Windows 11 环境检查安装、启动、托盘菜单、主面板、设置、升级和卸载。
-4. 为发布文件生成并公布 SHA-256。
-5. 在 Release Notes 中说明当前是否签名，并列出已知限制。
-
-Explorer 托盘 smoke 需要交互式桌面并关闭已有实例，因此只在确实需要时运行。真实账户 smoke 同样是可选检查，运行时只验证只读路径，不保存原始账户或额度响应。
-
-当前产物通常未签名，Windows 可能显示 SmartScreen 提示；这不阻止 Preview/Beta 发布。Windows 10、更完整的 DPI/多显示器/高对比度组合、代码签名和长期稳定性验证，作为稳定版前逐步完成的项目记录在 [Roadmap](ROADMAP.md) 中。
+正式发布不依赖 GitHub 的“latest release”：Windows 后续更新只识别 `windows-v*`；Android 使用
+独立的 `android-v*` 规则。Windows 代码签名状态、兼容性限制和发布说明应随对应 Release 记录，
+而不是由本地脚本推断。

@@ -12,7 +12,7 @@
 | P0.5 | Standalone APK / embedded runtime | Go | 独立 APK、native runtime、App Server 和进程清理通过 |
 | P1 | Authentication + real quota integration | Go | App 内登录、真实额度和认证持久化通过 |
 | P2 | Product quota UI | Go | 动态窗口、重置时间、手动刷新和重启复验通过 |
-| P3 | Minimal polish / recovery / packaging | Go | UI/图标、受限恢复、Debug/Release 构建和真机 smoke 通过 |
+| P3 | Minimal polish / recovery / packaging | Go | UI、图标、受限恢复，以及当时的 Debug/Release 构建与真机 smoke 通过 |
 
 P0–P3 是历史基线，不代表当前日常产品路径仍然启动 Codex runtime。P0/P0.5 的
 Python 探针、历史结果和 Termux Bridge 保留用于开发诊断；当前 APK 的正常额度路径
@@ -33,30 +33,28 @@ App-private OAuth Store
 当前实现包含：
 
 - 最小 OAuth device-code 登录、refresh token 轮换和 Android Keystore 加密的 App 私有持久化；
-- 旧 `filesDir/codex-home/.codex/auth.json` 到新 OAuth Store 的一次性读取迁移，旧文件
-  保留不改；
+- 旧 `filesDir/codex-home/.codex/auth.json` 到新 OAuth Store 的一次性读取迁移；成功加密保存后
+  尽力删除旧文件，且不再重新导入；
 - Direct usage API 的 0、1 或多个动态窗口、missing/null、zero-windows 和 unavailable
   语义；
-- 约 15 分钟的 WorkManager 周期刷新；
+- 剩余额度与已配对 Windows Token 使用量各自独立的 WorkManager 周期刷新；
 - 50/20/10% 跨阈值提醒及 reset/recovery 提醒；
 - 失败分类、手动刷新和通知权限拒绝后的可用 UI。
 - 与 quota 独立的 Windows Token Usage 私网按需同步、加密配对、本地聚合缓存和使用统计页。
 
-上述新链路已完成 PC-first 实现和脱敏单元测试；真实 Android 上的 OAuth、usage、
-WorkManager 和通知 smoke 仍需单独验证，未验证前不得标记为真机 Go。
+上述链路由脱敏单元测试覆盖；OAuth、网络切换、WorkManager 触发和系统通知仍以当前真机
+环境为准，需在每次涉及它们的改动后补做针对性验证。
 
 ## 后续范围
 
-当前项目后续只推进四项产品能力，不再增加新的阶段编号：
+当前后续重点不再增加新的阶段编号：
 
-1. 后台自动刷新；
-2. 通知；
-3. Widget；
-4. 开机启动。
+1. 持续验证和修正后台刷新、通知在真实设备上的可靠性；
+2. Widget；
+3. 开机启动。
 
-其中后台刷新和通知已有最小实现骨架，待真实设备验证和必要修复；Widget、开机启动
-尚未实现。维护现有登录、额度读取、协议适配和构建链路属于基线维护，不视为新的
-产品目标。
+后台刷新和通知已经实现，Widget、开机启动尚未实现。维护现有登录、额度读取、协议适配、
+Windows LAN 配对和构建/发布链路属于基线维护，不视为新的产品目标。
 
 ## 必须保持的语义与边界
 
@@ -75,16 +73,15 @@ WorkManager 和通知 smoke 仍需单独验证，未验证前不得标记为真�
 
 ## 当前非目标
 
-除“后台自动刷新、通知、Widget、开机启动”外，其余新增产品能力均不在当前范围，
-包括：
+除现有后台刷新/通知的可靠性维护、Widget 和开机启动外，其余新增产品能力均不在当前范围，包括：
 
 - Play Store 或其他应用商店发布、多用户、多账号、团队管理或隐私合规产品化；
 - 完整 Codex 聊天、会话历史、Agent、项目功能或远程访问；
 - Codex runtime 自动更新、Termux 运行时依赖、Termux:Boot、proot、root、Shizuku、
   JNI/NDK 重写或外部 shell service；
-- 通用 HTTP Bridge、云端同步、SQLite/Room、复杂设置页或通用插件框架；
+- 通用 HTTP Bridge、云端同步、SQLite/Room 或通用插件框架；
 - reset-credit 展示、消费、购买或其他账户写操作；
-- 多 ABI、x86 模拟器兼容矩阵、公开签名、商店素材和发布自动化。
+- 多 ABI、x86 模拟器兼容矩阵或应用商店分发。
 
 开机启动指 Android APK 自身恢复刷新能力，不指 Termux:Boot。
 
@@ -92,9 +89,10 @@ WorkManager 和通知 smoke 仍需单独验证，未验证前不得标记为真�
 
 - 已验证历史设备：真实 Android `arm64-v8a` 手机。
 - 已验证历史 runtime：DioNanos `codex-termux` `v0.146.0` Android ARM64 输入。
-- 固定构建基线：AGP `8.7.3`、Gradle `8.9`、JDK 17、compile/target SDK 35。
+- 固定构建基线：AGP `8.9.1`、Gradle `8.11.1`、JDK 17、compile/target SDK 35。
 - 已验证历史能力：登录持久化、真实 App Server 额度、手动刷新、force-stop/reopen、
-  进程清理、一次受限 App Server 恢复、adaptive icon、Debug 和未签名 Release 构建。
-- 新 Direct HTTPS/OAuth/WorkManager/通知链路：PC-first 测试待工具链恢复后完成，真实
-  Android smoke 尚未完成。
-- 正式 signing key、公开分发和多设备兼容矩阵不属于当前路线门禁。
+  进程清理、一次受限 App Server 恢复、adaptive icon，以及当时的 Debug/未签名 Release 构建。
+- 当前 Direct HTTPS/OAuth/WorkManager/通知链路必须保持脱敏单元测试覆盖；真机验证按每轮
+  涉及的行为单独执行。
+- 日常本地开发只构建、安装和运行 Debug；正式 Android Release 只由 GitHub Actions 从
+  `main` 上的 `android-v*` tag 使用 Secrets 签名并发布。多设备兼容矩阵不属于当前路线门禁。

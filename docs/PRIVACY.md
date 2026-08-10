@@ -30,9 +30,10 @@ an embedded browser, or a reset-credit consumption path.
 - Clicking “official Usage” asks Windows to open the official Usage page in the default
   browser.
 
-Windows settings, optional normalized quota cache, and reminder de-duplication state are
-stored under `%LOCALAPPDATA%\CodexQuotaTray`. Preview uses the separate
-`%LOCALAPPDATA%\CodexQuotaTray-WinUI-Preview` directory.
+Windows Production settings, optional normalized quota cache, and reminder de-duplication
+state are stored under `%LOCALAPPDATA%\CodexQuotaTray`. Debug Dev uses the separate
+`%LOCALAPPDATA%\CodexQuotaTray-Dev` directory, and Preview uses
+`%LOCALAPPDATA%\CodexQuotaTray-WinUI-Preview`; the identities do not share these files.
 
 When phone Token sync is enabled, WinUI streams only `token_count` and timestamp fields from
 the current user's Codex `sessions` and `archived_sessions`. It sends only daily aggregate
@@ -47,9 +48,9 @@ only that deviceId, a private-LAN address/port, an optional display name, and th
 LAN pairing secret; it never contains OpenAI credentials, account identifiers, email, session
 data, prompts, responses, or Token Usage data. Windows DNS-SD publication exposes only the
 deviceId, display name, and port. Android stores the pairing record with its separate
-Keystore/AES-GCM key. Discovery is a short, user-initiated-on-sync lookup, not a permanent LAN
-listener; a 401 is treated as an invalid pairing rather than an invitation to discover another
-device.
+Keystore/AES-GCM key. Discovery is a short on-demand lookup during an eligible foreground or
+background sync, not a permanent LAN listener; a 401 is treated as an invalid pairing rather
+than an invitation to discover another device.
 
 The cache contains only normalized display data. `alert-state.json` may contain cycle times,
 handled thresholds, and a locally derived pseudonymous key; original opaque IDs are not
@@ -61,20 +62,24 @@ local data unless the user explicitly keeps it.
 - The APK performs OAuth device-code login through the system browser and does not embed a
   WebView or inspect browser data.
 - OAuth access/refresh credentials are stored in an App-private SharedPreferences store.
-  A legacy `<filesDir>/codex-home/.codex/auth.json` can be parsed once for migration; the
-  legacy file is retained and its contents are never logged or shown.
+  A legacy `<filesDir>/codex-home/.codex/auth.json` can be parsed once for migration; after a
+  successful encrypted save the app makes a best-effort deletion, and its contents are never
+  logged or shown.
 - Daily quota reads use `GET https://chatgpt.com/backend-api/wham/usage` with the access
   token and, when available, the account ID. The APK does not start App Server, Termux, or
   a local HTTP service on this path.
 - Optional Token Usage sync is a separate, user-paired HTTP client restricted to RFC1918
   IPv4. Its pairing secret is encrypted with a separate Android Keystore key. The cached
-  `token-usage-cache.json` contains only the aggregate schema returned by Windows and remains
-  visible when Windows is offline.
+  `token-usage-cache.json` contains only the aggregate schema returned by Windows, is bound to
+  the paired Windows `deviceId`, and is cleared when that pairing is removed or replaced. It
+  remains visible only while the same paired Windows device is offline.
 - The APK does not persist a full quota response or history. It persists only the minimum
   alert de-duplication state and refresh timestamp. WorkManager and notifications are part
   of the current implementation; their real-device behavior remains a separate smoke check.
 - `android:allowBackup` is disabled. Uninstalling the APK removes its App-private data;
   force-stop or ordinary process exit does not remove authentication.
+- The Debug/Dev APK uses the separate `com.codexquotatray.android.debug` application ID, so its
+  OAuth credentials, pairing and caches are isolated from the formally released APK.
 
 The Android route is for personal use and is not an application-store privacy or compliance
 program. Its current product scope is defined in [Android Roadmap](ANDROID_ROADMAP.md).

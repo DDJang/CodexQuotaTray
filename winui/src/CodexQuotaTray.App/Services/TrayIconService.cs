@@ -274,8 +274,8 @@ internal sealed class TrayIconService : IDisposable
         error = 0;
         var data = CreateData();
         // Clear only this identity's stale entry before reusing its stable GUID.
-        // Production and Preview have different GUIDs, so neither can delete the
-        // other identity's notification icon.
+        // Production, Development, and Preview have different GUIDs, so no identity can
+        // delete another identity's notification icon.
         _ = NativeMethods.ShellNotifyIcon(NativeMethods.NimDelete, ref data);
         if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimAdd, ref data))
         {

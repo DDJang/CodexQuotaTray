@@ -10,8 +10,8 @@ CodexQuotaTray 是一个轻量、只读的 Windows 系统托盘应用，通过�
 仓库同时包含个人使用的实验性 Android 独立 APK。历史 P0–P3 已验证 ARM64 runtime、
 App Server、App 内登录、真实额度、手动刷新、产品 UI、恢复和打包；当前日常 Android
 路径已收敛为 App 私有 OAuth + Direct HTTPS usage，不再依赖 embedded runtime 或
-App Server。后续范围仅为后台自动刷新、通知、Widget 和开机启动；具体见
-[Android Roadmap](docs/ANDROID_ROADMAP.md)。
+App Server。额度与 Token 使用量的后台刷新和通知已经实现；后续重点是其真机可靠性、Widget
+和开机启动，具体见 [Android Roadmap](docs/ANDROID_ROADMAP.md)。
 
 ## 主要功能
 

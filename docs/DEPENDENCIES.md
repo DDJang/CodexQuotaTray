@@ -16,10 +16,17 @@ Self-contained publish 还会包含 .NET runtime、Windows App SDK 的 native/ru
 
 | 依赖 | 版本来源 | 许可证/用途 |
 | --- | --- | --- |
-| Android Gradle Plugin | `8.7.3` | 构建工具 |
-| Gradle Wrapper | `8.9` | 构建工具；wrapper 源文件按 Apache-2.0 头部分发 |
+| Android Gradle Plugin | `8.9.1` | 构建工具 |
+| Gradle Wrapper | `8.11.1` | 构建工具；wrapper 源文件按 Apache-2.0 头部分发 |
+| Kotlin / Compose compiler plugin | `2.3.21` | Kotlin 与 Compose 编译支持 |
+| AndroidX Activity Compose | `1.10.1` | Compose Activity 集成 |
+| Compose UI / Foundation / Animation | `1.11.0` | UI 基础组件 |
+| Material 3 | `1.4.0` | 设置页和系统控件样式 |
+| Kyant Backdrop / Shapes | `2.0.0` / `1.2.0` | Compose 液态玻璃与形状绘制 |
 | OkHttp | `4.12.0` | Apache-2.0；Direct HTTPS OAuth/usage 传输 |
+| ZXing Android Embedded | `4.3.0` | 二维码扫描 |
 | AndroidX WorkManager | `2.9.1` | Apache-2.0；约 15 分钟周期刷新调度 |
+| AndroidX Core KTX | `1.13.1` | Android 平台兼容工具 |
 | JUnit | `4.13.2` | 单元测试依赖 |
 | org.json | `20240303` | JSON 解析测试替身；仅 test runtime，不进入 APK |
 | MockWebServer | `4.12.0` | Apache-2.0；usage/OAuth 脱敏 HTTP fixture 测试 |
