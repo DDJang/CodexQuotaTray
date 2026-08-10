@@ -1,9 +1,9 @@
-name: Release
+name: Windows Release
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'windows-v*'
 
 permissions:
   contents: write
@@ -36,10 +36,10 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          if ($env:TAG_NAME -match '^v(.+)$') {
+          if ($env:TAG_NAME -match '^windows-v(.+)$') {
             $tagVersion = $Matches[1]
           } else {
-            throw "Release workflow requires a v-prefixed tag; received '$($env:TAG_NAME)'."
+            throw "Windows release workflow requires a windows-v-prefixed tag; received '$($env:TAG_NAME)'."
           }
 
           [xml]$project = Get-Content -LiteralPath '.\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj' -Raw

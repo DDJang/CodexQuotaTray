@@ -1,0 +1,172 @@
+name: Android Release
+
+on:
+  push:
+    tags:
+      - 'android-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx2g
+
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Set up JDK 17 and Gradle cache
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Verify tag, Android version, and main ancestry
+        id: version
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          TAG_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$TAG_NAME" =~ ^android-v(.+)$ ]]; then
+            tag_version="${BASH_REMATCH[1]}"
+          else
+            echo "Android release workflow requires an android-v-prefixed tag; received '$TAG_NAME'." >&2
+            exit 1
+          fi
+
+          mapfile -t versions < <(sed -nE 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*$/\1/p' android/app/build.gradle.kts)
+          if [[ "${#versions[@]}" -ne 1 || -z "${versions[0]}" ]]; then
+            echo 'android/app/build.gradle.kts must define exactly one quoted versionName.' >&2
+            exit 1
+          fi
+          if [[ "$tag_version" != "${versions[0]}" ]]; then
+            echo "Tag version '$tag_version' does not match Android versionName '${versions[0]}'." >&2
+            exit 1
+          fi
+
+          mapfile -t version_codes < <(sed -nE 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+)[[:space:]]*$/\1/p' android/app/build.gradle.kts)
+          if [[ "${#version_codes[@]}" -ne 1 || "${version_codes[0]}" -lt 1 ]]; then
+            echo 'android/app/build.gradle.kts must define one positive integer versionCode.' >&2
+            exit 1
+          fi
+
+          git fetch --no-tags origin 'refs/heads/main:refs/remotes/origin/main'
+          main_commit="$(git rev-parse refs/remotes/origin/main)"
+          tag_commit="$(git rev-parse "${TAG_SHA}^{commit}")"
+          if ! git merge-base --is-ancestor "$tag_commit" "$main_commit"; then
+            echo "Tagged commit $tag_commit is not contained in origin/main ($main_commit)." >&2
+            exit 1
+          fi
+
+          previous_max=0
+          while IFS= read -r previous_tag; do
+            previous_commit="$(git rev-parse "${previous_tag}^{commit}")"
+            if [[ "$previous_commit" == "$tag_commit" ]] || ! git merge-base --is-ancestor "$previous_commit" "$tag_commit"; then
+              continue
+            fi
+            previous_code="$(git show "$previous_commit:android/app/build.gradle.kts" 2>/dev/null | sed -nE 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+)[[:space:]]*$/\1/p' | head -n 1 || true)"
+            if [[ "$previous_code" =~ ^[0-9]+$ && "$previous_code" -gt "$previous_max" ]]; then
+              previous_max="$previous_code"
+            fi
+          done < <(git tag --list 'android-v*')
+          if [[ "${version_codes[0]}" -le "$previous_max" ]]; then
+            echo "Android versionCode ${version_codes[0]} must be greater than the previous maximum $previous_max." >&2
+            exit 1
+          fi
+
+          echo "version=${versions[0]}" >> "$GITHUB_OUTPUT"
+          echo "Tag $TAG_NAME matches Android versionName ${versions[0]}."
+          echo "Android versionCode ${version_codes[0]} is greater than previous maximum $previous_max."
+          echo "Tagged commit $tag_commit is contained in origin/main ($main_commit)."
+
+      - name: Decode and validate release signing key
+        shell: bash
+        env:
+          ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for secret_name in \
+            ANDROID_RELEASE_KEYSTORE_BASE64 \
+            ANDROID_RELEASE_STORE_PASSWORD \
+            ANDROID_RELEASE_KEY_ALIAS \
+            ANDROID_RELEASE_KEY_PASSWORD; do
+            if [[ -z "${!secret_name:-}" ]]; then
+              echo "Required Android release signing secret is missing: $secret_name" >&2
+              exit 1
+            fi
+          done
+
+          keystore="$RUNNER_TEMP/codexquotatray-release.keystore"
+          printf '%s' "$ANDROID_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          test -s "$keystore"
+          chmod 600 "$keystore"
+          keytool -list -keystore "$keystore" -storepass "$ANDROID_RELEASE_STORE_PASSWORD" -alias "$ANDROID_RELEASE_KEY_ALIAS" >/dev/null
+          echo "CODEX_ANDROID_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+          echo 'Android release signing key decoded and validated.'
+
+      - name: Test and assemble signed release APK
+        working-directory: android
+        shell: bash
+        env:
+          CODEX_ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
+          CODEX_ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
+          CODEX_ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: ./gradlew :app:testDebugUnitTest :app:assembleRelease
+
+      - name: Verify signed APK and generate SHA256SUMS.txt
+        id: artifact
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          apk='android/app/build/outputs/apk/release/app-release.apk'
+          test -f "$apk"
+          apksigner="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          if [[ -z "$apksigner" || ! -x "$apksigner" ]]; then
+            echo 'Android SDK apksigner was not found.' >&2
+            exit 1
+          fi
+          "$apksigner" verify --verbose --print-certs "$apk"
+
+          release_dir="$RUNNER_TEMP/codexquotatray-android-release"
+          mkdir -p "$release_dir"
+          artifact_name="CodexQuotaTray-${RELEASE_VERSION}-android.apk"
+          cp "$apk" "$release_dir/$artifact_name"
+          (
+            cd "$release_dir"
+            sha256sum "$artifact_name" > SHA256SUMS.txt
+          )
+          echo "release_dir=$release_dir" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=$artifact_name" >> "$GITHUB_OUTPUT"
+
+      - name: Create public GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_DIR: ${{ steps.artifact.outputs.release_dir }}
+          ARTIFACT_NAME: ${{ steps.artifact.outputs.artifact_name }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG_NAME" \
+            "$RELEASE_DIR/$ARTIFACT_NAME" \
+            "$RELEASE_DIR/SHA256SUMS.txt" \
+            --verify-tag \
+            --generate-notes
