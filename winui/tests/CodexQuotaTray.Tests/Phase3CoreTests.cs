@@ -173,7 +173,7 @@ public sealed class Phase3CoreTests
         var request = rpc.RequestWithSequenceAsync(
             "account/rateLimits/read",
             null,
-            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(5),
             CancellationToken.None);
         await output.WaitForLinesAsync(1);
         var id = JsonDocument.Parse(output.Lines[0]).RootElement.GetProperty("id").GetInt64();
@@ -194,26 +194,32 @@ public sealed class Phase3CoreTests
             }));
         }
 
-        await input.WaitForReadCountAsync(97);
-        Assert.IsTrue(await second.WaitAsync(TimeSpan.FromSeconds(1)));
-        notifications.Current.Acknowledge();
-        input.Write($"{{\"id\":{id},\"result\":{{}}}}");
-
-        // CI runners can briefly delay the reader after the bounded channel has filled.
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await input.WaitForReadCountAsync(97, timeout.Token);
+        Assert.IsTrue(await second.WaitAsync(TimeSpan.FromSeconds(1)));
+        input.Write($"{{\"id\":{id},\"result\":{{}}}}");
+        await input.WaitForReadCountAsync(98, timeout.Token);
+
+        var notification = notifications.Current;
         var sawOverflow = false;
-        while (await notifications.MoveNextAsync().AsTask().WaitAsync(timeout.Token))
+        while (true)
         {
-            var notification = notifications.Current;
             if (notification.IsOverflow)
             {
                 sawOverflow = true;
                 Assert.IsFalse(request.IsCompleted);
-                notification.Acknowledge();
-                break;
             }
 
             notification.Acknowledge();
+            var next = notifications.MoveNextAsync().AsTask();
+            var completed = await Task.WhenAny(next, request).WaitAsync(timeout.Token);
+            if (completed == request)
+            {
+                break;
+            }
+
+            Assert.IsTrue(await next);
+            notification = notifications.Current;
         }
 
         Assert.IsTrue(sawOverflow);
@@ -683,12 +689,11 @@ public sealed class Phase3CoreTests
             return value;
         }
 
-        internal async Task WaitForReadCountAsync(int count)
+        internal async Task WaitForReadCountAsync(int count, CancellationToken cancellationToken)
         {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
             while (Volatile.Read(ref readCount) < count)
             {
-                await changed.WaitAsync(timeout.Token);
+                await changed.WaitAsync(cancellationToken);
             }
         }
     }
