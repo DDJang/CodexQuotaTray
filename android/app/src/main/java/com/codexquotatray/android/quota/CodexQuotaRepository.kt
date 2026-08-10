@@ -67,6 +67,14 @@ class CodexQuotaRepository(
             },
         )
     }
+    private val successCommitter by lazy {
+        QuotaSuccessfulRefreshCommitter(
+            saveSnapshot = { result, completedAtMillis -> snapshotStore.save(result, completedAtMillis) },
+            evaluateAlerts = { windows -> QuotaAlertEvaluator(alertStateStore).evaluate(windows) },
+            markSuccessfulRefresh = alertStateStore::markSuccessfulRefresh,
+            publishNotifications = notificationPublisher::publish,
+        )
+    }
 
     fun refresh(): DirectQuotaResult {
         val generation = CredentialGeneration.current()
@@ -81,7 +89,8 @@ class CodexQuotaRepository(
                 observedGeneration = generation,
             )
         }
-        return fetchWithRecovery(credentials, generation)
+        val fetched = fetchWithRecovery(credentials, generation)
+        return publishAndReturn(fetched.quota, fetched.credentials, generation)
     }
 
     fun login(onUpdate: (OAuthLoginUpdate) -> Unit = {}): OAuthCredentials {
@@ -107,27 +116,30 @@ class CodexQuotaRepository(
     private fun fetchWithRecovery(
         initial: OAuthCredentials,
         initialGeneration: Long,
-    ): DirectQuotaResult = fallbackResolver.fetch {
-        fetchDirectWithRecovery(
-            initial,
-            initialGeneration,
-            QuotaNetworkTimeouts.directCallTimeoutMillis(
-                windowsPairingOnWifi = tokenSyncStore.load() != null && lanAvailability.isAvailable(),
-            ),
-        )
+    ): SuccessfulQuotaFetch {
+        var successfulCredentials = initial
+        val quota = fallbackResolver.fetch {
+            fetchDirectWithRecovery(
+                initial,
+                initialGeneration,
+                QuotaNetworkTimeouts.directCallTimeoutMillis(
+                    windowsPairingOnWifi = tokenSyncStore.load() != null && lanAvailability.isAvailable(),
+                ),
+                onCredentialsUsed = { successfulCredentials = it },
+            )
+        }
+        return SuccessfulQuotaFetch(quota, successfulCredentials)
     }
 
     private fun fetchDirectWithRecovery(
         initial: OAuthCredentials,
         initialGeneration: Long,
         directCallTimeoutMillis: Long,
+        onCredentialsUsed: (OAuthCredentials) -> Unit,
     ): DirectQuotaResult {
         try {
-            return publishAndReturn(
-                result = usageClient.fetch(initial, directCallTimeoutMillis),
-                credentials = initial,
-                generation = initialGeneration,
-            )
+            onCredentialsUsed(initial)
+            return usageClient.fetch(initial, directCallTimeoutMillis)
         } catch (error: UsageException) {
             if (error.kind != UsageFailureKind.UNAUTHORIZED) throw mapUsageFailure(error)
         }
@@ -143,11 +155,8 @@ class CodexQuotaRepository(
         }
         val retryGeneration = initialGeneration
         return try {
-            publishAndReturn(
-                result = usageClient.fetch(refreshed, directCallTimeoutMillis),
-                credentials = refreshed,
-                generation = retryGeneration,
-            )
+            onCredentialsUsed(refreshed)
+            usageClient.fetch(refreshed, directCallTimeoutMillis)
         } catch (error: UsageException) {
             if (error.kind == UsageFailureKind.UNAUTHORIZED) {
                 clearIfCurrent(refreshed, retryGeneration)
@@ -262,14 +271,16 @@ class CodexQuotaRepository(
                 return@synchronized
             }
             if (result.quotaState != "unavailable") {
-                snapshotStore.save(result)
-                val events = QuotaAlertEvaluator(alertStateStore).evaluate(result.windows)
-                alertStateStore.markSuccessfulRefresh(result.updatedAtMillis)
-                notificationPublisher.publish(events)
+                successCommitter.commit(result)
             }
         }
         return result
     }
+
+    private data class SuccessfulQuotaFetch(
+        val quota: DirectQuotaResult,
+        val credentials: OAuthCredentials,
+    )
 
     private fun saveCredentials(credentials: OAuthCredentials) {
         if (!credentialStore.save(credentials)) {

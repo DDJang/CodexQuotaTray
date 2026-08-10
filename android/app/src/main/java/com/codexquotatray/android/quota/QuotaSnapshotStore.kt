@@ -17,11 +17,15 @@ class QuotaSnapshotStore(context: Context) {
         Context.MODE_PRIVATE,
     )
 
-    fun save(result: DirectQuotaResult) {
+    fun save(
+        result: DirectQuotaResult,
+        lastSuccessfulRefreshAtMillis: Long = System.currentTimeMillis(),
+    ) {
         val root = JSONObject()
             .putNullable("planType", result.planType)
             .put("quotaState", result.quotaState)
             .put("updatedAtMillis", result.updatedAtMillis)
+            .put("lastSuccessfulRefreshAtMillis", lastSuccessfulRefreshAtMillis)
             .put("source", result.source.name)
             .put(
                 "windows",
@@ -41,7 +45,10 @@ class QuotaSnapshotStore(context: Context) {
                     }
                 },
             )
-        preferences.edit().putString(KEY_SNAPSHOT, root.toString()).commit()
+        preferences.edit()
+            .putString(KEY_SNAPSHOT, root.toString())
+            .putLong(KEY_LAST_SUCCESSFUL_REFRESH_AT_MILLIS, lastSuccessfulRefreshAtMillis)
+            .commit()
     }
 
     fun load(): DirectQuotaResult? {
@@ -79,12 +86,21 @@ class QuotaSnapshotStore(context: Context) {
     }
 
     fun clear() {
-        preferences.edit().remove(KEY_SNAPSHOT).apply()
+        preferences.edit()
+            .remove(KEY_SNAPSHOT)
+            .remove(KEY_LAST_SUCCESSFUL_REFRESH_AT_MILLIS)
+            .apply()
     }
+
+    /** Local completion time used only for foreground freshness, never UI time. */
+    fun lastSuccessfulRefreshAtMillis(): Long? = preferences
+        .getLong(KEY_LAST_SUCCESSFUL_REFRESH_AT_MILLIS, 0L)
+        .takeIf { it > 0L }
 
     companion object {
         private const val PREFERENCES_NAME = "quota_snapshot"
         private const val KEY_SNAPSHOT = "last_successful_snapshot"
+        private const val KEY_LAST_SUCCESSFUL_REFRESH_AT_MILLIS = "last_successful_refresh_at_millis"
     }
 }
 

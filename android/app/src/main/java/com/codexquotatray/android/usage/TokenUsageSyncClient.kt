@@ -1,6 +1,8 @@
 package com.codexquotatray.android.usage
 
 import android.content.Context
+import com.codexquotatray.android.quota.AndroidLanAvailability
+import com.codexquotatray.android.quota.LanAvailability
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
@@ -16,12 +18,17 @@ data class TokenUsageSyncResult(val snapshot: TokenUsageSnapshot, val pairing: T
 class TokenUsageSyncClient(
     private val client: OkHttpClient = defaultClient(),
     private val discovery: TokenSyncDiscovery? = null,
-) {
-    constructor(context: Context, client: OkHttpClient = defaultClient()) : this(client, AndroidNsdDiscovery(context))
+    private val lanAvailability: LanAvailability? = null,
+) : TokenUsageSyncTransport {
+    constructor(context: Context, client: OkHttpClient = defaultClient()) : this(
+        client,
+        AndroidNsdDiscovery(context),
+        AndroidLanAvailability(context),
+    )
 
     fun fetch(pairing: TokenSyncPairing): TokenUsageSnapshot = sync(pairing).snapshot
 
-    fun sync(pairing: TokenSyncPairing): TokenUsageSyncResult {
+    override fun sync(pairing: TokenSyncPairing): TokenUsageSyncResult {
         val direct = runCatching { fetchDirect(pairing) }
         direct.getOrNull()?.let { return TokenUsageSyncResult(it, pairing) }
         val error = direct.exceptionOrNull()
@@ -44,7 +51,7 @@ class TokenUsageSyncClient(
             .header("Accept", "application/json")
             .build()
         val response = try {
-            client.newCall(request).execute().use { result -> result.code to result.body?.string().orEmpty() }
+            client.bindToWifiLan(lanAvailability).newCall(request).execute().use { result -> result.code to result.body?.string().orEmpty() }
         } catch (_: SocketTimeoutException) {
             throw TokenUsageException(TokenUsageFailureKind.OFFLINE, "Windows 当前不可用")
         } catch (_: IOException) {

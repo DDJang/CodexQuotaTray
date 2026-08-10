@@ -36,12 +36,9 @@ class TokenUsageRefreshWorker(
             return Result.success()
         }
 
-        return runCatching { TokenUsageSyncClient(applicationContext).sync(pairing!!) }
+        return runCatching { TokenUsageSyncCoordinator(applicationContext).sync(pairing!!) }
             .fold(
                 onSuccess = { synced ->
-                    pairingStore.save(TokenSyncEndpoint.markSynced(synced.pairing, synced.snapshot))
-                    TokenUsageCache(applicationContext).save(synced.snapshot)
-                    TokenUsageRefreshEvents.notifyCompleted(applicationContext)
                     AppLogStore.record(applicationContext, "Token 后台同步完成")
                     Result.success()
                 },

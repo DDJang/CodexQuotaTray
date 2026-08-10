@@ -144,7 +144,7 @@ internal class QuotaPageController(private val host: MainActivity) {
         if (!authenticated || busy) return
 
         renderLatestSnapshot()
-        val lastSuccessfulAtMillis = lastSuccessful?.updatedAtMillis
+        val lastSuccessfulAtMillis = snapshotStore.lastSuccessfulRefreshAtMillis()
         refresh(force = false, lastSuccessfulAtMillis = lastSuccessfulAtMillis)
     }
 
@@ -181,7 +181,6 @@ internal class QuotaPageController(private val host: MainActivity) {
         } else if (authenticated && !busy) {
             renderLatestSnapshot()
         }
-        if (visible) onVisible()
     }
 
     fun onLoginResult(requestCode: Int, resultCode: Int) {

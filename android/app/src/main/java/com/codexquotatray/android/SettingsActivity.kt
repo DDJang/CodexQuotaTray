@@ -49,7 +49,7 @@ import com.codexquotatray.android.usage.TokenUsageException
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettings
 import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
-import com.codexquotatray.android.usage.TokenUsageSyncClient
+import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
 import com.google.zxing.integration.android.IntentIntegrator
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -224,7 +224,7 @@ class SettingsActivity : ComponentActivity() {
         }
         SettingsSection("通知与同步") {
             SettingsGroup {
-                if (!backgroundRefresh && !tokenBackgroundSync) {
+                if (!backgroundRefresh) {
                     SettingsWarningCaption("未开启同步时，通知可能会延迟")
                 }
                 SettingsNavigationRow("通知", if (notificationEnabled) "已开启" else "未开启") {
@@ -574,10 +574,9 @@ class SettingsActivity : ComponentActivity() {
     private fun testPairing(value: TokenSyncPairing) {
         tokenStatus = "正在测试 Windows 连接…"
         pairingWorker.execute {
-            val result = runCatching { TokenUsageSyncClient(this).sync(value) }
+            val result = runCatching { TokenUsageSyncCoordinator(this).sync(value) }
             pairingMain.post {
                 result.onSuccess { synced ->
-                    tokenStore.save(TokenSyncEndpoint.markSynced(synced.pairing, synced.snapshot))
                     renderState()
                     Toast.makeText(this, "Windows 配对成功", Toast.LENGTH_SHORT).show()
                 }.onFailure { error ->

@@ -52,7 +52,7 @@ import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenUsageRefreshEvents
 import com.codexquotatray.android.refresh.ForegroundRefreshPolicy
 import com.codexquotatray.android.usage.TokenUsageSnapshot
-import com.codexquotatray.android.usage.TokenUsageSyncClient
+import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -132,13 +132,11 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         syncing = true
         status = if (snapshot == null) "正在从 Windows 同步…" else "正在同步；当前显示缓存"
         worker.execute {
-            val result = runCatching { TokenUsageSyncClient(host).sync(pairing) }
+            val result = runCatching { TokenUsageSyncCoordinator(host).sync(pairing) }
             main.post {
                 if (destroyed) return@post
                 syncing = false
                 result.onSuccess { synced ->
-                    store.save(TokenSyncEndpoint.markSynced(synced.pairing, synced.snapshot))
-                    cache.save(synced.snapshot)
                     snapshot = synced.snapshot
                     status = "上次同步于 ${formatSyncTime(synced.snapshot.generatedAtUtc)}"
                 }.onFailure { error ->

@@ -1,6 +1,8 @@
 package com.codexquotatray.android.usage
 
 import android.content.Context
+import com.codexquotatray.android.quota.AndroidLanAvailability
+import com.codexquotatray.android.quota.LanAvailability
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.protocol.QuotaWindow
@@ -44,8 +46,13 @@ interface WindowsQuotaFallback {
 class WindowsQuotaFallbackClient(
     private val client: OkHttpClient = defaultClient(),
     private val discovery: TokenSyncDiscovery? = null,
+    private val lanAvailability: LanAvailability? = null,
 ) : WindowsQuotaFallback {
-    constructor(context: Context, client: OkHttpClient = defaultClient()) : this(client, AndroidNsdDiscovery(context))
+    constructor(context: Context, client: OkHttpClient = defaultClient()) : this(
+        client,
+        AndroidNsdDiscovery(context),
+        AndroidLanAvailability(context),
+    )
 
     override fun sync(pairing: TokenSyncPairing): WindowsQuotaFallbackResult {
         val direct = runCatching { fetchDirect(pairing) }
@@ -80,7 +87,7 @@ class WindowsQuotaFallbackClient(
             .header("Accept", "application/json")
             .build()
         val response = try {
-            client.newCall(request).execute().use { result -> result.code to result.body?.string().orEmpty() }
+            client.bindToWifiLan(lanAvailability).newCall(request).execute().use { result -> result.code to result.body?.string().orEmpty() }
         } catch (_: SocketTimeoutException) {
             throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.OFFLINE, "Windows quota unavailable")
         } catch (_: IOException) {

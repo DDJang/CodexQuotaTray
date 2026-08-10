@@ -17,6 +17,10 @@ interface TokenSyncPairingStore {
     fun save(pairing: TokenSyncPairing): Boolean
 }
 
+internal fun interface TokenUsageCacheStore {
+    fun save(snapshot: TokenUsageSnapshot): Boolean
+}
+
 class TokenSyncStore(context: Context) : TokenSyncPairingStore {
     private val preferences = context.applicationContext.getSharedPreferences("token_sync_pairing", Context.MODE_PRIVATE)
 
@@ -86,14 +90,14 @@ class TokenSyncStore(context: Context) : TokenSyncPairingStore {
     }
 }
 
-class TokenUsageCache private constructor(private val file: File) {
+class TokenUsageCache private constructor(private val file: File) : TokenUsageCacheStore {
     constructor(context: Context) : this(File(context.applicationContext.filesDir, "token-usage-cache.json"))
 
     fun load(): TokenUsageSnapshot? = runCatching {
         if (!file.isFile || file.length() > MAXIMUM_BYTES) null else TokenUsageJson.parse(file.readText(Charsets.UTF_8))
     }.getOrNull()
 
-    fun save(snapshot: TokenUsageSnapshot): Boolean = runCatching {
+    override fun save(snapshot: TokenUsageSnapshot): Boolean = runCatching {
         file.parentFile?.mkdirs()
         val temporary = File(file.parentFile, file.name + ".tmp")
         val bytes = TokenUsageJson.serialize(snapshot).toByteArray(Charsets.UTF_8)

@@ -43,7 +43,6 @@ class MainActivity : ComponentActivity() {
         quota = QuotaPageController(this)
         usage = TokenUsagePageController(this)
         quota.initialize()
-        quota.onVisible()
         TokenUsageRefreshScheduler.schedule(this)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
