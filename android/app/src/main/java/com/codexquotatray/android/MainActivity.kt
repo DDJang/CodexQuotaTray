@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -32,13 +33,14 @@ class MainActivity : ComponentActivity() {
     private lateinit var quota: QuotaPageController
     private lateinit var usage: TokenUsagePageController
     private var selectedIndex by mutableIntStateOf(0)
-    private var appliedTheme: ThemeMode? = null
+    private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
+    private var systemThemeVersion by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
         super.onCreate(savedInstanceState)
         AppTheme.applySystemBars(this)
-        appliedTheme = AppTheme.effectiveMode(this)
+        themeMode = AppTheme.mode(this)
         AppLogStore.record(this, "应用启动")
         quota = QuotaPageController(this)
         usage = TokenUsagePageController(this)
@@ -50,7 +52,8 @@ class MainActivity : ComponentActivity() {
             }
         })
         setContent {
-            val palette = AppTheme.palette(this)
+            systemThemeVersion
+            val palette = rememberAnimatedThemePalette(AppTheme.palette(this, themeMode))
             CodexQuotaTheme(palette) {
                 val pageBackdrop = rememberLayerBackdrop()
                 Box(Modifier.fillMaxSize().background(palette.color(palette.background))) {
@@ -100,7 +103,15 @@ class MainActivity : ComponentActivity() {
     }
     override fun onResume() {
         super.onResume()
-        if (appliedTheme != AppTheme.effectiveMode(this)) { recreate(); return }
+        val restoredTheme = AppTheme.mode(this)
+        if (themeMode != restoredTheme) {
+            themeMode = restoredTheme
+        }
+        if (restoredTheme == ThemeMode.SYSTEM) {
+            ThemeSettingsStore(this).synchronizeLaunchTheme()
+            systemThemeVersion++
+        }
+        AppTheme.applySystemBars(this)
         if (::quota.isInitialized) quota.onResume()
         if (selectedIndex == 0 && ::quota.isInitialized) quota.onVisible()
         if (selectedIndex == 1 && ::usage.isInitialized) usage.onResume()

@@ -88,6 +88,7 @@ class SettingsActivity : ComponentActivity() {
     private var tokenBackgroundSync by mutableStateOf(false)
     private var tokenSyncInterval by mutableStateOf(TokenUsageRefreshSettings.DEFAULT_INTERVAL_MINUTES)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
+    private var systemThemeVersion by mutableStateOf(0)
     private var pairing by mutableStateOf<TokenSyncPairing?>(null)
     private var tokenStatus by mutableStateOf("尚未配对 Windows")
     private var pairingUri by mutableStateOf("")
@@ -106,11 +107,14 @@ class SettingsActivity : ComponentActivity() {
         AppTheme.applySystemBars(this)
         renderState()
         setContent {
+            systemThemeVersion
             // Keep the outer visual tree subscribed to the selection. Previously
             // only the child theme rows observed themeMode, so returning to the
             // root could show the new label with the old palette.
             val effectiveTheme = AppTheme.effectiveMode(this, themeMode)
-            val palette = settingsPalette(AppTheme.palette(this, themeMode), effectiveTheme)
+            val palette = rememberAnimatedThemePalette(
+                settingsPalette(AppTheme.palette(this, themeMode), effectiveTheme),
+            )
             CodexQuotaTheme(palette) {
                 val backdrop = rememberLayerBackdrop()
                 val scrollState = rememberScrollState()
@@ -177,6 +181,11 @@ class SettingsActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         renderState()
+        if (themeMode == ThemeMode.SYSTEM) {
+            themeStore.synchronizeLaunchTheme()
+            systemThemeVersion++
+        }
+        AppTheme.applySystemBars(this)
     }
 
     override fun onDestroy() {
@@ -265,7 +274,6 @@ class SettingsActivity : ComponentActivity() {
                 SettingsToggleRow("系统通知", notificationEnabled) {
                     if (it) requestNotificationPermission() else openNotificationSettings()
                 }
-                SettingsActionButton("发送测试通知", enabled = notificationEnabled, onClick = ::sendTestNotification)
             }
         }
         SettingsSection("额度提醒") {
@@ -361,7 +369,11 @@ class SettingsActivity : ComponentActivity() {
                     )
                     SettingsActionButton("立即同步", onClick = ::syncPairedNow)
                     SettingsActionButton("重新扫码配对", onClick = ::scanPairing)
-                    SettingsActionButton("解除配对", danger = true) { showClearPairingDialog = true }
+                    SettingsActionButton(
+                        label = "解除配对",
+                        danger = true,
+                        bottomPadding = SettingsUiTokens.actionBottomInset,
+                    ) { showClearPairingDialog = true }
                 } ?: run {
                     SettingsActionButton("扫码配对", onClick = ::scanPairing)
                     SettingsInlineLabel("粘贴配对信息")
@@ -499,17 +511,6 @@ class SettingsActivity : ComponentActivity() {
             openNotificationSettings()
         }
         notificationEnabled = notificationsEnabled()
-    }
-
-    private fun sendTestNotification() {
-        if (!notificationsEnabled()) return
-        if (QuotaNotifications.sendTest(this)) {
-            AppLogStore.record(this, "已发送通知测试")
-            Toast.makeText(this, "测试通知已发送", Toast.LENGTH_SHORT).show()
-        } else {
-            AppLogStore.record(this, "通知测试未发送", "WARN")
-            Toast.makeText(this, "通知未发送，请检查系统通知权限", Toast.LENGTH_SHORT).show()
-        }
     }
 
     private fun openNotificationSettings() {

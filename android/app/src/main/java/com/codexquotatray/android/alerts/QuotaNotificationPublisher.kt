@@ -14,7 +14,6 @@ import java.util.concurrent.atomic.AtomicInteger
 
 object QuotaNotifications {
     const val CHANNEL_ID = "codex_quota_alerts"
-    private const val TEST_NOTIFICATION_ID = 9000
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -28,23 +27,6 @@ object QuotaNotifications {
                 description = "Codex 低额度和重置提醒"
             },
         )
-    }
-
-    fun sendTest(context: Context): Boolean {
-        ensureChannel(context)
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return false
-        if (!manager.areNotificationsEnabled()) return false
-        manager.notify(
-            TEST_NOTIFICATION_ID,
-            Notification.Builder(context, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle("CodexQuota 通知测试")
-                .setContentText("如果你看到这条通知，系统通知已正常开启。")
-                .setContentIntent(mainActivityPendingIntent(context, TEST_NOTIFICATION_ID))
-                .setAutoCancel(true)
-                .build(),
-        )
-        return true
     }
 
     internal fun mainActivityPendingIntent(context: Context, requestCode: Int): PendingIntent =

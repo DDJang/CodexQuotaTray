@@ -41,6 +41,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -56,8 +57,10 @@ internal object SettingsUiTokens {
     val actionHeight = 52.dp
     val actionCornerRadius = 18.dp
     val actionHorizontalInset = 12.dp
+    val actionBottomInset = 10.dp
     val segmentedHeight = 48.dp
     val segmentedCornerRadius = 16.dp
+    val segmentedBottomInset = 10.dp
 }
 
 @Composable
@@ -291,6 +294,7 @@ internal fun SettingsActionButton(
     label: String,
     danger: Boolean = false,
     enabled: Boolean = true,
+    bottomPadding: Dp = 4.dp,
     onClick: () -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
@@ -302,8 +306,10 @@ internal fun SettingsActionButton(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                horizontal = SettingsUiTokens.actionHorizontalInset,
-                vertical = 4.dp,
+                start = SettingsUiTokens.actionHorizontalInset,
+                top = 4.dp,
+                end = SettingsUiTokens.actionHorizontalInset,
+                bottom = bottomPadding,
             )
             .height(SettingsUiTokens.actionHeight),
         enabled = enabled,
@@ -331,8 +337,12 @@ internal fun SettingsSegmentedSelector(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(
+                start = SettingsUiTokens.actionHorizontalInset,
+                end = SettingsUiTokens.actionHorizontalInset,
+                bottom = SettingsUiTokens.segmentedBottomInset,
+            )
             .height(SettingsUiTokens.segmentedHeight)
-            .padding(horizontal = SettingsUiTokens.actionHorizontalInset)
             .clip(RoundedCornerShape(SettingsUiTokens.segmentedCornerRadius))
             .background(palette.color(palette.secondaryButton))
             .alpha(if (enabled) 1f else 0.45f)

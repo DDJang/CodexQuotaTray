@@ -12,21 +12,26 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@style/Theme.CodexQuotaTray.Starting">
         <activity
             android:name=".AboutActivity"
+            android:configChanges="uiMode"
             android:exported="false" />
         <activity
             android:name=".AccountActivity"
+            android:configChanges="uiMode"
             android:exported="false" />
         <activity
             android:name=".LoginActivity"
+            android:configChanges="uiMode"
             android:exported="false" />
         <activity
             android:name=".LogActivity"
+            android:configChanges="uiMode"
             android:exported="false" />
         <activity
             android:name=".SettingsActivity"
+            android:configChanges="uiMode"
             android:exported="false" />
         <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
@@ -34,6 +39,7 @@
             tools:replace="android:screenOrientation" />
         <activity
             android:name=".MainActivity"
+            android:configChanges="uiMode"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

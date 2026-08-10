@@ -81,12 +81,13 @@ class LoginActivity : ComponentActivity() {
                                 style = CodexButtonStyle.PRIMARY,
                             )
                         }
-                        CodexButton(
-                            text = if (busy) "登录处理中…" else "重新登录",
-                            onClick = ::beginLogin,
-                            enabled = !busy,
-                            modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                        )
+                        if (!busy) {
+                            CodexButton(
+                                text = "重新登录",
+                                onClick = ::beginLogin,
+                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                            )
+                        }
                     }
                 }
             }

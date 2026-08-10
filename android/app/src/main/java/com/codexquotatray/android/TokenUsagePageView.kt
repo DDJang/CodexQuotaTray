@@ -55,7 +55,10 @@ import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
 import com.codexquotatray.android.usage.tokenUsageSyncErrorMessage
 import java.text.SimpleDateFormat
 import java.time.Instant
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -225,7 +228,11 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
     SummaryRow(second)
     Text("Token 热力图", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.title), modifier = Modifier.padding(top = 10.dp))
     var selected by androidx.compose.runtime.remember { mutableStateOf<TokenUsageDay?>(null) }
-    Text(selected?.let { "${it.date.monthValue} 月 ${it.date.dayOfMonth} 日  ${String.format(Locale.US, "%,d", it.totalTokens)} Token" } ?: "触摸方格查看当日用量", color = palette.color(palette.secondary), fontSize = 14.sp)
+    Text(
+        selected?.let(::formatHeatmapSelection) ?: "触摸方格查看当日用量",
+        color = palette.color(palette.secondary),
+        fontSize = 14.sp,
+    )
     TokenHeatmap(snapshot.days) { selected = it }
 }
 
@@ -246,30 +253,74 @@ private fun SummaryRow(items: List<Pair<String, Long>>) {
 private fun TokenHeatmap(days: List<TokenUsageDay>, selected: (TokenUsageDay) -> Unit) {
     val palette = LocalQuotaPalette.current
     val hapticFeedback = LocalHapticFeedback.current
-    val start = LocalDate.now().minusDays(364)
+    val range = tokenHeatmapRange(days)
     val values = days.associateBy { it.date }
     val nonZero = days.map { it.totalTokens }.filter { it > 0L }
     val colors = listOf(palette.color(palette.progressTrack), androidx.compose.ui.graphics.Color(0xffc6e48b), androidx.compose.ui.graphics.Color(0xff7bc96f), androidx.compose.ui.graphics.Color(0xff239a3b), androidx.compose.ui.graphics.Color(0xff196127))
     val scroll = rememberScrollState(initial = Int.MAX_VALUE)
     Canvas(
-        Modifier.horizontalScroll(scroll).size(width = 954.dp, height = 126.dp).pointerInput(days) {
+        Modifier
+            .horizontalScroll(scroll)
+            .size(width = (range.columnCount * 18 - 3).dp, height = 126.dp)
+            .pointerInput(range, days) {
             detectTapGestures { point ->
                 val column = (point.x / 18.dp.toPx()).toInt(); val row = (point.y / 18.dp.toPx()).toInt(); val index = column * 7 + row
-                if (index in 0 until 365) {
+                if (index in 0 until range.dayCount) {
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
-                    val date = start.plusDays(index.toLong())
+                    val date = range.start.plusDays(index.toLong())
                     selected(values[date] ?: TokenUsageDay(date, 0, null, null, null, null))
                 }
             }
         },
     ) {
         val cell = 15.dp.toPx(); val gap = 3.dp.toPx()
-        repeat(365) { index ->
-            val date = start.plusDays(index.toLong()); val tokens = values[date]?.totalTokens ?: 0L
+        repeat(range.dayCount) { index ->
+            val date = range.start.plusDays(index.toLong()); val tokens = values[date]?.totalTokens ?: 0L
             drawRoundRect(colors[HeatmapBuckets.bucket(tokens, nonZero)], Offset((index / 7) * (cell + gap), (index % 7) * (cell + gap)), Size(cell, cell), androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
         }
     }
 }
+
+internal data class TokenHeatmapRange(
+    val start: LocalDate,
+    val end: LocalDate,
+) {
+    val dayCount: Int get() = ChronoUnit.DAYS.between(start, end).toInt() + 1
+    val columnCount: Int get() = (dayCount + 6) / 7
+}
+
+internal fun tokenHeatmapRange(
+    days: List<TokenUsageDay>,
+    today: LocalDate = LocalDate.now(),
+): TokenHeatmapRange {
+    val recentEightWeeksStart = startOfWeek(today).minusWeeks(7)
+    val firstUsageWeek = days
+        .asSequence()
+        .filter { it.date <= today && it.totalTokens > 0L }
+        .map { startOfWeek(it.date) }
+        .minOrNull()
+    val desiredStart = firstUsageWeek?.let { minOf(it, recentEightWeeksStart) } ?: recentEightWeeksStart
+    val oldestAllowedWeek = today.minusDays(MAX_HEATMAP_DAYS - 1L)
+        .with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+    return TokenHeatmapRange(maxOf(desiredStart, oldestAllowedWeek), today)
+}
+
+internal fun formatHeatmapSelection(
+    day: TokenUsageDay,
+    currentYear: Int = LocalDate.now().year,
+): String {
+    val datePrefix = if (day.date.year == currentYear) {
+        "${day.date.monthValue} 月 ${day.date.dayOfMonth} 日"
+    } else {
+        "${day.date.year} 年 ${day.date.monthValue} 月 ${day.date.dayOfMonth} 日"
+    }
+    return "$datePrefix  ${String.format(Locale.US, "%,d", day.totalTokens)} Token"
+}
+
+private fun startOfWeek(date: LocalDate): LocalDate =
+    date.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
+
+private const val MAX_HEATMAP_DAYS = 365
 
 private fun formatSyncTime(raw: String) = runCatching { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date.from(Instant.parse(raw))) }.getOrDefault("未知")
 

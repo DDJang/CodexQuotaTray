@@ -1,11 +1,20 @@
 package com.codexquotatray.android
 
 import android.app.Activity
+import android.app.UiModeManager
 import android.content.Context
 import android.content.res.Configuration
+import android.content.res.Resources
 import android.graphics.Color
+import android.os.Build
 import android.view.View
 import android.view.Window
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -27,7 +36,8 @@ enum class ThemeMode(val storageValue: String) {
 }
 
 class ThemeSettingsStore(context: Context) {
-    private val preferences = context.applicationContext.getSharedPreferences(
+    private val appContext = context.applicationContext
+    private val preferences = appContext.getSharedPreferences(
         PREFERENCES_NAME,
         Context.MODE_PRIVATE,
     )
@@ -39,13 +49,44 @@ class ThemeSettingsStore(context: Context) {
         // Commit before that host recomposes so a palette read cannot observe the
         // previous value while SharedPreferences.apply() is still flushing.
         preferences.edit().putString(KEY_MODE, mode.storageValue).commit()
+        synchronizeLaunchTheme()
+    }
+
+    /**
+     * Persists the selected night-mode for a future cold-start splash. Activities
+     * declare uiMode config handling, so Android updates their configuration
+     * without recreating the current Compose tree.
+     */
+    fun synchronizeLaunchTheme() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        appContext.getSystemService(UiModeManager::class.java)
+            ?.setApplicationNightMode(
+                applicationNightMode(load(), Resources.getSystem().configuration.uiMode),
+            )
     }
 
     companion object {
         private const val PREFERENCES_NAME = "appearance_settings"
         private const val KEY_MODE = "theme_mode"
+
+        internal fun applicationNightMode(mode: ThemeMode, systemUiMode: Int): Int = when (mode) {
+            ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
+            ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
+            ThemeMode.SYSTEM -> when (systemThemeMode(systemUiMode)) {
+                ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
+                ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
+                ThemeMode.SYSTEM -> error("System theme must resolve to light or dark")
+            }
+        }
     }
 }
+
+internal fun systemThemeMode(uiMode: Int): ThemeMode =
+    if ((uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES) {
+        ThemeMode.DARK
+    } else {
+        ThemeMode.LIGHT
+    }
 
 data class ThemePalette(
     val background: Int,
@@ -71,13 +112,10 @@ object AppTheme {
 
     fun effectiveMode(context: Context, selected: ThemeMode): ThemeMode {
         if (selected != ThemeMode.SYSTEM) return selected
-        return if ((context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-            Configuration.UI_MODE_NIGHT_YES
-        ) {
-            ThemeMode.DARK
-        } else {
-            ThemeMode.LIGHT
-        }
+        // Application-local night mode can be explicitly light/dark so the
+        // Android 12 splash is correct. Read the system resource configuration
+        // here so the "follow system" option remains independent of that cache.
+        return systemThemeMode(Resources.getSystem().configuration.uiMode)
     }
 
     fun palette(context: Context, selected: ThemeMode = mode(context)): ThemePalette =
@@ -121,8 +159,13 @@ object AppTheme {
 
     /** Selects a matching platform base theme before an Activity creates its views. */
     fun prepare(activity: Activity) {
+        val selected = mode(activity)
+        // Backfill the platform launch mode for installations created before the
+        // launch-theme synchronization was introduced. uiMode is handled in the
+        // manifest, so this does not recreate the visible Activity.
+        ThemeSettingsStore(activity).synchronizeLaunchTheme()
         activity.setTheme(
-            if (effectiveMode(activity) == ThemeMode.DARK) {
+            if (effectiveMode(activity, selected) == ThemeMode.DARK) {
                 android.R.style.Theme_Material_NoActionBar
             } else {
                 android.R.style.Theme_Material_Light_NoActionBar
@@ -191,4 +234,37 @@ object AppTheme {
             .invoke(null, window)
         true
     }.getOrDefault(false)
+}
+
+/**
+ * Keeps a user-initiated palette change inside the existing Compose tree.
+ * Recreating the Activity for an appearance preference makes the Android splash
+ * briefly visible, which is perceived as a black/white flash.
+ */
+@Composable
+fun rememberAnimatedThemePalette(target: ThemePalette): ThemePalette = ThemePalette(
+    background = animateThemeColor(target.background),
+    surface = animateThemeColor(target.surface),
+    border = animateThemeColor(target.border),
+    title = animateThemeColor(target.title),
+    body = animateThemeColor(target.body),
+    secondary = animateThemeColor(target.secondary),
+    muted = animateThemeColor(target.muted),
+    accent = animateThemeColor(target.accent),
+    primaryButton = animateThemeColor(target.primaryButton),
+    onPrimary = animateThemeColor(target.onPrimary),
+    secondaryButton = animateThemeColor(target.secondaryButton),
+    secondaryButtonText = animateThemeColor(target.secondaryButtonText),
+    progressTrack = animateThemeColor(target.progressTrack),
+    error = animateThemeColor(target.error),
+)
+
+@Composable
+private fun animateThemeColor(target: Int): Int {
+    val color by animateColorAsState(
+        targetValue = ComposeColor(target),
+        animationSpec = tween(durationMillis = 220),
+        label = "theme-color",
+    )
+    return color.toArgb()
 }
