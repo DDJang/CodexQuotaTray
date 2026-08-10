@@ -51,6 +51,24 @@ data class TokenSyncPairing(
     val url: String get() = "http://$lastKnownHost:$port/v1/token-usage"
 }
 
+/**
+ * QR pairings have a stable Windows device id. Older manual pairings do not,
+ * so retain a conservative endpoint identity for their private local cache.
+ * Neither form contains the pairing secret.
+ */
+internal fun TokenSyncPairing.cacheIdentity(): String = deviceId
+    .trim()
+    .takeIf { it.isNotEmpty() }
+    ?.lowercase()
+    ?: "legacy:$lastKnownHost:$port"
+
+/** Ignores mutable sync metadata while detecting a pairing replacement. */
+internal fun TokenSyncPairing.matchesConfiguration(other: TokenSyncPairing): Boolean =
+    deviceId.equals(other.deviceId, ignoreCase = true) &&
+        pairingSecret == other.pairingSecret &&
+        lastKnownHost == other.lastKnownHost &&
+        port == other.port
+
 object TokenSyncEndpoint {
     const val ServiceType = "_codexquota._tcp"
 

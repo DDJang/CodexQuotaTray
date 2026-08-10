@@ -45,11 +45,13 @@ import com.codexquotatray.android.quota.QuotaRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenSyncEndpoint
 import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
-import com.codexquotatray.android.usage.TokenUsageException
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettings
 import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
 import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
+import com.codexquotatray.android.usage.TokenUsageCache
+import com.codexquotatray.android.usage.TokenUsagePairingLifecycle
+import com.codexquotatray.android.usage.tokenUsageSyncErrorMessage
 import com.google.zxing.integration.android.IntentIntegrator
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -583,7 +585,7 @@ class SettingsActivity : ComponentActivity() {
                     renderState()
                     Toast.makeText(
                         this,
-                        "已保存配对；${(error as? TokenUsageException)?.message ?: "Windows 当前不可用"}",
+                        "已保存配对；${tokenUsageSyncErrorMessage(error)}",
                         Toast.LENGTH_LONG,
                     ).show()
                 }
@@ -597,7 +599,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun clearPairing() {
-        if (tokenStore.clear()) {
+        if (TokenUsagePairingLifecycle.clear(tokenStore, TokenUsageCache(this))) {
             TokenUsageRefreshScheduler.cancel(this)
             renderState()
             Toast.makeText(this, "Windows 配对已解除", Toast.LENGTH_SHORT).show()

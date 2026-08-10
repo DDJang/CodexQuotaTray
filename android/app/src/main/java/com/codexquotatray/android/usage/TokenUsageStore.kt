@@ -15,21 +15,46 @@ import javax.crypto.spec.GCMParameterSpec
 interface TokenSyncPairingStore {
     fun load(): TokenSyncPairing?
     fun save(pairing: TokenSyncPairing): Boolean
+    fun clear(): Boolean = false
+
+    /** Atomically persist only when the user has not replaced this pairing. */
+    fun saveIfCurrent(expected: TokenSyncPairing, updated: TokenSyncPairing): Boolean =
+        load()?.takeIf { it.matchesConfiguration(expected) }?.let { save(updated) } ?: false
 }
 
-internal fun interface TokenUsageCacheStore {
-    fun save(snapshot: TokenUsageSnapshot): Boolean
+internal interface TokenUsageCacheStore {
+    fun save(pairing: TokenSyncPairing, snapshot: TokenUsageSnapshot): Boolean
+    fun clear(): Boolean
+}
+
+/** Shared by pairing changes and the final sync commit boundary. */
+internal object TokenUsagePairingLifecycle {
+    private val lock = Any()
+
+    fun <T> withLock(block: () -> T): T = synchronized(lock, block)
+
+    fun clear(pairingStore: TokenSyncPairingStore, cache: TokenUsageCacheStore): Boolean = withLock {
+        cache.clear() && pairingStore.clear()
+    }
 }
 
 class TokenSyncStore(context: Context) : TokenSyncPairingStore {
     private val preferences = context.applicationContext.getSharedPreferences("token_sync_pairing", Context.MODE_PRIVATE)
 
-    override fun load(): TokenSyncPairing? = synchronized(lock) {
+    override fun load(): TokenSyncPairing? = TokenUsagePairingLifecycle.withLock {
         preferences.getString(KEY_PAIRING, null)?.let(::decrypt)
     }
 
-    override fun save(pairing: TokenSyncPairing): Boolean = synchronized(lock) {
-        runCatching {
+    override fun save(pairing: TokenSyncPairing): Boolean = TokenUsagePairingLifecycle.withLock {
+        write(pairing)
+    }
+
+    override fun saveIfCurrent(expected: TokenSyncPairing, updated: TokenSyncPairing): Boolean = TokenUsagePairingLifecycle.withLock {
+        load()?.takeIf { it.matchesConfiguration(expected) }?.let { write(updated) } ?: false
+    }
+
+    private fun write(pairing: TokenSyncPairing): Boolean {
+        return runCatching {
             val payload = JSONObject()
                 .put("deviceId", pairing.deviceId)
                 .put("host", pairing.lastKnownHost)
@@ -63,7 +88,7 @@ class TokenSyncStore(context: Context) : TokenSyncPairingStore {
         )
     }.getOrNull()
 
-    fun clear(): Boolean = synchronized(lock) {
+    override fun clear(): Boolean = TokenUsagePairingLifecycle.withLock {
         preferences.edit().remove(KEY_PAIRING).commit()
     }
 
@@ -80,7 +105,6 @@ class TokenSyncStore(context: Context) : TokenSyncPairingStore {
     }
 
     companion object {
-        private val lock = Any()
         private const val KEY_PAIRING = "encrypted_pairing"
         private const val KEY_ALIAS = "codex_quota_token_sync_v1"
         private const val ANDROID_KEYSTORE = "AndroidKeyStore"
@@ -93,14 +117,22 @@ class TokenSyncStore(context: Context) : TokenSyncPairingStore {
 class TokenUsageCache private constructor(private val file: File) : TokenUsageCacheStore {
     constructor(context: Context) : this(File(context.applicationContext.filesDir, "token-usage-cache.json"))
 
-    fun load(): TokenUsageSnapshot? = runCatching {
-        if (!file.isFile || file.length() > MAXIMUM_BYTES) null else TokenUsageJson.parse(file.readText(Charsets.UTF_8))
+    fun load(pairing: TokenSyncPairing): TokenUsageSnapshot? = runCatching {
+        if (!file.isFile || file.length() > MAXIMUM_BYTES) null else {
+            val root = JSONObject(file.readText(Charsets.UTF_8))
+            if (root.optString("pairingIdentity") != pairing.cacheIdentity()) null
+            else root.optJSONObject("snapshot")?.let { TokenUsageJson.parse(it.toString()) }
+        }
     }.getOrNull()
 
-    override fun save(snapshot: TokenUsageSnapshot): Boolean = runCatching {
+    override fun save(pairing: TokenSyncPairing, snapshot: TokenUsageSnapshot): Boolean = runCatching {
         file.parentFile?.mkdirs()
         val temporary = File(file.parentFile, file.name + ".tmp")
-        val bytes = TokenUsageJson.serialize(snapshot).toByteArray(Charsets.UTF_8)
+        val bytes = JSONObject()
+            .put("pairingIdentity", pairing.cacheIdentity())
+            .put("snapshot", JSONObject(TokenUsageJson.serialize(snapshot)))
+            .toString()
+            .toByteArray(Charsets.UTF_8)
         require(bytes.size <= MAXIMUM_BYTES)
         temporary.outputStream().use { output ->
             output.write(bytes)
@@ -115,6 +147,8 @@ class TokenUsageCache private constructor(private val file: File) : TokenUsageCa
         )
         true
     }.getOrDefault(false)
+
+    override fun clear(): Boolean = !file.exists() || file.delete()
 
     companion object {
         private const val MAXIMUM_BYTES = 512 * 1024

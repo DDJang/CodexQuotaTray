@@ -25,51 +25,79 @@ internal class TokenUsageSyncCoordinator(
         notifyCompleted = { TokenUsageRefreshEvents.notifyCompleted(context.applicationContext) },
     )
 
-    fun sync(pairing: TokenSyncPairing): TokenUsageSyncResult = TokenUsageSyncSingleFlight.run {
+    fun sync(pairing: TokenSyncPairing): TokenUsageSyncResult = TokenUsageSyncSingleFlight.run(pairing.cacheIdentity()) {
         val synced = transport.sync(pairing)
-        if (!cache.save(synced.snapshot)) {
-            throw TokenUsageCommitException("无法保存 Token 使用量缓存")
+        TokenUsagePairingLifecycle.withLock {
+            val current = pairingStore.load()
+            if (current == null || !current.matchesConfiguration(pairing)) {
+                throw TokenUsagePairingChangedException()
+            }
+            if (!synced.pairing.deviceId.equals(pairing.deviceId, ignoreCase = true)) {
+                throw TokenUsagePairingChangedException()
+            }
+            if (!cache.save(pairing, synced.snapshot)) {
+                throw TokenUsageCommitException()
+            }
+            val updatedPairing = TokenSyncEndpoint.markSynced(synced.pairing, synced.snapshot)
+            if (!pairingStore.saveIfCurrent(pairing, updatedPairing)) {
+                if (pairingStore.load()?.matchesConfiguration(pairing) != true) {
+                    throw TokenUsagePairingChangedException()
+                }
+                throw TokenUsageCommitException()
+            }
+            notifyCompleted()
+            synced.copy(pairing = updatedPairing)
         }
-        val updatedPairing = TokenSyncEndpoint.markSynced(synced.pairing, synced.snapshot)
-        if (!pairingStore.save(updatedPairing)) {
-            throw TokenUsageCommitException("无法保存 Token 同步状态")
-        }
-        notifyCompleted()
-        synced.copy(pairing = updatedPairing)
     }
 }
 
-internal class TokenUsageCommitException(message: String) : IOException(message)
+internal class TokenUsageCommitException : IOException("Token 同步数据保存失败")
+internal class TokenUsagePairingChangedException : IOException("Windows 配对已变更，已丢弃旧 Token 同步结果")
+
+internal fun tokenUsageSyncErrorMessage(error: Throwable): String = when (error) {
+    is TokenUsageCommitException -> "Token 同步数据保存失败"
+    is TokenUsagePairingChangedException -> error.message ?: "Windows 配对已变更，已丢弃旧 Token 同步结果"
+    is TokenUsageException -> error.message
+    else -> "Windows 当前不可用"
+}
 
 /** Shares a concurrent request's completed result instead of opening a second LAN call. */
 private object TokenUsageSyncSingleFlight {
     private val monitor = Object()
-    private var inFlight = false
-    private var completed: Result<TokenUsageSyncResult>? = null
+    private val inFlights = mutableMapOf<String, Flight>()
 
-    fun run(block: () -> TokenUsageSyncResult): TokenUsageSyncResult {
+    fun run(identity: String, block: () -> TokenUsageSyncResult): TokenUsageSyncResult {
+        val flight: Flight
         synchronized(monitor) {
-            if (inFlight) {
-                while (inFlight) {
+            val existing = inFlights[identity]
+            if (existing != null) {
+                flight = existing
+                while (!flight.completed) {
                     try {
                         monitor.wait()
                     } catch (error: InterruptedException) {
                         Thread.currentThread().interrupt()
-                        throw TokenUsageCommitException("Token 同步等待已中断")
+                        throw TokenUsageCommitException()
                     }
                 }
-                return completed!!.getOrThrow()
+                return flight.result!!.getOrThrow()
             }
-            inFlight = true
-            completed = null
+            flight = Flight()
+            inFlights[identity] = flight
         }
 
         val result = runCatching(block)
         synchronized(monitor) {
-            completed = result
-            inFlight = false
+            flight.result = result
+            flight.completed = true
+            if (inFlights[identity] === flight) inFlights.remove(identity)
             monitor.notifyAll()
         }
         return result.getOrThrow()
+    }
+
+    private class Flight {
+        var completed = false
+        var result: Result<TokenUsageSyncResult>? = null
     }
 }

@@ -47,12 +47,12 @@ import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenUsageCache
 import com.codexquotatray.android.usage.TokenUsageDay
-import com.codexquotatray.android.usage.TokenUsageException
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenUsageRefreshEvents
 import com.codexquotatray.android.refresh.ForegroundRefreshPolicy
 import com.codexquotatray.android.usage.TokenUsageSnapshot
 import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
+import com.codexquotatray.android.usage.tokenUsageSyncErrorMessage
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.LocalDate
@@ -140,7 +140,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
                     snapshot = synced.snapshot
                     status = "上次同步于 ${formatSyncTime(synced.snapshot.generatedAtUtc)}"
                 }.onFailure { error ->
-                    val message = (error as? TokenUsageException)?.message ?: "Windows 当前不可用"
+            val message = tokenUsageSyncErrorMessage(error)
                     status = snapshot?.let { "上次同步于 ${formatSyncTime(it.generatedAtUtc)} · $message" } ?: message
                 }
             }
@@ -148,7 +148,8 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     }
 
     private fun renderCachedSnapshot() {
-        cache.load()?.let {
+        val pairing = store.load()
+        pairing?.let(cache::load)?.let {
             snapshot = it
             status = "上次同步于 ${formatSyncTime(it.generatedAtUtc)}"
         } ?: run {
@@ -192,7 +193,9 @@ private fun TokenUsageStatusLine(status: String) {
         Text(
             status,
             fontSize = 14.sp,
-            color = palette.color(if (status.contains("Windows 当前不可用")) palette.error else palette.muted),
+            color = palette.color(
+                if (status.contains("Windows 当前不可用") || status.contains("Token 同步数据保存失败")) palette.error else palette.muted,
+            ),
         )
     }
 

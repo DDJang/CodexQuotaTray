@@ -8,6 +8,7 @@ import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -142,14 +143,22 @@ class TokenUsageTest {
         assertEquals(TokenUsageFailureKind.OFFLINE, failure { client.sync(pairingWithId()) }.kind)
     }
 
-    @Test fun cacheRoundTripUsesAggregateJsonOnly() {
+    @Test fun cacheRoundTripUsesAggregateJsonOnlyAndIsBoundToThePairedWindowsDevice() {
         val directory = Files.createTempDirectory("token-usage-cache").toFile()
         try {
             val file = File(directory, "cache.json")
             val cache = TokenUsageCache.forTest(file)
             val value = TokenUsageJson.parse(fixture())
-            assertTrue(cache.save(value))
-            assertEquals(value, cache.load())
+            val deviceA = pairingWithId()
+            val deviceB = TokenSyncEndpoint.validated(
+                "123e4567-e89b-12d3-a456-426614174001",
+                "192.168.1.11",
+                43821,
+                "another-secret",
+            )
+            assertTrue(cache.save(deviceA, value))
+            assertEquals(value, cache.load(deviceA))
+            assertNull(cache.load(deviceB))
             val raw = file.readText()
             assertFalse(raw.contains("prompt", ignoreCase = true))
             assertFalse(raw.contains("session", ignoreCase = true))

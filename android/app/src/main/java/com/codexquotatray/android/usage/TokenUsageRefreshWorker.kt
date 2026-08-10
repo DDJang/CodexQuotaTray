@@ -43,7 +43,7 @@ class TokenUsageRefreshWorker(
                     Result.success()
                 },
                 onFailure = { error ->
-                    val message = (error as? TokenUsageException)?.message ?: "Windows 当前不可用"
+                    val message = tokenUsageSyncErrorMessage(error)
                     AppLogStore.record(applicationContext, "Token 后台同步失败：$message", "WARN")
                     // A later periodic run may recover an offline Windows host.
                     Result.success()
