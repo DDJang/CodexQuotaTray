@@ -82,7 +82,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
-            if (intent?.action == TokenUsageRefreshEvents.ACTION_COMPLETED && visible && !syncing) {
+            if (intent?.action == TokenUsageRefreshEvents.ACTION_COMPLETED && visible) {
                 renderCachedSnapshot()
             }
         }
@@ -129,6 +129,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
 
     private fun sync(pairing: TokenSyncPairing?) {
         if (pairing == null || syncing || destroyed) return
+        val snapshotAtStart = snapshot
         syncing = true
         status = if (snapshot == null) "正在从 Windows 同步…" else "正在同步；当前显示缓存"
         worker.execute {
@@ -140,16 +141,21 @@ internal class TokenUsagePageController(private val host: MainActivity) {
                     snapshot = synced.snapshot
                     status = "上次同步于 ${formatSyncTime(synced.snapshot.generatedAtUtc)}"
                 }.onFailure { error ->
-            val message = tokenUsageSyncErrorMessage(error)
-                    status = snapshot?.let { "上次同步于 ${formatSyncTime(it.generatedAtUtc)} · $message" } ?: message
+                    val latestSnapshot = loadCachedSnapshot()
+                    if (latestSnapshot != null && hasNewerTokenUsageSnapshot(snapshotAtStart, latestSnapshot)) {
+                        snapshot = latestSnapshot
+                        status = "上次同步于 ${formatSyncTime(latestSnapshot.generatedAtUtc)}"
+                    } else {
+                        val message = tokenUsageSyncErrorMessage(error)
+                        status = snapshot?.let { "上次同步于 ${formatSyncTime(it.generatedAtUtc)} · $message" } ?: message
+                    }
                 }
             }
         }
     }
 
     private fun renderCachedSnapshot() {
-        val pairing = store.load()
-        pairing?.let(cache::load)?.let {
+        loadCachedSnapshot()?.let {
             snapshot = it
             status = "上次同步于 ${formatSyncTime(it.generatedAtUtc)}"
         } ?: run {
@@ -157,7 +163,16 @@ internal class TokenUsagePageController(private val host: MainActivity) {
             status = "暂无 Token 使用量缓存"
         }
     }
+
+    private fun loadCachedSnapshot(): TokenUsageSnapshot? = store.load()?.let(cache::load)
 }
+
+/** Avoids allowing an earlier failed foreground request to overwrite a newer pairing sync. */
+internal fun hasNewerTokenUsageSnapshot(
+    snapshotAtStart: TokenUsageSnapshot?,
+    latestSnapshot: TokenUsageSnapshot?,
+): Boolean = latestSnapshot != null &&
+    (snapshotAtStart == null || latestSnapshot.generatedAtUtc != snapshotAtStart.generatedAtUtc)
 
 @Composable
 internal fun TokenUsagePage(controller: TokenUsagePageController, onSettings: () -> Unit, modifier: Modifier = Modifier) {
