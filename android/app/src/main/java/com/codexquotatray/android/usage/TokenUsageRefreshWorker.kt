@@ -31,7 +31,12 @@ class TokenUsageRefreshWorker(
         val pairingStore = TokenSyncStore(applicationContext)
         val pairing = pairingStore.load()
         if (!TokenUsageRefreshScheduler.shouldSchedule(settings, pairing != null)) return Result.success()
-        if (!AndroidLanAvailability(applicationContext).isAvailable()) {
+        if (!TokenUsageRefreshScheduler.shouldRunOnWifiLan(
+                settings = settings,
+                hasPairing = pairing != null,
+                isWifiLanAvailable = AndroidLanAvailability(applicationContext).isAvailable(),
+            )
+        ) {
             AppLogStore.record(applicationContext, "Token 后台同步已跳过：当前不在 Wi-Fi", "INFO")
             return Result.success()
         }
@@ -58,6 +63,16 @@ object TokenUsageRefreshScheduler {
     internal fun shouldSchedule(settings: TokenUsageRefreshSettings, hasPairing: Boolean): Boolean =
         settings.backgroundSyncEnabled && hasPairing
 
+    /** The Worker may start without validated Internet, but only syncs on a real Wi-Fi LAN. */
+    internal fun shouldRunOnWifiLan(
+        settings: TokenUsageRefreshSettings,
+        hasPairing: Boolean,
+        isWifiLanAvailable: Boolean,
+    ): Boolean = shouldSchedule(settings, hasPairing) && isWifiLanAvailable
+
+    /** Paired Token sync is local-only and must not wait for validated Internet. */
+    internal fun requiredNetworkType(): NetworkType = NetworkType.NOT_REQUIRED
+
     fun cancel(context: Context) {
         WorkManager.getInstance(context.applicationContext).cancelUniqueWork(WORK_NAME)
     }
@@ -76,7 +91,7 @@ object TokenUsageRefreshScheduler {
             TimeUnit.MINUTES,
         )
             .setConstraints(
-                Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
+                Constraints.Builder().setRequiredNetworkType(requiredNetworkType()).build(),
             )
             .build()
         WorkManager.getInstance(appContext).enqueueUniquePeriodicWork(

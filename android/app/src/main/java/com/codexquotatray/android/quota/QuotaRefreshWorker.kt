@@ -3,6 +3,7 @@ package com.codexquotatray.android.quota
 import android.content.Context
 import com.codexquotatray.android.AppLogStore
 import com.codexquotatray.android.auth.OAuthStore
+import com.codexquotatray.android.usage.TokenSyncStore
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -54,8 +55,9 @@ object QuotaRefreshScheduler {
             return
         }
 
+        val hasWindowsPairing = TokenSyncStore(appContext).load() != null
         val constraints = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
+            .setRequiredNetworkType(requiredNetworkType(hasWindowsPairing))
             .build()
         val request = PeriodicWorkRequestBuilder<QuotaRefreshWorker>(
             settings.normalizedIntervalMinutes.toLong(),
@@ -69,4 +71,13 @@ object QuotaRefreshScheduler {
             request,
         )
     }
+
+    /**
+     * WorkManager treats CONNECTED as validated Internet on API 26+, which excludes a
+     * private Wi-Fi LAN that can still reach a paired Windows fallback server. A paired
+     * device must therefore be eligible to run without that constraint. The worker keeps
+     * Direct OpenAI first and only uses Windows after a NETWORK failure.
+     */
+    internal fun requiredNetworkType(hasWindowsPairing: Boolean): NetworkType =
+        if (hasWindowsPairing) NetworkType.NOT_REQUIRED else NetworkType.CONNECTED
 }

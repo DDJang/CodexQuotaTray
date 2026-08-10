@@ -542,6 +542,7 @@ class SettingsActivity : ComponentActivity() {
                 pairingHost = "${value.host}:${value.port}"
                 renderState()
                 TokenUsageRefreshScheduler.schedule(this)
+                QuotaRefreshScheduler.schedule(this)
                 Toast.makeText(this, "Token 同步配对已保存", Toast.LENGTH_SHORT).show()
                 testPairing(value)
             } else {
@@ -601,6 +602,7 @@ class SettingsActivity : ComponentActivity() {
     private fun clearPairing() {
         if (TokenUsagePairingLifecycle.clear(tokenStore, TokenUsageCache(this))) {
             TokenUsageRefreshScheduler.cancel(this)
+            QuotaRefreshScheduler.schedule(this)
             renderState()
             Toast.makeText(this, "Windows 配对已解除", Toast.LENGTH_SHORT).show()
         } else {
