@@ -5,22 +5,34 @@
 
 产品版本写在 [App 项目文件](../winui/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj)，SDK 由仓库根目录 [`global.json`](../global.json) 选择。所有命令从仓库根目录执行。准备正式 tag 前，建议先确认工作区干净并检查目标提交；`target/`、`dist/`、`dist-inno/`、`bin/`、`obj/` 和 `TestResults/` 都是本地产物，不应提交。
 
+## 日常开发与正式发布边界
+
+日常本地开发只构建和运行 Debug 的 **CodexQuotaTray Dev**。Dev 与 Production 使用独立的
+single-instance identity、托盘 GUID、LocalAppData、启动项和 LAN listener identity，因此
+不得在日常开发中生成、安装或修改正式 Release，也不得影响已安装的 Production。
+
+正式 Windows Release 只由 GitHub Actions 从 `main` 提交上的 `windows-v*` tag 构建和发布。
+本地 `publish`、ZIP 或 Inno 脚本只能用于验证发布目录或安装器输入，不能作为正式发布，也不应
+作为日常开发步骤。
+
 ## 默认验证
 
-普通开发验证使用：
+日常 Dev 开发验证使用：
 
 ```powershell
 pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Quick
 pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Full
 ```
 
-准备发布目录时使用：
+GitHub Actions 正式发布验证使用：
 
 ```powershell
 pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Release
 ```
 
-Release 模式在 Full 基础上生成并检查 self-contained publish 目录。它不会生成 `dist/` ZIP、编译安装器、安装应用、签名或运行交互式 smoke。
+Quick/Full 都只构建 Debug/Dev；Release 模式才构建 Production Release，并在 Full 基础上生成
+和检查 self-contained publish 目录。它不会生成 `dist/` ZIP、编译安装器、安装应用、签名或运行
+交互式 smoke。
 
 真实账户测试保持显式 opt-in，普通离线测试不需要真实 Codex 账户。
 

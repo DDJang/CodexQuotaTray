@@ -476,7 +476,7 @@
                                 Grid.Column="1"
                                 Spacing="2"
                                 VerticalAlignment="Center">
-                                <TextBlock Text="CodexQuotaTray" Style="{StaticResource SettingsLabelStyle}" />
+                                <TextBlock x:Name="AboutProductNameText" Text="CodexQuotaTray" Style="{StaticResource SettingsLabelStyle}" />
                                 <TextBlock
                                     x:Name="AboutVersionText"
                                     Text="版本"

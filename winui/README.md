@@ -33,31 +33,35 @@
 ```powershell
 pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Quick
 dotnet run --project .\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj `
-  -c Release -p:Platform=x64 --no-build
+  -c Debug -p:Platform=x64 --no-build
 ```
 
 Demo 示例：
 
 ```powershell
 dotnet run --project .\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj `
-  -c Release -p:Platform=x64 --no-build -- --demo
+  -c Debug -p:Platform=x64 --no-build -- --demo
 ```
 
-可用 `--codex-bin <PATH>` 覆盖 Codex CLI 路径；`--startup` 用于 Production
-开机启动；`--shutdown-existing` 请求对应身份的已有实例正常退出。
+日常本地开发只构建和运行 Debug 的 **CodexQuotaTray Dev**，不得生成、安装或影响正式
+Production Release。Debug 使用独立单实例 key、托盘 GUID、LocalAppData、启动项和 LAN
+listener identity，因此可与已安装的正式版同时运行。正式 Windows Release 只由 GitHub
+Actions 在 `main` 提交的 `windows-v*` tag 上构建和发布。可用 `--codex-bin <PATH>` 覆盖
+Codex CLI 路径；`--startup` 和 `--shutdown-existing` 始终作用于当前 build 的身份。
 
 ## 启动参数矩阵
 
-| 参数 | 数据源 | 数据位置 | 单实例与托盘身份 | 开机启动设置 |
+| 构建 / 参数 | 数据源 | 数据位置 | 单实例与托盘身份 | 开机启动设置 |
 | --- | --- | --- | --- | --- |
-| 无参数 | Live Runtime | Production 数据目录 | Production | 允许 |
+| Release / 无参数 | Live Runtime | Production 数据目录 | Production | 允许 |
+| Debug / 无参数 | Live Runtime | Dev 数据目录 | Development | 允许（独立启动项） |
 | `--demo` | Demo Runtime | 不持久化 | Preview | 不允许 |
 | `--isolated-preview-data` | Live Runtime | Preview 数据目录 | Preview | 不允许 |
 | `--demo --isolated-preview-data` | Demo Runtime | 不持久化 | Preview | 不允许 |
 
-Production 使用真实 App Server 和正式数据；Demo 使用静态数据；Live Preview 使用
-真实 App Server 但隔离数据。Demo 和 Live Preview 可以与 Production 并存，且不会
-读取、写入或覆盖 Production 开机启动项。
+Production 使用真实 App Server 和正式数据；Debug 默认使用同一运行时但隔离的 Dev 数据；
+Demo 使用静态数据；Live Preview 使用真实 App Server 但隔离数据。Dev、Demo 和 Live
+Preview 可以与 Production 并存，且不会读取、写入或覆盖 Production 开机启动项。
 
 ## 统一验证入口
 
@@ -67,9 +71,10 @@ pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Full
 pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Release
 ```
 
-- `Quick`：工具链信息、显式 NuGet restore、Release x64 build、差异检查。
-- `Full`：格式校验、Release x64 build、完整离线测试、差异检查。
-- `Release`：Full 加自包含 publish 和发布目录检查。
+- `Quick`：工具链信息、显式 NuGet restore、Debug/Dev x64 build、差异检查。
+- `Full`：格式校验、Debug/Dev x64 build、完整离线测试、差异检查。
+- `Release`：Production Release x64 build，加自包含 publish 和发布目录检查；供 GitHub
+  Actions 正式发布流程使用，不是日常本地开发步骤。
 
 三种模式默认都不会运行真实 Codex smoke 或 Explorer 托盘 smoke。`Release` 也不会
 生成 ZIP、编译 Inno、安装或签名。托盘 smoke 仅能通过验证脚本的显式开关调用现有

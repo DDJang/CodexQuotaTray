@@ -123,14 +123,15 @@ function Get-TestCount([string]$Output, [string[]]$Labels) {
 function Invoke-OfflineTests(
     [string]$DotNetPath,
     [string]$TestProject,
-    [string]$NuGetConfig)
+    [string]$NuGetConfig,
+    [string]$Configuration)
 {
     $previousLiveBinary = $env:CODEXQUOTATRAY_LIVE_CODEX_BIN
     $env:CODEXQUOTATRAY_LIVE_CODEX_BIN = ""
     try {
         $arguments = @(
             "test", $TestProject,
-            "-c", "Release",
+            "-c", $Configuration,
             # The solution maps the test project to Any CPU. Let dotnet test
             # use that same default so it resolves the build output in
             # bin\Release instead of looking under bin\x64\Release.
@@ -173,6 +174,7 @@ $winuiRoot = Join-Path $repoRoot "winui"
 $solution = Join-Path $winuiRoot "CodexQuotaTray.WinUI.sln"
 $testProject = Join-Path $winuiRoot "tests\CodexQuotaTray.Tests\CodexQuotaTray.Tests.csproj"
 $nugetConfig = Join-Path $winuiRoot "NuGet.Config"
+$buildConfiguration = if ($Mode -eq "Release") { "Release" } else { "Debug" }
 
 if (-not (Test-Path -LiteralPath $globalJsonPath -PathType Leaf)) {
     throw "Repository global.json was not found: $globalJsonPath"
@@ -191,6 +193,7 @@ if ($winuiSdkVersion -ne $dotnet.Version) {
 }
 
 Write-Host "Verification mode: $Mode"
+Write-Host "Build configuration: $buildConfiguration"
 Write-Host "Repository root: $repoRoot"
 Write-Host "dotnet path: $($dotnet.Path)"
 Write-Host "dotnet version from repository root: $($dotnet.Version)"
@@ -217,14 +220,14 @@ try {
 
     Invoke-Checked $dotnet.Path @(
         "build", $solution,
-        "-c", "Release",
+        "-c", $buildConfiguration,
         "-p:Platform=x64",
         "-p:RestoreConfigFile=$nugetConfig",
         "--no-restore"
-    ) "WinUI Release x64 build"
+    ) "WinUI $buildConfiguration x64 build"
 
     if ($Mode -in @("Full", "Release")) {
-        Invoke-OfflineTests $dotnet.Path $testProject $nugetConfig
+        Invoke-OfflineTests $dotnet.Path $testProject $nugetConfig $buildConfiguration
     }
 
     Invoke-DiffCheck $repoRoot

@@ -36,10 +36,13 @@ App Server。后续范围仅为后台自动刷新、通知、Widget 和开机启
 ```powershell
 pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Quick
 dotnet run --project .\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj `
-  -c Release -p:Platform=x64 --no-build
+  -c Debug -p:Platform=x64 --no-build
 ```
 
-可用 `--codex-bin <PATH>` 指定 Codex CLI。开发演示和隔离预览参数见
+日常本地开发只运行 Debug 的 **CodexQuotaTray Dev**；它与已安装的正式版使用独立实例、
+托盘、数据、启动项和 LAN identity。不要在日常开发中生成或安装正式 Release。正式 Windows
+Release 只能在 `main` 提交上的 `windows-v*` tag 触发 GitHub Actions 构建和发布。可用
+`--codex-bin <PATH>` 指定 Codex CLI；开发演示和隔离预览参数见
 [WinUI 开发说明](winui/README.md)。
 
 ## 统一验证入口
@@ -50,8 +53,9 @@ pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Full
 pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Release
 ```
 
-`Release` 只执行完整验证并生成发布目录；默认不生成 ZIP 或安装器，不安装、
-签名，也不运行真实账户或 Explorer 托盘 smoke。打包和发布操作以发布文档为准。
+`Quick` 与 `Full` 使用 Debug/Dev build；`Release` 才使用 Production Release build 并生成
+发布目录。日常开发只使用前两者；正式发布只由 GitHub Actions 处理。三者默认都不生成 ZIP
+或安装器，不安装、签名，也不运行真实账户或 Explorer 托盘 smoke。打包和发布操作以发布文档为准。
 
 ## 文档导航
 

@@ -25,10 +25,11 @@ public sealed partial class MainWindow : Window
     private bool hasSessionPosition;
     private bool windowConfigured;
 
-    public MainWindow(MainViewModel viewModel)
+    public MainWindow(MainViewModel viewModel, string displayName)
     {
         this.viewModel = viewModel;
         InitializeComponent();
+        Title = displayName;
         ContentRoot.DataContext = viewModel;
 
         hwnd = WindowNative.GetWindowHandle(this);
@@ -47,7 +48,7 @@ public sealed partial class MainWindow : Window
 
     internal void ConfigureWindow()
     {
-        appWindow.Title = "CodexQuotaTray";
+        appWindow.Title = Title;
         _ = WindowIconService.TrySetIcon(appWindow);
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(HeaderDragRegion);

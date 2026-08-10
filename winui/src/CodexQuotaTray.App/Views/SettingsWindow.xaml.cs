@@ -5,6 +5,7 @@ using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 using WinRT.Interop;
@@ -23,10 +24,13 @@ public sealed partial class SettingsWindow : Window
     private readonly SettingsViewModel viewModel;
     private readonly AppWindow appWindow;
 
-    public SettingsWindow(SettingsViewModel viewModel)
+    public SettingsWindow(SettingsViewModel viewModel, string displayName)
     {
         this.viewModel = viewModel;
         InitializeComponent();
+        Title = $"{displayName} 设置";
+        AboutProductNameText.Text = displayName;
+        AutomationProperties.SetName(AboutButton, $"关于 {displayName}");
         AboutVersionText.Text = $"版本 {ProductVersion.Current}";
         AboutButton.CommandParameter = AboutButton;
         SettingsRoot.DataContext = viewModel;
@@ -40,6 +44,7 @@ public sealed partial class SettingsWindow : Window
         var hwnd = WindowNative.GetWindowHandle(this);
         var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         appWindow = AppWindow.GetFromWindowId(id);
+        appWindow.Title = Title;
         var scale = WindowPlacementService.GetRasterizationScale(hwnd);
         _ = WindowIconService.TrySetIcon(appWindow);
         Activated += OnActivated;

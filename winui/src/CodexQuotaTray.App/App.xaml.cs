@@ -29,16 +29,18 @@ public partial class App : Application
     private HostEventService? hostEvents;
     private Microsoft.UI.Xaml.Controls.ContentDialog? aboutDialog;
     private TokenUsageSyncController? tokenUsageSync;
+    private AppIdentity? applicationIdentity;
     private bool exiting;
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
         var arguments = Environment.GetCommandLineArgs();
-        var launchProfile = AppLaunchProfile.FromArguments(arguments, args.Arguments);
+        var launchProfile = AppLaunchProfile.FromArguments(
+            arguments,
+            args.Arguments,
+            AppBuildConfiguration.IsDevelopmentBuild);
         var showDemo = launchProfile.ShowDemo;
-        var isolatedPreview = launchProfile.IsolatedPreview;
-        var usePreviewIdentity = launchProfile.UsePreviewIdentity;
-        var trayIdentity = usePreviewIdentity ? TrayIconIdentity.Preview : TrayIconIdentity.Production;
+        var identity = AppIdentity.From(launchProfile.TrayIdentity);
 
         currentInstance = AppInstance.FindOrRegisterForKey(launchProfile.InstanceKey);
         if (!currentInstance.IsCurrent)
@@ -55,6 +57,7 @@ public partial class App : Application
         }
 
         currentInstance.Activated += OnInstanceActivated;
+        applicationIdentity = identity;
         uiDispatcher = DispatcherQueue.GetForCurrentThread();
         var startupLaunch = arguments.Any(value => string.Equals(value, "--startup", StringComparison.OrdinalIgnoreCase));
         var explicitCodex = ReadOption(arguments, "--codex-bin");
@@ -71,7 +74,7 @@ public partial class App : Application
         }
         else
         {
-            var paths = CreateDataPaths(isolatedPreview);
+            var paths = CreateDataPaths(identity);
             var jsonStore = new JsonFileStore();
             var persistence = new PreviewPersistence(jsonStore, paths);
             var notificationSink = new TrayNotificationSink(uiDispatcher);
@@ -91,19 +94,23 @@ public partial class App : Application
                 {
                     viewModelReference?.ApplySnapshot(state);
                     mainWindow?.ApplyTheme(liveRuntime.Settings.ThemeMode);
-                    trayIcon?.UpdateTooltip(TrayTooltipFormatter.Create(trayIdentity.Tooltip, state));
+                    trayIcon?.UpdateTooltip(TrayTooltipFormatter.Create(identity.TrayIcon.Tooltip, state));
                 });
             };
             tokenUsageSync = new TokenUsageSyncController(
                 new TokenUsageSettingsService(jsonStore, paths),
-                liveRuntime.GetLastSuccessfulLanQuotaSnapshot);
+                liveRuntime.GetLastSuccessfulLanQuotaSnapshot,
+                identity.TokenSyncPort,
+                identity.TokenSyncDisplayNameSuffix,
+                identity.TokenSyncDnsSdInstancePrefix);
             settingsActions = new SettingsPlatformActions(
                 paths,
                 persistence,
                 new ProductionDataImporter(jsonStore),
                 launchProfile.CanConfigureStartup,
                 tokenUsageSync,
-                () => liveRuntime.Settings.PhoneTokenSyncEnabled);
+                () => liveRuntime.Settings.PhoneTokenSyncEnabled,
+                identity.StartupValueName);
             pendingNotificationSink = notificationSink;
         }
 
@@ -113,7 +120,7 @@ public partial class App : Application
             new ExternalNavigation(),
             runtimeStateEventsAuthoritative);
         viewModelReference = viewModel;
-        mainWindow = new MainWindow(viewModel);
+        mainWindow = new MainWindow(viewModel, identity.DisplayName);
         mainWindow.ApplyTheme(runtime?.Settings.ThemeMode ?? ThemeMode.System);
         mainWindow.Activate();
         if (!showDemo)
@@ -153,7 +160,7 @@ public partial class App : Application
             () => RequestRuntimeRefresh(RefreshReason.Resume),
             ExitApplication,
             () => runtime?.Settings.ThemeMode ?? CodexQuotaTray.Core.Persistence.ThemeMode.System,
-            trayIdentity);
+            identity.TrayIcon);
         trayIcon.RegistrationStateChanged += (_, state) =>
         {
             _ = uiDispatcher.TryEnqueue(() =>
@@ -219,19 +226,9 @@ public partial class App : Application
     private ISettingsPlatformActions? settingsActions;
     private TrayNotificationSink? pendingNotificationSink;
 
-    private static PreviewDataPaths CreateDataPaths(bool isolatedPreview)
-    {
-        if (!isolatedPreview)
-        {
-            return new PreviewDataPaths(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "CodexQuotaTray"));
-        }
-
-        return new PreviewDataPaths(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "CodexQuotaTray-WinUI-Preview"));
-    }
+    private static PreviewDataPaths CreateDataPaths(AppIdentity identity) => new(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        identity.DataDirectoryName));
 
     private async Task ShowAfterInitializationWhenRequestedAsync()
     {
@@ -286,7 +283,9 @@ public partial class App : Application
         {
             var settingsViewModel = new SettingsViewModel(runtime, settingsActions, settingsPageActions);
             settingsViewModel.ThemeSaved += OnSettingsThemeSaved;
-            settingsWindow = new SettingsWindow(settingsViewModel);
+            settingsWindow = new SettingsWindow(
+                settingsViewModel,
+                applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName);
         }
 
         settingsWindow.ApplyTheme(runtime.Settings.ThemeMode);
@@ -312,8 +311,8 @@ public partial class App : Application
         _ = hostElement.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
         var dialog = new ContentDialog
         {
-            Title = "关于 CodexQuotaTray",
-            Content = CreateAboutContent(),
+            Title = $"关于 {applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName}",
+            Content = CreateAboutContent(applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName),
             CloseButtonText = "关闭",
             XamlRoot = hostElement.XamlRoot,
         };
@@ -321,7 +320,7 @@ public partial class App : Application
         _ = ShowAboutAsync(dialog, hostElement);
     }
 
-    private static StackPanel CreateAboutContent()
+    private static StackPanel CreateAboutContent(string displayName)
     {
         var content = new StackPanel
         {
@@ -343,7 +342,7 @@ public partial class App : Application
         });
         content.Children.Add(new TextBlock
         {
-            Text = "CodexQuotaTray",
+            Text = displayName,
             FontSize = 20,
             HorizontalAlignment = HorizontalAlignment.Center,
         });

@@ -319,7 +319,8 @@ UUID `deviceId` 和 256-bit `pairingSecret`。首次创建或从 schema 1 迁移
 但 Windows 身份不会变化。
 
 二维码和手动 fallback 使用本地 URI：
-`codexquota://pair?deviceId=<uuid>&host=<private-ip>&port=43821&token=<secret>&name=<optional>`。
+`codexquota://pair?deviceId=<uuid>&host=<private-ip>&port=<listener-port>&token=<secret>&name=<optional>`。
+Production listener 的默认端口为 43821；Debug Dev 使用独立端口，二维码始终携带实际监听端口。
 二维码只包含 LAN 配对密钥，不包含 OAuth/Codex credential、账号、邮箱、session 或统计内容。
 Android 扫码必须验证 scheme、`pair` host、deviceId、RFC1918 IPv4、端口和非空 token；旧式
 手动地址没有 deviceId 时仍可直连，但不会启用自动发现。

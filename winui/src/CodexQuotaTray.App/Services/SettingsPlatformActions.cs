@@ -8,12 +8,12 @@ namespace CodexQuotaTray.App.Services;
 
 internal sealed class SettingsPlatformActions : ISettingsPlatformActions
 {
-    private const string StartupValueName = "CodexQuotaTray";
     private readonly PreviewDataPaths paths;
     private readonly PreviewPersistence persistence;
     private readonly ProductionDataImporter importer;
     private readonly TokenUsageSyncController tokenSync;
     private readonly Func<bool> tokenSyncEnabled;
+    private readonly string startupValueName;
 
     public SettingsPlatformActions(
         PreviewDataPaths paths,
@@ -21,13 +21,15 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
         ProductionDataImporter importer,
         bool canConfigureStartup,
         TokenUsageSyncController tokenSync,
-        Func<bool> tokenSyncEnabled)
+        Func<bool> tokenSyncEnabled,
+        string startupValueName)
     {
         this.paths = paths;
         this.persistence = persistence;
         this.importer = importer;
         this.tokenSync = tokenSync;
         this.tokenSyncEnabled = tokenSyncEnabled;
+        this.startupValueName = startupValueName;
         CanConfigureStartup = canConfigureStartup;
     }
 
@@ -60,11 +62,11 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
         if (enabled)
         {
             var executable = Environment.ProcessPath ?? throw new InvalidOperationException("无法确定当前程序路径。");
-            key.SetValue(StartupValueName, $"\"{executable}\" --startup", RegistryValueKind.String);
+            key.SetValue(startupValueName, $"\"{executable}\" --startup", RegistryValueKind.String);
         }
         else
         {
-            key.DeleteValue(StartupValueName, throwOnMissingValue: false);
+            key.DeleteValue(startupValueName, throwOnMissingValue: false);
         }
 
         return Task.CompletedTask;
@@ -78,7 +80,7 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
 
     public Task<int> ImportProductionDataAsync(CancellationToken cancellationToken)
     {
-        var preview = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexQuotaTray-WinUI-Preview");
+        var preview = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppIdentity.Preview.DataDirectoryName);
         return importer.ImportAsync(preview, paths, cancellationToken);
     }
 

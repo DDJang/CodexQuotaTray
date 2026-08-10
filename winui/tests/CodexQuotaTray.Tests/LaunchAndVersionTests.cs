@@ -46,6 +46,29 @@ public sealed class LaunchAndVersionTests
         Assert.AreEqual(TrayIdentityMode.Preview, profile.TrayIdentity);
     }
 
+    [TestMethod]
+    public void DevelopmentBuildUsesItsOwnIdentityAndStillAllowsStartup()
+    {
+        var profile = AppLaunchProfile.FromArguments([], isDevelopmentBuild: true);
+
+        Assert.IsFalse(profile.UsePreviewIdentity);
+        Assert.AreEqual(AppLaunchProfile.DevelopmentInstanceKey, profile.InstanceKey);
+        Assert.AreEqual(TrayIdentityMode.Development, profile.TrayIdentity);
+        Assert.IsTrue(profile.CanConfigureStartup);
+        Assert.AreNotEqual(AppLaunchProfile.ProductionInstanceKey, profile.InstanceKey);
+    }
+
+    [TestMethod]
+    public void PreviewArgumentsOverrideTheDevelopmentBuildIdentity()
+    {
+        var profile = AppLaunchProfile.FromArguments(["CodexQuotaTray.exe", "--isolated-preview-data"], isDevelopmentBuild: true);
+
+        Assert.IsTrue(profile.UsePreviewIdentity);
+        Assert.AreEqual(AppLaunchProfile.PreviewInstanceKey, profile.InstanceKey);
+        Assert.AreEqual(TrayIdentityMode.Preview, profile.TrayIdentity);
+        Assert.IsFalse(profile.CanConfigureStartup);
+    }
+
     [DataRow("CodexQuotaTray")]
     [DataRow("CodexQuotaTray Preview")]
     [TestMethod]

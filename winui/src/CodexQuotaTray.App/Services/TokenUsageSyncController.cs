@@ -9,7 +9,10 @@ namespace CodexQuotaTray.App.Services;
 
 internal sealed class TokenUsageSyncController(
     TokenUsageSettingsService settingsService,
-    Func<QuotaLanSnapshot?> quotaSnapshotProvider) : IAsyncDisposable
+    Func<QuotaLanSnapshot?> quotaSnapshotProvider,
+    int port = TokenUsageSyncServer.DefaultPort,
+    string displayNameSuffix = "",
+    string dnsSdInstancePrefix = "CodexQuotaTray") : IAsyncDisposable
 {
     private static readonly TimeSpan AddressCheckInterval = TimeSpan.FromSeconds(15);
     private readonly SemaphoreSlim stateGate = new(1, 1);
@@ -18,7 +21,7 @@ internal sealed class TokenUsageSyncController(
     private TokenUsageSettings? settings;
     private CancellationTokenSource? monitorLifetime;
     private Task? monitorTask;
-    private string displayName = Environment.MachineName;
+    private string displayName = CreateDisplayName(displayNameSuffix);
 
     internal string StatusText { get; private set; } = "已关闭";
 
@@ -64,7 +67,7 @@ internal sealed class TokenUsageSyncController(
             }
 
             settings = await settingsService.LoadOrCreateAsync(cancellationToken).ConfigureAwait(false);
-            displayName = Environment.MachineName;
+            displayName = CreateDisplayName(displayNameSuffix);
             await StartCoreAsync(address, cancellationToken).ConfigureAwait(false);
             monitorLifetime = new CancellationTokenSource();
             monitorTask = MonitorAddressAsync(monitorLifetime.Token);
@@ -113,7 +116,7 @@ internal sealed class TokenUsageSyncController(
             quotaSnapshotProvider: quotaSnapshotProvider);
         try
         {
-            nextServer.Start(address);
+            nextServer.Start(address, port);
         }
         catch
         {
@@ -124,7 +127,7 @@ internal sealed class TokenUsageSyncController(
         DnsSdServicePublisher? nextPublisher = null;
         try
         {
-            nextPublisher = new DnsSdServicePublisher(settings.DeviceId, displayName);
+            nextPublisher = new DnsSdServicePublisher(settings.DeviceId, displayName, dnsSdInstancePrefix);
             nextPublisher.Start(address, nextServer.Port);
         }
         catch (Exception error) when (
@@ -242,4 +245,6 @@ internal sealed class TokenUsageSyncController(
             monitor?.Dispose();
         }
     }
+
+    private static string CreateDisplayName(string suffix) => string.Concat(Environment.MachineName, suffix);
 }

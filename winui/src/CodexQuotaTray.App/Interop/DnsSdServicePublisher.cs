@@ -11,6 +11,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     private const uint DnsRequestPending = 9500;
     private readonly Guid deviceId;
     private readonly string displayName;
+    private readonly string serviceInstancePrefix;
     private readonly List<IntPtr> allocations = [];
     private TaskCompletionSource<bool>? deregistrationCompletion;
     private DnsServiceRegisterComplete? callback;
@@ -18,10 +19,14 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     private IntPtr serviceInstance;
     private bool registered;
 
-    internal DnsSdServicePublisher(Guid deviceId, string displayName)
+    internal DnsSdServicePublisher(
+        Guid deviceId,
+        string displayName,
+        string serviceInstancePrefix = "CodexQuotaTray")
     {
         this.deviceId = deviceId;
         this.displayName = displayName;
+        this.serviceInstancePrefix = serviceInstancePrefix;
     }
 
     internal bool IsStarted => serviceInstance != IntPtr.Zero;
@@ -47,7 +52,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             var keys = AllocateStringArray(keyValues.Keys);
             var values = AllocateStringArray(keyValues.Values);
             serviceInstance = DnsServiceConstructInstance(
-                $"CodexQuotaTray-{deviceId:N}._codexquota._tcp.local",
+                $"{SanitizeLabel(serviceInstancePrefix)}-{deviceId:N}._codexquota._tcp.local",
                 $"{SanitizeLabel(Environment.MachineName)}.local",
                 ip4,
                 IntPtr.Zero,

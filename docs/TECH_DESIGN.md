@@ -107,18 +107,24 @@ Android `TokenUsageSyncClient` 先请求加密保存的 `lastKnownHost`。仅连
 由用户按钮触发并在需要时申请相机权限，手动地址仍作为 fallback；这一流程不改变 quota
 WorkManager 或 Token scanner。
 
-## Production 与 Preview 身份
+## Production、Dev 与 Preview 身份
 
 具体托盘 GUID 的唯一事实源是 [`TrayIconIdentity.cs`](../winui/src/CodexQuotaTray.App/Services/TrayIconIdentity.cs)，文档不复制其值。启动参数、单实例 key 和能力选择由 [`AppLaunchProfile.cs`](../winui/src/CodexQuotaTray.Core/Runtime/AppLaunchProfile.cs) 决定。
 
-| 启动参数 | 数据源 | 数据位置 | 单实例与托盘身份 | 开机启动能力 |
+| 构建 / 启动参数 | 数据源 | 数据位置 | 单实例与托盘身份 | 开机启动能力 |
 | --- | --- | --- | --- | --- |
-| 无参数 | Live Runtime | Production | Production | 允许 |
+| Release / 无参数 | Live Runtime | Production | Production | 允许 |
+| Debug / 无参数 | Live Runtime | Dev | Development | 允许（独立启动项） |
 | `--demo` | Demo Runtime | 不持久化 | Preview | 不允许 |
 | `--isolated-preview-data` | Live Runtime | Preview | Preview | 不允许 |
 | `--demo --isolated-preview-data` | Demo Runtime | 不持久化 | Preview | 不允许 |
 
-Production 与 Preview 使用不同单实例 key 和托盘身份，可以并存。Demo 始终使用 Preview 身份。Preview/Demo 不读取、写入或覆盖 Production 开机启动项，也不创建 Preview 启动项。
+Production、Dev 与 Preview 使用不同单实例 key、托盘 GUID 和 LocalAppData 目录，可以并存。
+Debug 的 Dev 显示名称为 `CodexQuotaTray Dev`，使用独立启动项；Release 的 Production 名称、
+启动项、托盘 GUID、数据目录与 LAN 默认端口 43821 保持不变。Dev/Preview LAN listener 分别使用
+43822/43823，且 DNS-SD 实例名前缀不同；服务类型仍是兼容 Android 发现的 `_codexquota._tcp`，
+二维码始终携带实际端口。Demo 始终使用 Preview 身份。Preview/Demo 不读取、写入或覆盖 Production
+开机启动项，也不创建 Preview 启动项。
 
 `--shutdown-existing` 根据同一启动配置选择目标身份，并在创建窗口、Runtime 或托盘前完成转发或退出。
 
