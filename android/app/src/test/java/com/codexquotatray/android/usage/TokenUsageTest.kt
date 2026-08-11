@@ -12,6 +12,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import java.io.File
 import java.net.SocketTimeoutException
 import java.nio.file.Files
@@ -45,6 +46,27 @@ class TokenUsageTest {
         assertEquals("Bearer secret", authorization)
         assertEquals(1234L, snapshot.summary.todayTokens)
         assertEquals(1, snapshot.days.size)
+    }
+
+    @Test fun manualSyncAddsForceRefreshQueryWhileNormalSyncDoesNot() {
+        val refreshQueries = mutableListOf<String?>()
+        val client = client { chain ->
+            refreshQueries += chain.request().url.queryParameter("refresh")
+            response(chain, 200, fixture())
+        }
+        val syncClient = TokenUsageSyncClient(client)
+
+        syncClient.sync(pairingWithId())
+        syncClient.sync(pairingWithId(), forceRefresh = true)
+
+        assertEquals(listOf(null, "force"), refreshQueries)
+    }
+
+    @Test fun onlyManualRefreshReasonRequestsForceScan() {
+        assertTrue(shouldForceTokenUsageRefresh(AutomaticRefreshReason.MANUAL))
+        assertFalse(shouldForceTokenUsageRefresh(AutomaticRefreshReason.STARTUP))
+        assertFalse(shouldForceTokenUsageRefresh(AutomaticRefreshReason.FOREGROUND))
+        assertFalse(shouldForceTokenUsageRefresh(AutomaticRefreshReason.SCHEDULED))
     }
 
     @Test fun clientClassifiesUnauthorizedMalformedUnsupportedAndOffline() {

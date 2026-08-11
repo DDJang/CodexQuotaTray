@@ -55,6 +55,7 @@ import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import com.codexquotatray.android.usage.TokenUsageSnapshot
 import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
 import com.codexquotatray.android.usage.tokenUsageSyncErrorMessage
+import com.codexquotatray.android.usage.shouldForceTokenUsageRefresh
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.DayOfWeek
@@ -166,7 +167,12 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         status = if (snapshot == null) "正在从 Windows 同步…" else "正在同步；当前显示缓存"
         worker.execute {
             val result = try {
-                runCatching { TokenUsageSyncCoordinator(host).sync(pairing) }
+                runCatching {
+                    TokenUsageSyncCoordinator(host).sync(
+                        pairing,
+                        forceRefresh = shouldForceTokenUsageRefresh(reason),
+                    )
+                }
             } finally {
                 AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.TOKEN)
             }

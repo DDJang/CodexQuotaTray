@@ -110,6 +110,10 @@ days[]:
 只返回最近 365 天日聚合和全历史 summary；不得包含 session ID、路径、账号、prompt、response、
 工具内容或原始 JSONL。
 
+普通请求继续复用 Windows 端 60 秒扫描缓存；用户手动同步可在鉴权后使用
+`GET /v1/token-usage?refresh=force` 强制重新扫描。该参数只适用于 Token Usage，Android 的
+启动、回到前台和后台同步不携带该参数。
+
 ### `GET /v1/quota`
 
 返回 Windows Runtime 已维护的最后成功快照，不主动刷新 App Server；无快照返回 503：

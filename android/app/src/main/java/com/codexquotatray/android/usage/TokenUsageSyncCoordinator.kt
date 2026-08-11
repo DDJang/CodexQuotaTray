@@ -1,11 +1,18 @@
 package com.codexquotatray.android.usage
 
 import android.content.Context
+import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import java.io.IOException
 
 internal fun interface TokenUsageSyncTransport {
     fun sync(pairing: TokenSyncPairing): TokenUsageSyncResult
+
+    /** Implementations may opt into the explicit Windows force-refresh request. */
+    fun sync(pairing: TokenSyncPairing, forceRefresh: Boolean): TokenUsageSyncResult = sync(pairing)
 }
+
+internal fun shouldForceTokenUsageRefresh(reason: AutomaticRefreshReason): Boolean =
+    reason == AutomaticRefreshReason.MANUAL
 
 /**
  * One process-local path for foreground, Settings, and WorkManager Token syncs.
@@ -25,8 +32,11 @@ internal class TokenUsageSyncCoordinator(
         notifyCompleted = { TokenUsageRefreshEvents.notifyCompleted(context.applicationContext) },
     )
 
-    fun sync(pairing: TokenSyncPairing): TokenUsageSyncResult = TokenUsageSyncSingleFlight.run(pairing.singleFlightIdentity()) {
-        val synced = transport.sync(pairing)
+    fun sync(pairing: TokenSyncPairing, forceRefresh: Boolean = false): TokenUsageSyncResult =
+        TokenUsageSyncSingleFlight.run(
+            pairing.singleFlightIdentity() + if (forceRefresh) ":force" else ":normal",
+        ) {
+        val synced = transport.sync(pairing, forceRefresh)
         TokenUsagePairingLifecycle.withLock {
             val current = pairingStore.load()
             if (current == null || !current.matchesConfiguration(pairing)) {

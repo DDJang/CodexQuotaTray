@@ -170,6 +170,73 @@ public sealed class TokenUsageTests
     }
 
     [TestMethod]
+    public async Task LanServerReusesNormalCacheButForceRefreshScansAgain()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live("one.jsonl", Event("2026-08-08T01:00:00Z", 123, 123));
+        await using var server = new TokenUsageSyncServer(new TokenUsageScanner(), "test-secret", corpus.Root, TimeSpan.FromMinutes(1));
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{server.Port}") };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-secret");
+
+        var first = JsonDocument.Parse(await (await client.GetAsync("/v1/token-usage")).Content.ReadAsStringAsync());
+        corpus.Live("two.jsonl", Event("2026-08-08T02:00:00Z", 456, 456));
+
+        var cached = JsonDocument.Parse(await (await client.GetAsync("/v1/token-usage")).Content.ReadAsStringAsync());
+        var forced = JsonDocument.Parse(await (await client.GetAsync("/v1/token-usage?refresh=force")).Content.ReadAsStringAsync());
+
+        Assert.AreEqual(123L, first.RootElement.GetProperty("summary").GetProperty("lifetimeTokens").GetInt64());
+        Assert.AreEqual(123L, cached.RootElement.GetProperty("summary").GetProperty("lifetimeTokens").GetInt64());
+        Assert.AreEqual(579L, forced.RootElement.GetProperty("summary").GetProperty("lifetimeTokens").GetInt64());
+        Assert.IsTrue(
+            forced.RootElement.GetProperty("generatedAtUtc").GetDateTimeOffset()
+                > first.RootElement.GetProperty("generatedAtUtc").GetDateTimeOffset());
+    }
+
+    [TestMethod]
+    public async Task ForceRefreshRequiresBearerAndDoesNotChangeQuotaSemantics()
+    {
+        using var corpus = new TokenCorpus();
+        var quota = new QuotaLanSnapshot(
+            SchemaVersion: 1,
+            GeneratedAtUtc: new DateTimeOffset(2026, 8, 10, 12, 0, 0, TimeSpan.Zero),
+            PlanType: "Plus",
+            QuotaState: "available",
+            Windows: []);
+        await using var server = new TokenUsageSyncServer(
+            new TokenUsageScanner(),
+            "test-secret",
+            corpus.Root,
+            quotaSnapshotProvider: () => quota);
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{server.Port}") };
+
+        var unauthorized = await client.GetAsync("/v1/token-usage?refresh=force");
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-secret");
+        var quotaResponse = await client.GetAsync("/v1/quota?refresh=force");
+
+        Assert.AreEqual(HttpStatusCode.Unauthorized, unauthorized.StatusCode);
+        Assert.AreEqual(HttpStatusCode.OK, quotaResponse.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task ConcurrentForceRequestsRemainSuccessfulThroughScanGate()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live("one.jsonl", Event("2026-08-08T01:00:00Z", 123, 123));
+        await using var server = new TokenUsageSyncServer(new TokenUsageScanner(), "test-secret", corpus.Root, TimeSpan.Zero);
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{server.Port}") };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-secret");
+
+        var responses = await Task.WhenAll(
+            client.GetAsync("/v1/token-usage?refresh=force"),
+            client.GetAsync("/v1/token-usage?refresh=force"));
+
+        Assert.IsTrue(responses.All(response => response.StatusCode == HttpStatusCode.OK));
+    }
+
+    [TestMethod]
     public async Task LanServerServesOnlyInjectedQuotaSnapshotAndKeepsTokenUsageContract()
     {
         var quota = new QuotaLanSnapshot(

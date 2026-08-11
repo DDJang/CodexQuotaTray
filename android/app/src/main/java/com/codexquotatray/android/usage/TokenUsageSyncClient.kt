@@ -5,6 +5,7 @@ import com.codexquotatray.android.quota.AndroidLanAvailability
 import com.codexquotatray.android.quota.LanAvailability
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
@@ -28,8 +29,10 @@ class TokenUsageSyncClient(
 
     fun fetch(pairing: TokenSyncPairing): TokenUsageSnapshot = sync(pairing).snapshot
 
-    override fun sync(pairing: TokenSyncPairing): TokenUsageSyncResult {
-        val direct = runCatching { fetchDirect(pairing) }
+    override fun sync(pairing: TokenSyncPairing): TokenUsageSyncResult = sync(pairing, forceRefresh = false)
+
+    override fun sync(pairing: TokenSyncPairing, forceRefresh: Boolean): TokenUsageSyncResult {
+        val direct = runCatching { fetchDirect(pairing, forceRefresh) }
         direct.getOrNull()?.let { return TokenUsageSyncResult(it, pairing) }
         val error = direct.exceptionOrNull()
         if (error !is TokenUsageException || !TokenSyncEndpoint.shouldDiscover(error.kind, pairing) || discovery == null) {
@@ -40,13 +43,16 @@ class TokenUsageSyncClient(
             ?.takeIf { it.deviceId.equals(pairing.deviceId, ignoreCase = true) }
             ?: throw error
         val relocated = TokenSyncEndpoint.updateHost(pairing, candidate)
-        return TokenUsageSyncResult(fetchDirect(relocated), relocated)
+        return TokenUsageSyncResult(fetchDirect(relocated, forceRefresh), relocated)
     }
 
-    private fun fetchDirect(pairing: TokenSyncPairing): TokenUsageSnapshot {
+    private fun fetchDirect(pairing: TokenSyncPairing, forceRefresh: Boolean): TokenUsageSnapshot {
         val safe = runCatching { TokenSyncEndpoint.validated(pairing.host, pairing.port, pairing.secret) }
             .getOrElse { throw TokenUsageException(TokenUsageFailureKind.INVALID_RESPONSE, "同步地址无效") }
-        val request = Request.Builder().url(safe.url).get()
+        val url = safe.url.toHttpUrl().newBuilder().apply {
+            if (forceRefresh) addQueryParameter("refresh", "force")
+        }.build()
+        val request = Request.Builder().url(url).get()
             .header("Authorization", "Bearer ${safe.secret}")
             .header("Accept", "application/json")
             .build()

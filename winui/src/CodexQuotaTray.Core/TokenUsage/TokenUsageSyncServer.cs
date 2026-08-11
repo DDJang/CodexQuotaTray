@@ -24,6 +24,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
     private Task? acceptTask;
     private TokenUsageSnapshot? cached;
     private DateTimeOffset cachedAtUtc;
+    private long forcedScanGeneration;
 
     public TokenUsageSyncServer(
         TokenUsageScanner scanner,
@@ -172,7 +173,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                 return;
             }
 
-            var snapshot = await GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
+            var snapshot = await GetSnapshotAsync(request.ForceRefresh, cancellationToken).ConfigureAwait(false);
             var body = JsonSerializer.SerializeToUtf8Bytes(new
             {
                 snapshot.SchemaVersion,
@@ -185,10 +186,11 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         }
     }
 
-    private async Task<TokenUsageSnapshot> GetSnapshotAsync(CancellationToken cancellationToken)
+    private async Task<TokenUsageSnapshot> GetSnapshotAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
+        var forcedGenerationAtRequest = Volatile.Read(ref forcedScanGeneration);
         var now = DateTimeOffset.UtcNow;
-        if (cached is not null && now - cachedAtUtc < minimumScanInterval)
+        if (!forceRefresh && cached is not null && now - cachedAtUtc < minimumScanInterval)
         {
             return cached;
         }
@@ -197,13 +199,24 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         try
         {
             now = DateTimeOffset.UtcNow;
-            if (cached is not null && now - cachedAtUtc < minimumScanInterval)
+            if (forceRefresh && cached is not null && Volatile.Read(ref forcedScanGeneration) != forcedGenerationAtRequest)
+            {
+                // Another force request that was already in flight completed the
+                // required scan while this request waited for the gate.
+                return cached;
+            }
+
+            if (!forceRefresh && cached is not null && now - cachedAtUtc < minimumScanInterval)
             {
                 return cached;
             }
 
             cached = await scanner.ScanAsync(codexHome, cancellationToken: cancellationToken).ConfigureAwait(false);
-            cachedAtUtc = now;
+            cachedAtUtc = DateTimeOffset.UtcNow;
+            if (forceRefresh)
+            {
+                Interlocked.Increment(ref forcedScanGeneration);
+            }
             return cached;
         }
         finally
@@ -268,7 +281,8 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                 }
             }
 
-            return new Request(requestLine[0], requestLine[1], authorization);
+            var (path, forceRefresh) = ParseTarget(requestLine[1]);
+            return new Request(requestLine[0], path, authorization, forceRefresh);
         }
         finally
         {
@@ -277,6 +291,36 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
     }
 
     private static bool HeaderComplete(ReadOnlySpan<byte> value) => value.IndexOf("\r\n\r\n"u8) >= 0;
+
+    private static (string Path, bool ForceRefresh) ParseTarget(string target)
+    {
+        var queryStart = target.IndexOf('?');
+        if (queryStart < 0)
+        {
+            return (target, false);
+        }
+
+        var path = target[..queryStart];
+        var query = target[(queryStart + 1)..];
+        foreach (var part in query.Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var separator = part.IndexOf('=');
+            if (separator <= 0)
+            {
+                continue;
+            }
+
+            var key = Uri.UnescapeDataString(part[..separator]);
+            var value = Uri.UnescapeDataString(part[(separator + 1)..]);
+            if (key.Equals("refresh", StringComparison.OrdinalIgnoreCase)
+                && value.Equals("force", StringComparison.OrdinalIgnoreCase))
+            {
+                return (path, true);
+            }
+        }
+
+        return (path, false);
+    }
 
     private static async Task WriteResponseAsync(Stream stream, int code, string reason, byte[]? body, CancellationToken cancellationToken)
     {
@@ -290,5 +334,5 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         }
     }
 
-    private sealed record Request(string Method, string Path, string? Authorization);
+    private sealed record Request(string Method, string Path, string? Authorization, bool ForceRefresh);
 }

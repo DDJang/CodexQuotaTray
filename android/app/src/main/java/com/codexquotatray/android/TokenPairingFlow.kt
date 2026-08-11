@@ -54,7 +54,7 @@ internal object TokenPairingFlow {
     ) {
         val appContext = context.applicationContext
         worker.execute {
-            val result = runCatching { TokenUsageSyncCoordinator(appContext).sync(pairing) }
+            val result = runCatching { TokenUsageSyncCoordinator(appContext).sync(pairing, forceRefresh = true) }
             main.post { callback(result) }
         }
     }
