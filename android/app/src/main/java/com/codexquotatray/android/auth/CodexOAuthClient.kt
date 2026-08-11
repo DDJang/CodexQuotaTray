@@ -31,7 +31,11 @@ class OAuthException(
     val kind: OAuthFailureKind,
     override val message: String,
     val statusCode: Int? = null,
-) : IOException(message)
+) : IOException(message) {
+    companion object {
+        const val NETWORK_ERROR_MESSAGE = "无法连接 OpenAI，请检查网络环境"
+    }
+}
 
 class CodexOAuthClient(
     private val httpClient: OkHttpClient = defaultClient(),
@@ -89,10 +93,17 @@ class CodexOAuthClient(
                 .header("Content-Type", "application/json")
                 .build(),
         )
-        if (response.code == 404 || response.code == 403) {
+        if (response.code == 404) {
             throw OAuthException(
                 OAuthFailureKind.DEVICE_AUTH_DISABLED,
                 "此账户未启用设备代码登录，请在 ChatGPT 安全设置中启用后重试",
+                response.code,
+            )
+        }
+        if (response.code == 403) {
+            throw OAuthException(
+                OAuthFailureKind.NETWORK,
+                OAuthException.NETWORK_ERROR_MESSAGE,
                 response.code,
             )
         }
@@ -202,7 +213,7 @@ class CodexOAuthClient(
             HttpPayload(response.code, response.body?.string().orEmpty())
         }
     } catch (error: IOException) {
-        throw OAuthException(OAuthFailureKind.NETWORK, "OAuth network request failed")
+        throw OAuthException(OAuthFailureKind.NETWORK, OAuthException.NETWORK_ERROR_MESSAGE)
     }
 
     private fun parseObject(raw: String, operation: String): JSONObject =

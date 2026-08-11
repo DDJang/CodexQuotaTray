@@ -3,6 +3,7 @@ package com.codexquotatray.android.auth
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -100,6 +101,54 @@ class CodexOAuthClientTest {
         assertEquals("/api/accounts/deviceauth/token", server.takeRequest().path)
         assertEquals("/oauth/token", server.takeRequest().path)
     }
+
+    @Test
+    fun deviceUserCode404KeepsDeviceAuthDisabledSemantics() {
+        server.enqueue(MockResponse().setResponseCode(404))
+
+        val error = deviceCodeFailure()
+
+        assertEquals(OAuthFailureKind.DEVICE_AUTH_DISABLED, error.kind)
+        assertEquals(404, error.statusCode)
+        assertEquals("此账户未启用设备代码登录，请在 ChatGPT 安全设置中启用后重试", error.message)
+    }
+
+    @Test
+    fun deviceUserCode403IsReportedAsOpenAiNetworkAccessFailure() {
+        server.enqueue(MockResponse().setResponseCode(403))
+
+        val error = deviceCodeFailure()
+
+        assertEquals(OAuthFailureKind.NETWORK, error.kind)
+        assertEquals(403, error.statusCode)
+        assertEquals(OAuthException.NETWORK_ERROR_MESSAGE, error.message)
+    }
+
+    @Test
+    fun deviceUserCodeIOExceptionUsesOpenAiNetworkMessage() {
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+
+        val error = deviceCodeFailure()
+
+        assertEquals(OAuthFailureKind.NETWORK, error.kind)
+        assertEquals(null, error.statusCode)
+        assertEquals(OAuthException.NETWORK_ERROR_MESSAGE, error.message)
+    }
+
+    @Test
+    fun deviceUserCodeServerFailureDoesNotLookLikeDeviceAuthDisabled() {
+        server.enqueue(MockResponse().setResponseCode(503))
+
+        val error = deviceCodeFailure()
+
+        assertEquals(OAuthFailureKind.SERVER, error.kind)
+        assertEquals(503, error.statusCode)
+        assertTrue(error.kind != OAuthFailureKind.DEVICE_AUTH_DISABLED)
+    }
+
+    private fun deviceCodeFailure(): OAuthException =
+        (runCatching { client().login() }.exceptionOrNull() as? OAuthException)
+            ?: error("Expected device-code OAuth failure")
 
     private fun client(): CodexOAuthClient = CodexOAuthClient(
         httpClient = OkHttpClient(),

@@ -338,7 +338,7 @@ class CodexQuotaRepository(
 
         OAuthFailureKind.NETWORK -> QuotaReadException(
             QuotaReadFailureKind.NETWORK,
-            "无法连接认证服务，请检查网络",
+            OAuthException.NETWORK_ERROR_MESSAGE,
             error,
         )
 
