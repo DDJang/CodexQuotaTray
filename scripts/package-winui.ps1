@@ -21,7 +21,14 @@ $repoRoot = Get-FullPath (Join-Path $PSScriptRoot "..")
 $distRoot = if ($OutputDirectory) { Get-FullPath $OutputDirectory } else { Join-Path $repoRoot "dist" }
 $publishRoot = Join-Path $repoRoot "target\winui-publish"
 [xml]$project = Get-Content -LiteralPath (Join-Path $repoRoot "winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj") -Raw
-$version = [string]$project.Project.PropertyGroup.Version
+$versionNode = $project.SelectSingleNode('/Project/PropertyGroup[Version]/Version')
+if ($null -eq $versionNode) {
+    throw 'CodexQuotaTray.App.csproj does not define a Version.'
+}
+$version = ([string]$versionNode.InnerText).Trim()
+if ([string]::IsNullOrWhiteSpace($version)) {
+    throw 'CodexQuotaTray.App.csproj defines an empty Version.'
+}
 $packageName = "CodexQuotaTray-$version-win-x64"
 $stage = Join-Path $repoRoot "target\package\$packageName"
 Assert-ChildPath $repoRoot $stage
