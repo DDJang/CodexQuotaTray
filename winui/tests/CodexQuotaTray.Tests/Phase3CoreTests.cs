@@ -407,6 +407,56 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public void StrongRecoveryUsesTheSameTransitionForNewCycleAndResetAlert()
+    {
+        var first = QuotaAlertReducer.Reduce(
+            null,
+            [Input(8, DateTimeOffset.UnixEpoch.AddDays(7))],
+            new NotificationSettings());
+        var current = Input(100, DateTimeOffset.UnixEpoch.AddDays(7));
+
+        Assert.IsTrue(QuotaAlertReducer.IsNewCycle(first.State.Windows["window"], current));
+        Assert.IsTrue(QuotaAlertReducer.IsResetCycle(first.State.Windows["window"], current));
+        var reduction = QuotaAlertReducer.Reduce(first.State, [current], new NotificationSettings());
+
+        Assert.AreEqual(QuotaAlertKind.Reset, reduction.Alert!.Kind);
+        Assert.IsTrue(reduction.State.Windows["window"].ResetAlertCycleConsumed);
+    }
+
+    [TestMethod]
+    public void StrongRecoveryWorksWhenResetTimeIsDelayedOrMissing()
+    {
+        var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
+        var delayed = QuotaAlertReducer.Reduce(
+            first.State,
+            [Input(90, DateTimeOffset.UnixEpoch.AddDays(7).AddMinutes(1))],
+            new NotificationSettings());
+        Assert.AreEqual(QuotaAlertKind.Reset, delayed.Alert!.Kind);
+
+        var missingFirst = QuotaAlertReducer.Reduce(
+            null,
+            [InputWithoutResetAt(20)],
+            new NotificationSettings());
+        var missing = QuotaAlertReducer.Reduce(
+            missingFirst.State,
+            [InputWithoutResetAt(90)],
+            new NotificationSettings());
+        Assert.AreEqual(QuotaAlertKind.Reset, missing.Alert!.Kind);
+    }
+
+    [DataRow(40, 60)]
+    [DataRow(70, 100)]
+    [DataRow(85, 100)]
+    [TestMethod]
+    public void OrdinaryRecoveryDoesNotStartResetCycle(int previous, int current)
+    {
+        var first = QuotaAlertReducer.Reduce(null, [Input(previous)], new NotificationSettings());
+        var next = QuotaAlertReducer.Reduce(first.State, [Input(current)], new NotificationSettings());
+        Assert.IsFalse(QuotaAlertReducer.IsResetCycle(first.State.Windows["window"], Input(current)));
+        Assert.IsNull(next.Alert);
+    }
+
+    [TestMethod]
     public void ResetAlertCombinesMultipleWindowsAndDoesNotRepeatSameCycle()
     {
         var first = QuotaAlertReducer.Reduce(
@@ -478,7 +528,7 @@ public sealed class Phase3CoreTests
             new NotificationSettings());
 
         Assert.AreEqual(QuotaAlertKind.Reset, timeOnly.Alert!.Kind);
-        Assert.IsNull(recoveryOnly.Alert);
+        Assert.AreEqual(QuotaAlertKind.Reset, recoveryOnly.Alert!.Kind);
         Assert.IsNull(untrusted.Alert);
     }
 
@@ -579,7 +629,7 @@ public sealed class Phase3CoreTests
     {
         var previous = new AlertWindowState("window", 10_080, DateTimeOffset.UnixEpoch.AddDays(7), 20, []);
         var resetAt = previous.ResetAtUtc!.Value.AddDays(4);
-        var valid = Input(98, resetAt) with { WindowDurationMinutes = 10_080 };
+        var valid = Input(25, resetAt) with { WindowDurationMinutes = 10_080 };
 
         Assert.IsTrue(QuotaAlertReducer.IsResetCycle(previous, valid));
         Assert.IsFalse(QuotaAlertReducer.IsResetCycle(previous, valid with { WindowDurationMinutes = null }));
@@ -655,6 +705,14 @@ public sealed class Phase3CoreTests
         true,
         10_080,
         resetAt ?? DateTimeOffset.UnixEpoch.AddDays(7));
+
+    private static AlertInput InputWithoutResetAt(int remaining, string key = "window") => new(
+        key,
+        "7 天额度",
+        remaining,
+        true,
+        10_080,
+        null);
 
     private static RateLimitWindow CompleteWindow(long usedPercent, long durationMinutes, long resetsAt) => new()
     {

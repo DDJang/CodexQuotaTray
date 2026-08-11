@@ -57,6 +57,7 @@ class CodexQuotaRepository(
     private val windowsQuotaFallback: WindowsQuotaFallback = WindowsQuotaFallbackClient(context),
 ) {
     private val appContext = context.applicationContext
+    private val alertEvaluator by lazy { QuotaAlertEvaluator(alertStateStore) }
     private val fallbackResolver by lazy {
         WindowsQuotaFallbackResolver(
             pairingStore = tokenSyncStore,
@@ -70,9 +71,10 @@ class CodexQuotaRepository(
     private val successCommitter by lazy {
         QuotaSuccessfulRefreshCommitter(
             saveSnapshot = { result, completedAtMillis -> snapshotStore.save(result, completedAtMillis) },
-            evaluateAlerts = { windows -> QuotaAlertEvaluator(alertStateStore).evaluate(windows) },
+            evaluateAlerts = alertEvaluator::evaluate,
             markSuccessfulRefresh = alertStateStore::markSuccessfulRefresh,
             publishNotifications = notificationPublisher::publish,
+            restoreAlerts = alertEvaluator::restoreLastEvaluation,
         )
     }
 

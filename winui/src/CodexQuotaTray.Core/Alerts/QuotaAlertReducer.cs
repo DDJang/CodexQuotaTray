@@ -17,7 +17,7 @@ public sealed record QuotaThresholdWindow(
 public sealed record QuotaResetWindow(
     string WindowName,
     int RemainingPercent,
-    DateTimeOffset ResetAtUtc);
+    DateTimeOffset? ResetAtUtc);
 
 public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Threshold)
 {
@@ -113,22 +113,50 @@ public static class QuotaAlertReducer
 
             hasValidWindow = true;
             var handled = old?.HandledThresholds.ToHashSet() ?? [];
-            var newCycle = old is not null && IsNewCycle(old, input);
-            var resetCycle = !resetBaseline && old is not null && IsResetCycle(old, input);
+            var cycleTransition = old is not null && IsCycleTransition(old, input);
+            // A migrated/unestablished baseline is deliberately not allowed
+            // to re-arm thresholds or emit a reset. Both behaviors share this
+            // same baseline-gated transition so they cannot diverge.
+            var newCycle = !resetBaseline && cycleTransition;
+            var resetCycle = newCycle;
             if (newCycle)
             {
                 handled.Clear();
             }
 
             var resetAlertCycle = old?.LastResetAlertCycleUtc;
-            if (resetCycle && input.ResetAtUtc is { } resetAt && resetAlertCycle != resetAt)
+            // Older state files only had LastResetAlertCycleUtc; treat an
+            // existing marker as already consumed when migrating them.
+            var resetAlertConsumed = old?.ResetAlertCycleConsumed
+                ?? old?.LastResetAlertCycleUtc is not null;
+            if (input.ResetAtUtc is null && input.RemainingPercent < 80)
             {
-                if (settings.ResetAfterCycle)
+                // Without a reset timestamp, a later strong recovery after
+                // a low observation is the only available new-cycle signal.
+                resetAlertConsumed = false;
+            }
+            if (resetCycle)
+            {
+                // A resetAt value identifies a known cycle.  When it is
+                // absent, keep the consumed bit so repeated high readings in
+                // the same unknown cycle cannot replay the reset alert.
+                var sameKnownCycle = input.ResetAtUtc is { } resetAt
+                    && resetAlertConsumed
+                    && resetAlertCycle == resetAt;
+                var sameUnknownCycle = input.ResetAtUtc is null && resetAlertConsumed;
+                if (!sameKnownCycle && !sameUnknownCycle)
                 {
-                    resetAlerts.Add(new QuotaResetWindow(input.WindowName, input.RemainingPercent, resetAt));
-                }
+                    if (settings.ResetAfterCycle)
+                    {
+                        resetAlerts.Add(new QuotaResetWindow(
+                            input.WindowName,
+                            input.RemainingPercent,
+                            input.ResetAtUtc));
+                    }
 
-                resetAlertCycle = resetAt;
+                    resetAlertCycle = input.ResetAtUtc ?? resetAlertCycle;
+                    resetAlertConsumed = true;
+                }
             }
 
             var newlyEnabled = enabled.Except(previous?.BaselineThresholds ?? []).ToArray();
@@ -166,7 +194,8 @@ public static class QuotaAlertReducer
                 input.ResetAtUtc,
                 input.RemainingPercent,
                 handled.OrderDescending().ToArray(),
-                resetAlertCycle);
+                resetAlertCycle,
+                resetAlertConsumed);
         }
 
         thresholdAlerts.Sort((left, right) => left.Threshold.CompareTo(right.Threshold));
@@ -182,15 +211,11 @@ public static class QuotaAlertReducer
             alert);
     }
 
-    public static bool IsNewCycle(AlertWindowState previous, AlertInput current)
+    public static bool IsCycleTransition(AlertWindowState previous, AlertInput current)
     {
-        if (previous.ResetAtUtc is { } before && current.ResetAtUtc is { } after)
+        if (IsReliableResetAtAdvance(previous, current))
         {
-            var tolerance = TimeSpan.FromMinutes(Math.Max(5, (current.WindowDurationMinutes ?? 0) / 2d));
-            if (after - before >= tolerance)
-            {
-                return true;
-            }
+            return true;
         }
 
         return previous.LastReliableRemaining is { } last
@@ -198,7 +223,15 @@ public static class QuotaAlertReducer
             && current.RemainingPercent >= 80;
     }
 
+    public static bool IsNewCycle(AlertWindowState previous, AlertInput current) =>
+        IsCycleTransition(previous, current);
+
     public static bool IsResetCycle(AlertWindowState previous, AlertInput current)
+    {
+        return IsCycleTransition(previous, current);
+    }
+
+    private static bool IsReliableResetAtAdvance(AlertWindowState previous, AlertInput current)
     {
         if (previous.ResetAtUtc is not { } before || current.ResetAtUtc is not { } after)
         {
@@ -212,7 +245,7 @@ public static class QuotaAlertReducer
             return false;
         }
 
-        var tolerance = TimeSpan.FromMinutes(current.WindowDurationMinutes.Value / 2d);
+        var tolerance = TimeSpan.FromMinutes(Math.Max(5, current.WindowDurationMinutes.Value / 2d));
         return after - before >= tolerance;
     }
 

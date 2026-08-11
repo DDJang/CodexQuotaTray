@@ -88,6 +88,45 @@ class QuotaAlertEvaluatorTest {
         assertEquals(listOf(AlertEventKind.RESET), reset.map { it.kind })
     }
 
+    @Test
+    fun strongRecoveryResetsWhenResetTimeIsUnchangedOrMissing() {
+        val store = MemoryAlertStateStore()
+        val evaluator = QuotaAlertEvaluator(store)
+
+        evaluator.evaluate(listOf(window(8, resetAt = 1_000L)))
+        assertEquals(
+            listOf(AlertEventKind.RESET),
+            evaluator.evaluate(listOf(window(100, resetAt = 1_000L))).map { it.kind },
+        )
+        assertTrue(evaluator.evaluate(listOf(window(99, resetAt = 1_000L))).isEmpty())
+
+        val missingResetTime = MemoryAlertStateStore()
+        val missingEvaluator = QuotaAlertEvaluator(missingResetTime)
+        missingEvaluator.evaluate(listOf(window(20, resetAt = null)))
+        assertEquals(
+            listOf(AlertEventKind.RESET),
+            missingEvaluator.evaluate(listOf(window(90, resetAt = null))).map { it.kind },
+        )
+    }
+
+    @Test
+    fun ordinaryRecoveryDoesNotResetAndResetRearmsThresholds() {
+        fun events(first: Int, second: Int): List<AlertEventKind> {
+            val evaluator = QuotaAlertEvaluator(MemoryAlertStateStore())
+            evaluator.evaluate(listOf(window(first)))
+            return evaluator.evaluate(listOf(window(second))).map { it.kind }
+        }
+
+        assertTrue(events(40, 60).isEmpty())
+        assertTrue(events(70, 100).isEmpty())
+        assertTrue(events(85, 100).isEmpty())
+
+        val evaluator = QuotaAlertEvaluator(MemoryAlertStateStore())
+        evaluator.evaluate(listOf(window(40)))
+        assertEquals(listOf(AlertEventKind.RESET), evaluator.evaluate(listOf(window(90))).map { it.kind })
+        assertEquals(listOf(50), evaluator.evaluate(listOf(window(49))).map { it.threshold })
+    }
+
     private fun window(remaining: Int?, resetAt: Long? = 1_000L): QuotaWindow = QuotaWindow(
         limitId = "primary",
         limitName = null,
@@ -106,6 +145,10 @@ class QuotaAlertEvaluatorTest {
 
         override fun save(windowKey: String, record: AlertRecord) {
             records[windowKey] = record
+        }
+
+        override fun clearWindow(windowKey: String) {
+            records.remove(windowKey)
         }
 
         override fun markSuccessfulRefresh(nowMillis: Long) {

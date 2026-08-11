@@ -488,6 +488,33 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_NotificationFailureDoesNotConsumeFutureResetAlert()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            CancellationToken.None);
+        var sink = new FailingNotificationSink();
+        var client = new ResetRecoveryClient();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(store, paths),
+            new PreviewPersistence(store, paths),
+            sink);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        _ = await service.RefreshAsync(CancellationToken.None);
+        sink.Throw = true;
+        _ = await service.RefreshAsync(CancellationToken.None);
+        sink.Throw = false;
+        _ = await service.RefreshAsync(CancellationToken.None);
+
+        Assert.AreEqual(2, sink.Attempts);
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_OverflowRecoveryTransportClosedDoesNotSelfAwaitAndNextRefreshRecreatesClient()
     {
         using var directory = new TemporaryDirectory();
@@ -1700,6 +1727,61 @@ public sealed class AppServerPhase2Tests
             Alerts.Add(alert);
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class FailingNotificationSink : IQuotaNotificationSink
+    {
+        public int Attempts { get; private set; }
+        public bool Throw { get; set; }
+
+        public Task ShowAsync(QuotaAlert alert, CancellationToken cancellationToken)
+        {
+            Attempts++;
+            if (Throw)
+            {
+                throw new InvalidOperationException("synthetic notification failure");
+            }
+
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed class ResetRecoveryClient : ICodexAppServerClient
+    {
+        private int readCount;
+
+        public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
+
+        public Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new CodexSessionInfo("9.99.0", "9.99.0"));
+
+        public Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
+        {
+            var usedPercent = Interlocked.Increment(ref readCount) == 1 ? 92 : 0;
+            return Task.FromResult(new RateLimitsReadResult(
+                new RateLimitsResponse
+                {
+                    RateLimits = new RateLimitSnapshot
+                    {
+                        Primary = new RateLimitWindow
+                        {
+                            UsedPercent = usedPercent,
+                            WindowDurationMinutes = 300,
+                            ResetsAt = 2_000,
+                        },
+                    },
+                },
+                false));
+        }
+
+        public async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            yield break;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
     private sealed class BlockingNotificationSink : IQuotaNotificationSink

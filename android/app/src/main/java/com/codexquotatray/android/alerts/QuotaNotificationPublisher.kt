@@ -44,32 +44,38 @@ class QuotaNotificationPublisher(context: Context) {
     private val appContext = context.applicationContext
     private val settingsStore = QuotaAlertSettingsStore(appContext)
 
-    fun publish(events: List<QuotaAlertEvent>) {
+    fun publish(events: List<QuotaAlertEvent>): Boolean {
         val enabledEvents = filterEnabledAlertEvents(events, settingsStore.load())
-        if (enabledEvents.isEmpty()) return
+        if (enabledEvents.isEmpty()) return true
         QuotaNotifications.ensureChannel(appContext)
         val manager = appContext.getSystemService(NotificationManager::class.java)
-        if (!manager.areNotificationsEnabled()) return
-        enabledEvents.forEach { event ->
-            val notificationId = NOTIFICATION_IDS.getAndIncrement()
-            val notification = Notification.Builder(appContext, QuotaNotifications.CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setContentTitle(title(event))
-                .setContentText(message(event))
-                .setStyle(Notification.BigTextStyle().bigText(message(event)))
-                .setContentIntent(
-                    QuotaNotifications.mainActivityPendingIntent(appContext, notificationId),
+        if (!manager.areNotificationsEnabled()) return false
+        return try {
+            enabledEvents.forEach { event ->
+                val notificationId = NOTIFICATION_IDS.getAndIncrement()
+                val notification = Notification.Builder(appContext, QuotaNotifications.CHANNEL_ID)
+                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                    .setContentTitle(title(event))
+                    .setContentText(message(event))
+                    .setStyle(Notification.BigTextStyle().bigText(message(event)))
+                    .setContentIntent(
+                        QuotaNotifications.mainActivityPendingIntent(appContext, notificationId),
+                    )
+                    .setAutoCancel(true)
+                    .build()
+                manager.notify(notificationId, notification)
+                AppLogStore.record(
+                    appContext,
+                    when (event.kind) {
+                        AlertEventKind.RESET -> "额度重置通知已发送"
+                        AlertEventKind.THRESHOLD -> "低额度通知已发送：${event.threshold}%阈值"
+                    },
                 )
-                .setAutoCancel(true)
-                .build()
-            manager.notify(notificationId, notification)
-            AppLogStore.record(
-                appContext,
-                when (event.kind) {
-                    AlertEventKind.RESET -> "额度重置通知已发送"
-                    AlertEventKind.THRESHOLD -> "低额度通知已发送：${event.threshold}%阈值"
-                },
-            )
+            }
+            true
+        } catch (error: Exception) {
+            AppLogStore.record(appContext, "额度通知发送失败：${error.javaClass.simpleName}", "WARN")
+            false
         }
     }
 

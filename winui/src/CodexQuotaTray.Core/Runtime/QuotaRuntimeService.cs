@@ -817,6 +817,7 @@ public sealed class QuotaRuntimeService :
             window.PercentageReliable,
             window.WindowDurationMinutes,
             window.ResetAtUtc)).ToArray();
+        var previousAlertState = alertState;
         var reduction = QuotaAlertReducer.Reduce(alertState, inputs, Settings.EffectiveNotifications);
         if (!IsCurrentGeneration(generation))
         {
@@ -858,7 +859,28 @@ public sealed class QuotaRuntimeService :
                 }
                 catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
                 {
-                    System.Diagnostics.Debug.WriteLine($"Quota notification failed after state save: {error.GetType().Name}");
+                    // A failed delivery must not consume a reset/threshold
+                    // event. Restore the committed state so the next
+                    // successful delivery can retry it.
+                    if (previousAlertState is not null)
+                    {
+                        alertState = previousAlertState;
+                        try
+                        {
+                            await persistence.SaveAlertStateAsync(
+                                previousAlertState,
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (Exception restoreError) when (
+                            restoreError is not OutOfMemoryException
+                            and not StackOverflowException)
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"Quota notification state restore failed: {restoreError.GetType().Name}");
+                        }
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"Quota notification failed before delivery commit: {error.GetType().Name}");
                 }
             }
 
@@ -1105,7 +1127,8 @@ public sealed class QuotaRuntimeService :
             && entry.Value.ResetAtUtc == other.ResetAtUtc
             && entry.Value.LastReliableRemaining == other.LastReliableRemaining
             && entry.Value.HandledThresholds.SequenceEqual(other.HandledThresholds)
-            && entry.Value.LastResetAlertCycleUtc == other.LastResetAlertCycleUtc);
+            && entry.Value.LastResetAlertCycleUtc == other.LastResetAlertCycleUtc
+            && entry.Value.ResetAlertCycleConsumed == other.ResetAlertCycleConsumed);
     }
 
     private void SetCurrent(AppUiState state)

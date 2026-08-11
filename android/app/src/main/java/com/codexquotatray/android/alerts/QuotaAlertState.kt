@@ -28,6 +28,7 @@ data class QuotaAlertEvent(
 interface AlertStateStore {
     fun load(windowKey: String): AlertRecord?
     fun save(windowKey: String, record: AlertRecord)
+    fun clearWindow(windowKey: String)
     fun markSuccessfulRefresh(nowMillis: Long)
     fun lastSuccessfulRefresh(): Long?
 }
@@ -65,6 +66,19 @@ class QuotaAlertStateStore(context: Context) : AlertStateStore {
             .putBoolean(prefix + NOTIFIED_50, record.notified50)
             .putBoolean(prefix + NOTIFIED_20, record.notified20)
             .putBoolean(prefix + NOTIFIED_10, record.notified10)
+            .commit()
+    }
+
+    @Synchronized
+    override fun clearWindow(windowKey: String) {
+        val prefix = keyPrefix(windowKey)
+        preferences.edit()
+            .remove(prefix + LAST_REMAINING)
+            .remove(prefix + LAST_RESET_AT)
+            .remove(prefix + DURATION)
+            .remove(prefix + NOTIFIED_50)
+            .remove(prefix + NOTIFIED_20)
+            .remove(prefix + NOTIFIED_10)
             .commit()
     }
 
@@ -109,11 +123,15 @@ class QuotaAlertStateStore(context: Context) : AlertStateStore {
 class QuotaAlertEvaluator(
     private val stateStore: AlertStateStore,
 ) {
+    private val lastEvaluationPrevious = linkedMapOf<String, AlertRecord?>()
+
     fun evaluate(windows: List<QuotaWindow>): List<QuotaAlertEvent> {
         val events = mutableListOf<QuotaAlertEvent>()
+        lastEvaluationPrevious.clear()
         for (window in windows) {
             val key = QuotaAlertStateStore.stableKey(window)
             val previous = stateStore.load(key)
+            lastEvaluationPrevious.putIfAbsent(key, previous)
             val current = window.remainingPercent
             if (current == null) {
                 stateStore.save(
@@ -131,13 +149,13 @@ class QuotaAlertEvaluator(
                 continue
             }
 
-            val resetObserved = previous != null && isReset(previous, window)
+            val resetObserved = previous != null && isCycleTransition(previous, window)
             if (resetObserved) {
                 stateStore.save(
                     key,
                     AlertRecord(
                         lastRemainingPercent = current,
-                        lastResetAt = window.resetsAt ?: previous?.lastResetAt,
+                        lastResetAt = window.resetsAt ?: previous.lastResetAt,
                         lastWindowDurationMins = window.windowDurationMins,
                     ),
                 )
@@ -189,7 +207,21 @@ class QuotaAlertEvaluator(
         return events
     }
 
-    private fun isReset(previous: AlertRecord, window: QuotaWindow): Boolean {
+    /** Restores the state captured by the most recent evaluation. */
+    fun restoreLastEvaluation() {
+        lastEvaluationPrevious.forEach { (key, previous) ->
+            if (previous == null) stateStore.clearWindow(key) else stateStore.save(key, previous)
+        }
+        lastEvaluationPrevious.clear()
+    }
+
+    private fun isCycleTransition(previous: AlertRecord, window: QuotaWindow): Boolean {
+        val current = window.remainingPercent
+        val strongRecovery = previous.lastRemainingPercent?.let { old ->
+            current != null && current >= 80 && current - old >= 50
+        } ?: false
+        if (strongRecovery) return true
+
         val oldReset = previous.lastResetAt ?: return false
         val newReset = window.resetsAt ?: return false
         if (newReset <= oldReset) return false

@@ -500,7 +500,7 @@ internal sealed class TrayIconService : IDisposable
     private static string FormatResetAlert(IReadOnlyList<QuotaResetWindow> windows) =>
         $"{string.Join("、", windows.Select(window => $"{window.WindowName}已重置"))}。当前剩余 "
         + $"{string.Join("、", windows.Select(window => $"{window.RemainingPercent}%"))}，下次重置时间为 "
-        + $"{string.Join("、", windows.Select(window => window.ResetAtUtc.ToLocalTime().ToString("M月d日 HH:mm")))}。";
+        + $"{string.Join("、", windows.Select(window => window.ResetAtUtc?.ToLocalTime().ToString("M月d日 HH:mm") ?? "未知"))}。";
 
     private static string FormatThresholdAlert(IReadOnlyList<QuotaThresholdWindow> windows)
     {
