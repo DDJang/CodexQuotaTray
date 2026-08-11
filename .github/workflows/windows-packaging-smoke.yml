@@ -1,0 +1,108 @@
+name: Windows Packaging Smoke
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'windows/**'
+      - 'global.json'
+      - '.github/workflows/windows-packaging-smoke.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'windows/**'
+      - 'global.json'
+      - '.github/workflows/windows-packaging-smoke.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-packaging-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    runs-on: windows-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: 'true'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET SDK from global.json
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Install pinned Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --version=6.7.1 --yes --no-progress
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Inno Setup installation failed.'
+          }
+
+          $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          $iscc = if ($command) { $command.Source } else { $null }
+          if (-not $iscc) {
+            $knownPaths = @(
+              "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+              "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe"
+            )
+            $iscc = $knownPaths | Where-Object {
+              $_ -and (Test-Path -LiteralPath $_ -PathType Leaf)
+            } | Select-Object -First 1
+          }
+
+          if (-not $iscc) {
+            throw 'ISCC.exe was not found after installing Inno Setup.'
+          }
+
+          $isccVersion = (Get-Item -LiteralPath $iscc).VersionInfo.ProductVersion
+          if ([string]::IsNullOrWhiteSpace($isccVersion)) {
+            throw "Could not determine ISCC.exe version: $iscc"
+          }
+
+          "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ISCC_VERSION=$isccVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Using Inno compiler $iscc (version $isccVersion)."
+
+      - name: Publish Windows app
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File .\windows\scripts\publish-winui.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "WinUI publish failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Compile Inno installer smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repoRoot = (Get-Location).Path
+          $windowsRoot = Join-Path $repoRoot 'windows'
+          $output = Join-Path $env:RUNNER_TEMP 'codexquotatray-inno-smoke'
+          pwsh -NoProfile -File .\windows\scripts\package-inno.ps1 `
+            -SkipPublish -Iscc $env:ISCC_PATH -RepoRoot $repoRoot -WindowsRoot $windowsRoot `
+            -OutputDir $output -PublishDir (Join-Path $repoRoot 'target\winui-publish')
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno installer packaging failed with exit code $LASTEXITCODE."
+          }
+
+          [xml]$project = Get-Content -LiteralPath '.\windows\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj' -Raw
+          $version = ([string]$project.Project.PropertyGroup.Version).Trim()
+          $installer = Join-Path $output "CodexQuotaTray-$version-setup.exe"
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Inno installer was not produced: $installer"
+          }
+
+          Write-Host "Inno packaging smoke passed: $installer"

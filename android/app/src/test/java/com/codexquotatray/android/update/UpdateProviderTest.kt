@@ -1,14 +1,115 @@
 package com.codexquotatray.android.update
 
+import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONArray
 import org.json.JSONObject
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 class UpdateProviderTest {
+    private lateinit var server: MockWebServer
+
+    @Before
+    fun setUp() {
+        server = MockWebServer()
+        server.start()
+    }
+
+    @After
+    fun tearDown() {
+        server.shutdown()
+    }
+
+    @Test
+    fun fetchLatestFindsAndroidOnSecondPageAfterWindowsPage() {
+        server.enqueue(MockResponse().setBody(pageJson(100) {
+            releaseJson(includeAndroid = false, tag = "windows-v0.1.0", version = "0.1.0")
+        }))
+        server.enqueue(MockResponse().setBody(pageJson(1) {
+            releaseJson(includeAndroid = true, tag = "android-v0.9.0", version = "0.9.0")
+        }))
+
+        val release = provider().fetchLatest()
+
+        assertEquals("android-v0.9.0", release.tagName)
+        assertEquals(2, server.requestCount)
+        assertEquals("/releases?per_page=100", server.takeRequest().path)
+        assertEquals("/releases?per_page=100&page=2", server.takeRequest().path)
+    }
+
+    @Test
+    fun fetchLatestDoesNotUseWindowsReleaseAfterAndroidPage() {
+        server.enqueue(MockResponse().setBody(pageJson(100) {
+            releaseJson(includeAndroid = true, tag = "android-v0.7.0", version = "0.7.0")
+        }))
+        server.enqueue(MockResponse().setBody(pageJson(1) {
+            releaseJson(includeAndroid = false, tag = "windows-v0.9.0", version = "0.9.0")
+        }))
+
+        val release = provider().fetchLatest()
+
+        assertEquals("android-v0.7.0", release.tagName)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun fetchLatestChoosesHigherAndroidVersionFromLaterPage() {
+        server.enqueue(MockResponse().setBody(pageJson(100) {
+            releaseJson(includeAndroid = true, tag = "android-v0.7.0", version = "0.7.0")
+        }))
+        server.enqueue(MockResponse().setBody(pageJson(1) {
+            releaseJson(includeAndroid = true, tag = "android-v0.9.0", version = "0.9.0")
+        }))
+
+        val release = provider().fetchLatest()
+
+        assertEquals("android-v0.9.0", release.tagName)
+    }
+
+    @Test
+    fun fetchLatestStopsAfterEmptySecondPage() {
+        server.enqueue(MockResponse().setBody(pageJson(100) {
+            releaseJson(includeAndroid = false, tag = "windows-v0.1.0", version = "0.1.0")
+        }))
+        server.enqueue(MockResponse().setBody("[]"))
+
+        val error = runCatching { provider().fetchLatest() }.exceptionOrNull()
+
+        assertTrue(error is UpdateProviderException)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun fetchLatestStopsAfterShortPage() {
+        server.enqueue(MockResponse().setBody(releaseJson(includeAndroid = false, tag = "windows-v0.1.0", version = "0.1.0")))
+
+        val error = runCatching { provider().fetchLatest() }.exceptionOrNull()
+
+        assertTrue(error is UpdateProviderException)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun fetchLatestStopsAtBoundedMaximumPageCount() {
+        repeat(3) {
+            server.enqueue(MockResponse().setBody(pageJson(100) {
+                releaseJson(includeAndroid = false, tag = "windows-v0.1.0", version = "0.1.0")
+            }))
+        }
+
+        val error = runCatching { provider().fetchLatest() }.exceptionOrNull()
+
+        assertTrue(error is UpdateProviderException)
+        assertEquals(3, server.requestCount)
+    }
+
     @Test
     fun releaseListSelectsNewestValidAndroidReleaseInsteadOfWindowsLatest() {
         val releases = JSONArray()
@@ -101,6 +202,15 @@ class UpdateProviderTest {
             assertTrue(error is UpdateProviderException)
         }
     }
+
+    private fun provider(): GithubUpdateProvider = GithubUpdateProvider(
+        client = OkHttpClient(),
+        endpoint = server.url("/releases?per_page=100").toString(),
+    )
+
+    private fun pageJson(count: Int, releaseFactory: () -> String): String = JSONArray().apply {
+        repeat(count) { put(JSONObject(releaseFactory())) }
+    }.toString()
 
     private fun releaseJson(
         includeAndroid: Boolean,

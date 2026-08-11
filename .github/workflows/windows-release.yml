@@ -17,13 +17,13 @@ jobs:
 
     steps:
       - name: Check out tagged commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ github.ref }}
 
       - name: Set up .NET SDK from global.json
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: global.json
 
@@ -114,7 +114,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          choco install innosetup --yes --no-progress
+          choco install innosetup --version=6.7.1 --yes --no-progress
           if ($LASTEXITCODE -ne 0) {
             throw 'Inno Setup installation failed.'
           }
@@ -137,8 +137,14 @@ jobs:
             throw 'ISCC.exe was not found after installing Inno Setup.'
           }
 
+          $isccVersion = (Get-Item -LiteralPath $iscc).VersionInfo.ProductVersion
+          if ([string]::IsNullOrWhiteSpace($isccVersion)) {
+            throw "Could not determine ISCC.exe version: $iscc"
+          }
+
           "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "Using Inno compiler $iscc."
+          "ISCC_VERSION=$isccVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Using Inno compiler $iscc (version $isccVersion)."
 
       - name: Build portable ZIP
         shell: pwsh

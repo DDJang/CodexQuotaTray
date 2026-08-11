@@ -12,7 +12,7 @@ Windows 与 Android 版本完全独立，但所有正式 Release 都必须来自
 | Android | `android-v<version>` | `android/app/build.gradle.kts` 的 `versionName` | `android-release.yml` | `CodexQuotaTray-Android-v<version>.apk`、Android `SHA256SUMS.txt` |
 
 两个 workflow 都会 fetch `origin/main`，并拒绝不属于 `main` 历史的 tagged commit。Tag 版本必须
-与对应项目版本完全一致。平台更新器未来只能识别自身 tag 前缀，不能依赖 GitHub “latest release”。
+与对应项目版本完全一致。平台更新器只能识别自身平台的 tag 前缀，不能依赖 GitHub “latest release”。
 
 ## 日常开发边界
 
