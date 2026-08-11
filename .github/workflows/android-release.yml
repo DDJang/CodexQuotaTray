@@ -147,7 +147,7 @@ jobs:
 
           release_dir="$RUNNER_TEMP/codexquotatray-android-release"
           mkdir -p "$release_dir"
-          artifact_name="CodexQuotaTray-${RELEASE_VERSION}-android.apk"
+          artifact_name="CodexQuotaTray-Android-v${RELEASE_VERSION}.apk"
           cp "$apk" "$release_dir/$artifact_name"
           (
             cd "$release_dir"

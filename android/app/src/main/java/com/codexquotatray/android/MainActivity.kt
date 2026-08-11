@@ -30,6 +30,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
+import com.codexquotatray.android.update.UpdateInstaller
+import com.codexquotatray.android.update.UpdateRelease
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import java.util.concurrent.Executors
@@ -41,6 +43,11 @@ class MainActivity : ComponentActivity() {
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var systemThemeVersion by mutableIntStateOf(0)
     private var foregroundRegistration: AutoCloseable? = null
+    private var updateReminderRegistration: AutoCloseable? = null
+    private var updatePrompt by mutableStateOf<UpdateRelease?>(null)
+    private var updateDownloading by mutableStateOf(false)
+    private var updateProgressPercent by mutableStateOf<Int?>(null)
+    private var pendingInstall by mutableStateOf<java.io.File?>(null)
     private val pairingWorker = Executors.newSingleThreadExecutor()
     private val pairingMain = Handler(Looper.getMainLooper())
 
@@ -54,9 +61,18 @@ class MainActivity : ComponentActivity() {
         usage = TokenUsagePageController(this)
         quota.initialize()
         TokenUsageRefreshScheduler.schedule(this)
-        foregroundRegistration = (application as CodexQuotaApplication).registerForegroundListener { reason ->
+        val app = application as CodexQuotaApplication
+        updateReminderRegistration = app.registerUpdateReminderListener { release ->
+            updatePrompt = release
+        }
+        foregroundRegistration = app.registerForegroundListener { reason ->
             quota.onForeground(reason)
             usage.onForeground(reason)
+            app.updateCheckCoordinator.requestAutomaticCheck { result ->
+                if (result is com.codexquotatray.android.update.UpdateCheckResult.Failed) {
+                    AppLogStore.record(this, "自动检查更新失败", "WARN")
+                }
+            }
         }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -99,6 +115,16 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp).fillMaxWidth(),
                     )
                 }
+                updatePrompt?.let { release ->
+                    UpdateAvailableDialog(
+                        release = release,
+                        currentVersion = BuildConfig.VERSION_NAME,
+                        downloading = updateDownloading,
+                        progressPercent = updateProgressPercent,
+                        onLater = { updatePrompt = null },
+                        onDownload = ::downloadAutomaticUpdate,
+                    )
+                }
             }
         }
     }
@@ -115,6 +141,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onResume() {
         super.onResume()
+        tryInstallPendingUpdate()
         if (::usage.isInitialized) usage.reconcilePairingState()
         val restoredTheme = AppTheme.mode(this)
         if (themeMode != restoredTheme) {
@@ -148,6 +175,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         foregroundRegistration?.close()
         foregroundRegistration = null
+        updateReminderRegistration?.close()
+        updateReminderRegistration = null
         if (::quota.isInitialized) quota.destroy()
         if (::usage.isInitialized) usage.destroy()
         pairingWorker.shutdownNow()
@@ -188,5 +217,47 @@ class MainActivity : ComponentActivity() {
         }.onFailure {
             Toast.makeText(this, it.message ?: "配对信息无效", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun downloadAutomaticUpdate() {
+        val asset = updatePrompt?.androidAsset ?: return
+        if (updateDownloading) return
+        updateDownloading = true
+        updateProgressPercent = null
+        (application as CodexQuotaApplication).updateDownloadManager.download(
+            asset = asset,
+            onProgress = { completed, total ->
+                if (total > 0L) {
+                    runOnUiThread {
+                        updateProgressPercent = ((completed * 100L) / total).toInt().coerceIn(0, 100)
+                    }
+                }
+            },
+        ) { result ->
+            runOnUiThread {
+                updateDownloading = false
+                result.onSuccess { apk ->
+                    pendingInstall = apk
+                    updatePrompt = null
+                    launchPendingInstall()
+                }
+            }
+        }
+    }
+
+    private fun tryInstallPendingUpdate() {
+        if (pendingInstall?.isFile == true && UpdateInstaller.canRequestPackageInstalls(this)) {
+            launchPendingInstall()
+        }
+    }
+
+    private fun launchPendingInstall() {
+        val apk = pendingInstall ?: return
+        runCatching { UpdateInstaller.install(this, apk) }
+            .onSuccess { result ->
+                if (result == com.codexquotatray.android.update.InstallUpdateResult.STARTED) {
+                    pendingInstall = null
+                }
+            }
     }
 }

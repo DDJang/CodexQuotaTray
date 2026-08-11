@@ -50,6 +50,14 @@ import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
 import com.codexquotatray.android.usage.TokenUsageCache
 import com.codexquotatray.android.usage.TokenUsagePairingLifecycle
 import com.codexquotatray.android.usage.tokenUsageSyncErrorMessage
+import com.codexquotatray.android.update.SkipReason
+import com.codexquotatray.android.update.UpdateCheckReason
+import com.codexquotatray.android.update.UpdateCheckResult
+import com.codexquotatray.android.update.UpdateInstaller
+import com.codexquotatray.android.update.UpdateRelease
+import com.codexquotatray.android.update.UpdateSettings
+import com.codexquotatray.android.update.UpdateSettingsStore
+import com.codexquotatray.android.update.UpdateSource
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import java.time.Instant
@@ -63,6 +71,7 @@ private enum class SettingsDestination(val title: String) {
     SYNC("同步"),
     THEME("显示与主题"),
     TOKEN_PAIRING("Token 用量账号"),
+    UPDATE("更新设置"),
 }
 
 class SettingsActivity : ComponentActivity() {
@@ -71,6 +80,7 @@ class SettingsActivity : ComponentActivity() {
     private val themeStore by lazy { ThemeSettingsStore(this) }
     private val tokenStore by lazy { TokenSyncStore(this) }
     private val tokenRefreshStore by lazy { TokenUsageRefreshSettingsStore(this) }
+    private val updateSettingsStore by lazy { UpdateSettingsStore(this) }
     private val pairingWorker = Executors.newSingleThreadExecutor()
     private val pairingMain = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -89,6 +99,17 @@ class SettingsActivity : ComponentActivity() {
     private var pairing by mutableStateOf<TokenSyncPairing?>(null)
     private var tokenStatus by mutableStateOf("尚未配对 Windows")
     private var showClearPairingDialog by mutableStateOf(false)
+    private var updateSource by mutableStateOf(UpdateSource.GITHUB)
+    private var automaticUpdateChecks by mutableStateOf(true)
+    private var updateReminders by mutableStateOf(true)
+    private var updateLastCheckAtMillis by mutableStateOf(0L)
+    private var updateStatus by mutableStateOf("尚未检查")
+    private var updateInfo by mutableStateOf<UpdateRelease?>(null)
+    private var updateDialogVisible by mutableStateOf(false)
+    private var updateChecking by mutableStateOf(false)
+    private var updateDownloading by mutableStateOf(false)
+    private var updateProgressPercent by mutableStateOf<Int?>(null)
+    private var pendingInstall by mutableStateOf<java.io.File?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -163,6 +184,18 @@ class SettingsActivity : ComponentActivity() {
                         onDismiss = { showClearPairingDialog = false },
                     )
                 }
+                if (updateDialogVisible) {
+                    updateInfo?.let { release ->
+                        UpdateAvailableDialog(
+                            release = release,
+                            currentVersion = BuildConfig.VERSION_NAME,
+                            downloading = updateDownloading,
+                            progressPercent = updateProgressPercent,
+                            onLater = { updateDialogVisible = false },
+                            onDownload = ::downloadAndInstallUpdate,
+                        )
+                    }
+                }
             }
         }
     }
@@ -175,6 +208,7 @@ class SettingsActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         renderState()
+        tryInstallPendingUpdate()
         if (themeMode == ThemeMode.SYSTEM) {
             themeStore.synchronizeLaunchTheme()
             systemThemeVersion++
@@ -217,6 +251,7 @@ class SettingsActivity : ComponentActivity() {
                 SettingsDestination.SYNC -> SyncSettings()
                 SettingsDestination.THEME -> ThemeSettings()
                 SettingsDestination.TOKEN_PAIRING -> TokenPairingSettings()
+                SettingsDestination.UPDATE -> UpdateSettingsPage()
             }
         }
     }
@@ -260,6 +295,10 @@ class SettingsActivity : ComponentActivity() {
             SettingsGroup {
                 SettingsNavigationRow("运行日志") {
                     startActivity(Intent(this@SettingsActivity, LogActivity::class.java))
+                }
+                SettingsDivider()
+                SettingsNavigationRow("更新设置") {
+                    openDestination(SettingsDestination.UPDATE)
                 }
                 SettingsDivider()
                 SettingsNavigationRow("关于") {
@@ -411,6 +450,12 @@ class SettingsActivity : ComponentActivity() {
         themeMode = themeStore.load()
         pairing = tokenStore.load()
         tokenStatus = if (pairing == null) "尚未配对 Windows" else "已配对"
+        updateSettingsStore.load().also { update ->
+            updateSource = update.source
+            automaticUpdateChecks = update.automaticChecksEnabled
+            updateReminders = update.updateRemindersEnabled
+            updateLastCheckAtMillis = update.lastCheckAtMillis
+        }
     }
 
     private fun settingsPalette(base: ThemePalette, effectiveTheme: ThemeMode): ThemePalette =
@@ -538,6 +583,51 @@ class SettingsActivity : ComponentActivity() {
         }
     }
 
+    @Composable
+    private fun ColumnScope.UpdateSettingsPage() {
+        SettingsSection("下载源") {
+            SettingsGroup {
+                SettingsSelectionRow("GitHub", updateSource == UpdateSource.GITHUB) {
+                    updateSource = UpdateSource.GITHUB
+                    saveUpdateSettings()
+                }
+                SettingsDivider()
+                SettingsNavigationRow(
+                    title = "Gitee",
+                    trailing = "暂不可用",
+                    enabled = false,
+                ) { }
+            }
+        }
+        SettingsSection("更新行为") {
+            SettingsGroup {
+                SettingsToggleRow("自动检查更新", automaticUpdateChecks, onChange = ::updateAutomaticChecks)
+                SettingsDivider()
+                SettingsToggleRow(
+                    "更新提醒",
+                    updateReminders,
+                    enabled = automaticUpdateChecks,
+                    onChange = ::updateReminderSetting,
+                )
+            }
+        }
+        SettingsSection("版本") {
+            SettingsGroup {
+                SettingsInfoRow("当前版本", BuildConfig.VERSION_NAME)
+                SettingsDivider()
+                SettingsInfoRow("上次检查", formatUpdateCheckTime(updateLastCheckAtMillis))
+                SettingsDivider()
+                SettingsInfoRow("状态", updateStatus)
+                SettingsActionButton(
+                    label = if (updateChecking) "正在检查…" else "检查更新",
+                    enabled = !updateChecking,
+                    bottomPadding = SettingsUiTokens.actionBottomInset,
+                    onClick = ::checkForUpdates,
+                )
+            }
+        }
+    }
+
     private fun testPairing(value: TokenSyncPairing) {
         tokenStatus = "正在测试 Windows 连接…"
         TokenPairingFlow.testPairing(this, value, pairingWorker, pairingMain) { result ->
@@ -569,6 +659,125 @@ class SettingsActivity : ComponentActivity() {
         } else {
             Toast.makeText(this, "无法解除 Windows 配对", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun updateAutomaticChecks(enabled: Boolean) {
+        automaticUpdateChecks = enabled
+        saveUpdateSettings()
+        AppLogStore.record(this, "自动检查更新已${if (enabled) "开启" else "关闭"}")
+    }
+
+    private fun updateReminderSetting(enabled: Boolean) {
+        updateReminders = enabled
+        saveUpdateSettings()
+        AppLogStore.record(this, "更新提醒已${if (enabled) "开启" else "关闭"}")
+    }
+
+    private fun saveUpdateSettings() {
+        val previous = updateSettingsStore.load()
+        updateSettingsStore.save(
+            UpdateSettings(
+                source = updateSource,
+                automaticChecksEnabled = automaticUpdateChecks,
+                updateRemindersEnabled = updateReminders,
+                lastCheckAtMillis = updateLastCheckAtMillis,
+                lastNotifiedVersion = previous.lastNotifiedVersion,
+            ),
+        )
+    }
+
+    private fun checkForUpdates() {
+        if (updateChecking) return
+        updateChecking = true
+        updateStatus = "正在检查…"
+        (application as CodexQuotaApplication).updateCheckCoordinator.check(UpdateCheckReason.MANUAL) { result ->
+            updateChecking = false
+            updateLastCheckAtMillis = updateSettingsStore.load().lastCheckAtMillis
+            when (result) {
+                is UpdateCheckResult.Available -> {
+                    updateInfo = result.release
+                    updateStatus = "发现新版本 ${result.release.version}"
+                    updateDialogVisible = true
+                }
+                is UpdateCheckResult.UpToDate -> {
+                    updateInfo = null
+                    updateStatus = "已是最新版本 ${result.currentVersion}"
+                }
+                is UpdateCheckResult.NoAndroidAsset -> {
+                    updateInfo = null
+                    updateStatus = "当前 Release 没有 Android 安装包"
+                }
+                is UpdateCheckResult.Failed -> {
+                    updateInfo = null
+                    updateStatus = "检查更新失败：${result.message}"
+                }
+                is UpdateCheckResult.Skipped -> {
+                    updateInfo = null
+                    updateStatus = when (result.reason) {
+                        SkipReason.SOURCE_UNAVAILABLE -> "Gitee 更新源暂不可用"
+                        SkipReason.AUTO_DISABLED -> "自动检查更新已关闭"
+                        SkipReason.WITHIN_INTERVAL -> "自动检查仍在 24 小时限制内"
+                        SkipReason.IN_FLIGHT -> "检查更新正在进行中"
+                    }
+                }
+            }
+        }
+    }
+
+    private fun downloadAndInstallUpdate() {
+        val asset = updateInfo?.androidAsset ?: return
+        if (updateDownloading) return
+        updateDownloading = true
+        updateProgressPercent = null
+        (application as CodexQuotaApplication).updateDownloadManager.download(
+            asset = asset,
+            onProgress = { completed, total ->
+                if (total > 0L) {
+                    runOnUiThread {
+                        updateProgressPercent = ((completed * 100L) / total).toInt().coerceIn(0, 100)
+                    }
+                }
+            },
+        ) { result ->
+            runOnUiThread {
+                updateDownloading = false
+                result.onSuccess { apk ->
+                    pendingInstall = apk
+                    updateDialogVisible = false
+                    launchPendingInstall()
+                }.onFailure { error ->
+                    updateStatus = error.message ?: "下载更新失败"
+                }
+            }
+        }
+    }
+
+    private fun tryInstallPendingUpdate() {
+        if (pendingInstall?.isFile == true && UpdateInstaller.canRequestPackageInstalls(this)) {
+            launchPendingInstall()
+        }
+    }
+
+    private fun launchPendingInstall() {
+        val apk = pendingInstall ?: return
+        runCatching { UpdateInstaller.install(this, apk) }
+            .onSuccess { result ->
+                if (result == com.codexquotatray.android.update.InstallUpdateResult.STARTED) {
+                    pendingInstall = null
+                    updateStatus = "已打开系统安装器"
+                } else {
+                    updateStatus = "请允许安装未知应用后返回继续"
+                }
+            }
+            .onFailure { error -> updateStatus = error.message ?: "无法打开系统安装器" }
+    }
+
+    private fun formatUpdateCheckTime(value: Long): String = if (value <= 0L) {
+        "尚未检查"
+    } else {
+        DateTimeFormatter.ofPattern("MM-dd HH:mm", java.util.Locale.getDefault())
+            .withZone(ZoneId.systemDefault())
+            .format(Instant.ofEpochMilli(value))
     }
 
     private fun formatPairingTime(raw: String): String = runCatching {

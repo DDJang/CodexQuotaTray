@@ -4,18 +4,28 @@ import android.app.Activity
 import android.app.Application
 import android.os.Bundle
 import com.codexquotatray.android.refresh.AutomaticRefreshReason
+import com.codexquotatray.android.update.UpdateCheckCoordinator
+import com.codexquotatray.android.update.UpdateDownloadManager
+import com.codexquotatray.android.update.UpdateRelease
 
 class CodexQuotaApplication : Application(), Application.ActivityLifecycleCallbacks {
     private val foregroundTracker = ProcessForegroundTracker()
+    val updateCheckCoordinator: UpdateCheckCoordinator by lazy { UpdateCheckCoordinator(this) }
+    val updateDownloadManager: UpdateDownloadManager by lazy { UpdateDownloadManager(this) }
 
     override fun onCreate() {
         super.onCreate()
         registerActivityLifecycleCallbacks(this)
+        updateDownloadManager.cleanupStaleFiles()
     }
 
     internal fun registerForegroundListener(
         listener: (AutomaticRefreshReason) -> Unit,
     ): AutoCloseable = foregroundTracker.addListener(listener)
+
+    internal fun registerUpdateReminderListener(
+        listener: (UpdateRelease) -> Unit,
+    ): AutoCloseable = updateCheckCoordinator.addReminderListener(listener)
 
     override fun onActivityStarted(activity: Activity) = foregroundTracker.onActivityStarted()
 
