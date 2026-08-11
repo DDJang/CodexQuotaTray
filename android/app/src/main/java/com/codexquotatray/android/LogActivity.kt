@@ -3,6 +3,7 @@ package com.codexquotatray.android
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
@@ -31,6 +33,7 @@ class LogActivity : ComponentActivity() {
     private var logText by mutableStateOf("暂无日志")
     private var copied by mutableStateOf(false)
     private var showClearDialog by mutableStateOf(false)
+    private var themeVersion by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -38,6 +41,7 @@ class LogActivity : ComponentActivity() {
         AppTheme.applySystemBars(this)
         renderLog()
         setContent {
+            themeVersion
             val palette = AppTheme.palette(this)
             CodexQuotaTheme(palette) {
                 LaunchedEffect(copied) {
@@ -108,6 +112,12 @@ class LogActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         renderLog()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (AppTheme.mode(this) == ThemeMode.SYSTEM) themeVersion++
+        AppTheme.applySystemBars(this)
     }
 
     private fun renderLog() { logText = logStore.read() }

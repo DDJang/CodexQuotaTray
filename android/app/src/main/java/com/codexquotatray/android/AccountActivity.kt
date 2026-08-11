@@ -1,6 +1,7 @@
 package com.codexquotatray.android
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +31,7 @@ class AccountActivity : ComponentActivity() {
     private val oauthStore by lazy { OAuthStore(this) }
     private var credentials by mutableStateOf<OAuthCredentials?>(null)
     private var showLogoutDialog by mutableStateOf(false)
+    private var themeVersion by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -36,6 +39,7 @@ class AccountActivity : ComponentActivity() {
         AppTheme.applySystemBars(this)
         render()
         setContent {
+            themeVersion
             val palette = AppTheme.palette(this)
             CodexQuotaTheme(palette) {
                 SecondaryScreenScaffold(title = "Codex 额度账号", onBack = ::finish) {
@@ -85,6 +89,12 @@ class AccountActivity : ComponentActivity() {
     }
 
     override fun onResume() { super.onResume(); render() }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (AppTheme.mode(this) == ThemeMode.SYSTEM) themeVersion++
+        AppTheme.applySystemBars(this)
+    }
 
     private fun render() { credentials = oauthStore.load() }
 

@@ -3,6 +3,7 @@ package com.codexquotatray.android
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.content.res.Configuration
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.ComponentActivity
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,12 +39,14 @@ class LoginActivity : ComponentActivity() {
     private var userCode: String? by mutableStateOf(null)
     private var busy by mutableStateOf(false)
     private var failed by mutableStateOf(false)
+    private var themeVersion by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
         super.onCreate(savedInstanceState)
         AppTheme.applySystemBars(this)
         setContent {
+            themeVersion
             val palette = AppTheme.palette(this)
             CodexQuotaTheme(palette) {
                 SecondaryScreenScaffold(title = "登录 Codex", onBack = ::finish) {
@@ -93,6 +97,12 @@ class LoginActivity : ComponentActivity() {
             }
         }
         beginLogin()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (AppTheme.mode(this) == ThemeMode.SYSTEM) themeVersion++
+        AppTheme.applySystemBars(this)
     }
 
     private fun beginLogin() {

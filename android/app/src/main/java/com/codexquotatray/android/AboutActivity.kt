@@ -3,6 +3,7 @@ package com.codexquotatray.android
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.content.res.Configuration
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
@@ -19,13 +20,19 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 class AboutActivity : ComponentActivity() {
+    private var themeVersion by mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
         super.onCreate(savedInstanceState)
         AppTheme.applySystemBars(this)
         setContent {
+            themeVersion
             val palette = AppTheme.palette(this)
             CodexQuotaTheme(palette) {
                 SecondaryScreenScaffold(title = "关于", onBack = ::finish) {
@@ -62,6 +69,12 @@ class AboutActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (AppTheme.mode(this) == ThemeMode.SYSTEM) themeVersion++
+        AppTheme.applySystemBars(this)
     }
 
     @Suppress("DEPRECATION")

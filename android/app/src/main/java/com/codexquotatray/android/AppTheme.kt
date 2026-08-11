@@ -4,7 +4,6 @@ import android.app.Activity
 import android.app.UiModeManager
 import android.content.Context
 import android.content.res.Configuration
-import android.content.res.Resources
 import android.graphics.Color
 import android.os.Build
 import android.view.View
@@ -60,23 +59,19 @@ class ThemeSettingsStore(context: Context) {
     fun synchronizeLaunchTheme() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         appContext.getSystemService(UiModeManager::class.java)
-            ?.setApplicationNightMode(
-                applicationNightMode(load(), Resources.getSystem().configuration.uiMode),
-            )
+            ?.setApplicationNightMode(applicationNightMode(load()))
     }
 
     companion object {
         private const val PREFERENCES_NAME = "appearance_settings"
         private const val KEY_MODE = "theme_mode"
 
-        internal fun applicationNightMode(mode: ThemeMode, systemUiMode: Int): Int = when (mode) {
+        internal fun applicationNightMode(mode: ThemeMode): Int = when (mode) {
             ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
             ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
-            ThemeMode.SYSTEM -> when (systemThemeMode(systemUiMode)) {
-                ThemeMode.DARK -> UiModeManager.MODE_NIGHT_YES
-                ThemeMode.LIGHT -> UiModeManager.MODE_NIGHT_NO
-                ThemeMode.SYSTEM -> error("System theme must resolve to light or dark")
-            }
+            // AOSP maps AUTO to UI_MODE_NIGHT_UNDEFINED for the package,
+            // removing the app-local night/notnight override.
+            ThemeMode.SYSTEM -> UiModeManager.MODE_NIGHT_AUTO
         }
     }
 }
@@ -87,6 +82,9 @@ internal fun systemThemeMode(uiMode: Int): ThemeMode =
     } else {
         ThemeMode.LIGHT
     }
+
+internal fun resolveEffectiveThemeMode(selected: ThemeMode, uiMode: Int): ThemeMode =
+    if (selected == ThemeMode.SYSTEM) systemThemeMode(uiMode) else selected
 
 data class ThemePalette(
     val background: Int,
@@ -111,11 +109,7 @@ object AppTheme {
     fun effectiveMode(context: Context): ThemeMode = effectiveMode(context, mode(context))
 
     fun effectiveMode(context: Context, selected: ThemeMode): ThemeMode {
-        if (selected != ThemeMode.SYSTEM) return selected
-        // Application-local night mode can be explicitly light/dark so the
-        // Android 12 splash is correct. Read the system resource configuration
-        // here so the "follow system" option remains independent of that cache.
-        return systemThemeMode(Resources.getSystem().configuration.uiMode)
+        return resolveEffectiveThemeMode(selected, context.resources.configuration.uiMode)
     }
 
     fun palette(context: Context, selected: ThemeMode = mode(context)): ThemePalette =

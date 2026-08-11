@@ -2,6 +2,7 @@ package com.codexquotatray.android
 
 import android.content.Intent
 import android.os.Bundle
+import android.content.res.Configuration
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
@@ -115,6 +116,14 @@ class MainActivity : ComponentActivity() {
         if (::quota.isInitialized) quota.onResume()
         if (selectedIndex == 0 && ::quota.isInitialized) quota.onVisible()
         if (selectedIndex == 1 && ::usage.isInitialized) usage.onResume()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (AppTheme.mode(this) == ThemeMode.SYSTEM) {
+            systemThemeVersion++
+        }
+        AppTheme.applySystemBars(this)
     }
 
     @Suppress("DEPRECATION")

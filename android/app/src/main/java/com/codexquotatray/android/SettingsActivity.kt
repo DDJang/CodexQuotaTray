@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -183,6 +184,14 @@ class SettingsActivity : ComponentActivity() {
         renderState()
         if (themeMode == ThemeMode.SYSTEM) {
             themeStore.synchronizeLaunchTheme()
+            systemThemeVersion++
+        }
+        AppTheme.applySystemBars(this)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (AppTheme.mode(this) == ThemeMode.SYSTEM) {
             systemThemeVersion++
         }
         AppTheme.applySystemBars(this)

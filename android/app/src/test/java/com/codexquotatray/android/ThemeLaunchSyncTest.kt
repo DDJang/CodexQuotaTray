@@ -10,25 +10,36 @@ class ThemeLaunchSyncTest {
     fun explicitModesMapToTheirAndroidLaunchModes() {
         assertEquals(
             UiModeManager.MODE_NIGHT_NO,
-            ThemeSettingsStore.applicationNightMode(ThemeMode.LIGHT, Configuration.UI_MODE_NIGHT_YES),
+            ThemeSettingsStore.applicationNightMode(ThemeMode.LIGHT),
         )
         assertEquals(
             UiModeManager.MODE_NIGHT_YES,
-            ThemeSettingsStore.applicationNightMode(ThemeMode.DARK, Configuration.UI_MODE_NIGHT_NO),
+            ThemeSettingsStore.applicationNightMode(ThemeMode.DARK),
         )
     }
 
     @Test
-    fun systemModeUsesTheCurrentSystemThemeInsteadOfSensorAutoMode() {
-        assertEquals(ThemeMode.LIGHT, systemThemeMode(Configuration.UI_MODE_NIGHT_NO))
-        assertEquals(ThemeMode.DARK, systemThemeMode(Configuration.UI_MODE_NIGHT_YES))
+    fun systemModeClearsPackageOverrideAndUsesCurrentConfiguration() {
+        assertEquals(UiModeManager.MODE_NIGHT_AUTO, ThemeSettingsStore.applicationNightMode(ThemeMode.SYSTEM))
         assertEquals(
-            UiModeManager.MODE_NIGHT_NO,
-            ThemeSettingsStore.applicationNightMode(ThemeMode.SYSTEM, Configuration.UI_MODE_NIGHT_NO),
+            ThemeMode.DARK,
+            resolveEffectiveThemeMode(ThemeMode.SYSTEM, Configuration.UI_MODE_NIGHT_YES),
         )
         assertEquals(
-            UiModeManager.MODE_NIGHT_YES,
-            ThemeSettingsStore.applicationNightMode(ThemeMode.SYSTEM, Configuration.UI_MODE_NIGHT_YES),
+            ThemeMode.LIGHT,
+            resolveEffectiveThemeMode(ThemeMode.SYSTEM, Configuration.UI_MODE_NIGHT_NO),
+        )
+    }
+
+    @Test
+    fun fixedModesIgnoreSystemConfigurationChanges() {
+        assertEquals(
+            ThemeMode.LIGHT,
+            resolveEffectiveThemeMode(ThemeMode.LIGHT, Configuration.UI_MODE_NIGHT_YES),
+        )
+        assertEquals(
+            ThemeMode.DARK,
+            resolveEffectiveThemeMode(ThemeMode.DARK, Configuration.UI_MODE_NIGHT_NO),
         )
     }
 }
