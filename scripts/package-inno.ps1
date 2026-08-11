@@ -48,8 +48,10 @@ Push-Location $repoRoot
 try {
     $project = Join-Path $repoRoot "winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj"
     [xml]$projectXml = Get-Content -LiteralPath $project -Raw
-    $version = [string]$projectXml.Project.PropertyGroup.Version
-    if (-not $version) { throw "WinUI application version is missing" }
+    $versionNode = $projectXml.SelectSingleNode('/Project/PropertyGroup[Version]/Version')
+    if ($null -eq $versionNode) { throw "WinUI application version is missing" }
+    $version = ([string]$versionNode.InnerText).Trim()
+    if ([string]::IsNullOrWhiteSpace($version)) { throw "WinUI application version is empty" }
 
     if (-not $SkipPublish) {
         & (Join-Path $repoRoot "scripts\publish-winui.ps1") -DotNet $DotNet -OutputDirectory $publishRoot
