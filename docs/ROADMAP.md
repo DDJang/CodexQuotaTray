@@ -19,5 +19,5 @@
 
 ## Validation
 
-日常变更按 [WinUI README](../winui/README.md) 使用 Quick/Full；正式流程见
+日常变更按 [WinUI README](../windows/README.md) 使用 Quick/Full；正式流程见
 [RELEASE](RELEASE.md)。

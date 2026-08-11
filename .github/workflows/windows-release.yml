@@ -42,7 +42,7 @@ jobs:
             throw "Windows release workflow requires a windows-v-prefixed tag; received '$($env:TAG_NAME)'."
           }
 
-          [xml]$project = Get-Content -LiteralPath '.\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj' -Raw
+          [xml]$project = Get-Content -LiteralPath '.\windows\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj' -Raw
           $projectVersion = ([string]$project.Project.PropertyGroup.Version).Trim()
           if ([string]::IsNullOrWhiteSpace($projectVersion)) {
             throw 'CodexQuotaTray.App.csproj does not define a Version.'
@@ -105,7 +105,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Release
+          pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Release
           if ($LASTEXITCODE -ne 0) {
             throw "WinUI Release verification failed with exit code $LASTEXITCODE."
           }
@@ -146,7 +146,7 @@ jobs:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          pwsh -NoProfile -File .\scripts\package-winui.ps1 -SkipPublish
+          pwsh -NoProfile -File .\windows\scripts\package-winui.ps1 -SkipPublish
           if ($LASTEXITCODE -ne 0) {
             throw "Portable ZIP packaging failed with exit code $LASTEXITCODE."
           }
@@ -162,7 +162,11 @@ jobs:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          pwsh -NoProfile -File .\scripts\package-inno.ps1 -SkipPublish -Iscc $env:ISCC_PATH
+          $repoRoot = (Get-Location).Path
+          $windowsRoot = Join-Path $repoRoot 'windows'
+          pwsh -NoProfile -File .\windows\scripts\package-inno.ps1 `
+            -SkipPublish -Iscc $env:ISCC_PATH -RepoRoot $repoRoot -WindowsRoot $windowsRoot `
+            -OutputDir (Join-Path $repoRoot 'dist-inno') -PublishDir (Join-Path $repoRoot 'target\winui-publish')
           if ($LASTEXITCODE -ne 0) {
             throw "Inno installer packaging failed with exit code $LASTEXITCODE."
           }

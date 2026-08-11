@@ -1,18 +1,21 @@
 ; CodexQuotaTray per-user Windows installer (Inno Setup 7).
-; Build with scripts/package-inno.ps1 so the executable and version are supplied
+; Build with windows/scripts/package-inno.ps1 so the executable and version are supplied
 ; from the locked release build rather than checked into the installer source.
 
 #ifndef MyAppVersion
-  #error MyAppVersion must be supplied by scripts/package-inno.ps1
+  #error MyAppVersion must be supplied by windows/scripts/package-inno.ps1
 #endif
-#ifndef SourceDir
-  #define SourceDir ".."
+#ifndef RepoRoot
+  #define RepoRoot "..\.."
+#endif
+#ifndef WindowsRoot
+  #define WindowsRoot ".."
 #endif
 #ifndef OutputDir
-  #define OutputDir "..\dist-inno"
+  #define OutputDir "{#RepoRoot}\dist-inno"
 #endif
 #ifndef PublishDir
-  #define PublishDir "{#SourceDir}\target\winui-publish"
+  #define PublishDir "{#RepoRoot}\target\winui-publish"
 #endif
 
 [Setup]
@@ -28,7 +31,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 OutputDir={#OutputDir}
 OutputBaseFilename=CodexQuotaTray-{#MyAppVersion}-setup
-SetupIconFile={#SourceDir}\assets\app-icon.ico
+SetupIconFile={#WindowsRoot}\assets\app-icon.ico
 UninstallDisplayIcon={app}\codex-quota-tray-gui.exe
 Compression=lzma2
 SolidCompression=yes
@@ -48,10 +51,10 @@ Name: "autostart"; Description: "登录 Windows 时自动启动 CodexQuotaTray";
 
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: ignoreversion restartreplace recursesubdirs createallsubdirs
-Source: "{#SourceDir}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\docs\PRIVACY.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#SourceDir}\docs\DEPENDENCIES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\docs\PRIVACY.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\docs\DEPENDENCIES.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\CodexQuotaTray"; Filename: "{app}\codex-quota-tray-gui.exe"; IconFilename: "{app}\Assets\AppIcon.ico"; IconIndex: 0; WorkingDir: "{app}"

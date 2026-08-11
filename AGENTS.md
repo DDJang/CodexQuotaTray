@@ -4,7 +4,7 @@
 
 CodexQuotaTray 有两个独立、只读的客户端：
 
-- `winui/`：Windows 10/11 的 C# + WinUI 3 正式客户端；
+- `windows/`：Windows 10/11 的 C# + WinUI 3 正式客户端；
 - `android/`：个人使用的 Kotlin + Jetpack Compose APK，额度主路径为 OAuth + Direct HTTPS。
 
 除非任务明确要求跨平台修改，Android 工作不得改变 WinUI 行为，WinUI 工作不得改变 Android
@@ -83,11 +83,11 @@ tray GUID 或 Installer AppId。
 - 未经授权不 commit、push、创建 PR/tag/Release、安装应用、打包、签名或运行真实账户 smoke。
 - 不安装 SDK，不修改用户 NuGet/Gradle 配置，不创建替代 `global.json`，不降级依赖解决环境问题。
 - 第一次失败先区分代码与环境；环境失败只允许使用仓库现有配置做一次修正重试，然后停止并报告。
-- WinUI 的 NuGet 恢复、聚焦测试和权限处理遵循 [`winui/README.md`](winui/README.md) 的“NuGet 与环境恢复”小节；不要绕过仓库配置直接使用用户级 NuGet 配置。
+- WinUI 的 NuGet 恢复、聚焦测试和权限处理遵循 [`windows/README.md`](windows/README.md) 的“NuGet 与环境恢复”小节；不要绕过仓库配置直接使用用户级 NuGet 配置。
 
 ## Validation
 
-WinUI 从仓库根目录运行 `scripts/verify-winui.ps1`：
+WinUI 从仓库根目录运行 `windows/scripts/verify-winui.ps1`：
 
 - `Quick`：仓库配置 restore、Debug/Dev x64 build、基础检查；
 - `Full`：Quick 加格式和完整离线测试，仍使用 Debug/Dev；

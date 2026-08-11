@@ -8,9 +8,19 @@ on:
       - opened
       - synchronize
       - reopened
+    paths:
+      - 'windows/**'
+      - 'global.json'
+      - '.github/workflows/windows-ci.yml'
+      - '.github/workflows/windows-release.yml'
   push:
     branches:
       - main
+    paths:
+      - 'windows/**'
+      - 'global.json'
+      - '.github/workflows/windows-ci.yml'
+      - '.github/workflows/windows-release.yml'
 
 permissions:
   contents: read
@@ -40,7 +50,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Quick
+          pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Quick
           if ($LASTEXITCODE -ne 0) {
             throw "WinUI Quick verification failed with exit code $LASTEXITCODE."
           }
@@ -50,7 +60,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Full
+          pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Full
           if ($LASTEXITCODE -ne 0) {
             throw "WinUI Full verification failed with exit code $LASTEXITCODE."
           }

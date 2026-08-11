@@ -4,7 +4,7 @@ CodexQuotaTray 是一组轻量、只读的 Codex 额度客户端，不使用 Ele
 
 | 客户端 | 数据来源 | 入口 |
 | --- | --- | --- |
-| Windows | 本机 `codex app-server --stdio` | C# / WinUI 3，位于 `winui/` |
+| Windows | 本机 `codex app-server --stdio` | C# / WinUI 3，位于 `windows/` |
 | Android | App 私有 OAuth + Direct HTTPS usage API；网络失败时可选用已配对 Windows 的 LAN 快照 | Kotlin / Jetpack Compose，位于 `android/` |
 
 两端都只读取额度和重置时间，不消费 reset credit，不执行账户写操作。Windows 还可在用户明确
@@ -13,7 +13,7 @@ CodexQuotaTray 是一组轻量、只读的 Codex 额度客户端，不使用 Ele
 
 ## 开发入口
 
-- [WinUI 构建、运行与验证](winui/README.md)
+- [WinUI 构建、运行与验证](windows/README.md)
 - [Android 构建、运行与验证](android/README.md)
 - [统一产品需求](docs/PRD.md)
 - [架构设计](docs/TECH_DESIGN.md)

@@ -1,17 +1,17 @@
 # CodexQuotaTray WinUI
 
-`winui/` 是 Windows 正式客户端。产品行为见 [PRD](../docs/PRD.md)，架构见
+`windows/` 是 Windows 正式客户端。产品行为见 [PRD](../docs/PRD.md)，架构见
 [TECH_DESIGN](../docs/TECH_DESIGN.md)，依赖版本以项目文件和
 [`Directory.Packages.props`](Directory.Packages.props) 为准。
 
 ## 本地开发
 
 所有命令从仓库根目录执行。SDK 由 [`global.json`](../global.json) 选择，NuGet 只使用
-[`winui/NuGet.Config`](NuGet.Config)。
+[`windows/NuGet.Config`](NuGet.Config)。
 
 ```powershell
-pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Quick
-dotnet run --project .\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj `
+pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Quick
+dotnet run --project .\windows\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj `
   -c Debug -p:Platform=x64 --no-build
 ```
 
@@ -31,8 +31,8 @@ Production、Dev、Preview 使用独立单实例 key、托盘 GUID、数据目�
 ## 验证
 
 ```powershell
-pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Quick
-pwsh -NoProfile -File .\scripts\verify-winui.ps1 -Mode Full
+pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Quick
+pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Full
 ```
 
 Quick 与 Full 都构建 Debug/Dev；Full 额外运行格式检查和完整离线测试。`-Mode Release` 只供
@@ -45,23 +45,23 @@ GitHub Actions 正式发布路径，不是日常开发命令。三种模式默�
 
 WinUI 的唯一 solution 路径是 [`CodexQuotaTray.WinUI.sln`](CodexQuotaTray.WinUI.sln)，仓库专用
 NuGet 配置是 [`NuGet.Config`](NuGet.Config)。日常验证优先使用
-[`scripts/verify-winui.ps1`](../scripts/verify-winui.ps1)，它会在 restore 时传入
-`--configfile .\winui\NuGet.Config`，并在后续 build/测试阶段传入
-`-p:RestoreConfigFile=.\winui\NuGet.Config`。
+[`windows/scripts/verify-winui.ps1`](scripts/verify-winui.ps1)，它会在 restore 时传入
+`--configfile .\windows\NuGet.Config`，并在后续 build/测试阶段传入
+`-p:RestoreConfigFile=.\windows\NuGet.Config`。
 
 如需单独运行测试，必须先用同一 solution 和仓库配置完成 restore，再使用 `--no-restore`：
 
 ```powershell
-$solution = '.\winui\CodexQuotaTray.WinUI.sln'
-$config = '.\winui\NuGet.Config'
+$solution = '.\windows\CodexQuotaTray.WinUI.sln'
+$config = '.\windows\NuGet.Config'
 
 dotnet restore $solution --configfile $config -p:Platform=x64
-dotnet test '.\winui\tests\CodexQuotaTray.Tests\CodexQuotaTray.Tests.csproj' `
+dotnet test '.\windows\tests\CodexQuotaTray.Tests\CodexQuotaTray.Tests.csproj' `
   -c Debug -p:RestoreConfigFile=$config --no-restore
 ```
 
-不要使用不存在的 `winui\CodexQuotaTray.sln`，也不要在未成功 restore 前直接运行未指定配置的
-`dotnet test`。`winui/NuGet.Config` 使用 `<clear />`，因此不会依赖用户级
+不要使用不存在的 `windows\CodexQuotaTray.sln`，也不要在未成功 restore 前直接运行未指定配置的
+`dotnet test`。`windows/NuGet.Config` 使用 `<clear />`，因此不会依赖用户级
 `%APPDATA%\NuGet\NuGet.Config`；不要删除、修改或放宽该用户配置的权限。
 
 如果沙箱拒绝读取 SDK/NuGet 缓存，应请求一次提升权限后重跑上述仓库命令；提升权限只用于执行

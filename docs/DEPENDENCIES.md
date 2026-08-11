@@ -1,7 +1,7 @@
 # Dependencies and licenses
 
 依赖版本不在本文重复维护：Windows 以
-[`winui/Directory.Packages.props`](../winui/Directory.Packages.props) 和各项目文件为准；Android
+[`windows/Directory.Packages.props`](../windows/Directory.Packages.props) 和各项目文件为准；Android
 以 [`android/app/build.gradle.kts`](../android/app/build.gradle.kts)、根 Gradle 配置和 Wrapper
 properties 为准。更新依赖时必须同步审查许可证、维护状态、产物大小和运行时影响。
 

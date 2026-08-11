@@ -168,12 +168,12 @@ function Invoke-OfflineTests(
     }
 }
 
-$repoRoot = Get-FullPath (Join-Path $PSScriptRoot "..")
+$windowsRoot = Get-FullPath (Join-Path $PSScriptRoot "..")
+$repoRoot = Get-FullPath (Join-Path $windowsRoot "..")
 $globalJsonPath = Join-Path $repoRoot "global.json"
-$winuiRoot = Join-Path $repoRoot "winui"
-$solution = Join-Path $winuiRoot "CodexQuotaTray.WinUI.sln"
-$testProject = Join-Path $winuiRoot "tests\CodexQuotaTray.Tests\CodexQuotaTray.Tests.csproj"
-$nugetConfig = Join-Path $winuiRoot "NuGet.Config"
+$solution = Join-Path $windowsRoot "CodexQuotaTray.WinUI.sln"
+$testProject = Join-Path $windowsRoot "tests\CodexQuotaTray.Tests\CodexQuotaTray.Tests.csproj"
+$nugetConfig = Join-Path $windowsRoot "NuGet.Config"
 $buildConfiguration = if ($Mode -eq "Release") { "Release" } else { "Debug" }
 
 if (-not (Test-Path -LiteralPath $globalJsonPath -PathType Leaf)) {
@@ -187,9 +187,9 @@ if ([string]::IsNullOrWhiteSpace($requiredSdkVersion)) {
 }
 
 $dotnet = Resolve-RepositoryDotNet $repoRoot $requiredSdkVersion
-$winuiSdkVersion = Get-DotNetVersion $dotnet.Path $winuiRoot
-if ($winuiSdkVersion -ne $dotnet.Version) {
-    throw "SDK selection differs by working directory: root=$($dotnet.Version), winui=$winuiSdkVersion."
+$windowsSdkVersion = Get-DotNetVersion $dotnet.Path $windowsRoot
+if ($windowsSdkVersion -ne $dotnet.Version) {
+    throw "SDK selection differs by working directory: root=$($dotnet.Version), windows=$windowsSdkVersion."
 }
 
 Write-Host "Verification mode: $Mode"
@@ -197,7 +197,7 @@ Write-Host "Build configuration: $buildConfiguration"
 Write-Host "Repository root: $repoRoot"
 Write-Host "dotnet path: $($dotnet.Path)"
 Write-Host "dotnet version from repository root: $($dotnet.Version)"
-Write-Host "dotnet version from winui: $winuiSdkVersion"
+Write-Host "dotnet version from windows: $windowsSdkVersion"
 Write-Host "global.json: $globalJsonPath"
 Write-Host "NuGet.Config: $nugetConfig"
 

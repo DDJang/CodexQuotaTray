@@ -11,9 +11,9 @@ function Get-FullPath([string]$Path) {
     return [IO.Path]::GetFullPath($Path)
 }
 
-$repoRoot = Get-FullPath (Join-Path $PSScriptRoot "..")
-$winuiRoot = Join-Path $repoRoot "winui"
-$project = Join-Path $winuiRoot "src\CodexQuotaTray.App\CodexQuotaTray.App.csproj"
+$windowsRoot = Get-FullPath (Join-Path $PSScriptRoot "..")
+$repoRoot = Get-FullPath (Join-Path $windowsRoot "..")
+$project = Join-Path $windowsRoot "src\CodexQuotaTray.App\CodexQuotaTray.App.csproj"
 $globalJsonPath = Join-Path $repoRoot "global.json"
 if (-not (Test-Path -LiteralPath $globalJsonPath -PathType Leaf)) {
     throw "Repository global.json was not found: $globalJsonPath"
@@ -71,9 +71,9 @@ $output = if ($OutputDirectory) {
     Join-Path $repoRoot "target\winui-publish"
 }
 
-Push-Location $winuiRoot
+Push-Location $windowsRoot
 try {
-    & $dotnetCommand restore $project --configfile (Join-Path $winuiRoot "NuGet.config") -p:Platform=x64 -r win-x64
+    & $dotnetCommand restore $project --configfile (Join-Path $windowsRoot "NuGet.config") -p:Platform=x64 -r win-x64
     if ($LASTEXITCODE -ne 0) { throw "WinUI restore failed" }
 
     & $dotnetCommand publish $project -c Release -p:Platform=x64 -r win-x64 --self-contained true `

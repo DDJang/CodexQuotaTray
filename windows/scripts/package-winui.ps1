@@ -17,10 +17,11 @@ function Assert-ChildPath([string]$Parent, [string]$Child) {
     }
 }
 
-$repoRoot = Get-FullPath (Join-Path $PSScriptRoot "..")
+$windowsRoot = Get-FullPath (Join-Path $PSScriptRoot "..")
+$repoRoot = Get-FullPath (Join-Path $windowsRoot "..")
 $distRoot = if ($OutputDirectory) { Get-FullPath $OutputDirectory } else { Join-Path $repoRoot "dist" }
 $publishRoot = Join-Path $repoRoot "target\winui-publish"
-[xml]$project = Get-Content -LiteralPath (Join-Path $repoRoot "winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj") -Raw
+[xml]$project = Get-Content -LiteralPath (Join-Path $windowsRoot "src\CodexQuotaTray.App\CodexQuotaTray.App.csproj") -Raw
 $versionNode = $project.SelectSingleNode('/Project/PropertyGroup[Version]/Version')
 if ($null -eq $versionNode) {
     throw 'CodexQuotaTray.App.csproj does not define a Version.'
