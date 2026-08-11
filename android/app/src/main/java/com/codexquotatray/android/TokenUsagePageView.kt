@@ -42,9 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.usage.HeatmapBuckets
 import com.codexquotatray.android.usage.TokenFormatter
-import com.codexquotatray.android.usage.TokenSyncEndpoint
 import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
+import com.codexquotatray.android.usage.matchesConfiguration
 import com.codexquotatray.android.usage.TokenUsageCache
 import com.codexquotatray.android.usage.TokenUsageDay
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
@@ -83,37 +83,59 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     var paired by mutableStateOf(false)
         private set
 
+    /** The last pairing configuration reconciled into this controller. */
+    private var observedPairing: TokenSyncPairing? = null
+
     val canSync get() = !syncing && store.load() != null
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
             if (intent?.action == TokenUsageRefreshEvents.ACTION_COMPLETED && visible) {
-                renderCachedSnapshot()
+                reconcilePairingState()
             }
         }
     }
 
     fun onVisible() {
         visible = true
-        val pairing = store.load()
-        paired = pairing != null
-        if (pairing == null) { snapshot = null; status = "尚未配对 Windows"; return }
-        renderCachedSnapshot()
-        if (snapshot == null && !refreshSettings.load().autoSyncOnOpen) {
-            status = "自动同步已关闭"
-        }
+        reconcilePairingState()
     }
 
     fun onForeground(reason: AutomaticRefreshReason) {
-        val pairing = store.load()
-        paired = pairing != null
-        if (pairing == null) {
+        reconcilePairingState()
+        requestSync(store.load(), reason)
+    }
+
+    /**
+     * Reconciles only local pairing/cache state. It never starts a network
+     * request, so returning from Settings cannot resurrect a stale snapshot or
+     * bypass the foreground refresh coordinator.
+     */
+    fun reconcilePairingState() {
+        val currentPairing = store.load()
+        val decision = tokenPairingReconcileDecision(
+            previousPairing = observedPairing,
+            currentPairing = currentPairing,
+            currentSnapshot = snapshot,
+            cachedSnapshot = currentPairing?.let(cache::load),
+        )
+        if (decision.unpaired) {
+            observedPairing = null
+            paired = false
             snapshot = null
             status = "尚未配对 Windows"
             return
         }
-        renderCachedSnapshot()
-        requestSync(pairing, reason)
+
+        observedPairing = currentPairing
+        paired = true
+        if (decision.pairingChanged) {
+            snapshot = decision.snapshotToDisplay
+            status = snapshot?.let { "上次同步于 ${formatSyncTime(it.generatedAtUtc)}" } ?: "已配对，尚未同步"
+        } else if (decision.snapshotToDisplay !== snapshot && decision.snapshotToDisplay != null) {
+            snapshot = decision.snapshotToDisplay
+            status = "上次同步于 ${formatSyncTime(decision.snapshotToDisplay.generatedAtUtc)}"
+        }
     }
 
     fun onHidden() { visible = false }
@@ -153,6 +175,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
                 syncing = false
                 result.onSuccess { synced ->
                     snapshot = synced.snapshot
+                    observedPairing = store.load() ?: synced.pairing
                     status = "上次同步于 ${formatSyncTime(synced.snapshot.generatedAtUtc)}"
                 }.onFailure { error ->
                     val latestSnapshot = loadCachedSnapshot()
@@ -168,20 +191,34 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         }
     }
 
-    private fun renderCachedSnapshot() {
-        val cached = loadCachedSnapshot()
-        when {
-            cached == null && snapshot == null -> {
-                status = "暂无 Token 使用量缓存"
-            }
-            cached != null && hasNewerTokenUsageSnapshot(snapshot, cached) -> {
-                snapshot = cached
-                status = "上次同步于 ${formatSyncTime(cached.generatedAtUtc)}"
-            }
-        }
-    }
-
     private fun loadCachedSnapshot(): TokenUsageSnapshot? = store.load()?.let(cache::load)
+}
+
+/** Pure local decision used by the controller and regression tests. */
+internal data class TokenPairingReconcileDecision(
+    val pairingChanged: Boolean,
+    val unpaired: Boolean,
+    val snapshotToDisplay: TokenUsageSnapshot?,
+)
+
+internal fun tokenPairingReconcileDecision(
+    previousPairing: TokenSyncPairing?,
+    currentPairing: TokenSyncPairing?,
+    currentSnapshot: TokenUsageSnapshot?,
+    cachedSnapshot: TokenUsageSnapshot?,
+): TokenPairingReconcileDecision {
+    if (currentPairing == null) {
+        return TokenPairingReconcileDecision(pairingChanged = previousPairing != null, unpaired = true, snapshotToDisplay = null)
+    }
+    val changed = previousPairing == null || !previousPairing.matchesConfiguration(currentPairing)
+    if (changed) {
+        return TokenPairingReconcileDecision(pairingChanged = true, unpaired = false, snapshotToDisplay = cachedSnapshot)
+    }
+    return TokenPairingReconcileDecision(
+        pairingChanged = false,
+        unpaired = false,
+        snapshotToDisplay = if (cachedSnapshot != null && hasNewerTokenUsageSnapshot(currentSnapshot, cachedSnapshot)) cachedSnapshot else currentSnapshot,
+    )
 }
 
 /** Avoids allowing an earlier failed foreground request to overwrite a newer pairing sync. */
@@ -201,7 +238,7 @@ internal fun hasNewerTokenUsageSnapshot(
 }
 
 @Composable
-internal fun TokenUsagePage(controller: TokenUsagePageController, onSettings: () -> Unit, modifier: Modifier = Modifier) {
+internal fun TokenUsagePage(controller: TokenUsagePageController, onPairing: () -> Unit, modifier: Modifier = Modifier) {
     val palette = LocalQuotaPalette.current
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("Token 用量", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.title))
@@ -211,7 +248,7 @@ internal fun TokenUsagePage(controller: TokenUsagePageController, onSettings: ()
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Token 用量", fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text("连接 Windows CodexQuotaTray 后，即可查看本机 Codex Token 使用历史。", color = palette.color(palette.secondary))
-                    Button(onClick = rememberSystemHapticClick(onSettings), modifier = Modifier.fillMaxWidth()) { Text("前往设置") }
+                    Button(onClick = rememberSystemHapticClick(onPairing), modifier = Modifier.fillMaxWidth()) { Text("扫码配对") }
                 }
             }
         } else controller.snapshot?.let { TokenUsageContent(it) }

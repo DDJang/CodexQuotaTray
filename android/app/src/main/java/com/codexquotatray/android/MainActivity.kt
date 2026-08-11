@@ -3,6 +3,9 @@ package com.codexquotatray.android
 import android.content.Intent
 import android.os.Bundle
 import android.content.res.Configuration
+import android.os.Handler
+import android.os.Looper
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
@@ -29,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     private lateinit var quota: QuotaPageController
@@ -37,6 +41,8 @@ class MainActivity : ComponentActivity() {
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var systemThemeVersion by mutableIntStateOf(0)
     private var foregroundRegistration: AutoCloseable? = null
+    private val pairingWorker = Executors.newSingleThreadExecutor()
+    private val pairingMain = Handler(Looper.getMainLooper())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -70,7 +76,7 @@ class MainActivity : ComponentActivity() {
                             Text("CodexQuota", color = palette.color(palette.title), fontSize = 28.sp, fontWeight = FontWeight.Bold)
                         }
                         Box(Modifier.weight(1f)) {
-                            if (selectedIndex == 0) QuotaPage(quota) else TokenUsagePage(usage, ::openSettings)
+                            if (selectedIndex == 0) QuotaPage(quota) else TokenUsagePage(usage, ::scanTokenPairing)
                         }
                     }
                     Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 8.dp, end = 20.dp)) {
@@ -109,6 +115,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onResume() {
         super.onResume()
+        if (::usage.isInitialized) usage.reconcilePairingState()
         val restoredTheme = AppTheme.mode(this)
         if (themeMode != restoredTheme) {
             themeMode = restoredTheme
@@ -131,7 +138,11 @@ class MainActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (::quota.isInitialized) quota.onLoginResult(requestCode, resultCode)
+        when (val scan = TokenPairingFlow.parseScanResult(requestCode, resultCode, data)) {
+            null -> if (::quota.isInitialized) quota.onLoginResult(requestCode, resultCode)
+            TokenPairingScanResult.Cancelled -> Toast.makeText(this, "未读取二维码", Toast.LENGTH_SHORT).show()
+            is TokenPairingScanResult.Pairing -> saveTokenPairing(scan.result)
+        }
     }
 
     override fun onDestroy() {
@@ -139,6 +150,7 @@ class MainActivity : ComponentActivity() {
         foregroundRegistration = null
         if (::quota.isInitialized) quota.destroy()
         if (::usage.isInitialized) usage.destroy()
+        pairingWorker.shutdownNow()
         super.onDestroy()
     }
 
@@ -154,4 +166,27 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openSettings() = startActivity(Intent(this, SettingsActivity::class.java))
+
+    private fun scanTokenPairing() = TokenPairingFlow.launchScan(this)
+
+    private fun saveTokenPairing(result: Result<com.codexquotatray.android.usage.TokenSyncPairing>) {
+        result.onSuccess { pairing ->
+            if (!TokenPairingFlow.savePairing(this, pairing)) {
+                Toast.makeText(this, "无法安全保存配对信息", Toast.LENGTH_SHORT).show()
+                return@onSuccess
+            }
+            usage.reconcilePairingState()
+            Toast.makeText(this, "Token 同步配对已保存", Toast.LENGTH_SHORT).show()
+            TokenPairingFlow.testPairing(this, pairing, pairingWorker, pairingMain) { syncResult ->
+                usage.reconcilePairingState()
+                syncResult.onSuccess {
+                    Toast.makeText(this, "Windows 配对成功", Toast.LENGTH_SHORT).show()
+                }.onFailure { error ->
+                    Toast.makeText(this, "已保存配对；${com.codexquotatray.android.usage.tokenUsageSyncErrorMessage(error)}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }.onFailure {
+            Toast.makeText(this, it.message ?: "配对信息无效", Toast.LENGTH_SHORT).show()
+        }
+    }
 }

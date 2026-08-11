@@ -35,7 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.codexquotatray.android.alerts.QuotaAlertSettingsStore
@@ -43,17 +42,14 @@ import com.codexquotatray.android.alerts.QuotaNotifications
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import com.codexquotatray.android.quota.QuotaRefreshSettings
 import com.codexquotatray.android.quota.QuotaRefreshSettingsStore
-import com.codexquotatray.android.usage.TokenSyncEndpoint
 import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettings
 import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
-import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
 import com.codexquotatray.android.usage.TokenUsageCache
 import com.codexquotatray.android.usage.TokenUsagePairingLifecycle
 import com.codexquotatray.android.usage.tokenUsageSyncErrorMessage
-import com.google.zxing.integration.android.IntentIntegrator
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import java.time.Instant
@@ -92,9 +88,6 @@ class SettingsActivity : ComponentActivity() {
     private var systemThemeVersion by mutableStateOf(0)
     private var pairing by mutableStateOf<TokenSyncPairing?>(null)
     private var tokenStatus by mutableStateOf("尚未配对 Windows")
-    private var pairingUri by mutableStateOf("")
-    private var pairingHost by mutableStateOf("")
-    private var pairingSecret by mutableStateOf("")
     private var showClearPairingDialog by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -384,32 +377,11 @@ class SettingsActivity : ComponentActivity() {
                         bottomPadding = SettingsUiTokens.actionBottomInset,
                     ) { showClearPairingDialog = true }
                 } ?: run {
-                    SettingsActionButton("扫码配对", onClick = ::scanPairing)
-                    SettingsInlineLabel("粘贴配对信息")
-                    SettingsTextInput(
-                        value = pairingUri,
-                        onValueChange = { pairingUri = it },
-                        label = "codexquota://pair?…",
+                    SettingsActionButton(
+                        label = "扫码配对",
+                        bottomPadding = SettingsUiTokens.actionBottomInset,
+                        onClick = ::scanPairing,
                     )
-                    SettingsActionButton("保存粘贴的配对信息") {
-                        savePairing(runCatching { TokenSyncEndpoint.parsePairingUri(pairingUri) })
-                    }
-                    SettingsDivider()
-                    SettingsInlineLabel("手动配置")
-                    SettingsTextInput(
-                        value = pairingHost,
-                        onValueChange = { pairingHost = it },
-                        label = "Windows 地址",
-                    )
-                    SettingsTextInput(
-                        value = pairingSecret,
-                        onValueChange = { pairingSecret = it },
-                        label = "配对密钥",
-                        visualTransformation = PasswordVisualTransformation(),
-                    )
-                    SettingsActionButton("保存手动配置") {
-                        savePairing(runCatching { TokenSyncEndpoint.parseManual(pairingHost, pairingSecret) })
-                    }
                 }
             }
         }
@@ -439,7 +411,6 @@ class SettingsActivity : ComponentActivity() {
         themeMode = themeStore.load()
         pairing = tokenStore.load()
         tokenStatus = if (pairing == null) "尚未配对 Windows" else "已配对"
-        pairingHost = pairing?.let { "${it.host}:${it.port}" } ?: pairingHost
     }
 
     private fun settingsPalette(base: ThemePalette, effectiveTheme: ThemeMode): ThemePalette =
@@ -546,13 +517,8 @@ class SettingsActivity : ComponentActivity() {
 
     private fun savePairing(result: Result<TokenSyncPairing>) {
         result.onSuccess { value ->
-            if (tokenStore.save(value)) {
-                pairingUri = ""
-                pairingSecret = ""
-                pairingHost = "${value.host}:${value.port}"
+            if (TokenPairingFlow.savePairing(this, value)) {
                 renderState()
-                TokenUsageRefreshScheduler.schedule(this)
-                QuotaRefreshScheduler.schedule(this)
                 Toast.makeText(this, "Token 同步配对已保存", Toast.LENGTH_SHORT).show()
                 testPairing(value)
             } else {
@@ -561,45 +527,30 @@ class SettingsActivity : ComponentActivity() {
         }.onFailure { Toast.makeText(this, it.message ?: "配对信息无效", Toast.LENGTH_SHORT).show() }
     }
 
-    private fun scanPairing() {
-        IntentIntegrator(this)
-            .setDesiredBarcodeFormats("QR_CODE")
-            .setPrompt("扫描 Windows Token Usage 配对二维码")
-            .setBeepEnabled(false)
-            .setOrientationLocked(false)
-            .initiateScan()
-    }
+    private fun scanPairing() = TokenPairingFlow.launchScan(this)
 
     @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        val result = IntentIntegrator.parseActivityResult(requestCode, resultCode, data)
-        if (result != null) {
-            if (!result.contents.isNullOrBlank()) {
-                savePairing(runCatching { TokenSyncEndpoint.parsePairingUri(result.contents) })
-            } else {
-                Toast.makeText(this, "未读取二维码，可继续手动输入配对信息", Toast.LENGTH_SHORT).show()
-            }
-            return
+        when (val scan = TokenPairingFlow.parseScanResult(requestCode, resultCode, data)) {
+            null -> super.onActivityResult(requestCode, resultCode, data)
+            TokenPairingScanResult.Cancelled -> Toast.makeText(this, "未读取二维码", Toast.LENGTH_SHORT).show()
+            is TokenPairingScanResult.Pairing -> savePairing(scan.result)
         }
-        super.onActivityResult(requestCode, resultCode, data)
     }
 
     private fun testPairing(value: TokenSyncPairing) {
         tokenStatus = "正在测试 Windows 连接…"
-        pairingWorker.execute {
-            val result = runCatching { TokenUsageSyncCoordinator(this).sync(value) }
-            pairingMain.post {
-                result.onSuccess { synced ->
-                    renderState()
-                    Toast.makeText(this, "Windows 配对成功", Toast.LENGTH_SHORT).show()
-                }.onFailure { error ->
-                    renderState()
-                    Toast.makeText(
-                        this,
-                        "已保存配对；${tokenUsageSyncErrorMessage(error)}",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
+        TokenPairingFlow.testPairing(this, value, pairingWorker, pairingMain) { result ->
+            result.onSuccess {
+                renderState()
+                Toast.makeText(this, "Windows 配对成功", Toast.LENGTH_SHORT).show()
+            }.onFailure { error ->
+                renderState()
+                Toast.makeText(
+                    this,
+                    "已保存配对；${tokenUsageSyncErrorMessage(error)}",
+                    Toast.LENGTH_LONG,
+                ).show()
             }
         }
     }
