@@ -11,9 +11,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not $Source) { $Source = Join-Path $scriptRoot "..\assets\app-icon-source.png" }
-if (-not $Preview) { $Preview = Join-Path $scriptRoot "..\assets\app-icon.png" }
-if (-not $Destination) { $Destination = Join-Path $scriptRoot "..\assets\app-icon.ico" }
+$windowsRoot = [IO.Path]::GetFullPath((Join-Path $scriptRoot ".."))
+if (-not $Source) { $Source = Join-Path $windowsRoot "assets\app-icon-source.png" }
+if (-not $Preview) { $Preview = Join-Path $windowsRoot "assets\app-icon.png" }
+if (-not $Destination) { $Destination = Join-Path $windowsRoot "assets\app-icon.ico" }
 
 function New-RoundedIconBitmap([Drawing.Image]$Image, [double]$RadiusRatio) {
     $bitmap = [Drawing.Bitmap]::new(

@@ -27,7 +27,7 @@ captures/
 **/bin/
 **/obj/
 **/TestResults/
-winui/publish/
+windows/publish/
 
 # Environment files and local configuration
 .env

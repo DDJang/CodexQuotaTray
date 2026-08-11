@@ -29,8 +29,9 @@ Windows 与 Android 版本完全独立，但所有正式 Release 都必须来自
 4. Workflow 重新验证版本与 ancestry、运行平台测试、构建产物、生成该平台专属 SHA-256，再创建
    GitHub Release。任何校验、签名或构建失败都不得发布。
 
-Windows workflow 运行 `verify-winui.ps1 -Mode Release`，再生成 portable ZIP 和 Inno installer。
-本地 `publish-winui.ps1`、`package-winui.ps1`、`package-inno.ps1` 仅供显式发布输入诊断，不是
+Windows workflow 运行 `windows/scripts/verify-winui.ps1 -Mode Release`，再生成 portable ZIP 和 Inno installer。
+本地 `windows/scripts/publish-winui.ps1`、`windows/scripts/package-winui.ps1`、
+`windows/scripts/package-inno.ps1` 仅供显式发布输入诊断，不是
 正式发布路径。
 
 Android workflow 使用 JDK 17、Android SDK、Gradle Wrapper，运行测试与 `assembleRelease`，再
