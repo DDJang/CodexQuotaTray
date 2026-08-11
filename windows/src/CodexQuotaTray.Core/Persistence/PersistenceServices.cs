@@ -15,7 +15,7 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
                 return AppSettings.Defaults;
             }
 
-            return Migrate(document.RootElement);
+            return Normalize(Migrate(document.RootElement));
         }
         catch (Exception error) when (error is JsonException or IOException or InvalidDataException or UnauthorizedAccessException)
         {
@@ -24,9 +24,17 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
     }
 
     public Task SaveAsync(AppSettings settings, CancellationToken cancellationToken) =>
-        store.SaveAsync(paths.Settings, settings with { Notifications = settings.EffectiveNotifications }, cancellationToken);
+        store.SaveAsync(paths.Settings, Normalize(settings), cancellationToken);
 
     public Task ResetAsync(CancellationToken cancellationToken) => SaveAsync(AppSettings.Defaults, cancellationToken);
+
+    public static AppSettings Normalize(AppSettings settings) => settings with
+    {
+        RefreshMode = settings.RefreshMode == RefreshMode.Auto
+            ? RefreshMode.Every15Minutes
+            : settings.RefreshMode,
+        Notifications = settings.EffectiveNotifications,
+    };
 
     private static AppSettings Migrate(JsonElement root)
     {
@@ -35,16 +43,17 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
             ? ParseNotifications(notificationElement)
             : ParseLegacyNotifications(root);
         return new AppSettings(
-            Boolean(root, "startWithWindows", defaults.StartWithWindows),
-            Boolean(root, "showRemainingPercent", defaults.ShowRemainingPercent),
-            Boolean(root, "use24HourTime", defaults.Use24HourTime),
-            Boolean(root, "persistQuotaCache", defaults.PersistQuotaCache),
-            ParseRefreshMode(root),
-            Boolean(root, "refreshOnNetworkRestore", defaults.RefreshOnNetworkRestore),
-            notifications,
-            EnumValue(root, "themeMode", ThemeMode.System),
-            Boolean(root, "silentStartup", true),
-            Boolean(root, "phoneTokenSyncEnabled", false));
+            StartWithWindows: Boolean(root, "startWithWindows", defaults.StartWithWindows),
+            ShowRemainingPercent: Boolean(root, "showRemainingPercent", defaults.ShowRemainingPercent),
+            Use24HourTime: Boolean(root, "use24HourTime", defaults.Use24HourTime),
+            PersistQuotaCache: Boolean(root, "persistQuotaCache", defaults.PersistQuotaCache),
+            RefreshMode: ParseRefreshMode(root),
+            RefreshOnPanelOpen: Boolean(root, "refreshOnPanelOpen", defaults.RefreshOnPanelOpen),
+            RefreshOnNetworkRestore: Boolean(root, "refreshOnNetworkRestore", defaults.RefreshOnNetworkRestore),
+            Notifications: notifications,
+            ThemeMode: EnumValue(root, "themeMode", ThemeMode.System),
+            SilentStartup: Boolean(root, "silentStartup", true),
+            PhoneTokenSyncEnabled: Boolean(root, "phoneTokenSyncEnabled", false));
     }
 
     private static NotificationSettings ParseNotifications(JsonElement value) => new(
@@ -76,11 +85,11 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
                 5 => RefreshMode.Every5Minutes,
                 15 => RefreshMode.Every15Minutes,
                 30 => RefreshMode.Every30Minutes,
-                _ => RefreshMode.Auto,
+                _ => RefreshMode.Every15Minutes,
             };
         }
 
-        return RefreshMode.Auto;
+        return RefreshMode.Every15Minutes;
     }
 
     private static bool Boolean(JsonElement root, string name, bool fallback) =>

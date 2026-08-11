@@ -172,6 +172,27 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public void SettingsViewModel_ExposesFixedRefreshModesAndPanelRefreshDefault()
+    {
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions());
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                RefreshMode.Every5Minutes,
+                RefreshMode.Every15Minutes,
+                RefreshMode.Every30Minutes,
+                RefreshMode.ManualOnly,
+            },
+            viewModel.RefreshModes.ToArray());
+        Assert.IsFalse(viewModel.RefreshModes.Contains(RefreshMode.Auto));
+        Assert.IsTrue(viewModel.RefreshOnPanelOpen);
+    }
+
+    [TestMethod]
     public void PreviewSettingsCannotConfigureProductionStartup()
     {
         var runtime = new StubRuntimeControl();

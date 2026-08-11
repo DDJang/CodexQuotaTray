@@ -92,8 +92,9 @@ public sealed partial class MainWindow : Window
 
     internal void ShowPanel()
     {
+        var wasHidden = !visibility.DesiredVisible;
         visibility.Show();
-        ShowPanelCore();
+        ShowPanelCore(wasHidden);
     }
 
     internal void HidePanel()
@@ -123,7 +124,7 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void ShowPanelCore()
+    private void ShowPanelCore(bool raisePanelShown = true)
     {
         Position();
         Activate();
@@ -138,7 +139,10 @@ public sealed partial class MainWindow : Window
         // viewport. Re-measure after the window is shown so the client height is
         // based on the actual footer boundary instead of that stale viewport.
         QueuePositionIfVisible(forceResize: true);
-        PanelShown?.Invoke(this, EventArgs.Empty);
+        if (raisePanelShown)
+        {
+            PanelShown?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     internal void ApplyTheme(ThemeMode mode)
