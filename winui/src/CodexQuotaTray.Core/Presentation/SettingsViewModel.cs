@@ -1,5 +1,6 @@
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Runtime;
+using CodexQuotaTray.Core.Updates;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -54,8 +55,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly IQuotaRuntimeControl runtime;
     private readonly ISettingsPlatformActions platform;
     private readonly ISettingsPageActions pageActions;
+    private readonly IWindowsUpdateController? updates;
     private readonly SemaphoreSlim applyGate = new(1, 1);
     private bool suppressSettingsApply = true;
+    private bool suppressUpdateApply = true;
     private long settingsRevision;
 
     [ObservableProperty] private bool startWithWindows;
@@ -76,6 +79,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private RefreshMode selectedRefreshMode;
     [ObservableProperty] private ThemeMode selectedThemeMode;
     [ObservableProperty] private string statusText = string.Empty;
+    [ObservableProperty] private bool automaticUpdateChecksEnabled;
+    [ObservableProperty] private bool updateRemindersEnabled;
+    [ObservableProperty] private string updateStatusText = "尚未检查";
+    [ObservableProperty] private string updateLastCheckText = "尚未检查";
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanCheckForWindowsUpdates))]
+    private bool updateCheckInProgress;
+    [ObservableProperty] private bool updateDownloadInProgress;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ResetCommand))]
     private bool isBusy;
@@ -83,20 +94,44 @@ public sealed partial class SettingsViewModel : ObservableObject
     public SettingsViewModel(
         IQuotaRuntimeControl runtime,
         ISettingsPlatformActions platform,
-        ISettingsPageActions pageActions)
+        ISettingsPageActions pageActions,
+        IWindowsUpdateController? updates = null)
     {
         this.runtime = runtime;
         this.platform = platform;
         this.pageActions = pageActions;
+        this.updates = updates;
         platform.TokenSyncChanged += OnTokenSyncChanged;
+        if (updates is not null)
+        {
+            updates.Changed += OnWindowsUpdateChanged;
+        }
         Load(runtime.Settings);
         RefreshTokenSyncStatus();
+        RefreshWindowsUpdateStatus();
+        suppressUpdateApply = false;
         suppressSettingsApply = false;
     }
 
     public event EventHandler<ThemeMode>? ThemeSaved;
 
     public event EventHandler? TokenSyncChanged;
+
+    public event EventHandler<WindowsUpdateCheckResult>? UpdateCheckCompleted;
+
+    public bool IsWindowsUpdateAvailable => updates?.IsProduction == true;
+
+    public string WindowsUpdateAvailabilityText => IsWindowsUpdateAvailable
+        ? string.Empty
+        : "开发版本不检查正式更新";
+
+    public string CurrentVersionText => ProductVersion.Current;
+
+    public bool CanDownloadWindowsUpdate => updates?.CurrentResult.HasUpdate == true && !UpdateDownloadInProgress;
+
+    public bool CanEditUpdateReminders => IsWindowsUpdateAvailable && AutomaticUpdateChecksEnabled;
+
+    public bool CanCheckForWindowsUpdates => IsWindowsUpdateAvailable && !UpdateCheckInProgress;
 
     public bool CanConfigureStartup => platform.CanConfigureStartup;
 
@@ -166,6 +201,67 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [RelayCommand]
     private void ShowAbout(object? host) => pageActions.ShowAbout(host);
+
+    [RelayCommand]
+    private async Task CheckForWindowsUpdatesAsync(CancellationToken cancellationToken)
+    {
+        if (updates is null || !updates.IsProduction || UpdateCheckInProgress)
+        {
+            return;
+        }
+
+        UpdateCheckInProgress = true;
+        try
+        {
+            var result = await updates.CheckAsync(manual: true, cancellationToken);
+            RefreshWindowsUpdateStatus();
+            UpdateCheckCompleted?.Invoke(this, result);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            UpdateStatusText = "检查更新失败";
+            UpdateCheckCompleted?.Invoke(
+                this,
+                new WindowsUpdateCheckResult(
+                    WindowsUpdateCheckStatus.Failed,
+                    null,
+                    "检查更新失败",
+                    DateTimeOffset.UtcNow));
+        }
+        finally
+        {
+            UpdateCheckInProgress = false;
+            RefreshWindowsUpdateStatus();
+        }
+    }
+
+    public async Task<WindowsUpdateDownloadResult> DownloadWindowsUpdateAsync(CancellationToken cancellationToken)
+    {
+        if (updates is null || !updates.IsProduction || UpdateDownloadInProgress)
+        {
+            return WindowsUpdateDownloadResult.Failed("开发版本不检查正式更新");
+        }
+
+        UpdateDownloadInProgress = true;
+        try
+        {
+            var result = await updates.DownloadAsync(cancellationToken);
+            StatusText = result.Succeeded ? "更新已准备好" : result.ErrorMessage ?? "更新下载失败";
+            return result;
+        }
+        finally
+        {
+            UpdateDownloadInProgress = false;
+            OnPropertyChanged(nameof(CanDownloadWindowsUpdate));
+        }
+    }
+
+    public Task<bool> InstallPreparedWindowsUpdateAsync(CancellationToken cancellationToken) =>
+        updates?.InstallPreparedAsync(cancellationToken) ?? Task.FromResult(false);
 
     [RelayCommand]
     private void CopyTokenSyncPairingInfo()
@@ -366,6 +462,23 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnSelectedThemeModeChanged(ThemeMode value) => QueueSettingsApply();
 
+    partial void OnAutomaticUpdateChecksEnabledChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanEditUpdateReminders));
+        if (!suppressUpdateApply && updates is not null)
+        {
+            _ = ApplyAutomaticUpdateSettingAsync(value);
+        }
+    }
+
+    partial void OnUpdateRemindersEnabledChanged(bool value)
+    {
+        if (!suppressUpdateApply && updates is not null)
+        {
+            _ = ApplyUpdateReminderSettingAsync(value);
+        }
+    }
+
     public void RefreshTokenSyncStatus()
     {
         TokenSyncStatusText = platform.TokenSyncStatusText;
@@ -376,6 +489,81 @@ public sealed partial class SettingsViewModel : ObservableObject
             ? string.Empty
             : $"Windows 地址：{platform.TokenSyncAddressText}";
         TokenSyncPairingInfo = platform.TokenSyncPairingInfo;
+    }
+
+    public void RefreshWindowsUpdateStatus()
+    {
+        suppressUpdateApply = true;
+        try
+        {
+            if (updates is null || !updates.IsProduction)
+            {
+                AutomaticUpdateChecksEnabled = false;
+                UpdateRemindersEnabled = false;
+                UpdateStatusText = "开发版本不检查正式更新";
+                UpdateLastCheckText = "不适用于开发版本";
+                return;
+            }
+
+            AutomaticUpdateChecksEnabled = updates.AutomaticChecksEnabled;
+            UpdateRemindersEnabled = updates.UpdateRemindersEnabled;
+            OnPropertyChanged(nameof(CanEditUpdateReminders));
+            var result = updates.CurrentResult;
+            UpdateStatusText = FormatUpdateStatus(result);
+            var lastCheck = updates.LastSuccessfulCheckUtc ?? updates.LastAttemptUtc;
+            UpdateLastCheckText = lastCheck is { } value
+                ? value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                : "尚未检查";
+            OnPropertyChanged(nameof(CanDownloadWindowsUpdate));
+        }
+        finally
+        {
+            suppressUpdateApply = false;
+        }
+    }
+
+    private async Task ApplyAutomaticUpdateSettingAsync(bool value)
+    {
+        try
+        {
+            await updates!.SetAutomaticChecksEnabledAsync(value, CancellationToken.None);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            RefreshWindowsUpdateStatus();
+            StatusText = "更新设置保存失败";
+        }
+    }
+
+    private async Task ApplyUpdateReminderSettingAsync(bool value)
+    {
+        try
+        {
+            await updates!.SetUpdateRemindersEnabledAsync(value, CancellationToken.None);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            RefreshWindowsUpdateStatus();
+            StatusText = "更新设置保存失败";
+        }
+    }
+
+    private static string FormatUpdateStatus(WindowsUpdateCheckResult result) => result.Status switch
+    {
+        WindowsUpdateCheckStatus.NotChecked => "尚未检查",
+        WindowsUpdateCheckStatus.Checking => "正在检查…",
+        WindowsUpdateCheckStatus.Disabled => "自动检查已关闭",
+        WindowsUpdateCheckStatus.Skipped => "24 小时内已检查过",
+        WindowsUpdateCheckStatus.UpToDate => $"已是最新版本 {result.Release?.Version.ToString() ?? ProductVersion.Current}",
+        WindowsUpdateCheckStatus.Available => $"发现新版本 {result.Release?.Version}",
+        WindowsUpdateCheckStatus.NoRelease => "当前 Release 没有有效的 Windows 安装包",
+        WindowsUpdateCheckStatus.Failed => "检查更新失败",
+        _ => "尚未检查",
+    };
+
+    private void OnWindowsUpdateChanged(object? sender, EventArgs args)
+    {
+        RefreshWindowsUpdateStatus();
     }
 
     private void OnTokenSyncChanged(object? sender, EventArgs args) => TokenSyncChanged?.Invoke(this, args);

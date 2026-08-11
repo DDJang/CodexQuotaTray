@@ -3,6 +3,7 @@ using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
+using CodexQuotaTray.Core.Updates;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -36,6 +37,7 @@ public sealed partial class SettingsWindow : Window
         SettingsRoot.DataContext = viewModel;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
         viewModel.TokenSyncChanged += OnTokenSyncChanged;
+        viewModel.UpdateCheckCompleted += OnUpdateCheckCompleted;
         UpdateTokenSyncQrCode();
         SettingsRoot.SizeChanged += OnSettingsRootSizeChanged;
         SettingsRoot.Loaded += (_, _) => ApplyResponsiveLayout(SettingsRoot.ActualWidth);
@@ -109,6 +111,109 @@ public sealed partial class SettingsWindow : Window
             UpdateTokenSyncQrCode();
         });
     }
+
+    private async void OnUpdateCheckCompleted(object? sender, WindowsUpdateCheckResult result)
+    {
+        if (result.Status == WindowsUpdateCheckStatus.Available && result.Release is not null)
+        {
+            var release = result.Release;
+            var notes = string.IsNullOrWhiteSpace(release.ReleaseNotes)
+                ? "此 Release 没有提供说明。"
+                : release.ReleaseNotes.Length > 12000
+                    ? release.ReleaseNotes[..12000] + Environment.NewLine + "（说明已截断）"
+                    : release.ReleaseNotes;
+            var content = new StackPanel { Spacing = 8 };
+            content.Children.Add(new TextBlock { Text = $"当前版本：{viewModel.CurrentVersionText}" });
+            content.Children.Add(new TextBlock { Text = $"最新版本：{release.Version}" });
+            content.Children.Add(new TextBlock { Text = "Release notes" });
+            content.Children.Add(new ScrollViewer
+            {
+                Content = new TextBlock { Text = notes, TextWrapping = TextWrapping.Wrap },
+                MaxHeight = 300,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            });
+
+            var dialog = CreateUpdateDialog("发现 Windows 更新", content, "下载更新", "稍后");
+            if (await TryShowDialogAsync(dialog) != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            var download = await viewModel.DownloadWindowsUpdateAsync(CancellationToken.None);
+            if (!download.Succeeded)
+            {
+                await ShowUpdateMessageAsync("更新下载失败", download.ErrorMessage ?? "无法下载更新安装包。", "关闭");
+                return;
+            }
+
+            var readyDialog = CreateUpdateDialog(
+                "更新已准备好",
+                new TextBlock { Text = "安装包已通过 SHA-256 校验，可以启动现有安装器完成升级。", TextWrapping = TextWrapping.Wrap },
+                "立即安装",
+                "稍后安装");
+            if (await TryShowDialogAsync(readyDialog) == ContentDialogResult.Primary
+                && !await viewModel.InstallPreparedWindowsUpdateAsync(CancellationToken.None))
+            {
+                await ShowUpdateMessageAsync("更新启动失败", "无法启动安装器，请稍后重试。", "关闭");
+            }
+
+            return;
+        }
+
+        if (result.Status is WindowsUpdateCheckStatus.Failed or WindowsUpdateCheckStatus.NoRelease)
+        {
+            await ShowUpdateMessageAsync(
+                "检查更新失败",
+                result.ErrorMessage ?? "无法读取有效的 Windows Release。",
+                "关闭");
+        }
+        else if (result.Status == WindowsUpdateCheckStatus.UpToDate)
+        {
+            await ShowUpdateMessageAsync(
+                "检查更新",
+                $"已是最新版本 {viewModel.CurrentVersionText}。",
+                "关闭");
+        }
+    }
+
+    private ContentDialog CreateUpdateDialog(
+        string title,
+        object content,
+        string primaryButton,
+        string closeButton) => new()
+        {
+            Title = title,
+            Content = content,
+            PrimaryButtonText = primaryButton,
+            CloseButtonText = closeButton,
+            XamlRoot = SettingsRoot.XamlRoot,
+        };
+
+    private async Task<ContentDialogResult> TryShowDialogAsync(ContentDialog dialog)
+    {
+        if (dialog.XamlRoot is null)
+        {
+            return ContentDialogResult.None;
+        }
+
+        try
+        {
+            return await dialog.ShowAsync();
+        }
+        catch (InvalidOperationException)
+        {
+            return ContentDialogResult.None;
+        }
+    }
+
+    private Task ShowUpdateMessageAsync(string title, string message, string closeButton) =>
+        TryShowDialogAsync(new ContentDialog
+        {
+            Title = title,
+            Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
+            CloseButtonText = closeButton,
+            XamlRoot = SettingsRoot.XamlRoot,
+        });
 
     private void UpdateTokenSyncQrCode()
     {

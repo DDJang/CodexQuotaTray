@@ -5,6 +5,7 @@ using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Protocol;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Runtime;
+using CodexQuotaTray.Core.Updates;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -29,6 +30,7 @@ public partial class App : Application
     private HostEventService? hostEvents;
     private Microsoft.UI.Xaml.Controls.ContentDialog? aboutDialog;
     private TokenUsageSyncController? tokenUsageSync;
+    private WindowsUpdateService? windowsUpdateService;
     private AppIdentity? applicationIdentity;
     private bool exiting;
 
@@ -103,6 +105,27 @@ public partial class App : Application
                 identity.TokenSyncPort,
                 identity.TokenSyncDisplayNameSuffix,
                 identity.TokenSyncDnsSdInstancePrefix);
+            if (launchProfile.TrayIdentity == TrayIdentityMode.Production
+                && SemanticVersion.TryParse(ProductVersion.Current, out var currentVersion))
+            {
+                var updateCoordinator = new WindowsUpdateCoordinator(
+                    new GitHubWindowsReleaseProvider(),
+                    new FileWindowsUpdateStateStore(
+                        jsonStore,
+                        Path.Combine(paths.Root, "windows-update-state.json")),
+                    currentVersion,
+                    log: message => System.Diagnostics.Debug.WriteLine(message));
+                windowsUpdateService = new WindowsUpdateService(
+                    updateCoordinator,
+                    new WindowsUpdateDownloader(Path.Combine(paths.Root, "updates")),
+                    new WindowsUpdateInstaller(),
+                    ExitApplication,
+                    message => System.Diagnostics.Debug.WriteLine(message),
+                    action =>
+                    {
+                        _ = uiDispatcher?.TryEnqueue(() => action());
+                    });
+            }
             settingsActions = new SettingsPlatformActions(
                 paths,
                 persistence,
@@ -121,6 +144,15 @@ public partial class App : Application
             runtimeStateEventsAuthoritative);
         viewModelReference = viewModel;
         mainWindow = new MainWindow(viewModel, identity.DisplayName);
+        mainWindow.Activated += (_, activation) =>
+        {
+            if (activation.WindowActivationState != WindowActivationState.Deactivated
+                && windowsUpdateService is not null
+                && initializationTask is not null)
+            {
+                _ = StartWindowsUpdateCheckAfterInitializationAsync(windowsUpdateService, lifetime.Token);
+            }
+        };
         mainWindow.ApplyTheme(runtime?.Settings.ThemeMode ?? ThemeMode.System);
         mainWindow.Activate();
         if (!showDemo)
@@ -201,6 +233,12 @@ public partial class App : Application
         hostEvents = new HostEventService(() => RequestRuntimeRefresh(RefreshReason.NetworkRestored));
         hostEvents.Start();
 
+        if (windowsUpdateService is not null)
+        {
+            windowsUpdateService.UpdateAvailable += OnWindowsUpdateAvailable;
+            _ = StartWindowsUpdateCheckAfterInitializationAsync(windowsUpdateService, lifetime.Token);
+        }
+
         if (showDemo)
         {
             _ = uiDispatcher.TryEnqueue(() =>
@@ -225,6 +263,43 @@ public partial class App : Application
     private MainViewModel? viewModelReference;
     private ISettingsPlatformActions? settingsActions;
     private TrayNotificationSink? pendingNotificationSink;
+
+    private void OnWindowsUpdateAvailable(object? sender, WindowsUpdateRelease release)
+    {
+        _ = uiDispatcher?.TryEnqueue(() =>
+        {
+            try
+            {
+                trayIcon?.ShowWindowsUpdateAvailable(release);
+            }
+            catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+                System.Diagnostics.Debug.WriteLine($"Windows update notification failed: {error.GetType().Name}");
+            }
+        });
+    }
+
+    private async Task StartWindowsUpdateCheckAfterInitializationAsync(
+        WindowsUpdateService service,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (initializationTask is not null)
+            {
+                await initializationTask.ConfigureAwait(false);
+            }
+
+            _ = await service.CheckAsync(manual: false, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Windows automatic update check failed: {error.GetType().Name}");
+        }
+    }
 
     private static PreviewDataPaths CreateDataPaths(AppIdentity identity) => new(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -281,7 +356,7 @@ public partial class App : Application
 
         if (settingsWindow is null)
         {
-            var settingsViewModel = new SettingsViewModel(runtime, settingsActions, settingsPageActions);
+            var settingsViewModel = new SettingsViewModel(runtime, settingsActions, settingsPageActions, windowsUpdateService);
             settingsViewModel.ThemeSaved += OnSettingsThemeSaved;
             settingsWindow = new SettingsWindow(
                 settingsViewModel,
@@ -290,6 +365,10 @@ public partial class App : Application
 
         settingsWindow.ApplyTheme(runtime.Settings.ThemeMode);
         settingsWindow.Activate();
+        if (windowsUpdateService is not null)
+        {
+            _ = StartWindowsUpdateCheckAfterInitializationAsync(windowsUpdateService, lifetime.Token);
+        }
     }
 
     private void OnSettingsThemeSaved(object? sender, ThemeMode mode)
@@ -536,6 +615,12 @@ public partial class App : Application
         {
             await tokenUsageSync.DisposeAsync();
             tokenUsageSync = null;
+        }
+
+        if (windowsUpdateService is not null)
+        {
+            await windowsUpdateService.DisposeAsync();
+            windowsUpdateService = null;
         }
 
         trayIcon?.Dispose();

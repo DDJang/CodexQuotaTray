@@ -7,6 +7,7 @@ using CodexQuotaTray.Core.Alerts;
 using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
+using CodexQuotaTray.Core.Updates;
 using Microsoft.UI.Dispatching;
 using PersistenceThemeMode = CodexQuotaTray.Core.Persistence.ThemeMode;
 
@@ -494,6 +495,24 @@ internal sealed class TrayIconService : IDisposable
         if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
         {
             throw LastWin32("show quota notification");
+        }
+    }
+
+    internal void ShowWindowsUpdateAvailable(WindowsUpdateRelease release)
+    {
+        if (!added)
+        {
+            throw new InvalidOperationException("The tray icon is unavailable.");
+        }
+
+        var data = CreateData();
+        data.Flags |= NativeMethods.NifInfo;
+        data.InfoTitle = "CodexQuotaTray 更新";
+        data.Info = $"发现 Windows 新版本 {release.Version}，打开设置即可查看。";
+        data.InfoFlags = NativeMethods.NiifInfo;
+        if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
+        {
+            throw LastWin32("show update notification");
         }
     }
 

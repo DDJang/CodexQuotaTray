@@ -453,6 +453,61 @@
                         </Grid>
                     </StackPanel>
 
+                    <TextBlock Text="更新" Style="{StaticResource SettingsGroupHeaderStyle}" />
+                    <Border Style="{StaticResource SettingsItemCardStyle}">
+                        <StackPanel Spacing="10">
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="自动检查更新" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="启动或回到前台时最多每天检查一次" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <ToggleSwitch
+                                    Grid.Column="1"
+                                    IsOn="{Binding AutomaticUpdateChecksEnabled, Mode=TwoWay}"
+                                    IsEnabled="{Binding IsWindowsUpdateAvailable}"
+                                    OnContent="开启"
+                                    OffContent="关闭"
+                                    Style="{StaticResource SettingsToggleSwitchStyle}" />
+                            </Grid>
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="更新提醒" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="自动检查发现新版本时提示" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <ToggleSwitch
+                                    Grid.Column="1"
+                                    IsOn="{Binding UpdateRemindersEnabled, Mode=TwoWay}"
+                                    IsEnabled="{Binding CanEditUpdateReminders}"
+                                    OnContent="开启"
+                                    OffContent="关闭"
+                                    Style="{StaticResource SettingsToggleSwitchStyle}" />
+                            </Grid>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="当前版本：" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBlock Text="{Binding CurrentVersionText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding UpdateStatusText}" Style="{StaticResource SettingsLabelStyle}" />
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="上次检查：" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBlock Text="{Binding UpdateLastCheckText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                            </StackPanel>
+                            <TextBlock Text="{Binding WindowsUpdateAvailabilityText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                            <Button
+                                Content="检查更新"
+                                Command="{Binding CheckForWindowsUpdatesCommand}"
+                                IsEnabled="{Binding CanCheckForWindowsUpdates}"
+                                Style="{StaticResource SettingsActionButtonStyle}" />
+                        </StackPanel>
+                    </Border>
+
                     <Button
                         x:Name="AboutButton"
                         Margin="0,16,0,0"
