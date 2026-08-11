@@ -83,6 +83,7 @@ tray GUID 或 Installer AppId。
 - 未经授权不 commit、push、创建 PR/tag/Release、安装应用、打包、签名或运行真实账户 smoke。
 - 不安装 SDK，不修改用户 NuGet/Gradle 配置，不创建替代 `global.json`，不降级依赖解决环境问题。
 - 第一次失败先区分代码与环境；环境失败只允许使用仓库现有配置做一次修正重试，然后停止并报告。
+- WinUI 的 NuGet 恢复、聚焦测试和权限处理遵循 [`winui/README.md`](winui/README.md) 的“NuGet 与环境恢复”小节；不要绕过仓库配置直接使用用户级 NuGet 配置。
 
 ## Validation
 

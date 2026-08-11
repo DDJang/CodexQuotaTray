@@ -40,3 +40,30 @@ GitHub Actions 正式发布路径，不是日常开发命令。三种模式默�
 账户或 Explorer 托盘 smoke。
 
 正式发布规则集中在 [RELEASE.md](../docs/RELEASE.md)。
+
+## NuGet 与环境恢复
+
+WinUI 的唯一 solution 路径是 [`CodexQuotaTray.WinUI.sln`](CodexQuotaTray.WinUI.sln)，仓库专用
+NuGet 配置是 [`NuGet.Config`](NuGet.Config)。日常验证优先使用
+[`scripts/verify-winui.ps1`](../scripts/verify-winui.ps1)，它会在 restore 时传入
+`--configfile .\winui\NuGet.Config`，并在后续 build/测试阶段传入
+`-p:RestoreConfigFile=.\winui\NuGet.Config`。
+
+如需单独运行测试，必须先用同一 solution 和仓库配置完成 restore，再使用 `--no-restore`：
+
+```powershell
+$solution = '.\winui\CodexQuotaTray.WinUI.sln'
+$config = '.\winui\NuGet.Config'
+
+dotnet restore $solution --configfile $config -p:Platform=x64
+dotnet test '.\winui\tests\CodexQuotaTray.Tests\CodexQuotaTray.Tests.csproj' `
+  -c Debug -p:RestoreConfigFile=$config --no-restore
+```
+
+不要使用不存在的 `winui\CodexQuotaTray.sln`，也不要在未成功 restore 前直接运行未指定配置的
+`dotnet test`。`winui/NuGet.Config` 使用 `<clear />`，因此不会依赖用户级
+`%APPDATA%\NuGet\NuGet.Config`；不要删除、修改或放宽该用户配置的权限。
+
+如果沙箱拒绝读取 SDK/NuGet 缓存，应请求一次提升权限后重跑上述仓库命令；提升权限只用于执行
+验证，不得借机安装 SDK、编辑用户配置或修改系统 ACL。首次环境失败最多做一次基于仓库配置的
+修正重试，之后停止并报告原始错误与修正错误。
