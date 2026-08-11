@@ -377,7 +377,7 @@ public sealed class AppServerPhase2Tests
         await Task.Delay(50);
 
         client.Fail = true;
-        clock.Advance(TimeSpan.FromMinutes(30));
+        clock.Advance(TimeSpan.FromMinutes(15));
         await WaitForReadCountAsync(client, 2);
         Assert.AreEqual(2, client.ReadCount);
 
@@ -385,25 +385,25 @@ public sealed class AppServerPhase2Tests
         await Task.Delay(100);
         Assert.AreEqual(2, client.ReadCount);
 
-        clock.Advance(TimeSpan.FromSeconds(30));
+        clock.Advance(TimeSpan.FromMinutes(14).Add(TimeSpan.FromSeconds(30)));
         await WaitForReadCountAsync(client, 3);
         Assert.AreEqual(3, client.ReadCount);
 
-        clock.Advance(TimeSpan.FromMinutes(1));
+        clock.Advance(TimeSpan.FromMinutes(14).Add(TimeSpan.FromSeconds(59)));
         await Task.Delay(100);
         Assert.AreEqual(3, client.ReadCount);
 
         client.Fail = false;
-        clock.Advance(TimeSpan.FromMinutes(1));
+        clock.Advance(TimeSpan.FromSeconds(1));
         await WaitForReadCountAsync(client, 4);
         Assert.AreEqual(4, client.ReadCount);
         await fourthRefreshSettled.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        clock.Advance(TimeSpan.FromMinutes(29));
+        clock.Advance(TimeSpan.FromMinutes(14).Add(TimeSpan.FromSeconds(59)));
         await Task.Delay(100);
         Assert.AreEqual(4, client.ReadCount);
 
-        clock.Advance(TimeSpan.FromMinutes(1));
+        clock.Advance(TimeSpan.FromSeconds(1));
         await WaitForReadCountAsync(client, 5);
         Assert.AreEqual(5, client.ReadCount);
     }
@@ -858,7 +858,11 @@ public sealed class AppServerPhase2Tests
         var paths = new PreviewDataPaths(directory.Path);
         var store = new JsonFileStore();
         await new SettingsService(store, paths).SaveAsync(
-            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            AppSettings.Defaults with
+            {
+                RefreshMode = RefreshMode.ManualOnly,
+                RefreshOnPanelOpen = false,
+            },
             CancellationToken.None);
 
         var client = new ControlledClient { BlockConnect = true };
@@ -881,6 +885,83 @@ public sealed class AppServerPhase2Tests
 
         Assert.AreEqual(RefreshMode.ManualOnly, service.Settings.RefreshMode);
         Assert.AreEqual(0, client.ReadCount);
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_CardOpenedRefreshIgnoresSnapshotAgeButKeepsTenSecondSuppression()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var clock = new ManualTimeProvider();
+        var client = new ControlledClient();
+        client.Release.TrySetResult();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(new JsonFileStore(), paths),
+            new PreviewPersistence(new JsonFileStore(), paths),
+            timeProvider: clock);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        await client.WaitForReadCompletionAsync(1);
+        await clock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(1));
+
+        clock.Advance(TimeSpan.FromSeconds(9));
+        await service.RequestAsync(RefreshReason.CardOpened, CancellationToken.None);
+        Assert.AreEqual(1, client.ReadCount);
+
+        clock.Advance(TimeSpan.FromSeconds(2));
+        await service.RequestAsync(RefreshReason.CardOpened, CancellationToken.None);
+
+        Assert.AreEqual(2, client.ReadCount);
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_ManualOnlyKeepsPanelAndNetworkRefreshIndependent()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with
+            {
+                RefreshMode = RefreshMode.ManualOnly,
+                RefreshOnPanelOpen = true,
+                RefreshOnNetworkRestore = true,
+            },
+            CancellationToken.None);
+        var clock = new ManualTimeProvider();
+        var client = new ControlledClient();
+        client.Release.TrySetResult();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(store, paths),
+            new PreviewPersistence(store, paths),
+            timeProvider: clock);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        Assert.AreEqual(0, client.ReadCount);
+
+        await service.RequestAsync(RefreshReason.CardOpened, CancellationToken.None);
+        Assert.AreEqual(1, client.ReadCount);
+
+        clock.Advance(TimeSpan.FromSeconds(11));
+        await service.RequestAsync(RefreshReason.NetworkRestored, CancellationToken.None);
+        Assert.AreEqual(2, client.ReadCount);
+
+        await service.ApplySettingsAsync(
+            service.Settings with
+            {
+                RefreshOnPanelOpen = false,
+                RefreshOnNetworkRestore = false,
+            },
+            CancellationToken.None);
+        clock.Advance(TimeSpan.FromSeconds(11));
+        await service.RequestAsync(RefreshReason.CardOpened, CancellationToken.None);
+        await service.RequestAsync(RefreshReason.NetworkRestored, CancellationToken.None);
+        Assert.AreEqual(2, client.ReadCount);
+
+        await service.RequestAsync(RefreshReason.Manual, CancellationToken.None);
+        Assert.AreEqual(3, client.ReadCount);
     }
 
     [TestMethod]

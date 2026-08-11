@@ -61,11 +61,11 @@ public sealed class RefreshModeDisplayConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) => value switch
     {
-        RuntimeRefreshMode.Auto => "自动",
+        RuntimeRefreshMode.Auto => "每 15 分钟",
         RuntimeRefreshMode.Every5Minutes => "每 5 分钟",
         RuntimeRefreshMode.Every15Minutes => "每 15 分钟",
         RuntimeRefreshMode.Every30Minutes => "每 30 分钟",
-        RuntimeRefreshMode.ManualOnly => "仅手动",
+        RuntimeRefreshMode.ManualOnly => "关闭后台刷新",
         _ => value?.ToString() ?? string.Empty,
     };
 

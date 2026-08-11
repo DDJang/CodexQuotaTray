@@ -41,7 +41,7 @@ public sealed class RefreshCoordinator
     private RefreshReason? pending;
     private bool inFlight;
 
-    public RefreshMode Mode { get; private set; } = RefreshMode.Auto;
+    public RefreshMode Mode { get; private set; } = RefreshMode.Every15Minutes;
 
     public int ConsecutiveFailures { get; private set; }
 
@@ -73,11 +73,7 @@ public sealed class RefreshCoordinator
     {
         lock (gate)
         {
-            Mode = mode;
-            if (mode == RefreshMode.ManualOnly && pending is not RefreshReason.Manual)
-            {
-                pending = null;
-            }
+            Mode = mode == RefreshMode.Auto ? RefreshMode.Every15Minutes : mode;
         }
     }
 
@@ -93,11 +89,6 @@ public sealed class RefreshCoordinator
     {
         lock (gate)
         {
-            if (!Allows(Mode, reason))
-            {
-                return RefreshDecision.Suppress;
-            }
-
             if (!inFlight)
             {
                 inFlight = true;
@@ -132,7 +123,7 @@ public sealed class RefreshCoordinator
 
             var next = pending;
             pending = null;
-            if (next is not null && Allows(Mode, next.Value))
+            if (next is not null)
             {
                 return next;
             }
@@ -148,7 +139,7 @@ public sealed class RefreshCoordinator
         {
             var next = pending;
             pending = null;
-            if (next is not null && Allows(Mode, next.Value))
+            if (next is not null)
             {
                 return next;
             }
@@ -175,9 +166,7 @@ public sealed class RefreshCoordinator
             RefreshMode.Every5Minutes => TimeSpan.FromMinutes(5),
             RefreshMode.Every15Minutes => TimeSpan.FromMinutes(15),
             RefreshMode.Every30Minutes => TimeSpan.FromMinutes(30),
-            _ when minimumReliableRemaining is > 50 => TimeSpan.FromMinutes(30),
-            _ when minimumReliableRemaining is > 20 => TimeSpan.FromMinutes(15),
-            _ => TimeSpan.FromMinutes(5),
+            _ => TimeSpan.FromMinutes(15),
         };
 
         if (Mode == RefreshMode.ManualOnly || ConsecutiveFailures == 0)
@@ -186,16 +175,13 @@ public sealed class RefreshCoordinator
         }
 
         var backoff = Backoff[Math.Min(ConsecutiveFailures - 1, Backoff.Length - 1)];
-        return Mode == RefreshMode.Auto ? backoff : Max(baseline, backoff);
+        return Max(baseline, backoff);
     }
 
     public TimeSpan StaleAfter(int? minimumReliableRemaining) =>
         Mode == RefreshMode.ManualOnly
             ? TimeSpan.FromMinutes(60)
             : Max(TimeSpan.FromMinutes(15), EffectiveInterval(minimumReliableRemaining) * 2);
-
-    public static bool Allows(RefreshMode mode, RefreshReason reason) =>
-        mode != RefreshMode.ManualOnly || reason == RefreshReason.Manual;
 
     private static int Priority(RefreshReason reason) => reason switch
     {

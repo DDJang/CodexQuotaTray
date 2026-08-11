@@ -194,7 +194,7 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="刷新间隔" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="选择后台自动获取额度的频率。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="选择后台定时获取额度的频率。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <ComboBox
                                     Grid.Column="1"
@@ -209,6 +209,28 @@
                                         </DataTemplate>
                                     </ComboBox.ItemTemplate>
                                 </ComboBox>
+                            </Grid>
+                        </Border>
+                        <Border Style="{StaticResource SettingsItemCardStyle}">
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="打开面板时自动刷新" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="打开额度面板时主动读取最新额度，短时间重复打开会自动去重。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <Button
+                                    Grid.Column="1"
+                                    AutomationProperties.Name="打开面板时自动刷新"
+                                    Click="OnSettingsToggleButtonClick"
+                                    Style="{StaticResource SettingsToggleButtonStyle}">
+                                    <ToggleSwitch
+                                        IsOn="{Binding RefreshOnPanelOpen, Mode=TwoWay}"
+                                        IsHitTestVisible="False"
+                                        Style="{StaticResource SettingsToggleSwitchStyle}" />
+                                </Button>
                             </Grid>
                         </Border>
                         <Border Style="{StaticResource SettingsItemCardStyle}">

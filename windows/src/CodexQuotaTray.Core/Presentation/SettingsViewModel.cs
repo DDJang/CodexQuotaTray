@@ -65,6 +65,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool showRemainingPercent;
     [ObservableProperty] private bool use24HourTime;
     [ObservableProperty] private bool persistQuotaCache;
+    [ObservableProperty] private bool refreshOnPanelOpen;
     [ObservableProperty] private bool refreshOnNetworkRestore;
     [ObservableProperty] private bool notifyRemaining50;
     [ObservableProperty] private bool notifyRemaining20;
@@ -139,7 +140,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         ? "登录 Windows 时自动启动托盘应用。"
         : "预览模式不可配置开机启动。";
 
-    public IReadOnlyList<RefreshMode> RefreshModes { get; } = Enum.GetValues<RefreshMode>();
+    public IReadOnlyList<RefreshMode> RefreshModes { get; } =
+    [
+        RefreshMode.Every5Minutes,
+        RefreshMode.Every15Minutes,
+        RefreshMode.Every30Minutes,
+        RefreshMode.ManualOnly,
+    ];
 
     public IReadOnlyList<ThemeMode> ThemeModes { get; } = Enum.GetValues<ThemeMode>();
 
@@ -389,22 +396,22 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private void InvalidatePendingApply() => Interlocked.Increment(ref settingsRevision);
 
-    private AppSettings ToSettings() => new(
-        CanConfigureStartup && StartWithWindows,
-        ShowRemainingPercent,
-        Use24HourTime,
-        PersistQuotaCache,
-        SelectedRefreshMode,
-        RefreshOnNetworkRestore,
-        new NotificationSettings(NotifyRemaining50, NotifyRemaining20, NotifyRemaining10, NotifyAfterQuotaReset),
-        SelectedThemeMode,
-        SilentStartup,
-        PhoneTokenSyncEnabled);
+    private AppSettings ToSettings() => SettingsService.Normalize(new AppSettings(
+        StartWithWindows: CanConfigureStartup && StartWithWindows,
+        ShowRemainingPercent: ShowRemainingPercent,
+        Use24HourTime: Use24HourTime,
+        PersistQuotaCache: PersistQuotaCache,
+        RefreshMode: SelectedRefreshMode,
+        RefreshOnPanelOpen: RefreshOnPanelOpen,
+        RefreshOnNetworkRestore: RefreshOnNetworkRestore,
+        Notifications: new NotificationSettings(NotifyRemaining50, NotifyRemaining20, NotifyRemaining10, NotifyAfterQuotaReset),
+        ThemeMode: SelectedThemeMode,
+        SilentStartup: SilentStartup,
+        PhoneTokenSyncEnabled: PhoneTokenSyncEnabled));
 
-    private AppSettings Normalize(AppSettings value) => value with
+    private AppSettings Normalize(AppSettings value) => SettingsService.Normalize(value) with
     {
         StartWithWindows = CanConfigureStartup && value.StartWithWindows,
-        Notifications = value.EffectiveNotifications,
     };
 
     private void Load(AppSettings value)
@@ -416,12 +423,15 @@ public sealed partial class SettingsViewModel : ObservableObject
             ShowRemainingPercent = value.ShowRemainingPercent;
             Use24HourTime = value.Use24HourTime;
             PersistQuotaCache = value.PersistQuotaCache;
+            RefreshOnPanelOpen = value.RefreshOnPanelOpen;
             RefreshOnNetworkRestore = value.RefreshOnNetworkRestore;
             NotifyRemaining50 = value.EffectiveNotifications.Remaining50;
             NotifyRemaining20 = value.EffectiveNotifications.Remaining20;
             NotifyRemaining10 = value.EffectiveNotifications.Remaining10;
             NotifyAfterQuotaReset = value.EffectiveNotifications.ResetAfterCycle;
-            SelectedRefreshMode = value.RefreshMode;
+            SelectedRefreshMode = value.RefreshMode == RefreshMode.Auto
+                ? RefreshMode.Every15Minutes
+                : value.RefreshMode;
             SelectedThemeMode = value.ThemeMode;
             SilentStartup = value.SilentStartup;
             PhoneTokenSyncEnabled = value.PhoneTokenSyncEnabled;
@@ -443,6 +453,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnUse24HourTimeChanged(bool value) => QueueSettingsApply();
 
     partial void OnPersistQuotaCacheChanged(bool value) => QueueSettingsApply();
+
+    partial void OnRefreshOnPanelOpenChanged(bool value) => QueueSettingsApply();
 
     partial void OnRefreshOnNetworkRestoreChanged(bool value) => QueueSettingsApply();
 

@@ -270,28 +270,39 @@ public sealed class QuotaRuntimeService :
 
     private bool ShouldRequest(RefreshReason reason)
     {
-        if (!RefreshCoordinator.Allows(Settings.RefreshMode, reason) || reason == RefreshReason.Manual)
+        if (reason == RefreshReason.Manual)
         {
-            return reason == RefreshReason.Manual;
+            return true;
         }
 
-        var now = timeProvider.GetUtcNow();
-        var isPendingReevaluation = coordinator.IsInFlight
-            && reason is RefreshReason.CardOpened or RefreshReason.Scheduled;
-        if (!isPendingReevaluation
-            && reason != RefreshReason.RateLimitNotification
-            && lastAttemptUtc is { } attempt
-            && now - attempt < TimeSpan.FromSeconds(10))
+        if (reason == RefreshReason.CardOpened)
+        {
+            if (!Settings.RefreshOnPanelOpen)
+            {
+                return false;
+            }
+        }
+
+        if (reason == RefreshReason.NetworkRestored)
+        {
+            if (!Settings.RefreshOnNetworkRestore)
+            {
+                return false;
+            }
+        }
+
+        if (Settings.RefreshMode == RefreshMode.ManualOnly
+            && reason is not (RefreshReason.CardOpened or RefreshReason.NetworkRestored))
         {
             return false;
         }
 
-        if (reason == RefreshReason.CardOpened && coordinator.LastSuccessUtc is { } success)
+        var now = timeProvider.GetUtcNow();
+        if (reason != RefreshReason.RateLimitNotification
+            && lastAttemptUtc is { } attempt
+            && now - attempt < TimeSpan.FromSeconds(10))
         {
-            var age = now - success;
-            return Settings.RefreshMode == RefreshMode.Auto
-                ? age >= TimeSpan.FromMinutes(2)
-                : age >= coordinator.StaleAfter(MinimumReliableRemaining());
+            return false;
         }
 
         if (reason == RefreshReason.Scheduled)
@@ -313,6 +324,7 @@ public sealed class QuotaRuntimeService :
 
     public async Task ApplySettingsAsync(AppSettings settings, CancellationToken cancellationToken)
     {
+        settings = SettingsService.Normalize(settings);
         await settingsService.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
         var previous = Settings;
         Settings = settings with { Notifications = settings.EffectiveNotifications };

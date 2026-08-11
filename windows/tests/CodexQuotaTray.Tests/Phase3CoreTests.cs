@@ -12,15 +12,12 @@ namespace CodexQuotaTray.Tests;
 public sealed class Phase3CoreTests
 {
     [TestMethod]
-    public void RefreshCoordinator_ManualOnlySuppressesEveryNonManualReason()
+    public void RefreshCoordinator_LeavesReasonGatingToRuntime()
     {
         var coordinator = new RefreshCoordinator();
         coordinator.SetMode(RefreshMode.ManualOnly);
-        foreach (var reason in Enum.GetValues<RefreshReason>().Where(value => value != RefreshReason.Manual))
-        {
-            Assert.AreEqual(RefreshDecision.Suppress, coordinator.Request(reason), reason.ToString());
-        }
-
+        Assert.AreEqual(RefreshDecision.Start, coordinator.Request(RefreshReason.CardOpened));
+        Assert.IsNull(coordinator.Complete(true, DateTimeOffset.UnixEpoch));
         Assert.AreEqual(RefreshDecision.Start, coordinator.Request(RefreshReason.Manual));
     }
 
@@ -62,10 +59,24 @@ public sealed class Phase3CoreTests
     public void RefreshIntervalsAndStaleThresholdsMatchPolicy()
     {
         var coordinator = new RefreshCoordinator();
-        Assert.AreEqual(TimeSpan.FromMinutes(30), coordinator.EffectiveInterval(51));
-        Assert.AreEqual(TimeSpan.FromMinutes(15), coordinator.EffectiveInterval(21));
-        Assert.AreEqual(TimeSpan.FromMinutes(5), coordinator.EffectiveInterval(20));
-        Assert.AreEqual(TimeSpan.FromMinutes(60), coordinator.StaleAfter(51));
+        Assert.AreEqual(RefreshMode.Every15Minutes, coordinator.Mode);
+        foreach (var mode in new[] { RefreshMode.Every5Minutes, RefreshMode.Every15Minutes, RefreshMode.Every30Minutes })
+        {
+            coordinator.SetMode(mode);
+            var expected = mode switch
+            {
+                RefreshMode.Every5Minutes => TimeSpan.FromMinutes(5),
+                RefreshMode.Every15Minutes => TimeSpan.FromMinutes(15),
+                _ => TimeSpan.FromMinutes(30),
+            };
+            Assert.AreEqual(expected, coordinator.EffectiveInterval(100));
+            Assert.AreEqual(expected, coordinator.EffectiveInterval(20));
+            Assert.AreEqual(expected, coordinator.EffectiveInterval(null));
+        }
+
+        coordinator.SetMode(RefreshMode.Auto);
+        Assert.AreEqual(RefreshMode.Every15Minutes, coordinator.Mode);
+        Assert.AreEqual(TimeSpan.FromMinutes(30), coordinator.StaleAfter(51));
         coordinator.SetMode(RefreshMode.ManualOnly);
         Assert.AreEqual(TimeSpan.FromMinutes(60), coordinator.StaleAfter(1));
     }
@@ -233,10 +244,10 @@ public sealed class Phase3CoreTests
         var coordinator = new RefreshCoordinator();
         _ = coordinator.Request(RefreshReason.Manual);
         _ = coordinator.Complete(false, DateTimeOffset.UnixEpoch);
-        Assert.AreEqual(TimeSpan.FromMinutes(1), coordinator.EffectiveInterval(90));
+        Assert.AreEqual(TimeSpan.FromMinutes(15), coordinator.EffectiveInterval(90));
         _ = coordinator.Request(RefreshReason.Manual);
         _ = coordinator.Complete(true, DateTimeOffset.UnixEpoch.AddMinutes(1));
-        Assert.AreEqual(TimeSpan.FromMinutes(30), coordinator.EffectiveInterval(90));
+        Assert.AreEqual(TimeSpan.FromMinutes(15), coordinator.EffectiveInterval(90));
     }
 
     [TestMethod]
@@ -679,9 +690,36 @@ public sealed class Phase3CoreTests
         var service = new SettingsService(new JsonFileStore(), paths);
         var settings = await service.LoadAsync(CancellationToken.None);
         Assert.AreEqual(RefreshMode.Every15Minutes, settings.RefreshMode);
+        Assert.IsTrue(settings.RefreshOnPanelOpen);
         Assert.IsFalse(settings.EffectiveNotifications.Remaining20);
         Assert.IsFalse(settings.EffectiveNotifications.Remaining10);
         Assert.IsTrue(settings.EffectiveNotifications.ResetAfterCycle);
+    }
+
+    [TestMethod]
+    public async Task SettingsMigratesLegacyAutoAndNormalizesSavedRefreshMode()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        Directory.CreateDirectory(directory.Path);
+        await File.WriteAllTextAsync(paths.Settings, "{\"refreshMode\":\"auto\"}");
+        var service = new SettingsService(new JsonFileStore(), paths);
+
+        var loaded = await service.LoadAsync(CancellationToken.None);
+
+        Assert.AreEqual(RefreshMode.Every15Minutes, loaded.RefreshMode);
+        Assert.IsTrue(loaded.RefreshOnPanelOpen);
+
+        await service.SaveAsync(
+            loaded with { RefreshMode = RefreshMode.Auto, RefreshOnPanelOpen = false },
+            CancellationToken.None);
+        var savedJson = await File.ReadAllTextAsync(paths.Settings);
+        var roundTrip = await service.LoadAsync(CancellationToken.None);
+
+        Assert.AreEqual(RefreshMode.Every15Minutes, roundTrip.RefreshMode);
+        Assert.IsFalse(roundTrip.RefreshOnPanelOpen);
+        StringAssert.Contains(savedJson, "\"refreshMode\": \"every15Minutes\"");
+        Assert.IsFalse(savedJson.Contains("\"refreshMode\": \"auto\"", StringComparison.Ordinal));
     }
 
     [TestMethod]
