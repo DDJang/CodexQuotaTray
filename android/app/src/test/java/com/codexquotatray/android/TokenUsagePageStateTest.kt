@@ -18,6 +18,7 @@ class TokenUsagePageStateTest {
         val existing = snapshot("12:00:00Z")
         assertFalse(hasNewerTokenUsageSnapshot(existing, existing))
         assertFalse(hasNewerTokenUsageSnapshot(existing, latestSnapshot = null))
+        assertFalse(hasNewerTokenUsageSnapshot(existing, snapshot("11:59:00Z")))
     }
 
     private fun snapshot(time: String) = TokenUsageSnapshot(

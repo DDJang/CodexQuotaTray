@@ -169,12 +169,15 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     }
 
     private fun renderCachedSnapshot() {
-        loadCachedSnapshot()?.let {
-            snapshot = it
-            status = "上次同步于 ${formatSyncTime(it.generatedAtUtc)}"
-        } ?: run {
-            snapshot = null
-            status = "暂无 Token 使用量缓存"
+        val cached = loadCachedSnapshot()
+        when {
+            cached == null && snapshot == null -> {
+                status = "暂无 Token 使用量缓存"
+            }
+            cached != null && hasNewerTokenUsageSnapshot(snapshot, cached) -> {
+                snapshot = cached
+                status = "上次同步于 ${formatSyncTime(cached.generatedAtUtc)}"
+            }
         }
     }
 
@@ -185,8 +188,17 @@ internal class TokenUsagePageController(private val host: MainActivity) {
 internal fun hasNewerTokenUsageSnapshot(
     snapshotAtStart: TokenUsageSnapshot?,
     latestSnapshot: TokenUsageSnapshot?,
-): Boolean = latestSnapshot != null &&
-    (snapshotAtStart == null || latestSnapshot.generatedAtUtc != snapshotAtStart.generatedAtUtc)
+): Boolean {
+    if (latestSnapshot == null) return false
+    if (snapshotAtStart == null) return true
+    val currentVersion = runCatching { Instant.parse(snapshotAtStart.generatedAtUtc) }.getOrNull()
+    val latestVersion = runCatching { Instant.parse(latestSnapshot.generatedAtUtc) }.getOrNull()
+    return if (currentVersion != null && latestVersion != null) {
+        latestVersion.isAfter(currentVersion)
+    } else {
+        latestSnapshot.generatedAtUtc > snapshotAtStart.generatedAtUtc
+    }
+}
 
 @Composable
 internal fun TokenUsagePage(controller: TokenUsagePageController, onSettings: () -> Unit, modifier: Modifier = Modifier) {

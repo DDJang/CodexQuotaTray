@@ -94,6 +94,17 @@ internal fun formatResetRemaining(remainingSeconds: Long): String {
     }
 }
 
+/** Only a genuinely newer successful cache may replace a visible failure. */
+internal fun hasNewerQuotaSnapshot(
+    currentSuccessful: QuotaUiModel?,
+    latestSuccessful: QuotaUiModel?,
+): Boolean {
+    if (latestSuccessful?.status != QuotaUiStatus.LOADED) return false
+    val latestUpdatedAt = latestSuccessful.updatedAtMillis ?: return false
+    val currentUpdatedAt = currentSuccessful?.updatedAtMillis
+    return currentUpdatedAt == null || latestUpdatedAt > currentUpdatedAt
+}
+
 internal class QuotaPageController(private val host: MainActivity) {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
@@ -237,7 +248,7 @@ internal class QuotaPageController(private val host: MainActivity) {
     private fun loadLatestModel() = snapshotStore.load()?.takeIf { it.quotaState != "unavailable" }?.toQuotaUiModel()?.takeIf { it.status == QuotaUiStatus.LOADED }
     private fun renderLatestSnapshot() {
         val latest = loadLatestModel() ?: return
-        if ((latest.updatedAtMillis ?: return) < (lastSuccessful?.updatedAtMillis ?: Long.MIN_VALUE)) return
+        if (!hasNewerQuotaSnapshot(lastSuccessful, latest)) return
         lastSuccessful = latest
         model = latest
     }
