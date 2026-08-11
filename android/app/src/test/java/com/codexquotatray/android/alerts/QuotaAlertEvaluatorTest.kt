@@ -89,6 +89,52 @@ class QuotaAlertEvaluatorTest {
     }
 
     @Test
+    fun resetTimeUsesHalfWindowThresholdForMatchingFiveHourDurations() {
+        val atHalfWindow = QuotaAlertEvaluator(MemoryAlertStateStore())
+        atHalfWindow.evaluate(listOf(window(40, resetAt = 1_000L)))
+        assertEquals(
+            listOf(AlertEventKind.RESET),
+            atHalfWindow.evaluate(listOf(window(40, resetAt = 10_000L))).map { it.kind },
+        )
+
+        val belowHalfWindow = QuotaAlertEvaluator(MemoryAlertStateStore())
+        belowHalfWindow.evaluate(listOf(window(40, resetAt = 1_000L)))
+        assertTrue(belowHalfWindow.evaluate(listOf(window(40, resetAt = 8_200L))).isEmpty())
+    }
+
+    @Test
+    fun unreliableResetTimeDoesNotResetWithoutStrongRecovery() {
+        val differentDuration = QuotaAlertEvaluator(MemoryAlertStateStore())
+        differentDuration.evaluate(listOf(window(40, resetAt = 1_000L, durationMins = 300L)))
+        assertTrue(
+            differentDuration.evaluate(
+                listOf(window(40, resetAt = 20_000L, durationMins = 600L)),
+            ).isEmpty(),
+        )
+
+        val missingDuration = QuotaAlertEvaluator(MemoryAlertStateStore())
+        missingDuration.evaluate(listOf(window(40, resetAt = 1_000L, durationMins = 300L)))
+        assertTrue(
+            missingDuration.evaluate(
+                listOf(window(40, resetAt = 20_000L, durationMins = null)),
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun strongRecoveryStillResetsWhenResetTimeIsUnreliable() {
+        val evaluator = QuotaAlertEvaluator(MemoryAlertStateStore())
+        evaluator.evaluate(listOf(window(20, resetAt = 1_000L, durationMins = 300L)))
+
+        assertEquals(
+            listOf(AlertEventKind.RESET),
+            evaluator.evaluate(
+                listOf(window(90, resetAt = 1_100L, durationMins = 600L)),
+            ).map { it.kind },
+        )
+    }
+
+    @Test
     fun strongRecoveryResetsWhenResetTimeIsUnchangedOrMissing() {
         val store = MemoryAlertStateStore()
         val evaluator = QuotaAlertEvaluator(store)
@@ -127,13 +173,17 @@ class QuotaAlertEvaluatorTest {
         assertEquals(listOf(50), evaluator.evaluate(listOf(window(49))).map { it.threshold })
     }
 
-    private fun window(remaining: Int?, resetAt: Long? = 1_000L): QuotaWindow = QuotaWindow(
+    private fun window(
+        remaining: Int?,
+        resetAt: Long? = 1_000L,
+        durationMins: Long? = 300L,
+    ): QuotaWindow = QuotaWindow(
         limitId = "primary",
         limitName = null,
         sourceSlot = "primary",
         usedPercent = remaining?.let { 100 - it },
         remainingPercent = remaining,
-        windowDurationMins = 300,
+        windowDurationMins = durationMins,
         resetsAt = resetAt,
     )
 

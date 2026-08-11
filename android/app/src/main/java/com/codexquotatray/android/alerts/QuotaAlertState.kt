@@ -225,12 +225,18 @@ class QuotaAlertEvaluator(
         val oldReset = previous.lastResetAt ?: return false
         val newReset = window.resetsAt ?: return false
         if (newReset <= oldReset) return false
-        val durationMins = window.windowDurationMins ?: previous.lastWindowDurationMins
-        val durationSeconds = durationMins?.times(60L) ?: 3_600L
+        val previousDurationMins = previous.lastWindowDurationMins ?: return false
+        val currentDurationMins = window.windowDurationMins ?: return false
+        if (previousDurationMins <= 0L
+            || currentDurationMins <= 0L
+            || previousDurationMins != currentDurationMins) {
+            return false
+        }
+
+        val durationSeconds = currentDurationMins * 60L
         val resetAdvance = newReset - oldReset
-        // resetAt is the primary reset signal. Require an advance close to a
-        // full window so a server-side timestamp correction cannot re-arm
-        // alerts; remainingPercent may move independently and is not enough.
-        return resetAdvance >= max(300L, durationSeconds * 3L / 4L)
+        // Keep resetAt reliability identical to Windows: matching positive
+        // durations and at least half a window (with a five-minute floor).
+        return resetAdvance >= max(300L, durationSeconds / 2L)
     }
 }
