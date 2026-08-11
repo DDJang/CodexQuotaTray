@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
     private var selectedIndex by mutableIntStateOf(0)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var systemThemeVersion by mutableIntStateOf(0)
+    private var foregroundRegistration: AutoCloseable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -47,6 +48,10 @@ class MainActivity : ComponentActivity() {
         usage = TokenUsagePageController(this)
         quota.initialize()
         TokenUsageRefreshScheduler.schedule(this)
+        foregroundRegistration = (application as CodexQuotaApplication).registerForegroundListener { reason ->
+            quota.onForeground(reason)
+            usage.onForeground(reason)
+        }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (selectedIndex == 1) selectTab(0) else { isEnabled = false; onBackPressedDispatcher.onBackPressed() }
@@ -113,9 +118,6 @@ class MainActivity : ComponentActivity() {
             systemThemeVersion++
         }
         AppTheme.applySystemBars(this)
-        if (::quota.isInitialized) quota.onResume()
-        if (selectedIndex == 0 && ::quota.isInitialized) quota.onVisible()
-        if (selectedIndex == 1 && ::usage.isInitialized) usage.onResume()
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -133,6 +135,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        foregroundRegistration?.close()
+        foregroundRegistration = null
         if (::quota.isInitialized) quota.destroy()
         if (::usage.isInitialized) usage.destroy()
         super.onDestroy()

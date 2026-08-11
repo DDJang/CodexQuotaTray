@@ -8,17 +8,17 @@ class ForegroundRefreshPolicyTest {
     private val nowMillis = 1_000_000L
 
     @Test
-    fun quotaOnVisibleRefreshesWithoutCacheOrAtTwoMinutesButNotBefore() {
-        assertTrue(ForegroundRefreshPolicy.shouldRunOnVisible(true, null, nowMillis))
+    fun foregroundRefreshesWithoutAttemptOrAtTwoMinutesButNotBefore() {
+        assertTrue(ForegroundRefreshPolicy.shouldRunOnForeground(true, null, nowMillis))
         assertFalse(
-            ForegroundRefreshPolicy.shouldRunOnVisible(
+            ForegroundRefreshPolicy.shouldRunOnForeground(
                 true,
                 nowMillis - ForegroundRefreshPolicy.FRESHNESS_WINDOW_MILLIS + 1,
                 nowMillis,
             ),
         )
         assertTrue(
-            ForegroundRefreshPolicy.shouldRunOnVisible(
+            ForegroundRefreshPolicy.shouldRunOnForeground(
                 true,
                 nowMillis - ForegroundRefreshPolicy.FRESHNESS_WINDOW_MILLIS,
                 nowMillis,
@@ -27,16 +27,16 @@ class ForegroundRefreshPolicyTest {
     }
 
     @Test
-    fun tokenOnVisibleUsesTheSameTwoMinuteFreshnessRule() {
+    fun failureAttemptUsesTheSameTwoMinuteFreshnessRule() {
         assertFalse(
-            ForegroundRefreshPolicy.shouldRunOnVisible(
+            ForegroundRefreshPolicy.shouldRunOnForeground(
                 true,
                 nowMillis - ForegroundRefreshPolicy.FRESHNESS_WINDOW_MILLIS + 1,
                 nowMillis,
             ),
         )
         assertTrue(
-            ForegroundRefreshPolicy.shouldRunOnVisible(
+            ForegroundRefreshPolicy.shouldRunOnForeground(
                 true,
                 nowMillis - ForegroundRefreshPolicy.FRESHNESS_WINDOW_MILLIS,
                 nowMillis,
@@ -45,8 +45,8 @@ class ForegroundRefreshPolicyTest {
     }
 
     @Test
-    fun disabledOpenRefreshDoesNotRunButManualRefreshAlwaysCan() {
-        assertFalse(ForegroundRefreshPolicy.shouldRunOnVisible(false, null, nowMillis))
+    fun disabledForegroundRefreshDoesNotRunButManualRefreshAlwaysCan() {
+        assertFalse(ForegroundRefreshPolicy.shouldRunOnForeground(false, null, nowMillis))
         assertTrue(ForegroundRefreshPolicy.shouldRunManually())
     }
 }

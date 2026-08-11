@@ -11,6 +11,9 @@ import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.codexquotatray.android.AppLogStore
 import com.codexquotatray.android.quota.AndroidLanAvailability
+import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
+import com.codexquotatray.android.refresh.AutomaticRefreshChannel
+import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import java.util.concurrent.TimeUnit
 
 /** Publishes a completed background sync to a visible statistics page. */
@@ -41,19 +44,29 @@ class TokenUsageRefreshWorker(
             return Result.success()
         }
 
-        return runCatching { TokenUsageSyncCoordinator(applicationContext).sync(pairing!!) }
-            .fold(
-                onSuccess = { synced ->
-                    AppLogStore.record(applicationContext, "Token 后台同步完成")
-                    Result.success()
-                },
-                onFailure = { error ->
-                    val message = tokenUsageSyncErrorMessage(error)
-                    AppLogStore.record(applicationContext, "Token 后台同步失败：$message", "WARN")
-                    // A later periodic run may recover an offline Windows host.
-                    Result.success()
-                },
+        if (!AppAutomaticRefreshCoordinator.tryStart(
+                AutomaticRefreshChannel.TOKEN,
+                AutomaticRefreshReason.SCHEDULED,
             )
+        ) return Result.success()
+
+        return try {
+            runCatching { TokenUsageSyncCoordinator(applicationContext).sync(pairing!!) }
+                .fold(
+                    onSuccess = {
+                        AppLogStore.record(applicationContext, "Token 后台同步完成")
+                        Result.success()
+                    },
+                    onFailure = { error ->
+                        val message = tokenUsageSyncErrorMessage(error)
+                        AppLogStore.record(applicationContext, "Token 后台同步失败：$message", "WARN")
+                        // A later periodic run may recover an offline Windows host.
+                        Result.success()
+                    },
+                )
+        } finally {
+            AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.TOKEN)
+        }
     }
 }
 

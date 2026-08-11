@@ -3,6 +3,7 @@ package com.codexquotatray.android.usage
 import android.content.Context
 
 data class TokenUsageRefreshSettings(
+    /** Legacy field/key name; the setting now means sync when the app enters foreground. */
     val autoSyncOnOpen: Boolean = true,
     val backgroundSyncEnabled: Boolean = false,
     val intervalMinutes: Int = DEFAULT_INTERVAL_MINUTES,

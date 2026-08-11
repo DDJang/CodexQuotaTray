@@ -306,7 +306,7 @@ class SettingsActivity : ComponentActivity() {
     private fun ColumnScope.SyncSettings() {
         SettingsSection("剩余额度") {
             SettingsGroup {
-                SettingsToggleRow("打开额度页时自动刷新", quotaAutoRefresh, onChange = ::updateQuotaAutoRefresh)
+                SettingsToggleRow("回到前台时刷新", quotaAutoRefresh, onChange = ::updateQuotaAutoRefresh)
                 SettingsDivider()
                 SettingsToggleRow("后台自动刷新", backgroundRefresh, onChange = ::updateBackgroundRefresh)
                 SettingsDivider()
@@ -326,7 +326,7 @@ class SettingsActivity : ComponentActivity() {
         }
         SettingsSection("Token 使用量") {
             SettingsGroup {
-                SettingsToggleRow("打开统计页时自动同步", tokenAutoSync, onChange = ::updateTokenAutoSync)
+                SettingsToggleRow("回到前台时同步", tokenAutoSync, onChange = ::updateTokenAutoSync)
                 SettingsDivider()
                 SettingsToggleRow("后台自动同步", tokenBackgroundSync, onChange = ::updateTokenBackgroundSync)
                 SettingsDivider()
@@ -463,7 +463,7 @@ class SettingsActivity : ComponentActivity() {
     private fun updateQuotaAutoRefresh(enabled: Boolean) {
         quotaAutoRefresh = enabled
         refreshStore.save(refreshStore.load().copy(autoRefreshOnOpen = enabled))
-        AppLogStore.record(this, "打开额度页时自动刷新已${if (enabled) "开启" else "关闭"}")
+        AppLogStore.record(this, "回到前台时刷新已${if (enabled) "开启" else "关闭"}")
     }
 
     private fun updateBackgroundRefresh(enabled: Boolean) {
@@ -476,7 +476,7 @@ class SettingsActivity : ComponentActivity() {
     private fun updateTokenAutoSync(enabled: Boolean) {
         tokenAutoSync = enabled
         tokenRefreshStore.save(tokenRefreshStore.load().copy(autoSyncOnOpen = enabled))
-        AppLogStore.record(this, "打开统计页时 Token 自动同步已${if (enabled) "开启" else "关闭"}")
+        AppLogStore.record(this, "回到前台时 Token 自动同步已${if (enabled) "开启" else "关闭"}")
     }
 
     private fun updateTokenBackgroundSync(enabled: Boolean) {

@@ -49,7 +49,9 @@ import com.codexquotatray.android.usage.TokenUsageCache
 import com.codexquotatray.android.usage.TokenUsageDay
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenUsageRefreshEvents
-import com.codexquotatray.android.refresh.ForegroundRefreshPolicy
+import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
+import com.codexquotatray.android.refresh.AutomaticRefreshChannel
+import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import com.codexquotatray.android.usage.TokenUsageSnapshot
 import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
 import com.codexquotatray.android.usage.tokenUsageSyncErrorMessage
@@ -97,20 +99,23 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         paired = pairing != null
         if (pairing == null) { snapshot = null; status = "尚未配对 Windows"; return }
         renderCachedSnapshot()
-        val lastSuccessfulAtMillis = pairing.lastSuccessfulSyncAtMillis
-            ?: snapshot?.generatedAtUtc?.let(::parseSyncMillis)
-        if (ForegroundRefreshPolicy.shouldRunOnVisible(
-                enabled = refreshSettings.load().autoSyncOnOpen,
-                lastSuccessfulAtMillis = lastSuccessfulAtMillis,
-            )
-        ) {
-            sync(pairing)
-        } else if (snapshot == null && !refreshSettings.load().autoSyncOnOpen) {
+        if (snapshot == null && !refreshSettings.load().autoSyncOnOpen) {
             status = "自动同步已关闭"
         }
     }
 
-    fun onResume() { if (visible) onVisible() }
+    fun onForeground(reason: AutomaticRefreshReason) {
+        val pairing = store.load()
+        paired = pairing != null
+        if (pairing == null) {
+            snapshot = null
+            status = "尚未配对 Windows"
+            return
+        }
+        renderCachedSnapshot()
+        requestSync(pairing, reason)
+    }
+
     fun onHidden() { visible = false }
     fun onStart() {
         if (registered) return
@@ -128,15 +133,21 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     }
 
     fun destroy() { onStop(); destroyed = true; worker.shutdownNow() }
-    fun requestSync() { if (canSync) sync(store.load()) }
+    fun requestSync() { if (canSync) requestSync(store.load(), AutomaticRefreshReason.MANUAL) }
 
-    private fun sync(pairing: TokenSyncPairing?) {
+    private fun requestSync(pairing: TokenSyncPairing?, reason: AutomaticRefreshReason) {
         if (pairing == null || syncing || destroyed) return
+        val enabled = refreshSettings.load().autoSyncOnOpen
+        if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.TOKEN, reason, enabled)) return
         val snapshotAtStart = snapshot
         syncing = true
         status = if (snapshot == null) "正在从 Windows 同步…" else "正在同步；当前显示缓存"
         worker.execute {
-            val result = runCatching { TokenUsageSyncCoordinator(host).sync(pairing) }
+            val result = try {
+                runCatching { TokenUsageSyncCoordinator(host).sync(pairing) }
+            } finally {
+                AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.TOKEN)
+            }
             main.post {
                 if (destroyed) return@post
                 syncing = false
@@ -323,5 +334,3 @@ private fun startOfWeek(date: LocalDate): LocalDate =
 private const val MAX_HEATMAP_DAYS = 365
 
 private fun formatSyncTime(raw: String) = runCatching { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date.from(Instant.parse(raw))) }.getOrDefault("未知")
-
-private fun parseSyncMillis(raw: String): Long? = runCatching { Instant.parse(raw).toEpochMilli() }.getOrNull()

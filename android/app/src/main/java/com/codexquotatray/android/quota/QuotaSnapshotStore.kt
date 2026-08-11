@@ -92,7 +92,10 @@ class QuotaSnapshotStore(context: Context) {
             .apply()
     }
 
-    /** Local completion time used only for foreground freshness, never UI time. */
+    /**
+     * Historical completion timestamp retained for cache compatibility. The
+     * foreground automatic gate now uses its process-local last-attempt time.
+     */
     fun lastSuccessfulRefreshAtMillis(): Long? = preferences
         .getLong(KEY_LAST_SUCCESSFUL_REFRESH_AT_MILLIS, 0L)
         .takeIf { it > 0L }

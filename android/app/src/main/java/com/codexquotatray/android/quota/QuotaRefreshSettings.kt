@@ -3,6 +3,7 @@ package com.codexquotatray.android.quota
 import android.content.Context
 
 data class QuotaRefreshSettings(
+    /** Legacy field/key name; the setting now means refresh when the app enters foreground. */
     val autoRefreshOnOpen: Boolean = true,
     val enabled: Boolean = true,
     val intervalMinutes: Int = DEFAULT_INTERVAL_MINUTES,

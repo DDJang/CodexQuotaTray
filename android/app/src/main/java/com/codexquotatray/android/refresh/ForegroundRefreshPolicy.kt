@@ -1,20 +1,23 @@
 package com.codexquotatray.android.refresh
 
 /**
- * Keeps page-entry reads inexpensive while allowing an explicit user action to
- * always refresh. Timestamps are local successful-read times in milliseconds.
+ * Policy for automatic refreshes initiated by the application lifecycle.
+ *
+ * The timestamp is the last automatic *attempt*, not the last successful
+ * response.  That distinction prevents a failed request from becoming a fast
+ * retry loop when the app returns to the foreground.
  */
 internal object ForegroundRefreshPolicy {
     const val FRESHNESS_WINDOW_MILLIS = 2 * 60 * 1_000L
 
-    fun shouldRunOnVisible(
+    fun shouldRunOnForeground(
         enabled: Boolean,
-        lastSuccessfulAtMillis: Long?,
+        lastAttemptAtMillis: Long?,
         nowMillis: Long = System.currentTimeMillis(),
-    ): Boolean = enabled && isStale(lastSuccessfulAtMillis, nowMillis)
+    ): Boolean = enabled && isStale(lastAttemptAtMillis, nowMillis)
 
     fun shouldRunManually(): Boolean = true
 
-    private fun isStale(lastSuccessfulAtMillis: Long?, nowMillis: Long): Boolean =
-        lastSuccessfulAtMillis == null || nowMillis - lastSuccessfulAtMillis >= FRESHNESS_WINDOW_MILLIS
+    private fun isStale(lastAttemptAtMillis: Long?, nowMillis: Long): Boolean =
+        lastAttemptAtMillis == null || nowMillis - lastAttemptAtMillis >= FRESHNESS_WINDOW_MILLIS
 }

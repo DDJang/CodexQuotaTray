@@ -13,9 +13,10 @@ usage API；Windows 配对只提供 Token 使用量同步，以及 Direct 网络
 - Activity / Compose：页面与设置；
 - `app/src/test/`：不需要真实账户或网络的回归测试。
 
-额度与 Token 后台任务彼此独立。打开页面的自动读取采用本机成功时间判断 freshness，手动刷新
-始终立即执行。Android 只在已配对且 Wi-Fi 可用时访问 Windows LAN；OAuth、quota 和 LAN 请求
-使用各自有界超时。
+额度与 Token 后台任务彼此独立。回到前台时的自动读取/同步由应用级生命周期触发，使用本机
+最后一次自动尝试的两分钟抑制窗口；手动刷新始终立即执行。底栏切换只改变页面状态，不触发
+网络请求。Android 只在已配对且 Wi-Fi 可用时访问 Windows LAN；OAuth、quota 和 LAN 请求使用
+各自有界超时。
 
 ## 本地 Debug 开发
 

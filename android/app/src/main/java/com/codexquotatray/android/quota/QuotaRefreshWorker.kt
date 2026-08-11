@@ -4,6 +4,9 @@ import android.content.Context
 import com.codexquotatray.android.AppLogStore
 import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.usage.TokenSyncStore
+import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
+import com.codexquotatray.android.refresh.AutomaticRefreshChannel
+import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
@@ -17,25 +20,35 @@ class QuotaRefreshWorker(
     appContext: Context,
     workerParams: WorkerParameters,
 ) : Worker(appContext, workerParams) {
-    override fun doWork(): Result = try {
-        val result = CodexQuotaRepository(applicationContext).refresh()
-        if (result.quotaState != "unavailable") {
-            QuotaRefreshEvents.notifyCompleted(applicationContext)
-        }
-        Result.success()
-    } catch (error: QuotaReadException) {
-        if (error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) {
-            QuotaRefreshScheduler.cancel(applicationContext)
-            AppLogStore.record(applicationContext, "后台刷新已停止：需要重新登录", "WARN")
-        } else {
-            AppLogStore.record(
-                applicationContext,
-                "后台刷新失败：${error.message}",
-                "WARN",
+    override fun doWork(): Result {
+        if (!AppAutomaticRefreshCoordinator.tryStart(
+                AutomaticRefreshChannel.QUOTA,
+                AutomaticRefreshReason.SCHEDULED,
             )
+        ) return Result.success()
+
+        return try {
+            val result = CodexQuotaRepository(applicationContext).refresh()
+            if (result.quotaState != "unavailable") {
+                QuotaRefreshEvents.notifyCompleted(applicationContext)
+            }
+            Result.success()
+        } catch (error: QuotaReadException) {
+            if (error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) {
+                QuotaRefreshScheduler.cancel(applicationContext)
+                AppLogStore.record(applicationContext, "后台刷新已停止：需要重新登录", "WARN")
+            } else {
+                AppLogStore.record(
+                    applicationContext,
+                    "后台刷新失败：${error.message}",
+                    "WARN",
+                )
+            }
+            // The next scheduled run will retry ordinary network or API failures.
+            Result.success()
+        } finally {
+            AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.QUOTA)
         }
-        // The next scheduled run will retry ordinary network or API failures.
-        Result.success()
     }
 }
 

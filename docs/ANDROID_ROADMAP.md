@@ -4,7 +4,7 @@
 
 - App 私有 OAuth + Direct HTTPS 动态额度读取。
 - Direct 网络失败时的已配对 Windows Wi-Fi LAN quota fallback。
-- 额度与 Token 使用量各自独立的打开页面刷新、手动刷新和周期 WorkManager。
+- 额度与 Token 使用量各自独立的回到前台自动刷新/同步、手动刷新和周期 WorkManager。
 - 额度阈值/重置通知、主题、设置、脱敏日志和 pairing-bound Token cache。
 - Debug/Release 双 application identity 与平台独立 GitHub Release。
 

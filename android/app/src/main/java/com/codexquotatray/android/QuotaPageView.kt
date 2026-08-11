@@ -49,7 +49,9 @@ import com.codexquotatray.android.quota.QuotaRefreshEvents
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import com.codexquotatray.android.quota.QuotaRefreshSettingsStore
 import com.codexquotatray.android.quota.QuotaSnapshotStore
-import com.codexquotatray.android.refresh.ForegroundRefreshPolicy
+import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
+import com.codexquotatray.android.refresh.AutomaticRefreshChannel
+import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import com.codexquotatray.android.ui.QuotaCardModel
 import com.codexquotatray.android.ui.QuotaUiModel
 import com.codexquotatray.android.ui.QuotaUiStatus
@@ -141,11 +143,7 @@ internal class QuotaPageController(private val host: MainActivity) {
             lastSuccessful = null
             QuotaRefreshScheduler.schedule(host)
         }
-        if (!authenticated || busy) return
-
-        renderLatestSnapshot()
-        val lastSuccessfulAtMillis = snapshotStore.lastSuccessfulRefreshAtMillis()
-        refresh(force = false, lastSuccessfulAtMillis = lastSuccessfulAtMillis)
+        if (authenticated && !busy) renderLatestSnapshot()
     }
 
     fun onHidden() {
@@ -166,7 +164,7 @@ internal class QuotaPageController(private val host: MainActivity) {
         registered = false
     }
 
-    fun onResume() {
+    fun onForeground(reason: AutomaticRefreshReason) {
         val authenticated = OAuthStore(host).load() != null
         if (lastAuthenticated != authenticated) {
             lastAuthenticated = authenticated
@@ -178,9 +176,10 @@ internal class QuotaPageController(private val host: MainActivity) {
                 lastSuccessful = null
                 QuotaRefreshScheduler.schedule(host)
             }
-        } else if (authenticated && !busy) {
-            renderLatestSnapshot()
         }
+        if (!authenticated || busy) return
+        renderLatestSnapshot()
+        requestRefresh(reason)
     }
 
     fun onLoginResult(requestCode: Int, resultCode: Int) {
@@ -190,20 +189,21 @@ internal class QuotaPageController(private val host: MainActivity) {
     fun destroy() { onStop(); worker.shutdownNow() }
 
     /** Manual refreshes deliberately bypass the two-minute foreground freshness window. */
-    fun refresh() = refresh(force = true, lastSuccessfulAtMillis = lastSuccessful?.updatedAtMillis)
+    fun refresh() = requestRefresh(AutomaticRefreshReason.MANUAL)
 
-    private fun refresh(force: Boolean, lastSuccessfulAtMillis: Long?) {
-        if (!force && !ForegroundRefreshPolicy.shouldRunOnVisible(
-                enabled = refreshSettings.load().autoRefreshOnOpen,
-                lastSuccessfulAtMillis = lastSuccessfulAtMillis,
-            )
-        ) return
+    private fun requestRefresh(reason: AutomaticRefreshReason) {
         if (!canRefresh) return
+        val enabled = refreshSettings.load().autoRefreshOnOpen
+        if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.QUOTA, reason, enabled)) return
         busy = true
         val previous = lastSuccessful
         model = quotaLoadingUiModel(previous)
         worker.execute {
-            val result = runCatching { repository.refresh() }
+            val result = try {
+                runCatching { repository.refresh() }
+            } finally {
+                AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.QUOTA)
+            }
             main.post {
                 busy = false
                 model = result.fold(

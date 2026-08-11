@@ -80,7 +80,8 @@ reset-credit 摘要；不保存 raw limit/reset ID、账户、CLI 路径、warni
 
 Android `QuotaSnapshotStore` 保存最后成功的脱敏产品快照：套餐、quota state、数据更新时间、
 来源及窗口的本地标识/名称、百分比、时长和重置时间。它另外保存本机
-`lastSuccessfulRefreshAtMillis`，只用于前台 freshness，不替代数据更新时间。快照不含 OAuth
+`lastSuccessfulRefreshAtMillis` 以保持缓存兼容，但前台 freshness 使用进程内最后一次自动尝试
+时间，不替代数据更新时间。快照不含 OAuth
 凭据、HTTP body/header、账户 ID、错误正文或历史序列；退出登录会清除快照。
 
 Android Token cache 只保存 Windows 返回的聚合 schema，并绑定 pairing 的设备 identity。解除或
