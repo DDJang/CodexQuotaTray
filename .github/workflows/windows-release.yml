@@ -43,7 +43,7 @@ jobs:
           }
 
           [xml]$project = Get-Content -LiteralPath '.\winui\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj' -Raw
-          $projectVersion = [string]$project.Project.PropertyGroup.Version
+          $projectVersion = ([string]$project.Project.PropertyGroup.Version).Trim()
           if ([string]::IsNullOrWhiteSpace($projectVersion)) {
             throw 'CodexQuotaTray.App.csproj does not define a Version.'
           }

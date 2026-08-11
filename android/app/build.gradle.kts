@@ -53,7 +53,7 @@ android {
         applicationId = "com.codexquotatray.android"
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
+        versionCode = 3
         versionName = "0.6.5"
     }
 
