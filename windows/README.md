@@ -6,12 +6,18 @@
 
 ## 本地开发
 
-所有命令从仓库根目录执行。SDK 由 [`global.json`](../global.json) 选择，NuGet 只使用
-[`windows/NuGet.Config`](NuGet.Config)。
+所有命令从仓库根目录执行。SDK 由 [`global.json`](../global.json) 选择，仓库 restore/package source
+语义只由 [`windows/NuGet.Config`](NuGet.Config) 决定；不得依赖或修改用户级 NuGet 配置。
 
 ```powershell
 pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Quick
-dotnet run --project .\windows\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj `
+$requiredVersion = [string](Get-Content '.\global.json' -Raw | ConvertFrom-Json).sdk.version
+$dotnet = @(
+  ".\target\dotnet-sdk-$requiredVersion-full\dotnet.exe",
+  ".\target\dotnet-sdk-$requiredVersion\dotnet.exe"
+) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $dotnet) { $dotnet = (Get-Command dotnet -ErrorAction Stop).Source }
+& $dotnet run --project .\windows\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj `
   -c Debug -p:Platform=x64 --no-build
 ```
 
@@ -61,9 +67,24 @@ dotnet test '.\windows\tests\CodexQuotaTray.Tests\CodexQuotaTray.Tests.csproj' `
 ```
 
 不要使用不存在的 `windows\CodexQuotaTray.sln`，也不要在未成功 restore 前直接运行未指定配置的
-`dotnet test`。`windows/NuGet.Config` 使用 `<clear />`，因此不会依赖用户级
-`%APPDATA%\NuGet\NuGet.Config`；不要删除、修改或放宽该用户配置的权限。
+`dotnet test`。Windows 验证和聚焦测试都必须优先解析并显式使用仓库 SDK：
 
-如果沙箱拒绝读取 SDK/NuGet 缓存，应请求一次提升权限后重跑上述仓库命令；提升权限只用于执行
-验证，不得借机安装 SDK、编辑用户配置或修改系统 ACL。首次环境失败最多做一次基于仓库配置的
-修正重试，之后停止并报告原始错误与修正错误。
+```powershell
+$requiredVersion = [string](Get-Content '.\global.json' -Raw | ConvertFrom-Json).sdk.version
+$dotnet = @(
+  ".\target\dotnet-sdk-$requiredVersion-full\dotnet.exe",
+  ".\target\dotnet-sdk-$requiredVersion\dotnet.exe"
+) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $dotnet) {
+  $dotnet = (Get-Command dotnet -ErrorAction Stop).Source
+}
+& $dotnet test '.\windows\tests\CodexQuotaTray.Tests\CodexQuotaTray.Tests.csproj' `
+  -c Debug -p:RestoreConfigFile=$config --no-restore
+```
+
+`windows/NuGet.Config` 使用 `<clear />`，这决定仓库 restore/package source，但不保证每个
+MSBuild/NuGet SDK resolver 阶段都不会触碰用户级 `%APPDATA%\NuGet\NuGet.Config`。如果当前
+sandbox 在读取 SDK、NuGet cache 或用户级配置时出现明确 `AccessDenied`、`UnauthorizedAccessException`
+或 permission denied，应将其分类为环境权限问题，并对同一仓库验证命令申请一次 elevated rerun。
+提升权限只用于执行验证，不得安装 SDK、编辑用户配置、修改 ACL、删除用户配置或创建替代
+`global.json`；elevated 后仍失败才停止并报告原始错误与提升权限后的错误。

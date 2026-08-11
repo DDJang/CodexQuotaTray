@@ -7,27 +7,42 @@ public sealed class GitHubWindowsReleaseProvider : IWindowsUpdateReleaseProvider
 {
     public const string Repository = "DDJang/CodexQuotaTray";
     public const string ReleasesEndpoint = "https://api.github.com/repos/DDJang/CodexQuotaTray/releases?per_page=100";
+    internal const int PageSize = 100;
+    internal const int MaxPages = 3;
     private const string InstallerPrefix = "CodexQuotaTray-";
     private const string InstallerSuffix = "-setup.exe";
     private readonly HttpClient client;
+    private readonly string endpoint;
     private readonly bool disposeClient;
 
-    public GitHubWindowsReleaseProvider(HttpClient? client = null)
+    public GitHubWindowsReleaseProvider(HttpClient? client = null, string? endpoint = null)
     {
         this.client = client ?? CreateClient();
+        this.endpoint = endpoint ?? ReleasesEndpoint;
         disposeClient = client is null;
     }
 
     public async Task<WindowsUpdateRelease?> GetLatestAsync(CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, ReleasesEndpoint);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-        using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
-            .ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
-        return ParseLatestWindowsRelease(document.RootElement);
+        WindowsUpdateRelease? latest = null;
+        for (var page = 1; page <= MaxPages; page++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, BuildPageUri(page));
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+            response.EnsureSuccessStatusCode();
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+            using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+            var root = document.RootElement;
+            latest = SelectLatest(latest, ParseLatestWindowsRelease(root));
+            if (root.GetArrayLength() < PageSize)
+            {
+                break;
+            }
+        }
+
+        return latest;
     }
 
     internal static WindowsUpdateRelease? ParseLatestWindowsRelease(JsonElement releases)
@@ -124,6 +139,21 @@ public sealed class GitHubWindowsReleaseProvider : IWindowsUpdateReleaseProvider
             client.Dispose();
         }
     }
+
+    private string BuildPageUri(int page) => page == 1
+        ? endpoint
+        : $"{endpoint}{(endpoint.Contains('?', StringComparison.Ordinal) ? '&' : '?')}page={page}";
+
+    private static WindowsUpdateRelease? SelectLatest(
+        WindowsUpdateRelease? current,
+        WindowsUpdateRelease? candidate) => candidate is null
+            ? current
+            : current is null
+                || candidate.Version.CompareTo(current.Version) > 0
+                || (candidate.Version == current.Version
+                    && candidate.PublishedAt.GetValueOrDefault() > current.PublishedAt.GetValueOrDefault())
+                ? candidate
+                : current;
 
     private static HttpClient CreateClient()
     {

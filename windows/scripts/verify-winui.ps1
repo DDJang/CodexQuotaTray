@@ -87,9 +87,16 @@ function Invoke-Checked(
     [string[]]$ArgumentList,
     [string]$Description)
 {
-    & $FilePath @ArgumentList
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Description failed with exit code $LASTEXITCODE."
+    $output = @(& $FilePath @ArgumentList 2>&1)
+    $exitCode = $LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    if ($exitCode -ne 0) {
+        $outputText = ($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine
+        if ($outputText -match '(?i)(AccessDenied|UnauthorizedAccessException|permission denied|拒绝访问|未授权访问权限|NuGet\.Config.*(denied|拒绝|权限))') {
+            throw "$Description failed with exit code $exitCode. Repository configuration is valid, but the current sandbox cannot read the NuGet/MSBuild SDK environment. Rerun this verifier once with elevated sandbox permissions; do not modify the user's NuGet.Config or ACLs."
+        }
+
+        throw "$Description failed with exit code $exitCode."
     }
 }
 

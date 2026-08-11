@@ -82,7 +82,12 @@ tray GUID 或 Installer AppId。
 - 不使用 `git reset`、`clean`、`restore`、`stash` 覆盖用户工作；不碰无关改动。
 - 未经授权不 commit、push、创建 PR/tag/Release、安装应用、打包、签名或运行真实账户 smoke。
 - 不安装 SDK，不修改用户 NuGet/Gradle 配置，不创建替代 `global.json`，不降级依赖解决环境问题。
-- 第一次失败先区分代码与环境；环境失败只允许使用仓库现有配置做一次修正重试，然后停止并报告。
+- 第一次失败先区分代码与环境。Windows 验证必须优先按 `verify-winui.ps1` 的顺序使用
+  `target\\dotnet-sdk-<global.json version>-full\\dotnet.exe`、`target\\dotnet-sdk-<global.json version>\\dotnet.exe`，
+  最后才使用 PATH 中符合 `global.json` 的 SDK；聚焦 `dotnet` 命令也必须显式使用同一解析结果。
+- 如果 PATH SDK 不匹配，先使用仓库已有 SDK/配置重试一次；如果随后出现明确的 sandbox
+  `AccessDenied`、`UnauthorizedAccessException` 或用户级 NuGet 配置读取权限错误，允许对同一验证命令申请一次
+  elevated execution。这是规定的环境恢复步骤，不属于第三种绕过方式。elevated 后仍失败才停止并报告。
 - WinUI 的 NuGet 恢复、聚焦测试和权限处理遵循 [`windows/README.md`](windows/README.md) 的“NuGet 与环境恢复”小节；不要绕过仓库配置直接使用用户级 NuGet 配置。
 
 ## Validation

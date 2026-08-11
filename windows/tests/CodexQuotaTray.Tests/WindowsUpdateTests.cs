@@ -49,6 +49,111 @@ public sealed class WindowsUpdateTests
     }
 
     [TestMethod]
+    public async Task ReleaseProvider_FindsWindowsReleaseOnSecondPageAfterAndroidPage()
+    {
+        var requests = new List<Uri>();
+        var handler = new StaticHttpHandler(request =>
+        {
+            requests.Add(request.RequestUri!);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(request.RequestUri!.Query.Contains("page=2", StringComparison.Ordinal)
+                    ? ReleasePage(1, _ => WindowsReleaseJson("windows-v0.9.0", "0.9.0"))
+                    : ReleasePage(100, _ => AndroidReleaseJson("android-v0.1.0"))),
+            };
+        });
+        using var client = new HttpClient(handler);
+        using var provider = new GitHubWindowsReleaseProvider(client, "https://example.test/releases?per_page=100");
+
+        var release = await provider.GetLatestAsync(CancellationToken.None);
+
+        Assert.IsNotNull(release);
+        Assert.AreEqual("windows-v0.9.0", release.TagName);
+        Assert.AreEqual(2, requests.Count);
+        Assert.IsTrue(requests[1].Query.Contains("page=2", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task ReleaseProvider_ChoosesHigherVersionFromLaterPage()
+    {
+        var requests = new List<Uri>();
+        var handler = new StaticHttpHandler(request =>
+        {
+            requests.Add(request.RequestUri!);
+            var body = request.RequestUri!.Query.Contains("page=2", StringComparison.Ordinal)
+                ? ReleasePage(1, _ => WindowsReleaseJson("windows-v0.9.0", "0.9.0"))
+                : ReleasePage(100, _ => WindowsReleaseJson("windows-v0.7.0", "0.7.0"));
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
+        });
+        using var client = new HttpClient(handler);
+        using var provider = new GitHubWindowsReleaseProvider(client, "https://example.test/releases?per_page=100");
+
+        var release = await provider.GetLatestAsync(CancellationToken.None);
+
+        Assert.IsNotNull(release);
+        Assert.AreEqual("windows-v0.9.0", release.TagName);
+        Assert.AreEqual(2, requests.Count);
+    }
+
+    [TestMethod]
+    public async Task ReleaseProvider_StopsWhenSecondPageIsEmpty()
+    {
+        var requests = new List<Uri>();
+        var handler = new StaticHttpHandler(request =>
+        {
+            requests.Add(request.RequestUri!);
+            var body = request.RequestUri!.Query.Contains("page=2", StringComparison.Ordinal)
+                ? "[]"
+                : ReleasePage(100, _ => AndroidReleaseJson("android-v0.1.0"));
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
+        });
+        using var client = new HttpClient(handler);
+        using var provider = new GitHubWindowsReleaseProvider(client, "https://example.test/releases?per_page=100");
+
+        Assert.IsNull(await provider.GetLatestAsync(CancellationToken.None));
+        Assert.AreEqual(2, requests.Count);
+    }
+
+    [TestMethod]
+    public async Task ReleaseProvider_StopsAfterShortPage()
+    {
+        var requests = new List<Uri>();
+        var handler = new StaticHttpHandler(request =>
+        {
+            requests.Add(request.RequestUri!);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(ReleasePage(1, _ => AndroidReleaseJson("android-v0.1.0"))),
+            };
+        });
+        using var client = new HttpClient(handler);
+        using var provider = new GitHubWindowsReleaseProvider(client, "https://example.test/releases?per_page=100");
+
+        Assert.IsNull(await provider.GetLatestAsync(CancellationToken.None));
+        Assert.AreEqual(1, requests.Count);
+    }
+
+    [TestMethod]
+    public async Task ReleaseProvider_StopsAtBoundedMaximumPageCount()
+    {
+        var requests = new List<Uri>();
+        var handler = new StaticHttpHandler(request =>
+        {
+            requests.Add(request.RequestUri!);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(ReleasePage(100, _ => AndroidReleaseJson("android-v0.1.0"))),
+            };
+        });
+        using var client = new HttpClient(handler);
+        using var provider = new GitHubWindowsReleaseProvider(client, "https://example.test/releases?per_page=100");
+
+        Assert.IsNull(await provider.GetLatestAsync(CancellationToken.None));
+        Assert.AreEqual(3, requests.Count);
+        Assert.IsFalse(requests.Any(request => request.Query.Contains("page=4", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
     [DataRow("0.6.6", "0.6.5", true)]
     [DataRow("0.7.0", "0.6.99", true)]
     [DataRow("0.6.5", "0.6.5", false)]
@@ -241,6 +346,40 @@ public sealed class WindowsUpdateTests
         Assert.IsTrue(SemanticVersion.TryParse(value, out var version));
         return version;
     }
+
+    private static string ReleasePage(int count, Func<int, string> releaseFactory) =>
+        "[" + string.Join(",", Enumerable.Range(0, count).Select(releaseFactory)) + "]";
+
+    private static string AndroidReleaseJson(string tag) => JsonSerializer.Serialize(new
+    {
+        tag_name = tag,
+        draft = false,
+        prerelease = false,
+        assets = Array.Empty<object>(),
+    });
+
+    private static string WindowsReleaseJson(string tag, string version) => JsonSerializer.Serialize(new
+    {
+        tag_name = tag,
+        name = $"Release {version}",
+        body = "notes",
+        published_at = "2026-08-11T00:00:00Z",
+        draft = false,
+        prerelease = false,
+        assets = new object[]
+        {
+            new
+            {
+                name = $"CodexQuotaTray-{version}-setup.exe",
+                browser_download_url = $"https://github.com/DDJang/CodexQuotaTray/releases/download/{tag}/CodexQuotaTray-{version}-setup.exe",
+            },
+            new
+            {
+                name = "SHA256SUMS.txt",
+                browser_download_url = $"https://github.com/DDJang/CodexQuotaTray/releases/download/{tag}/SHA256SUMS.txt",
+            },
+        },
+    });
 
     private static WindowsUpdateRelease CreateRelease(string versionText)
     {
