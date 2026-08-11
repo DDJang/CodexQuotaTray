@@ -116,6 +116,11 @@ public sealed class QuotaRuntimeService :
 
     public event EventHandler<AppUiState>? StateChanged;
 
+    // Test-only synchronization point: this fires after the coordinator has
+    // applied the result and settled the current refresh, before any handoff
+    // is started by the worker loop.
+    internal event Action<bool, RefreshReason?>? RefreshSettled;
+
     public AppSettings Settings { get; private set; } = AppSettings.Defaults;
 
     /// <summary>
@@ -172,7 +177,7 @@ public sealed class QuotaRuntimeService :
                 cancellationToken,
                 calledFromNotificationLoop: true,
                 bypassIngressBarrier: bypassIngressBarrier).ConfigureAwait(false);
-            var handoffReason = coordinator.CompleteAndHandoff(succeeded, timeProvider.GetUtcNow());
+            var handoffReason = CompleteRefresh(succeeded);
             if (handoffReason is { } pendingReason)
             {
                 StartPendingRefresh(pendingReason);
@@ -199,8 +204,15 @@ public sealed class QuotaRuntimeService :
                 cancellationToken,
                 calledFromNotificationLoop: false,
                 bypassIngressBarrier: false).ConfigureAwait(false);
-            next = coordinator.CompleteAndHandoff(succeeded, timeProvider.GetUtcNow());
+            next = CompleteRefresh(succeeded);
         }
+    }
+
+    private RefreshReason? CompleteRefresh(bool succeeded)
+    {
+        var handoffReason = coordinator.CompleteAndHandoff(succeeded, timeProvider.GetUtcNow());
+        RefreshSettled?.Invoke(succeeded, handoffReason);
+        return handoffReason;
     }
 
     private void StartPendingRefresh(RefreshReason reason)

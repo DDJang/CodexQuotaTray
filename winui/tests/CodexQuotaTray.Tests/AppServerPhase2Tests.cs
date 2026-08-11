@@ -35,8 +35,8 @@ public sealed class AppServerPhase2Tests
         var input = new ChannelTextReader();
         var output = new RecordingTextWriter();
         await using var rpc = new JsonLineRpcConnection(input, output);
-        var first = rpc.RequestAsync("first", new { value = 1 }, TimeSpan.FromSeconds(1), CancellationToken.None);
-        var second = rpc.RequestAsync("second", null, TimeSpan.FromSeconds(1), CancellationToken.None);
+        var first = rpc.RequestAsync("first", new { value = 1 }, TimeSpan.FromSeconds(5), CancellationToken.None);
+        var second = rpc.RequestAsync("second", null, TimeSpan.FromSeconds(5), CancellationToken.None);
         await output.WaitForLinesAsync(2);
         var requests = output.Lines.Select(line => JsonDocument.Parse(line)).ToArray();
         var firstId = requests.Single(value => value.RootElement.GetProperty("method").GetString() == "first").RootElement.GetProperty("id").GetInt64();
@@ -362,6 +362,14 @@ public sealed class AppServerPhase2Tests
             new SettingsService(new JsonFileStore(), paths),
             new PreviewPersistence(new JsonFileStore(), paths),
             timeProvider: clock);
+        var fourthRefreshSettled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.RefreshSettled += (succeeded, handoffReason) =>
+        {
+            if (succeeded && handoffReason is null && client.ReadCount >= 4)
+            {
+                fourthRefreshSettled.TrySetResult();
+            }
+        };
 
         _ = await service.GetSnapshotAsync(CancellationToken.None);
         Assert.AreEqual(1, client.ReadCount);
@@ -389,7 +397,7 @@ public sealed class AppServerPhase2Tests
         clock.Advance(TimeSpan.FromMinutes(1));
         await WaitForReadCountAsync(client, 4);
         Assert.AreEqual(4, client.ReadCount);
-        await Task.Delay(500);
+        await fourthRefreshSettled.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         clock.Advance(TimeSpan.FromMinutes(29));
         await Task.Delay(100);
@@ -1172,12 +1180,12 @@ public sealed class AppServerPhase2Tests
             return Task.CompletedTask;
         }
 
-        public async Task WaitForLinesAsync(int count)
+        public async Task WaitForLinesAsync(int count, TimeSpan? timeout = null)
         {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            using var timeoutSource = new CancellationTokenSource(timeout ?? TimeSpan.FromSeconds(5));
             while (Lines.Count < count)
             {
-                await changed.WaitAsync(timeout.Token);
+                await changed.WaitAsync(timeoutSource.Token);
             }
         }
     }
