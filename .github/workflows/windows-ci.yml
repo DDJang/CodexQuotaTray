@@ -8,9 +8,19 @@ on:
       - opened
       - synchronize
       - reopened
+    paths:
+      - 'windows/**'
+      - 'global.json'
+      - '.github/workflows/windows-ci.yml'
+      - '.github/workflows/windows-release.yml'
   push:
     branches:
       - main
+    paths:
+      - 'windows/**'
+      - 'global.json'
+      - '.github/workflows/windows-ci.yml'
+      - '.github/workflows/windows-release.yml'
 
 permissions:
   contents: read
