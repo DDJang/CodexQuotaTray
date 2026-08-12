@@ -56,7 +56,7 @@ try {
         Join-Path $PSScriptRoot '..\workflows\windows-release.yml'
     )
     foreach ($workflowPath in $releaseWorkflows) {
-        $workflow = Get-Content -LiteralPath $workflowPath -Raw
+        $workflow = (Get-Content -LiteralPath $workflowPath -Raw).TrimStart([char]0xFEFF)
         if ($workflow -cnotmatch '(?m)^concurrency:\r?\n  group: update-manifest-publish\r?\n  cancel-in-progress: false$') {
             throw "Release workflow does not use the shared non-cancelling manifest concurrency group: $workflowPath"
         }
