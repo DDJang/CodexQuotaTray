@@ -113,7 +113,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           [xml]$project = Get-Content -LiteralPath '.\windows\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj' -Raw
-          $version = [string]$project.Project.PropertyGroup.Version
+          $version = ([string]$project.Project.PropertyGroup.Version).Trim()
           if ([string]::IsNullOrWhiteSpace($version)) {
             throw 'CodexQuotaTray.App.csproj does not define a Version.'
           }
