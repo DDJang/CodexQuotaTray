@@ -190,6 +190,28 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public async Task DevelopmentUpdateCheckIsEnabledAndReportsWhyItCannotRun()
+    {
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions());
+        WindowsUpdateCheckResult? completed = null;
+        viewModel.UpdateCheckCompleted += (_, result) => completed = result;
+
+        Assert.IsTrue(viewModel.CanCheckForWindowsUpdates);
+        Assert.AreEqual(string.Empty, viewModel.UpdateStatusText);
+        Assert.IsFalse(viewModel.HasUpdateStatusText);
+        Assert.AreEqual("尚未检查", viewModel.UpdateLastCheckText);
+
+        await viewModel.CheckForWindowsUpdatesCommand.ExecuteAsync(null);
+
+        Assert.IsNotNull(completed);
+        Assert.AreEqual(WindowsUpdateCheckStatus.Disabled, completed.Status);
+        Assert.AreEqual("开发版本不检查正式更新", completed.ErrorMessage);
+    }
+
+    [TestMethod]
     public async Task WindowsUpdateProgress_IsProjectedAndInstallerFailureStaysInApp()
     {
         var updates = new StubWindowsUpdateController();

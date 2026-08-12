@@ -167,6 +167,15 @@ public sealed partial class SettingsWindow : Window
 
     private async void OnUpdateCheckCompleted(object? sender, WindowsUpdateCheckResult result)
     {
+        if (!viewModel.IsWindowsUpdateAvailable)
+        {
+            await ShowUpdateMessageAsync(
+                "检查更新",
+                result.ErrorMessage ?? "开发版本不检查正式更新",
+                "关闭");
+            return;
+        }
+
         if (result.Status == WindowsUpdateCheckStatus.Available && result.Release is not null)
         {
             var release = result.Release;
@@ -247,6 +256,7 @@ public sealed partial class SettingsWindow : Window
             Content = content,
             PrimaryButtonText = primaryButton,
             CloseButtonText = closeButton,
+            RequestedTheme = SettingsRoot.ActualTheme,
             XamlRoot = SettingsRoot.XamlRoot,
         };
 
@@ -273,6 +283,7 @@ public sealed partial class SettingsWindow : Window
             Title = title,
             Content = new TextBlock { Text = message, TextWrapping = TextWrapping.Wrap },
             CloseButtonText = closeButton,
+            RequestedTheme = SettingsRoot.ActualTheme,
             XamlRoot = SettingsRoot.XamlRoot,
         });
 
