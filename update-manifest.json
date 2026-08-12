@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.6.9",
-    "tag": "windows-v0.6.9",
+    "version": "0.7.0",
+    "tag": "windows-v0.7.0",
     "installer": {
-      "name": "CodexQuotaTray-0.6.9-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.6.9/CodexQuotaTray-0.6.9-setup.exe",
-      "sha256": "3e5067753479ccdbf299ec2b7e7d831802864e8c4c9019d23a83342703560bee",
-      "size": 62514140
+      "name": "CodexQuotaTray-0.7.0-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.7.0/CodexQuotaTray-0.7.0-setup.exe",
+      "sha256": "ee077ecc021d316b1885cd3e312f71bd70c422f05b141a35911a7fdcf7c45c3e",
+      "size": 62538856
     },
-    "releaseNotes": "**Full Changelog**: https://github.com/DDJang/CodexQuotaTray/compare/windows-v0.6.8...windows-v0.6.9\n",
-    "publishedAt": "2026-08-12T11:12:02Z"
+    "releaseNotes": "## What's Changed\n* feat: prepare Windows 0.7.0 by @DDJang in https://github.com/DDJang/CodexQuotaTray/pull/14\n\n\n**Full Changelog**: https://github.com/DDJang/CodexQuotaTray/compare/android-v0.6.7...windows-v0.7.0",
+    "publishedAt": "2026-08-12T17:14:41Z"
   },
   "android": {
     "version": "0.6.7",
