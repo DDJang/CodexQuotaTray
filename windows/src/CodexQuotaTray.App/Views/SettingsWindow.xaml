@@ -457,13 +457,23 @@
                                     OffContent="关闭"
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
+                            <Button
+                                Content="检查更新"
+                                Command="{Binding CheckForWindowsUpdatesCommand}"
+                                IsEnabled="{Binding CanCheckForWindowsUpdates}"
+                                Style="{StaticResource SettingsActionButtonStyle}" />
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <TextBlock Text="当前版本：" Style="{StaticResource SettingsDescriptionStyle}" />
                                 <TextBlock Text="{Binding CurrentVersionText}" Style="{StaticResource SettingsDescriptionStyle}" />
                             </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="上次检查：" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBlock Text="{Binding UpdateLastCheckText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                            </StackPanel>
                             <TextBlock
                                 Text="{Binding UpdateStatusText}"
                                 Style="{StaticResource SettingsLabelStyle}"
+                                Visibility="{Binding HasUpdateStatusText, Converter={StaticResource BooleanToVisibilityConverter}}"
                                 Margin="0,2,0,0" />
                             <StackPanel
                                 Spacing="4"
@@ -492,16 +502,6 @@
                                     HorizontalAlignment="Left"
                                     MinWidth="96" />
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <TextBlock Text="上次检查：" Style="{StaticResource SettingsDescriptionStyle}" />
-                                <TextBlock Text="{Binding UpdateLastCheckText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                            </StackPanel>
-                            <TextBlock Text="{Binding WindowsUpdateAvailabilityText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                            <Button
-                                Content="检查更新"
-                                Command="{Binding CheckForWindowsUpdatesCommand}"
-                                IsEnabled="{Binding CanCheckForWindowsUpdates}"
-                                Style="{StaticResource SettingsActionButtonStyle}" />
                         </StackPanel>
                     </Border>
 

@@ -79,6 +79,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool automaticUpdateChecksEnabled;
     [ObservableProperty] private bool updateRemindersEnabled;
     [ObservableProperty] private bool autoLaunchInstallerAfterDownload;
+    [NotifyPropertyChangedFor(nameof(HasUpdateStatusText))]
     [ObservableProperty] private string updateStatusText = "尚未检查";
     [ObservableProperty] private string updateLastCheckText = "尚未检查";
     [ObservableProperty]
@@ -129,17 +130,15 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public bool IsWindowsUpdateAvailable => updates?.IsProduction == true;
 
-    public string WindowsUpdateAvailabilityText => IsWindowsUpdateAvailable
-        ? string.Empty
-        : "开发版本不检查正式更新";
-
     public string CurrentVersionText => ProductVersion.Current;
 
     public bool CanDownloadWindowsUpdate => updates?.CurrentResult.HasUpdate == true && !UpdateDownloadInProgress;
 
     public bool CanEditUpdateReminders => IsWindowsUpdateAvailable && AutomaticUpdateChecksEnabled;
 
-    public bool CanCheckForWindowsUpdates => IsWindowsUpdateAvailable && !UpdateCheckInProgress;
+    public bool CanCheckForWindowsUpdates => !UpdateCheckInProgress;
+
+    public bool HasUpdateStatusText => !string.IsNullOrEmpty(UpdateStatusText);
 
     public bool HasDownloadProgress => DownloadProgress.Phase is
         WindowsUpdateDownloadPhase.Downloading or WindowsUpdateDownloadPhase.Verifying;
@@ -246,8 +245,20 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private async Task CheckForWindowsUpdatesAsync(CancellationToken cancellationToken)
     {
-        if (updates is null || !updates.IsProduction || UpdateCheckInProgress)
+        if (UpdateCheckInProgress)
         {
+            return;
+        }
+
+        if (updates is null || !updates.IsProduction)
+        {
+            UpdateCheckCompleted?.Invoke(
+                this,
+                new WindowsUpdateCheckResult(
+                    WindowsUpdateCheckStatus.Disabled,
+                    null,
+                    "开发版本不检查正式更新",
+                    null));
             return;
         }
 
@@ -565,8 +576,10 @@ public sealed partial class SettingsViewModel : ObservableObject
             {
                 AutomaticUpdateChecksEnabled = false;
                 UpdateRemindersEnabled = false;
-                UpdateStatusText = "开发版本不检查正式更新";
-                UpdateLastCheckText = "不适用于开发版本";
+                AutoLaunchInstallerAfterDownload = false;
+                UpdateStatusText = string.Empty;
+                UpdateLastCheckText = "尚未检查";
+                DownloadProgress = WindowsUpdateDownloadProgress.Idle;
                 return;
             }
 
