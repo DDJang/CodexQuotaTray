@@ -258,7 +258,6 @@ jobs:
             git worktree add --detach $worktree $env:GITHUB_SHA
             Push-Location $worktree
             git switch --orphan update-manifest
-            git rm -rf .
             Pop-Location
             Copy-Item -LiteralPath '.github\update-manifest.seed.json' -Destination (Join-Path $worktree 'update-manifest.json')
           } else {
