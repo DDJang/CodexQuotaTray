@@ -12,7 +12,7 @@
         <Setter Property="Padding" Value="0" />
         <Setter Property="CornerRadius" Value="18" />
         <Setter Property="Background" Value="{ThemeResource CardSurfaceBrush}" />
-        <Setter Property="Foreground" Value="{ThemeResource AccentQuotaBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource PanelChromeForegroundBrush}" />
         <Setter Property="BorderBrush" Value="{ThemeResource CardBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
@@ -120,10 +120,10 @@
     </Style>
 
     <Style x:Key="SettingsItemCardStyle" TargetType="Border">
-        <Setter Property="Background" Value="{ThemeResource SettingsCardSurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{ThemeResource SettingsCardBorderBrush}" />
+        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="{StaticResource QuotaCornerRadius}" />
+        <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
         <Setter Property="Padding" Value="16,12" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
     </Style>
@@ -136,27 +136,8 @@
     </Style>
 
     <Style x:Key="SettingsToggleSwitchStyle" TargetType="ToggleSwitch">
-        <Setter Property="Width" Value="52" />
-        <Setter Property="MinWidth" Value="52" />
-        <Setter Property="MinHeight" Value="40" />
         <Setter Property="HorizontalAlignment" Value="Right" />
         <Setter Property="VerticalAlignment" Value="Center" />
-        <Setter Property="HorizontalContentAlignment" Value="Right" />
-        <Setter Property="OnContent" Value="" />
-        <Setter Property="OffContent" Value="" />
-    </Style>
-
-    <Style x:Key="SettingsToggleButtonStyle" TargetType="Button">
-        <Setter Property="Width" Value="72" />
-        <Setter Property="Height" Value="44" />
-        <Setter Property="Padding" Value="0" />
-        <Setter Property="Background" Value="Transparent" />
-        <Setter Property="BorderBrush" Value="Transparent" />
-        <Setter Property="BorderThickness" Value="0" />
-        <Setter Property="HorizontalAlignment" Value="Right" />
-        <Setter Property="HorizontalContentAlignment" Value="Right" />
-        <Setter Property="VerticalContentAlignment" Value="Center" />
-        <Setter Property="UseSystemFocusVisuals" Value="True" />
     </Style>
 
     <Style x:Key="SettingsRowTextStyle" TargetType="StackPanel">
@@ -168,8 +149,15 @@
     <Style x:Key="SettingsGroupHeaderStyle" TargetType="TextBlock">
         <Setter Property="FontSize" Value="18" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{ThemeResource PrimaryTextBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
         <Setter Property="Margin" Value="0,16,0,6" />
+    </Style>
+
+    <Style x:Key="SettingsSectionHeaderStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+        <Setter Property="Margin" Value="0,10,0,2" />
     </Style>
 
     <Style x:Key="SettingsOperationRowStyle" TargetType="Grid">
@@ -180,13 +168,13 @@
 
     <Style x:Key="SettingsLabelStyle" TargetType="TextBlock">
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="Foreground" Value="{ThemeResource PrimaryTextBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 
     <Style x:Key="SettingsDescriptionStyle" TargetType="TextBlock">
-        <Setter Property="Foreground" Value="{ThemeResource SettingsSecondaryTextBrush}" />
-        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        <Setter Property="FontSize" Value="13" />
         <Setter Property="Opacity" Value="1" />
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
@@ -194,29 +182,31 @@
     <Style x:Key="SettingsActionButtonStyle" TargetType="Button">
         <Setter Property="MinHeight" Value="40" />
         <Setter Property="Padding" Value="12,0" />
-        <Setter Property="CornerRadius" Value="8" />
-        <Setter Property="Background" Value="{ThemeResource SettingsCardSurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{ThemeResource SettingsCardBorderBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="{ThemeResource PrimaryTextBrush}" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Left" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
-        <Setter Property="UseSystemFocusVisuals" Value="False" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
     </Style>
 
     <Style x:Key="SettingsAboutRowStyle" TargetType="Button">
-        <Setter Property="MinHeight" Value="68" />
-        <Setter Property="Padding" Value="16,10" />
-        <Setter Property="CornerRadius" Value="{StaticResource QuotaCornerRadius}" />
-        <Setter Property="Background" Value="{ThemeResource WindowSurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{ThemeResource SettingsCardBorderBrush}" />
+        <Setter Property="MinHeight" Value="58" />
+        <Setter Property="Padding" Value="16,6" />
+        <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
+        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Foreground" Value="{ThemeResource PrimaryTextBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
         <Setter Property="HorizontalContentAlignment" Value="Stretch" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
-        <Setter Property="UseSystemFocusVisuals" Value="False" />
+        <Setter Property="UseSystemFocusVisuals" Value="True" />
+    </Style>
+
+    <Style
+        x:Key="SettingsCategoryButtonStyle"
+        BasedOn="{StaticResource SettingsAboutRowStyle}"
+        TargetType="Button">
+        <Setter Property="MinHeight" Value="58" />
     </Style>
 
     <Style x:Key="QuotaProgressStyle" TargetType="ProgressBar">

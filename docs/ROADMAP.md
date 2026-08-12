@@ -2,7 +2,7 @@
 
 ## Current
 
-- 保持额度读取、通知合并、托盘交互、缓存和 Dev/Production 隔离稳定。
+- 保持额度/统计双页、通知合并、托盘交互、缓存和 Dev/Production 隔离稳定。
 - 保持完整离线测试、安装/升级路径和发布 workflow 可重复。
 
 ## Next

@@ -78,6 +78,10 @@ Wi-Fi LAN 可用时才读取 `/v1/quota`。Windows 失败后仍呈现原 Direct 
 WinUI `QuotaCacheDocument` 只保存格式版本、成功时间、套餐、最多 32 个归一化窗口以及最小
 reset-credit 摘要；不保存 raw limit/reset ID、账户、CLI 路径、warning/RPC 正文或 raw JSON。
 
+WinUI 可按用户设置将 `TokenUsageSnapshot` 保存为 `token-usage-cache.json`。该缓存只含 schema
+版本、生成时间、时区、Token 摘要和最多 366 条按日数字聚合，不含 session ID、文件路径、账户、
+prompt、response、工具内容或原始 JSONL；关闭“保存统计缓存”后删除，读取异常时直接忽略。
+
 Android `QuotaSnapshotStore` 保存最后成功的脱敏产品快照：套餐、quota state、数据更新时间、
 来源及窗口的本地标识/名称、百分比、时长和重置时间。它另外保存本机
 `lastSuccessfulRefreshAtMillis` 以保持缓存兼容，但前台 freshness 使用进程内最后一次自动尝试

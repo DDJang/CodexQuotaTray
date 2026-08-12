@@ -106,14 +106,14 @@ public sealed class ViewModelTests
 
         viewModel.ApplySnapshot(refreshing with
         {
-            StatusText = "● 更新于 14:30",
+            StatusText = "更新于 14:30",
             StatusTone = StatusTone.Success,
             IsRefreshing = false,
         });
 
         Assert.IsFalse(viewModel.IsRefreshing);
         Assert.IsTrue(viewModel.RefreshCommand.CanExecute(null));
-        Assert.AreEqual("● 更新于 14:30", viewModel.StatusText);
+        Assert.AreEqual("更新于 14:30", viewModel.StatusText);
     }
 
     [TestMethod]
@@ -127,14 +127,10 @@ public sealed class ViewModelTests
         await viewModel.RefreshQuotaCommand.ExecuteAsync(null);
         viewModel.OpenOfficialUsageCommand.Execute(null);
         viewModel.CopyDiagnosticsCommand.Execute(null);
-        var aboutHost = new object();
-        viewModel.ShowAboutCommand.Execute(aboutHost);
 
         Assert.AreEqual(1, actions.RefreshCount);
         Assert.IsTrue(actions.OpenedUsage);
         Assert.IsTrue(actions.CopiedDiagnostics);
-        Assert.IsTrue(actions.ShowedAbout);
-        Assert.AreSame(aboutHost, actions.AboutHost);
     }
 
     [TestMethod]
@@ -305,10 +301,10 @@ public sealed class ViewModelTests
         CodexQuotaTray.Core.Persistence.ThemeMode? savedTheme = null;
         viewModel.ThemeSaved += (_, mode) => savedTheme = mode;
 
-        viewModel.SelectedThemeMode = CodexQuotaTray.Core.Persistence.ThemeMode.Dark;
+        viewModel.SelectedThemeMode = CodexQuotaTray.Core.Persistence.ThemeMode.Light;
 
-        Assert.AreEqual(CodexQuotaTray.Core.Persistence.ThemeMode.Dark, savedTheme);
-        Assert.AreEqual(CodexQuotaTray.Core.Persistence.ThemeMode.Dark, runtime.Settings.ThemeMode);
+        Assert.AreEqual(CodexQuotaTray.Core.Persistence.ThemeMode.Light, savedTheme);
+        Assert.AreEqual(CodexQuotaTray.Core.Persistence.ThemeMode.Light, runtime.Settings.ThemeMode);
     }
 
     [TestMethod]
@@ -346,6 +342,25 @@ public sealed class ViewModelTests
             viewModel.RefreshModes.ToArray());
         Assert.IsFalse(viewModel.RefreshModes.Contains(RefreshMode.Auto));
         Assert.IsTrue(viewModel.RefreshOnPanelOpen);
+        Assert.IsTrue(viewModel.TokenRefreshOnPanelOpen);
+        Assert.IsTrue(viewModel.PersistTokenUsageCache);
+        Assert.AreEqual(RefreshMode.Every15Minutes, viewModel.SelectedTokenRefreshMode);
+    }
+
+    [TestMethod]
+    public void SettingsViewModel_LoadsDisabledTokenPanelRefresh()
+    {
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(AppSettings.Defaults with
+            {
+                TokenRefreshOnPanelOpen = false,
+                PersistTokenUsageCache = false,
+            }),
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions());
+
+        Assert.IsFalse(viewModel.TokenRefreshOnPanelOpen);
+        Assert.IsFalse(viewModel.PersistTokenUsageCache);
     }
 
     [TestMethod]
@@ -370,7 +385,7 @@ public sealed class ViewModelTests
         var returned = new AppUiState(
             "Codex",
             "Plus",
-            "● 更新于 14:30",
+            "更新于 14:30",
             StatusTone.Success,
             [QuotaWindowView.Demo("5 小时额度", 80, "1小时后重置", "14:30")],
             new ResetCreditViewState(ResetCreditKind.Unavailable));
@@ -401,9 +416,9 @@ public sealed class ViewModelTests
         public void OpenOfficialUsage() => WasOpened = true;
     }
 
-    private sealed class StubRuntimeControl : IQuotaRuntimeControl
+    private sealed class StubRuntimeControl(AppSettings? initialSettings = null) : IQuotaRuntimeControl
     {
-        public AppSettings Settings { get; private set; } = AppSettings.Defaults;
+        public AppSettings Settings { get; private set; } = initialSettings ?? AppSettings.Defaults;
 
         public event EventHandler<AppUiState>? StateChanged
         {
@@ -470,10 +485,6 @@ public sealed class ViewModelTests
 
         public bool CopiedDiagnostics { get; private set; }
 
-        public bool ShowedAbout { get; private set; }
-
-        public object? AboutHost { get; private set; }
-
         public Task RefreshQuotaAsync(CancellationToken cancellationToken)
         {
             RefreshCount++;
@@ -483,12 +494,6 @@ public sealed class ViewModelTests
         public void OpenOfficialUsage() => OpenedUsage = true;
 
         public void CopyDiagnostics() => CopiedDiagnostics = true;
-
-        public void ShowAbout(object? host)
-        {
-            ShowedAbout = true;
-            AboutHost = host;
-        }
     }
 
     private sealed class StubWindowsUpdateController : IWindowsUpdateController

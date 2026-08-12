@@ -9,14 +9,18 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
 {
     private const uint DnsQueryRequestVersion1 = 1;
     private const uint DnsRequestPending = 9500;
+    private static readonly DnsServiceRegisterComplete RegisterCompleteCallback = OnRegistrationComplete;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, DnsSdServicePublisher> ActivePublishers = new();
+    private static long nextQueryContext;
     private readonly Guid deviceId;
     private readonly string displayName;
     private readonly string serviceInstancePrefix;
     private readonly List<IntPtr> allocations = [];
+    private readonly object callbackStateLock = new();
     private TaskCompletionSource<bool>? deregistrationCompletion;
-    private DnsServiceRegisterComplete? callback;
     private RegisterRequest request;
     private IntPtr serviceInstance;
+    private IntPtr queryContext;
     private bool registered;
 
     internal DnsSdServicePublisher(
@@ -67,14 +71,19 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Windows DNS-SD instance creation failed.");
             }
 
-            callback = OnRegistrationComplete;
+            queryContext = new IntPtr(Interlocked.Increment(ref nextQueryContext));
+            if (!ActivePublishers.TryAdd(queryContext, this))
+            {
+                throw new InvalidOperationException("Could not allocate a DNS-SD callback context.");
+            }
+
             request = new RegisterRequest
             {
                 Version = DnsQueryRequestVersion1,
                 InterfaceIndex = 0,
                 ServiceInstance = serviceInstance,
-                RegisterCompletionCallback = Marshal.GetFunctionPointerForDelegate(callback),
-                QueryContext = IntPtr.Zero,
+                RegisterCompletionCallback = Marshal.GetFunctionPointerForDelegate(RegisterCompleteCallback),
+                QueryContext = queryContext,
                 Credentials = IntPtr.Zero,
                 UnicastEnabled = false,
             };
@@ -88,6 +97,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
         }
         catch
         {
+            ReleaseCallbackContext();
             FreeNative();
             throw;
         }
@@ -100,16 +110,24 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             return;
         }
 
+        var callbackPending = false;
         if (registered)
         {
             registered = false;
-            deregistrationCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (callbackStateLock)
+            {
+                deregistrationCompletion = completion;
+            }
+
             try
             {
                 var result = DnsServiceDeRegister(ref request, IntPtr.Zero);
                 if (result == 0 || result == DnsRequestPending)
                 {
-                    await deregistrationCompletion.Task.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+                    callbackPending = true;
+                    await completion.Task.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+                    callbackPending = false;
                 }
             }
             catch (DllNotFoundException)
@@ -126,13 +144,56 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             }
         }
 
+        if (!callbackPending)
+        {
+            ReleaseCallbackContext();
+        }
+
         FreeNative();
-        deregistrationCompletion = null;
+        if (!callbackPending)
+        {
+            lock (callbackStateLock)
+            {
+                deregistrationCompletion = null;
+            }
+        }
     }
 
-    private void OnRegistrationComplete(uint status, IntPtr queryContext, IntPtr instance)
+    private static void OnRegistrationComplete(uint status, IntPtr queryContext, IntPtr instance)
     {
-        deregistrationCompletion?.TrySetResult(status == 0);
+        if (ActivePublishers.TryGetValue(queryContext, out var publisher))
+        {
+            publisher.OnRegistrationComplete(status);
+        }
+    }
+
+    private void OnRegistrationComplete(uint status)
+    {
+        TaskCompletionSource<bool>? completion;
+        lock (callbackStateLock)
+        {
+            completion = deregistrationCompletion;
+            if (completion is null)
+            {
+                return;
+            }
+
+            deregistrationCompletion = null;
+        }
+
+        completion.TrySetResult(status == 0);
+        ReleaseCallbackContext();
+    }
+
+    private void ReleaseCallbackContext()
+    {
+        var context = Interlocked.Exchange(ref queryContext, IntPtr.Zero);
+        if (context == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _ = ActivePublishers.TryRemove(context, out _);
     }
 
     private IntPtr Allocate(int bytes)
@@ -183,7 +244,6 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
         }
 
         allocations.Clear();
-        callback = null;
     }
 
     private static uint ToHostOrder(IPAddress address)

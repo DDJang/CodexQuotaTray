@@ -19,15 +19,21 @@
         <Grid
             x:Name="SettingsFallbackSurface"
             Grid.Row="0"
-            Background="{ThemeResource SettingsWindowSurfaceBrush}"
+            Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
             IsHitTestVisible="False" />
 
-        <ScrollViewer
-            x:Name="SettingsScroller"
+        <ContentControl
+            x:Name="SettingsPresenter"
             Grid.Row="0"
-            HorizontalScrollBarVisibility="Disabled"
-            VerticalScrollBarVisibility="Auto"
-            VerticalScrollMode="Auto">
+            Background="Transparent"
+            HorizontalContentAlignment="Stretch"
+            VerticalContentAlignment="Stretch" />
+
+        <Grid
+            x:Name="SettingsPageStore"
+            Grid.Row="0"
+            IsHitTestVisible="False"
+            Visibility="Collapsed">
             <VisualStateManager.VisualStateGroups>
                 <VisualStateGroup x:Name="ResponsiveStates">
                     <VisualState x:Name="Narrow">
@@ -78,15 +84,114 @@
                 </VisualStateGroup>
             </VisualStateManager.VisualStateGroups>
 
-            <Grid HorizontalAlignment="Stretch">
+            <Grid x:Name="SettingsContentHost" HorizontalAlignment="Stretch">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MaxWidth="1100" />
+                </Grid.ColumnDefinitions>
                 <StackPanel
                     x:Name="SettingsContent"
-                    MaxWidth="720"
-                    HorizontalAlignment="Center"
+                    HorizontalAlignment="Stretch"
                     Padding="24,0,24,24">
 
-                    <TextBlock Text="常规" Style="{StaticResource SettingsGroupHeaderStyle}" />
+                    <StackPanel x:Name="SettingsHomePanel" Spacing="4">
+                        <TextBlock Text="设置" Style="{StaticResource SettingsGroupHeaderStyle}" />
+                        <Button Tag="General" Click="OnSettingsCategoryClick" Style="{StaticResource SettingsCategoryButtonStyle}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE713;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="常规" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="启动、显示方式与额度和统计缓存" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                        </Button>
+                        <Button Tag="Sync" Click="OnSettingsCategoryClick" Style="{StaticResource SettingsCategoryButtonStyle}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE895;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="刷新与同步" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="额度与统计刷新、与手机同步" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                        </Button>
+                        <Button Tag="Appearance" Click="OnSettingsCategoryClick" Style="{StaticResource SettingsCategoryButtonStyle}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE790;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="个性化" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="应用主题" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                        </Button>
+                        <Button Tag="Alerts" Click="OnSettingsCategoryClick" Style="{StaticResource SettingsCategoryButtonStyle}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xEA8F;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="额度提醒" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="阈值与周期重置提醒" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                        </Button>
+                        <Button Tag="Updates" Click="OnSettingsCategoryClick" Style="{StaticResource SettingsCategoryButtonStyle}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE896;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="更新" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="自动检查、提醒与安装选项" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                        </Button>
+                        <Button Tag="Advanced" Click="OnSettingsCategoryClick" Style="{StaticResource SettingsCategoryButtonStyle}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE90F;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="数据与高级选项" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="数据目录、诊断、缓存与重置" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                        </Button>
+                        <Button
+                            x:Name="AboutButton"
+                            Tag="About"
+                            Click="OnSettingsCategoryClick"
+                            Style="{StaticResource SettingsCategoryButtonStyle}"
+                            AutomationProperties.Name="关于 CodexQuotaTray">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="32" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Image
+                                    x:Name="AboutIconImage"
+                                    Width="24"
+                                    Height="24"
+                                    Source="ms-appx:///Assets/AppIcon.png"
+                                    Stretch="Uniform"
+                                    VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="关于" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock x:Name="AboutHomeDescriptionText" Text="CodexQuotaTray" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </Grid>
+                        </Button>
+                    </StackPanel>
+
+                    <StackPanel x:Name="GeneralSettingsPanel" Spacing="8" Visibility="Collapsed">
                     <StackPanel Spacing="8">
+                        <TextBlock Text="启动" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Border Style="{StaticResource SettingsItemCardStyle}">
                             <Grid Style="{StaticResource SettingsRowStyle}">
                                 <Grid.ColumnDefinitions>
@@ -97,17 +202,12 @@
                                     <TextBlock Text="开机启动" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="{Binding StartupDescription}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <Button
+                                <ToggleSwitch
                                     Grid.Column="1"
                                     IsEnabled="{Binding CanConfigureStartup}"
                                     AutomationProperties.Name="开机启动"
-                                    Click="OnSettingsToggleButtonClick"
-                                    Style="{StaticResource SettingsToggleButtonStyle}">
-                                    <ToggleSwitch
-                                        IsOn="{Binding StartWithWindows, Mode=TwoWay}"
-                                        IsHitTestVisible="False"
-                                        Style="{StaticResource SettingsToggleSwitchStyle}" />
-                                </Button>
+                                    IsOn="{Binding StartWithWindows, Mode=TwoWay}"
+                                    Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
                         </Border>
                         <Border Style="{StaticResource SettingsItemCardStyle}">
@@ -120,18 +220,14 @@
                                     <TextBlock Text="静默启动" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="开机时只驻留托盘，不主动显示额度面板。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <Button
+                                <ToggleSwitch
                                     Grid.Column="1"
                                     AutomationProperties.Name="静默启动"
-                                    Click="OnSettingsToggleButtonClick"
-                                    Style="{StaticResource SettingsToggleButtonStyle}">
-                                    <ToggleSwitch
-                                        IsOn="{Binding SilentStartup, Mode=TwoWay}"
-                                        IsHitTestVisible="False"
-                                        Style="{StaticResource SettingsToggleSwitchStyle}" />
-                                </Button>
+                                    IsOn="{Binding SilentStartup, Mode=TwoWay}"
+                                    Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
                         </Border>
+                        <TextBlock Text="显示与缓存" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Border Style="{StaticResource SettingsItemCardStyle}">
                             <Grid Style="{StaticResource SettingsRowStyle}">
                                 <Grid.ColumnDefinitions>
@@ -167,22 +263,35 @@
                                     <TextBlock Text="保存额度缓存" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="保存非敏感额度快照，用于启动时快速展示。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <Button
+                                <ToggleSwitch
                                     Grid.Column="1"
                                     AutomationProperties.Name="保存额度缓存"
-                                    Click="OnSettingsToggleButtonClick"
-                                    Style="{StaticResource SettingsToggleButtonStyle}">
-                                    <ToggleSwitch
-                                        IsOn="{Binding PersistQuotaCache, Mode=TwoWay}"
-                                        IsHitTestVisible="False"
-                                        Style="{StaticResource SettingsToggleSwitchStyle}" />
-                                </Button>
+                                    IsOn="{Binding PersistQuotaCache, Mode=TwoWay}"
+                                    Style="{StaticResource SettingsToggleSwitchStyle}" />
+                            </Grid>
+                        </Border>
+                        <Border Style="{StaticResource SettingsItemCardStyle}">
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="保存统计缓存" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="保存非敏感 Token 统计，用于启动时快速展示。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <ToggleSwitch
+                                    Grid.Column="1"
+                                    AutomationProperties.Name="保存统计缓存"
+                                    IsOn="{Binding PersistTokenUsageCache, Mode=TwoWay}"
+                                    Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
                         </Border>
                     </StackPanel>
+                    </StackPanel>
 
-                    <TextBlock Text="同步" Style="{StaticResource SettingsGroupHeaderStyle}" />
-                    <StackPanel Spacing="8">
+                    <StackPanel x:Name="SyncSettingsPanel" Spacing="8" Visibility="Collapsed">
+                        <TextBlock Text="额度刷新" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Border Style="{StaticResource SettingsItemCardStyle}">
                             <Grid Style="{StaticResource SettingsRowStyle}">
                                 <Grid.ColumnDefinitions>
@@ -218,16 +327,11 @@
                                     <TextBlock Text="打开面板时自动刷新" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="打开额度面板时主动读取最新额度，短时间重复打开会自动去重。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <Button
+                                <ToggleSwitch
                                     Grid.Column="1"
                                     AutomationProperties.Name="打开面板时自动刷新"
-                                    Click="OnSettingsToggleButtonClick"
-                                    Style="{StaticResource SettingsToggleButtonStyle}">
-                                    <ToggleSwitch
-                                        IsOn="{Binding RefreshOnPanelOpen, Mode=TwoWay}"
-                                        IsHitTestVisible="False"
-                                        Style="{StaticResource SettingsToggleSwitchStyle}" />
-                                </Button>
+                                    IsOn="{Binding RefreshOnPanelOpen, Mode=TwoWay}"
+                                    Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
                         </Border>
                         <Border Style="{StaticResource SettingsItemCardStyle}">
@@ -240,18 +344,57 @@
                                     <TextBlock Text="网络恢复后刷新" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="网络恢复后主动重新读取一次额度。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <Button
+                                <ToggleSwitch
                                     Grid.Column="1"
                                     AutomationProperties.Name="网络恢复后刷新"
-                                    Click="OnSettingsToggleButtonClick"
-                                    Style="{StaticResource SettingsToggleButtonStyle}">
-                                    <ToggleSwitch
-                                        IsOn="{Binding RefreshOnNetworkRestore, Mode=TwoWay}"
-                                        IsHitTestVisible="False"
-                                        Style="{StaticResource SettingsToggleSwitchStyle}" />
-                                </Button>
+                                    IsOn="{Binding RefreshOnNetworkRestore, Mode=TwoWay}"
+                                    Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
                         </Border>
+                        <TextBlock Text="统计刷新" Style="{StaticResource SettingsSectionHeaderStyle}" />
+                        <Border Style="{StaticResource SettingsItemCardStyle}">
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="后台刷新间隔" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="定时重新扫描本机 Codex Token 统计；关闭后仅在手动刷新时扫描。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <ComboBox
+                                    Grid.Column="1"
+                                    Width="176"
+                                    ItemsSource="{Binding RefreshModes}"
+                                    SelectedItem="{Binding SelectedTokenRefreshMode, Mode=TwoWay}"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding Converter={StaticResource RefreshModeDisplayConverter}}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </Grid>
+                        </Border>
+                        <Border Style="{StaticResource SettingsItemCardStyle}">
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="打开面板时自动刷新" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="打开主面板时重新扫描统计；短时间重复打开会自动去重。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <ToggleSwitch
+                                    Grid.Column="1"
+                                    AutomationProperties.Name="打开面板时自动刷新统计"
+                                    IsOn="{Binding TokenRefreshOnPanelOpen, Mode=TwoWay}"
+                                    Style="{StaticResource SettingsToggleSwitchStyle}" />
+                            </Grid>
+                        </Border>
+                        <TextBlock Text="与手机同步" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Border Style="{StaticResource SettingsItemCardStyle}">
                             <StackPanel Spacing="10">
                                 <Grid Style="{StaticResource SettingsRowStyle}">
@@ -260,19 +403,14 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                        <TextBlock Text="Token 统计同步" Style="{StaticResource SettingsLabelStyle}" />
-                                        <TextBlock Text="允许 CodexQuota Android 通过局域网同步 Token 统计与额度信息。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                        <TextBlock Text="与手机同步" Style="{StaticResource SettingsLabelStyle}" />
+                                        <TextBlock Text="允许手机端 CodexQuotaTray 通过局域网同步 Token 统计与额度信息。" Style="{StaticResource SettingsDescriptionStyle}" />
                                     </StackPanel>
-                                    <Button
+                                    <ToggleSwitch
                                         Grid.Column="1"
-                                        AutomationProperties.Name="Token 统计同步"
-                                        Click="OnSettingsToggleButtonClick"
-                                        Style="{StaticResource SettingsToggleButtonStyle}">
-                                        <ToggleSwitch
-                                            IsOn="{Binding PhoneTokenSyncEnabled, Mode=TwoWay}"
-                                            IsHitTestVisible="False"
-                                            Style="{StaticResource SettingsToggleSwitchStyle}" />
-                                    </Button>
+                                        AutomationProperties.Name="与手机同步"
+                                        IsOn="{Binding PhoneTokenSyncEnabled, Mode=TwoWay}"
+                                        Style="{StaticResource SettingsToggleSwitchStyle}" />
                                 </Grid>
                                 <TextBlock Text="{Binding TokenSyncStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 <TextBlock Text="{Binding TokenSyncDeviceNameText}" Style="{StaticResource SettingsDescriptionStyle}" />
@@ -285,7 +423,7 @@
                                         HorizontalAlignment="Center"
                                         Stretch="Uniform" />
                                     <TextBlock
-                                        Text="使用 CodexQuota Android 扫码配对"
+                                        Text="使用手机端 CodexQuotaTray 扫码配对"
                                         HorizontalAlignment="Center"
                                         Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
@@ -312,7 +450,8 @@
                         </Border>
                     </StackPanel>
 
-                    <TextBlock Text="个性化" Style="{StaticResource SettingsGroupHeaderStyle}" />
+                    <StackPanel x:Name="AppearanceSettingsPanel" Spacing="8" Visibility="Collapsed">
+                    <TextBlock Text="应用主题" Style="{StaticResource SettingsSectionHeaderStyle}" />
                     <Border Style="{StaticResource SettingsItemCardStyle}">
                         <Grid Style="{StaticResource SettingsRowStyle}">
                             <Grid.ColumnDefinitions>
@@ -338,8 +477,10 @@
                             </ComboBox>
                         </Grid>
                     </Border>
+                    </StackPanel>
 
-                    <TextBlock Text="额度提醒" Style="{StaticResource SettingsGroupHeaderStyle}" />
+                    <StackPanel x:Name="AlertSettingsPanel" Spacing="8" Visibility="Collapsed">
+                    <TextBlock Text="提醒条件" Style="{StaticResource SettingsSectionHeaderStyle}" />
                     <Grid
                         x:Name="ReminderOptionsGrid"
                         Style="{StaticResource SettingsOperationRowStyle}">
@@ -402,8 +543,10 @@
                                     VerticalAlignment="Center" />
                             </Border>
                     </Grid>
+                    </StackPanel>
 
-                    <TextBlock Text="更新" Style="{StaticResource SettingsGroupHeaderStyle}" />
+                    <StackPanel x:Name="UpdateSettingsPanel" Spacing="8" Visibility="Collapsed">
+                    <TextBlock Text="更新设置" Style="{StaticResource SettingsSectionHeaderStyle}" />
                     <Border Style="{StaticResource SettingsItemCardStyle}">
                         <StackPanel Spacing="6">
                             <Grid Style="{StaticResource SettingsRowStyle}">
@@ -419,8 +562,6 @@
                                     Grid.Column="1"
                                     IsOn="{Binding AutomaticUpdateChecksEnabled, Mode=TwoWay}"
                                     IsEnabled="{Binding IsWindowsUpdateAvailable}"
-                                    OnContent="开启"
-                                    OffContent="关闭"
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
                             <Grid Style="{StaticResource SettingsRowStyle}">
@@ -436,8 +577,6 @@
                                     Grid.Column="1"
                                     IsOn="{Binding UpdateRemindersEnabled, Mode=TwoWay}"
                                     IsEnabled="{Binding CanEditUpdateReminders}"
-                                    OnContent="开启"
-                                    OffContent="关闭"
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
                             <Grid Style="{StaticResource SettingsRowStyle}">
@@ -453,10 +592,9 @@
                                     Grid.Column="1"
                                     IsOn="{Binding AutoLaunchInstallerAfterDownload, Mode=TwoWay}"
                                     IsEnabled="{Binding IsWindowsUpdateAvailable}"
-                                    OnContent="开启"
-                                    OffContent="关闭"
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
+                            <TextBlock Text="更新状态" Style="{StaticResource SettingsSectionHeaderStyle}" />
                             <Button
                                 Content="检查更新"
                                 Command="{Binding CheckForWindowsUpdatesCommand}"
@@ -483,18 +621,6 @@
                                     Value="{Binding DownloadProgressValue}"
                                     IsIndeterminate="{Binding IsDownloadProgressIndeterminate}"
                                     Style="{StaticResource QuotaProgressStyle}" />
-                                <Grid ColumnSpacing="8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="*" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Text="{Binding DownloadProgressText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                                    <TextBlock
-                                        Grid.Column="1"
-                                        Text="{Binding DownloadProgressSizeText}"
-                                        TextAlignment="Right"
-                                        Style="{StaticResource SettingsDescriptionStyle}" />
-                                </Grid>
                                 <Button
                                     Content="取消"
                                     Command="{Binding CancelWindowsUpdateCommand}"
@@ -504,9 +630,10 @@
                             </StackPanel>
                         </StackPanel>
                     </Border>
+                    </StackPanel>
 
-                    <TextBlock Text="数据与高级选项" Style="{StaticResource SettingsGroupHeaderStyle}" />
-                    <StackPanel Spacing="8">
+                    <StackPanel x:Name="AdvancedSettingsPanel" Spacing="8" Visibility="Collapsed">
+                        <TextBlock Text="数据与维护" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Grid
                             x:Name="AdvancedActionsGrid"
                             Style="{StaticResource SettingsOperationRowStyle}">
@@ -551,53 +678,41 @@
                         </Grid>
                     </StackPanel>
 
-                    <Button
-                        x:Name="AboutButton"
-                        Margin="0,16,0,0"
-                        Command="{Binding ShowAboutCommand}"
-                        Style="{StaticResource SettingsAboutRowStyle}"
-                        UseSystemFocusVisuals="False"
-                        AutomationProperties.Name="关于 CodexQuotaTray">
-                        <Grid ColumnSpacing="16">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Image
-                                x:Name="AboutIconImage"
-                                Width="36"
-                                Height="36"
-                                Source="ms-appx:///Assets/AppIcon.png"
-                                Stretch="Uniform"
-                                VerticalAlignment="Center" />
-                            <StackPanel
-                                Grid.Column="1"
-                                Spacing="2"
-                                VerticalAlignment="Center">
-                                <TextBlock x:Name="AboutProductNameText" Text="CodexQuotaTray" Style="{StaticResource SettingsLabelStyle}" />
-                                <TextBlock
-                                    x:Name="AboutVersionText"
-                                    Text="版本"
-                                    Style="{StaticResource SettingsDescriptionStyle}" />
-                            </StackPanel>
-                            <StackPanel
-                                Grid.Column="2"
-                                Orientation="Horizontal"
-                                Spacing="8"
-                                VerticalAlignment="Center">
-                                <TextBlock Text="关于" Style="{StaticResource SettingsLabelStyle}" />
-                                <FontIcon
-                                    Glyph="&#xE76C;"
-                                    FontSize="14"
-                                    Foreground="{ThemeResource SettingsSecondaryTextBrush}"
+                    <StackPanel x:Name="AboutSettingsPanel" Spacing="8" Visibility="Collapsed">
+                        <TextBlock Text="应用信息" Style="{StaticResource SettingsSectionHeaderStyle}" />
+                        <Border Style="{StaticResource SettingsItemCardStyle}">
+                            <Grid ColumnSpacing="16">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Image
+                                    x:Name="AboutDetailIconImage"
+                                    Width="64"
+                                    Height="64"
+                                    Source="ms-appx:///Assets/AppIcon.png"
+                                    Stretch="Uniform"
                                     VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                    <TextBlock x:Name="AboutProductNameText" Text="CodexQuotaTray" FontSize="18" FontWeight="SemiBold" />
+                                    <TextBlock x:Name="AboutVersionText" Text="版本" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock
+                                        Text="只读额度桌面应用，用于查看额度窗口、重置时间、可用重置卡与 Token 统计。不会消耗重置卡或执行账户写操作。"
+                                        Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <TextBlock Text="链接与许可" Style="{StaticResource SettingsSectionHeaderStyle}" />
+                        <Border Style="{StaticResource SettingsItemCardStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <HyperlinkButton Content="GitHub 项目主页" NavigateUri="https://github.com/DDJang/CodexQuotaTray" />
+                                <HyperlinkButton Content="开源许可证（MIT）" NavigateUri="https://github.com/DDJang/CodexQuotaTray/blob/main/LICENSE" />
                             </StackPanel>
-                        </Grid>
-                    </Button>
+                        </Border>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
-        </ScrollViewer>
+        </Grid>
 
     </Grid>
 </Window>

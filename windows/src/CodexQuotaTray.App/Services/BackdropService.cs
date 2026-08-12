@@ -41,6 +41,22 @@ internal sealed class BackdropService : IDisposable
             }
         }
 
+        return ApplyBuiltIn(window, selected);
+    }
+
+    internal BackdropKind ApplyForSettings(Window window)
+    {
+        var highContrast = new AccessibilitySettings().HighContrast;
+        var transparency = new UISettings().AdvancedEffectsEnabled;
+        var selected = BackdropPolicy.SelectForSettings(
+            MicaController.IsSupported(),
+            transparency,
+            highContrast);
+        return ApplyBuiltIn(window, selected);
+    }
+
+    private BackdropKind ApplyBuiltIn(Window window, BackdropKind selected)
+    {
         if (applied == selected)
         {
             return selected;
@@ -49,11 +65,28 @@ internal sealed class BackdropService : IDisposable
         DisposeController();
         try
         {
-            window.SystemBackdrop = selected == BackdropKind.Mica ? new MicaBackdrop() : null;
+            window.SystemBackdrop = selected switch
+            {
+                BackdropKind.Mica => new MicaBackdrop { Kind = MicaKind.Base },
+                _ => null,
+            };
             applied = selected;
         }
         catch
         {
+            if (selected == BackdropKind.DesktopAcrylic && MicaController.IsSupported())
+            {
+                try
+                {
+                    window.SystemBackdrop = new MicaBackdrop { Kind = MicaKind.Base };
+                    applied = BackdropKind.Mica;
+                    return applied.Value;
+                }
+                catch
+                {
+                }
+            }
+
             window.SystemBackdrop = null;
             applied = BackdropKind.Opaque;
         }
@@ -85,17 +118,17 @@ internal sealed class BackdropService : IDisposable
 
         if (theme == ElementTheme.Light)
         {
-            acrylicController.TintColor = Color.FromArgb(255, 220, 234, 248);
-            acrylicController.FallbackColor = Color.FromArgb(255, 232, 240, 248);
-            acrylicController.TintOpacity = 0.36f;
-            acrylicController.LuminosityOpacity = 0.66f;
+            acrylicController.TintColor = Color.FromArgb(255, 238, 240, 242);
+            acrylicController.FallbackColor = Color.FromArgb(255, 243, 243, 243);
+            acrylicController.TintOpacity = 0.56f;
+            acrylicController.LuminosityOpacity = 0.78f;
         }
         else
         {
-            acrylicController.TintColor = Color.FromArgb(255, 28, 45, 64);
-            acrylicController.FallbackColor = Color.FromArgb(255, 28, 38, 50);
-            acrylicController.TintOpacity = 0.32f;
-            acrylicController.LuminosityOpacity = 0.60f;
+            acrylicController.TintColor = Color.FromArgb(255, 48, 52, 56);
+            acrylicController.FallbackColor = Color.FromArgb(255, 48, 52, 56);
+            acrylicController.TintOpacity = 0.52f;
+            acrylicController.LuminosityOpacity = 0.64f;
         }
     }
 

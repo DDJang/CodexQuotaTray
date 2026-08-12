@@ -14,12 +14,14 @@ CodexQuotaTray 包含本地 Windows 客户端和个人使用 Android APK。两�
 
 WinUI 通过本机 `codex app-server --stdio` 读取额度，认证由 Codex CLI 管理；应用不读取 CLI
 token 文件。Production、Dev 和 Preview 使用相互隔离的数据目录，保存各自设置、最小额度缓存、
-提醒去重状态和可选 LAN pairing。
+提醒去重状态、可选按日聚合 Token 统计缓存和可选 LAN pairing。
 
-启用 Token 使用量同步后，scanner 只遍历 Codex `sessions` 与 `archived_sessions` 中的 JSONL，
+本机统计页刷新或启用 Token 使用量同步后，scanner 只遍历 Codex `sessions` 与
+`archived_sessions` 中的 JSONL，
 过滤 `token_count` 事件，并只消费事件 timestamp 与 `total_token_usage` / `last_token_usage` 的数字
 计数。它不会提取、保存、聚合或传输 prompt、response、工具内容、session 正文、项目路径或账户
-身份。用于去重的散列仅由 timestamp 与数字计数组成；Android 只收到日聚合和摘要。
+身份。用于去重的散列仅由 timestamp 与数字计数组成；可选本地缓存和 Android 都只接收日聚合
+与摘要。关闭“保存统计缓存”后会删除对应本地缓存。
 
 Windows LAN 服务只绑定私人 IPv4。DNS-SD 公开稳定随机 deviceId、显示名和端口，不公开 secret。
 二维码包含 LAN 地址、deviceId 和独立 pairing secret，不包含 OpenAI 凭据或 Token 数据。应用不

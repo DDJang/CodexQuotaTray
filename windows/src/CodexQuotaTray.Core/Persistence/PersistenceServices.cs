@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CodexQuotaTray.Core.Runtime;
+using CodexQuotaTray.Core.TokenUsage;
 
 namespace CodexQuotaTray.Core.Persistence;
 
@@ -34,6 +35,9 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
         RefreshMode = settings.RefreshMode == RefreshMode.Auto
             ? RefreshMode.Every15Minutes
             : settings.RefreshMode,
+        TokenRefreshMode = settings.TokenRefreshMode == RefreshMode.Auto
+            ? RefreshMode.Every15Minutes
+            : settings.TokenRefreshMode,
         Notifications = settings.EffectiveNotifications,
     };
 
@@ -54,7 +58,10 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
             Notifications: notifications,
             ThemeMode: EnumValue(root, "themeMode", ThemeMode.System),
             SilentStartup: Boolean(root, "silentStartup", true),
-            PhoneTokenSyncEnabled: Boolean(root, "phoneTokenSyncEnabled", false));
+            PhoneTokenSyncEnabled: Boolean(root, "phoneTokenSyncEnabled", false),
+            TokenRefreshMode: EnumValue(root, "tokenRefreshMode", defaults.TokenRefreshMode),
+            TokenRefreshOnPanelOpen: Boolean(root, "tokenRefreshOnPanelOpen", defaults.TokenRefreshOnPanelOpen),
+            PersistTokenUsageCache: Boolean(root, "persistTokenUsageCache", defaults.PersistTokenUsageCache));
     }
 
     private static NotificationSettings ParseNotifications(JsonElement value) => new(
@@ -153,6 +160,36 @@ public class PreviewPersistence(JsonFileStore store, PreviewDataPaths paths)
         if (File.Exists(paths.QuotaCache))
         {
             File.Delete(paths.QuotaCache);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    public async Task<TokenUsageSnapshot?> LoadTokenUsageCacheAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            var value = await store.LoadAsync<TokenUsageSnapshot>(paths.TokenUsageCache, cancellationToken).ConfigureAwait(false);
+            return value?.SchemaVersion == 1
+                && value.Summary is not null
+                && value.Days is { Count: <= 366 }
+                    ? value
+                    : null;
+        }
+        catch (Exception error) when (error is JsonException or IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    public Task SaveTokenUsageCacheAsync(TokenUsageSnapshot value, CancellationToken cancellationToken) =>
+        store.SaveAsync(paths.TokenUsageCache, value, cancellationToken);
+
+    public Task ClearTokenUsageCacheAsync()
+    {
+        if (File.Exists(paths.TokenUsageCache))
+        {
+            File.Delete(paths.TokenUsageCache);
         }
 
         return Task.CompletedTask;

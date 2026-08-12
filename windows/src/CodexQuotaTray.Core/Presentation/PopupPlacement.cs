@@ -72,6 +72,13 @@ public static class PopupPlacement
             : Math.Max(1, Math.Ceiling(fallbackHeight));
     }
 
+    public static double InterpolateContentHeight(double startHeight, double targetHeight, double progress)
+    {
+        var clampedProgress = Math.Clamp(progress, 0, 1);
+        var easedProgress = 1 - Math.Pow(1 - clampedProgress, 3);
+        return startHeight + ((targetHeight - startHeight) * easedProgress);
+    }
+
     public static bool ShouldResizeClient(
         int currentWidth,
         int currentHeight,
@@ -144,6 +151,19 @@ public static class BackdropPolicy
         if (acrylicSupported)
         {
             return Models.BackdropKind.DesktopAcrylic;
+        }
+
+        return micaSupported ? Models.BackdropKind.Mica : Models.BackdropKind.Opaque;
+    }
+
+    public static Models.BackdropKind SelectForSettings(
+        bool micaSupported,
+        bool transparencyEnabled,
+        bool highContrast)
+    {
+        if (highContrast || !transparencyEnabled)
+        {
+            return Models.BackdropKind.Opaque;
         }
 
         return micaSupported ? Models.BackdropKind.Mica : Models.BackdropKind.Opaque;

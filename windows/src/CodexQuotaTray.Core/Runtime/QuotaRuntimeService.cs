@@ -335,6 +335,11 @@ public sealed class QuotaRuntimeService :
             lastPersistedCache = null;
         }
 
+        if (previous.PersistTokenUsageCache && !Settings.PersistTokenUsageCache)
+        {
+            await persistence.ClearTokenUsageCacheAsync().ConfigureAwait(false);
+        }
+
         if (latestNormalized is not null)
         {
             SetCurrent(projector.Project(

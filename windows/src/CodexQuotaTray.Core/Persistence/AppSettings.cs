@@ -25,9 +25,12 @@ public sealed record AppSettings(
     bool RefreshOnPanelOpen = true,
     bool RefreshOnNetworkRestore = true,
     NotificationSettings? Notifications = null,
-    ThemeMode ThemeMode = ThemeMode.System,
+    ThemeMode ThemeMode = ThemeMode.Dark,
     bool SilentStartup = true,
-    bool PhoneTokenSyncEnabled = false)
+    bool PhoneTokenSyncEnabled = false,
+    RefreshMode TokenRefreshMode = RefreshMode.Every15Minutes,
+    bool TokenRefreshOnPanelOpen = true,
+    bool PersistTokenUsageCache = true)
 {
     [JsonIgnore]
     public NotificationSettings EffectiveNotifications => Notifications ?? new();

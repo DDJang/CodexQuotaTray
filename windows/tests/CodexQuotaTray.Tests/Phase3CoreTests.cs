@@ -5,6 +5,7 @@ using CodexQuotaTray.Core.Alerts;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Protocol;
 using CodexQuotaTray.Core.Runtime;
+using CodexQuotaTray.Core.TokenUsage;
 
 namespace CodexQuotaTray.Tests;
 
@@ -681,6 +682,38 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public async Task TokenUsageCacheRoundTripsAndCanBeCleared()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var persistence = new PreviewPersistence(new JsonFileStore(), paths);
+        var date = new DateOnly(2026, 8, 12);
+        var snapshot = new TokenUsageSnapshot(
+            1,
+            new DateTimeOffset(2026, 8, 12, 11, 24, 0, TimeSpan.Zero),
+            "Asia/Shanghai",
+            new TokenUsageSummary(128_392, 128_392, 128_392, 128_392, 128_392, date, 1, 1, 1),
+            [new TokenUsageDay(date, 128_392, null, null, null, null)],
+            1,
+            10,
+            date,
+            date);
+
+        await persistence.SaveTokenUsageCacheAsync(snapshot, CancellationToken.None);
+        var loaded = await persistence.LoadTokenUsageCacheAsync(CancellationToken.None);
+
+        Assert.IsNotNull(loaded);
+        Assert.AreEqual(snapshot.GeneratedAtUtc, loaded.GeneratedAtUtc);
+        Assert.AreEqual(128_392, loaded.Summary.TodayTokens);
+        Assert.HasCount(1, loaded.Days);
+
+        await persistence.ClearTokenUsageCacheAsync();
+
+        Assert.IsFalse(File.Exists(paths.TokenUsageCache));
+        Assert.IsNull(await persistence.LoadTokenUsageCacheAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task SettingsMigratesLegacyRefreshAndNotifications()
     {
         using var directory = new TemporaryDirectory();
@@ -690,8 +723,11 @@ public sealed class Phase3CoreTests
         var service = new SettingsService(new JsonFileStore(), paths);
         var settings = await service.LoadAsync(CancellationToken.None);
         Assert.AreEqual(RefreshMode.Every15Minutes, settings.RefreshMode);
+        Assert.AreEqual(RefreshMode.Every15Minutes, settings.TokenRefreshMode);
         Assert.IsTrue(settings.Use24HourTime);
         Assert.IsTrue(settings.RefreshOnPanelOpen);
+        Assert.IsTrue(settings.TokenRefreshOnPanelOpen);
+        Assert.IsTrue(settings.PersistTokenUsageCache);
         Assert.IsFalse(settings.EffectiveNotifications.Remaining20);
         Assert.IsFalse(settings.EffectiveNotifications.Remaining10);
         Assert.IsTrue(settings.EffectiveNotifications.ResetAfterCycle);
@@ -702,28 +738,63 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public async Task SettingsUsesDarkForFirstInstallAndPreservesLegacyThemeFallback()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var service = new SettingsService(new JsonFileStore(), paths);
+
+        var firstInstall = await service.LoadAsync(CancellationToken.None);
+        Assert.AreEqual(ThemeMode.Dark, firstInstall.ThemeMode);
+
+        Directory.CreateDirectory(directory.Path);
+        await File.WriteAllTextAsync(paths.Settings, "{\"startWithWindows\":true}");
+        var legacy = await service.LoadAsync(CancellationToken.None);
+        Assert.AreEqual(ThemeMode.System, legacy.ThemeMode);
+
+        await File.WriteAllTextAsync(paths.Settings, "{\"themeMode\":\"light\"}");
+        var explicitTheme = await service.LoadAsync(CancellationToken.None);
+        Assert.AreEqual(ThemeMode.Light, explicitTheme.ThemeMode);
+    }
+
+    [TestMethod]
     public async Task SettingsMigratesLegacyAutoAndNormalizesSavedRefreshMode()
     {
         using var directory = new TemporaryDirectory();
         var paths = new PreviewDataPaths(directory.Path);
         Directory.CreateDirectory(directory.Path);
-        await File.WriteAllTextAsync(paths.Settings, "{\"refreshMode\":\"auto\"}");
+        await File.WriteAllTextAsync(paths.Settings, "{\"refreshMode\":\"auto\",\"tokenRefreshMode\":\"auto\"}");
         var service = new SettingsService(new JsonFileStore(), paths);
 
         var loaded = await service.LoadAsync(CancellationToken.None);
 
         Assert.AreEqual(RefreshMode.Every15Minutes, loaded.RefreshMode);
+        Assert.AreEqual(RefreshMode.Every15Minutes, loaded.TokenRefreshMode);
         Assert.IsTrue(loaded.RefreshOnPanelOpen);
+        Assert.IsTrue(loaded.TokenRefreshOnPanelOpen);
 
         await service.SaveAsync(
-            loaded with { RefreshMode = RefreshMode.Auto, RefreshOnPanelOpen = false },
+            loaded with
+            {
+                RefreshMode = RefreshMode.Auto,
+                TokenRefreshMode = RefreshMode.ManualOnly,
+                RefreshOnPanelOpen = false,
+                TokenRefreshOnPanelOpen = false,
+                PersistTokenUsageCache = false,
+            },
             CancellationToken.None);
         var savedJson = await File.ReadAllTextAsync(paths.Settings);
         var roundTrip = await service.LoadAsync(CancellationToken.None);
 
         Assert.AreEqual(RefreshMode.Every15Minutes, roundTrip.RefreshMode);
+        Assert.AreEqual(RefreshMode.ManualOnly, roundTrip.TokenRefreshMode);
         Assert.IsFalse(roundTrip.RefreshOnPanelOpen);
+        Assert.IsFalse(roundTrip.TokenRefreshOnPanelOpen);
+        Assert.IsFalse(roundTrip.PersistTokenUsageCache);
         StringAssert.Contains(savedJson, "\"refreshMode\": \"every15Minutes\"");
+        StringAssert.Contains(savedJson, "\"tokenRefreshMode\": \"manualOnly\"");
+        StringAssert.Contains(savedJson, "\"tokenRefreshOnPanelOpen\": false");
+        StringAssert.Contains(savedJson, "\"persistTokenUsageCache\": false");
         Assert.IsFalse(savedJson.Contains("\"refreshMode\": \"auto\"", StringComparison.Ordinal));
     }
 

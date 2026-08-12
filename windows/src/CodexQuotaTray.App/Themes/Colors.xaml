@@ -6,22 +6,25 @@
             <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#24EAF2FC" />
             <SolidColorBrush x:Key="WindowBorderBrush" Color="#668DA6C2" />
             <SolidColorBrush x:Key="SettingsWindowSurfaceBrush" Color="#FFF5F8FC" />
-            <SolidColorBrush x:Key="MainWindowSurfaceBrush" Color="#FFF5F8FC" />
+            <SolidColorBrush x:Key="MainWindowSurfaceBrush" Color="#20FFFFFF" />
+            <SolidColorBrush x:Key="MainWindowOpaqueSurfaceBrush" Color="#FFF3F3F3" />
             <SolidColorBrush x:Key="MenuFallbackSurfaceBrush" Color="#FFF4F8FC" />
             <SolidColorBrush x:Key="MenuItemHoverBrush" Color="#24FFFFFF" />
             <SolidColorBrush x:Key="MenuItemPressedBrush" Color="#42FFFFFF" />
             <SolidColorBrush x:Key="MenuItemFocusBrush" Color="#B8087BE8" />
-            <SolidColorBrush x:Key="CardSurfaceBrush" Color="#52FFFFFF" />
-            <SolidColorBrush x:Key="CardBorderBrush" Color="#52B8CAE0" />
+            <SolidColorBrush x:Key="CardSurfaceBrush" Color="#42FFFFFF" />
+            <SolidColorBrush x:Key="CardBorderBrush" Color="#26000000" />
             <SolidColorBrush x:Key="SettingsCardSurfaceBrush" Color="#8FFFFFFF" />
             <SolidColorBrush x:Key="SettingsCardBorderBrush" Color="#78A9BED4" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="#17212B" />
+            <SolidColorBrush x:Key="PanelChromeForegroundBrush" Color="#FFFFFFFF" />
+            <StaticResource x:Key="TabSelectedTextBrush" ResourceKey="PanelChromeForegroundBrush" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="#526477" />
             <SolidColorBrush x:Key="TertiaryTextBrush" Color="#7B8999" />
             <SolidColorBrush x:Key="SettingsSecondaryTextBrush" Color="#425669" />
             <SolidColorBrush x:Key="SettingsTertiaryTextBrush" Color="#68798A" />
             <SolidColorBrush x:Key="DividerBrush" Color="#5CD5DEE7" />
-            <SolidColorBrush x:Key="TrackBrush" Color="#A9C0D0E4" />
+            <SolidColorBrush x:Key="TrackBrush" Color="#667A8794" />
             <SolidColorBrush x:Key="AccentQuotaBrush" Color="#087BE8" />
             <SolidColorBrush x:Key="HealthyQuotaBrush" Color="#128A58" />
             <SolidColorBrush x:Key="WarningQuotaBrush" Color="#B45309" />
@@ -32,30 +35,42 @@
             <SolidColorBrush x:Key="WarningStatusBrush" Color="#A65B12" />
             <SolidColorBrush x:Key="ErrorStatusBrush" Color="#B33832" />
             <SolidColorBrush x:Key="NeutralStatusBrush" Color="#526477" />
-            <SolidColorBrush x:Key="BadgeSurfaceBrush" Color="#8CDDEBFA" />
+            <SolidColorBrush x:Key="BadgeSurfaceBrush" Color="#72FFFFFF" />
             <SolidColorBrush x:Key="AccentIconSurfaceBrush" Color="#541088F4" />
             <SolidColorBrush x:Key="WarningSurfaceBrush" Color="#70FFF0D7" />
+            <SolidColorBrush x:Key="TabSelectorSurfaceBrush" Color="#32FFFFFF" />
+            <SolidColorBrush x:Key="TabSelectionSurfaceBrush" Color="#82FFFFFF" />
+            <SolidColorBrush x:Key="TokenHeatmapCellBorderBrush" Color="#7A155A91" />
+            <SolidColorBrush x:Key="TokenHeatmapToolTipSurfaceBrush" Color="#F2F7F9FB" />
+            <SolidColorBrush x:Key="TokenHeatmap0Brush" Color="#0F000000" />
+            <SolidColorBrush x:Key="TokenHeatmap1Brush" Color="#3D3E7FB8" />
+            <SolidColorBrush x:Key="TokenHeatmap2Brush" Color="#7A3183C2" />
+            <SolidColorBrush x:Key="TokenHeatmap3Brush" Color="#CC2478B6" />
+            <SolidColorBrush x:Key="TokenHeatmap4Brush" Color="#FF155A91" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="Dark">
             <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#28131F30" />
             <SolidColorBrush x:Key="WindowBorderBrush" Color="#667D94B2" />
             <SolidColorBrush x:Key="SettingsWindowSurfaceBrush" Color="#FF131A22" />
-            <SolidColorBrush x:Key="MainWindowSurfaceBrush" Color="#28131F30" />
+            <SolidColorBrush x:Key="MainWindowSurfaceBrush" Color="#24303438" />
+            <SolidColorBrush x:Key="MainWindowOpaqueSurfaceBrush" Color="#FF202020" />
             <SolidColorBrush x:Key="MenuFallbackSurfaceBrush" Color="#FF202B39" />
             <SolidColorBrush x:Key="MenuItemHoverBrush" Color="#24F3F6F8" />
             <SolidColorBrush x:Key="MenuItemPressedBrush" Color="#42F3F6F8" />
             <SolidColorBrush x:Key="MenuItemFocusBrush" Color="#B85AAEFF" />
-            <SolidColorBrush x:Key="CardSurfaceBrush" Color="#50344254" />
-            <SolidColorBrush x:Key="CardBorderBrush" Color="#527D94B2" />
+            <SolidColorBrush x:Key="CardSurfaceBrush" Color="#1FFFFFFF" />
+            <SolidColorBrush x:Key="CardBorderBrush" Color="#24FFFFFF" />
             <SolidColorBrush x:Key="SettingsCardSurfaceBrush" Color="#7A283442" />
             <SolidColorBrush x:Key="SettingsCardBorderBrush" Color="#786F899E" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F3F6F8" />
+            <SolidColorBrush x:Key="PanelChromeForegroundBrush" Color="#FFFFFFFF" />
+            <StaticResource x:Key="TabSelectedTextBrush" ResourceKey="PanelChromeForegroundBrush" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="#B6C2CF" />
             <SolidColorBrush x:Key="TertiaryTextBrush" Color="#92A2B3" />
             <SolidColorBrush x:Key="SettingsSecondaryTextBrush" Color="#C2CEDB" />
             <SolidColorBrush x:Key="SettingsTertiaryTextBrush" Color="#A4B3C2" />
             <SolidColorBrush x:Key="DividerBrush" Color="#52748796" />
-            <SolidColorBrush x:Key="TrackBrush" Color="#45515E" />
+            <SolidColorBrush x:Key="TrackBrush" Color="#3AFFFFFF" />
             <SolidColorBrush x:Key="AccentQuotaBrush" Color="#5AAEFF" />
             <SolidColorBrush x:Key="HealthyQuotaBrush" Color="#38D6A5" />
             <SolidColorBrush x:Key="WarningQuotaBrush" Color="#F2A444" />
@@ -66,15 +81,25 @@
             <SolidColorBrush x:Key="WarningStatusBrush" Color="#F2A444" />
             <SolidColorBrush x:Key="ErrorStatusBrush" Color="#FF7A73" />
             <SolidColorBrush x:Key="NeutralStatusBrush" Color="#B6C2CF" />
-            <SolidColorBrush x:Key="BadgeSurfaceBrush" Color="#50486A91" />
+            <SolidColorBrush x:Key="BadgeSurfaceBrush" Color="#3AFFFFFF" />
             <SolidColorBrush x:Key="AccentIconSurfaceBrush" Color="#553D8DDA" />
             <SolidColorBrush x:Key="WarningSurfaceBrush" Color="#604A3824" />
+            <SolidColorBrush x:Key="TabSelectorSurfaceBrush" Color="#12FFFFFF" />
+            <SolidColorBrush x:Key="TabSelectionSurfaceBrush" Color="#2EFFFFFF" />
+            <SolidColorBrush x:Key="TokenHeatmapCellBorderBrush" Color="#E6E8EEF4" />
+            <SolidColorBrush x:Key="TokenHeatmapToolTipSurfaceBrush" Color="#F2141A23" />
+            <SolidColorBrush x:Key="TokenHeatmap0Brush" Color="#08FFFFFF" />
+            <SolidColorBrush x:Key="TokenHeatmap1Brush" Color="#2E5AAAFF" />
+            <SolidColorBrush x:Key="TokenHeatmap2Brush" Color="#7378BEFF" />
+            <SolidColorBrush x:Key="TokenHeatmap3Brush" Color="#CC96D2FF" />
+            <SolidColorBrush x:Key="TokenHeatmap4Brush" Color="#FFB4E6FF" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="WindowSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="WindowBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="SettingsWindowSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="MainWindowSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="MainWindowOpaqueSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="MenuFallbackSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="MenuItemHoverBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="MenuItemPressedBrush" Color="{ThemeResource SystemColorHighlightColor}" />
@@ -84,6 +109,8 @@
             <SolidColorBrush x:Key="SettingsCardSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="SettingsCardBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="PanelChromeForegroundBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
+            <SolidColorBrush x:Key="TabSelectedTextBrush" Color="{ThemeResource SystemColorHighlightTextColor}" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="TertiaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="SettingsSecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
@@ -103,6 +130,15 @@
             <SolidColorBrush x:Key="BadgeSurfaceBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
             <SolidColorBrush x:Key="AccentIconSurfaceBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
             <SolidColorBrush x:Key="WarningSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="TabSelectorSurfaceBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+            <SolidColorBrush x:Key="TabSelectionSurfaceBrush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="TokenHeatmapCellBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="TokenHeatmapToolTipSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="TokenHeatmap0Brush" Color="{ThemeResource SystemColorButtonFaceColor}" />
+            <SolidColorBrush x:Key="TokenHeatmap1Brush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="TokenHeatmap2Brush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="TokenHeatmap3Brush" Color="{ThemeResource SystemColorHighlightColor}" />
+            <SolidColorBrush x:Key="TokenHeatmap4Brush" Color="{ThemeResource SystemColorHighlightColor}" />
         </ResourceDictionary>
     </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>
