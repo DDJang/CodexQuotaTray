@@ -1,6 +1,7 @@
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core;
+using BackdropKind = CodexQuotaTray.Core.Models.BackdropKind;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Updates;
@@ -23,7 +24,9 @@ public sealed partial class SettingsWindow : Window
     private const double ResponsiveWideBreakpointDips = 680;
 
     private readonly SettingsViewModel viewModel;
+    private readonly BackdropService backdrop = new();
     private readonly AppWindow appWindow;
+    private bool exiting;
 
     public SettingsWindow(SettingsViewModel viewModel, string displayName)
     {
@@ -40,8 +43,16 @@ public sealed partial class SettingsWindow : Window
         viewModel.UpdateCheckCompleted += OnUpdateCheckCompleted;
         UpdateTokenSyncQrCode();
         SettingsRoot.SizeChanged += OnSettingsRootSizeChanged;
-        SettingsRoot.Loaded += (_, _) => ApplyResponsiveLayout(SettingsRoot.ActualWidth);
-        SettingsRoot.ActualThemeChanged += (_, _) => ApplyTitleBarTheme(viewModel.SelectedThemeMode);
+        SettingsRoot.Loaded += (_, _) =>
+        {
+            ApplyResponsiveLayout(SettingsRoot.ActualWidth);
+            ApplyBackdrop();
+        };
+        SettingsRoot.ActualThemeChanged += (_, _) =>
+        {
+            ApplyTitleBarTheme(viewModel.SelectedThemeMode);
+            ApplyBackdrop();
+        };
 
         var hwnd = WindowNative.GetWindowHandle(this);
         var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
@@ -62,11 +73,7 @@ public sealed partial class SettingsWindow : Window
         appWindow.Resize(new SizeInt32(
             DipsToPixels(DefaultWidthDips, scale),
             DipsToPixels(DefaultHeightDips, scale)));
-        appWindow.Closing += (_, args) =>
-        {
-            args.Cancel = true;
-            appWindow.Hide();
-        };
+        appWindow.Closing += OnClosing;
 
         ApplyTheme(viewModel.SelectedThemeMode);
     }
@@ -81,7 +88,18 @@ public sealed partial class SettingsWindow : Window
         };
 
         ApplyTitleBarTheme(mode);
-        _ = DispatcherQueue.TryEnqueue(() => ApplyTitleBarTheme(mode));
+        ApplyBackdrop();
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            ApplyTitleBarTheme(mode);
+            ApplyBackdrop();
+        });
+    }
+
+    internal void PrepareForExit()
+    {
+        exiting = true;
+        backdrop.Dispose();
     }
 
     internal void FocusAboutButton()
@@ -93,6 +111,29 @@ public sealed partial class SettingsWindow : Window
     {
         _ = WindowIconService.TrySetIcon(appWindow);
         ApplyTitleBarTheme(viewModel.SelectedThemeMode);
+        if (args.WindowActivationState != WindowActivationState.Deactivated)
+        {
+            ApplyBackdrop();
+        }
+    }
+
+    private void ApplyBackdrop()
+    {
+        var kind = backdrop.Apply(this);
+        SettingsFallbackSurface.Visibility = kind == BackdropKind.Opaque
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (exiting)
+        {
+            return;
+        }
+
+        args.Cancel = true;
+        appWindow.Hide();
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)

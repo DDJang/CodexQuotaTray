@@ -19,12 +19,6 @@ internal sealed class DemoSettingsPlatformActions : ISettingsPlatformActions
     {
     }
 
-    public Task<int> ImportProductionDataAsync(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(0);
-    }
-
     public Task ClearQuotaCacheAsync() => Task.CompletedTask;
 
     public string TokenSyncStatusText => "预览模式不可用";

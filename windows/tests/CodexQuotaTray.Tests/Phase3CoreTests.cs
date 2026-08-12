@@ -686,14 +686,19 @@ public sealed class Phase3CoreTests
         using var directory = new TemporaryDirectory();
         var paths = new PreviewDataPaths(directory.Path);
         Directory.CreateDirectory(directory.Path);
-        await File.WriteAllTextAsync(paths.Settings, "{\"refreshMinutes\":15,\"notifyRemaining20\":false,\"notifyRemaining5\":false,\"notifyExhausted\":false}");
+        await File.WriteAllTextAsync(paths.Settings, "{\"use24HourTime\":false,\"refreshMinutes\":15,\"notifyRemaining20\":false,\"notifyRemaining5\":false,\"notifyExhausted\":false}");
         var service = new SettingsService(new JsonFileStore(), paths);
         var settings = await service.LoadAsync(CancellationToken.None);
         Assert.AreEqual(RefreshMode.Every15Minutes, settings.RefreshMode);
+        Assert.IsTrue(settings.Use24HourTime);
         Assert.IsTrue(settings.RefreshOnPanelOpen);
         Assert.IsFalse(settings.EffectiveNotifications.Remaining20);
         Assert.IsFalse(settings.EffectiveNotifications.Remaining10);
         Assert.IsTrue(settings.EffectiveNotifications.ResetAfterCycle);
+
+        await service.SaveAsync(settings with { Use24HourTime = false }, CancellationToken.None);
+        var savedJson = await File.ReadAllTextAsync(paths.Settings);
+        StringAssert.Contains(savedJson, "\"use24HourTime\": true");
     }
 
     [TestMethod]

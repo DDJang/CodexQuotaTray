@@ -2,6 +2,7 @@ using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Runtime;
+using CodexQuotaTray.Core.Updates;
 
 namespace CodexQuotaTray.Tests;
 
@@ -125,17 +126,41 @@ public sealed class ViewModelTests
 
         await viewModel.RefreshQuotaCommand.ExecuteAsync(null);
         viewModel.OpenOfficialUsageCommand.Execute(null);
-        viewModel.CopyQuotaSummaryCommand.Execute(null);
         viewModel.CopyDiagnosticsCommand.Execute(null);
         var aboutHost = new object();
         viewModel.ShowAboutCommand.Execute(aboutHost);
 
         Assert.AreEqual(1, actions.RefreshCount);
         Assert.IsTrue(actions.OpenedUsage);
-        Assert.IsTrue(actions.CopiedSummary);
         Assert.IsTrue(actions.CopiedDiagnostics);
         Assert.IsTrue(actions.ShowedAbout);
         Assert.AreSame(aboutHost, actions.AboutHost);
+    }
+
+    [TestMethod]
+    public void UpdateStatus_SuppressedAutomaticCheckIsNotUserVisible()
+    {
+        Assert.AreEqual(
+            string.Empty,
+            SettingsViewModel.FormatUpdateStatus(new WindowsUpdateCheckResult(
+                WindowsUpdateCheckStatus.Skipped,
+                null,
+                "自动检查已在 24 小时内执行过",
+                DateTimeOffset.UtcNow)));
+        Assert.AreEqual(
+            "正在检查…",
+            SettingsViewModel.FormatUpdateStatus(new WindowsUpdateCheckResult(
+                WindowsUpdateCheckStatus.Checking,
+                null,
+                null,
+                null)));
+        Assert.AreEqual(
+            "检查更新失败",
+            SettingsViewModel.FormatUpdateStatus(new WindowsUpdateCheckResult(
+                WindowsUpdateCheckStatus.Failed,
+                null,
+                "network",
+                DateTimeOffset.UtcNow)));
     }
 
     [TestMethod]
@@ -295,8 +320,6 @@ public sealed class ViewModelTests
         {
         }
 
-        public Task<int> ImportProductionDataAsync(CancellationToken cancellationToken) => Task.FromResult(0);
-
         public Task ClearQuotaCacheAsync() => Task.CompletedTask;
 
         public Task ApplyTokenSyncEnabledAsync(bool enabled, CancellationToken cancellationToken) => Task.CompletedTask;
@@ -314,8 +337,6 @@ public sealed class ViewModelTests
 
         public bool OpenedUsage { get; private set; }
 
-        public bool CopiedSummary { get; private set; }
-
         public bool CopiedDiagnostics { get; private set; }
 
         public bool ShowedAbout { get; private set; }
@@ -329,8 +350,6 @@ public sealed class ViewModelTests
         }
 
         public void OpenOfficialUsage() => OpenedUsage = true;
-
-        public void CopyQuotaSummary() => CopiedSummary = true;
 
         public void CopyDiagnostics() => CopiedDiagnostics = true;
 

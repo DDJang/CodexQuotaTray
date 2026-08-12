@@ -94,14 +94,6 @@ public sealed partial class MainViewModel : ObservableObject
 
     public void ApplySnapshot(AppUiState state) => Apply(state);
 
-    public string CreateQuotaSummary()
-    {
-        var lines = new List<string> { Title + (HasPlanBadge ? $" · {PlanBadge}" : string.Empty), StatusText };
-        lines.AddRange(Windows.Select(window => $"{window.Name}: {window.RemainingPercent}% 剩余 · {window.ResetRelative}"));
-        lines.Add(ResetCredits.Summary);
-        return string.Join(Environment.NewLine, lines);
-    }
-
     private bool CanRefresh() => !IsRefreshing;
 
     private void Apply(AppUiState state)

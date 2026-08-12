@@ -129,7 +129,6 @@ public partial class App : Application
             settingsActions = new SettingsPlatformActions(
                 paths,
                 persistence,
-                new ProductionDataImporter(jsonStore),
                 launchProfile.CanConfigureStartup,
                 tokenUsageSync,
                 () => liveRuntime.Settings.PhoneTokenSyncEnabled,
@@ -177,11 +176,9 @@ public partial class App : Application
             Environment.NewLine,
             diagnostics.CreateDiagnosticText(),
             trayIcon?.CreateDiagnosticText() ?? "托盘注册状态: NotStarted")));
-        var summaryClipboard = new DiagnosticsClipboardService(new DelegateDiagnosticTextProvider(viewModel.CreateQuotaSummary));
         settingsPageActions = new DelegateSettingsPageActions(
             cancellationToken => viewModel.RefreshCommand.ExecuteAsync(cancellationToken),
             () => viewModel.OpenUsageCommand.Execute(null),
-            summaryClipboard.Copy,
             clipboard.Copy,
             ShowAbout);
         trayIcon = new TrayIconService(
@@ -498,15 +495,12 @@ public partial class App : Application
     private sealed class DelegateSettingsPageActions(
         Func<CancellationToken, Task> refreshQuota,
         Action openOfficialUsage,
-        Action copyQuotaSummary,
         Action copyDiagnostics,
         Action<object?> showAbout) : ISettingsPageActions
     {
         public Task RefreshQuotaAsync(CancellationToken cancellationToken) => refreshQuota(cancellationToken);
 
         public void OpenOfficialUsage() => openOfficialUsage();
-
-        public void CopyQuotaSummary() => copyQuotaSummary();
 
         public void CopyDiagnostics() => copyDiagnostics();
 
@@ -627,8 +621,11 @@ public partial class App : Application
         trayIcon = null;
         hostEvents?.Dispose();
         hostEvents = null;
+        settingsWindow?.PrepareForExit();
         mainWindow?.PrepareForExit();
         mainWindow?.Close();
+        settingsWindow?.Close();
+        settingsWindow = null;
         currentInstance = null;
         lifetime.Dispose();
         Exit();

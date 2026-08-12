@@ -6,7 +6,7 @@
     Title="CodexQuotaTray 设置">
     <Grid
         x:Name="SettingsRoot"
-        Background="{ThemeResource SettingsWindowSurfaceBrush}">
+        Background="Transparent">
         <Grid.Resources>
             <local:RefreshModeDisplayConverter x:Key="RefreshModeDisplayConverter" />
             <local:ThemeModeDisplayConverter x:Key="ThemeModeDisplayConverter" />
@@ -14,6 +14,12 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
+
+        <Grid
+            x:Name="SettingsFallbackSurface"
+            Grid.Row="0"
+            Background="{ThemeResource SettingsWindowSurfaceBrush}"
+            IsHitTestVisible="False" />
 
         <ScrollViewer
             x:Name="SettingsScroller"
@@ -33,19 +39,14 @@
                             <Setter Target="NotifyAfterResetCard.(Grid.Row)" Value="3" />
                             <Setter Target="NotifyAfterResetCard.(Grid.Column)" Value="0" />
                             <Setter Target="AdvancedSecondaryColumn.Width" Value="0" />
-                            <Setter Target="AdvancedImportButton.(Grid.Row)" Value="1" />
-                            <Setter Target="AdvancedImportButton.(Grid.Column)" Value="0" />
-                            <Setter Target="AdvancedCopySummaryButton.(Grid.Row)" Value="2" />
-                            <Setter Target="AdvancedCopySummaryButton.(Grid.Column)" Value="0" />
-                            <Setter Target="AdvancedCopyDiagnosticsButton.(Grid.Row)" Value="3" />
+                            <Setter Target="AdvancedCopyDiagnosticsButton.(Grid.Row)" Value="1" />
                             <Setter Target="AdvancedCopyDiagnosticsButton.(Grid.Column)" Value="0" />
                             <Setter Target="AdvancedActionsGrid.RowSpacing" Value="8" />
+                            <Setter Target="AdvancedTrailingRow2.Height" Value="Auto" />
                             <Setter Target="AdvancedTrailingRow3.Height" Value="Auto" />
-                            <Setter Target="AdvancedTrailingRow4.Height" Value="Auto" />
-                            <Setter Target="AdvancedTrailingRow5.Height" Value="Auto" />
-                            <Setter Target="AdvancedClearCacheButton.(Grid.Row)" Value="4" />
+                            <Setter Target="AdvancedClearCacheButton.(Grid.Row)" Value="2" />
                             <Setter Target="AdvancedClearCacheButton.(Grid.Column)" Value="0" />
-                            <Setter Target="AdvancedResetButton.(Grid.Row)" Value="5" />
+                            <Setter Target="AdvancedResetButton.(Grid.Row)" Value="3" />
                             <Setter Target="AdvancedResetButton.(Grid.Column)" Value="0" />
                         </VisualState.Setters>
                     </VisualState>
@@ -62,19 +63,14 @@
                             <Setter Target="NotifyAfterResetCard.(Grid.Row)" Value="1" />
                             <Setter Target="NotifyAfterResetCard.(Grid.Column)" Value="1" />
                             <Setter Target="AdvancedSecondaryColumn.Width" Value="*" />
-                            <Setter Target="AdvancedImportButton.(Grid.Row)" Value="0" />
-                            <Setter Target="AdvancedImportButton.(Grid.Column)" Value="1" />
-                            <Setter Target="AdvancedCopySummaryButton.(Grid.Row)" Value="1" />
-                            <Setter Target="AdvancedCopySummaryButton.(Grid.Column)" Value="0" />
-                            <Setter Target="AdvancedCopyDiagnosticsButton.(Grid.Row)" Value="1" />
+                            <Setter Target="AdvancedCopyDiagnosticsButton.(Grid.Row)" Value="0" />
                             <Setter Target="AdvancedCopyDiagnosticsButton.(Grid.Column)" Value="1" />
                             <Setter Target="AdvancedActionsGrid.RowSpacing" Value="0" />
+                            <Setter Target="AdvancedTrailingRow2.Height" Value="0" />
                             <Setter Target="AdvancedTrailingRow3.Height" Value="0" />
-                            <Setter Target="AdvancedTrailingRow4.Height" Value="0" />
-                            <Setter Target="AdvancedTrailingRow5.Height" Value="0" />
-                            <Setter Target="AdvancedClearCacheButton.(Grid.Row)" Value="2" />
+                            <Setter Target="AdvancedClearCacheButton.(Grid.Row)" Value="1" />
                             <Setter Target="AdvancedClearCacheButton.(Grid.Column)" Value="0" />
-                            <Setter Target="AdvancedResetButton.(Grid.Row)" Value="2" />
+                            <Setter Target="AdvancedResetButton.(Grid.Row)" Value="1" />
                             <Setter Target="AdvancedResetButton.(Grid.Column)" Value="1" />
                         </VisualState.Setters>
                     </VisualState>
@@ -167,16 +163,16 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                    <TextBlock Text="使用 24 小时制" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="使用 24 小时格式显示重置时间。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="保存额度缓存" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="保存非敏感额度快照，用于启动时快速展示。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <Button
                                     Grid.Column="1"
-                                    AutomationProperties.Name="使用 24 小时制"
+                                    AutomationProperties.Name="保存额度缓存"
                                     Click="OnSettingsToggleButtonClick"
                                     Style="{StaticResource SettingsToggleButtonStyle}">
                                     <ToggleSwitch
-                                        IsOn="{Binding Use24HourTime, Mode=TwoWay}"
+                                        IsOn="{Binding PersistQuotaCache, Mode=TwoWay}"
                                         IsHitTestVisible="False"
                                         Style="{StaticResource SettingsToggleSwitchStyle}" />
                                 </Button>
@@ -184,7 +180,7 @@
                         </Border>
                     </StackPanel>
 
-                    <TextBlock Text="刷新与外观" Style="{StaticResource SettingsGroupHeaderStyle}" />
+                    <TextBlock Text="同步" Style="{StaticResource SettingsGroupHeaderStyle}" />
                     <StackPanel Spacing="8">
                         <Border Style="{StaticResource SettingsItemCardStyle}">
                             <Grid Style="{StaticResource SettingsRowStyle}">
@@ -240,31 +236,6 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                    <TextBlock Text="主题" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="设置面板和额度窗口的显示主题。" Style="{StaticResource SettingsDescriptionStyle}" />
-                                </StackPanel>
-                                <ComboBox
-                                    Grid.Column="1"
-                                    Width="176"
-                                    ItemsSource="{Binding ThemeModes}"
-                                    SelectedItem="{Binding SelectedThemeMode, Mode=TwoWay}"
-                                    HorizontalAlignment="Right"
-                                    VerticalAlignment="Center">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding Converter={StaticResource ThemeModeDisplayConverter}}" />
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
-                            </Grid>
-                        </Border>
-                        <Border Style="{StaticResource SettingsItemCardStyle}">
-                            <Grid Style="{StaticResource SettingsRowStyle}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="网络恢复后刷新" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="网络恢复后主动重新读取一次额度。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
@@ -281,28 +252,77 @@
                             </Grid>
                         </Border>
                         <Border Style="{StaticResource SettingsItemCardStyle}">
-                            <Grid Style="{StaticResource SettingsRowStyle}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                    <TextBlock Text="保存额度缓存" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="保存非敏感额度快照，用于启动时快速展示。" Style="{StaticResource SettingsDescriptionStyle}" />
+                            <StackPanel Spacing="10">
+                                <ToggleSwitch
+                                    Header="Token 统计同步"
+                                    IsOn="{Binding PhoneTokenSyncEnabled, Mode=TwoWay}"
+                                    OnContent="开启"
+                                    OffContent="关闭" />
+                                <TextBlock Text="允许 CodexQuota Android 通过局域网同步 Token 统计与额度信息。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBlock Text="{Binding TokenSyncStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBlock Text="{Binding TokenSyncDeviceNameText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBlock Text="{Binding TokenSyncAddressText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <StackPanel x:Name="TokenSyncQrPanel" HorizontalAlignment="Center" Spacing="8">
+                                    <Image
+                                        x:Name="TokenSyncQrCodeImage"
+                                        Width="220"
+                                        Height="220"
+                                        HorizontalAlignment="Center"
+                                        Stretch="Uniform" />
+                                    <TextBlock
+                                        Text="使用 CodexQuota Android 扫码配对"
+                                        HorizontalAlignment="Center"
+                                        Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <Button
-                                    Grid.Column="1"
-                                    AutomationProperties.Name="保存额度缓存"
-                                    Click="OnSettingsToggleButtonClick"
-                                    Style="{StaticResource SettingsToggleButtonStyle}">
-                                    <ToggleSwitch
-                                        IsOn="{Binding PersistQuotaCache, Mode=TwoWay}"
-                                        IsHitTestVisible="False"
-                                        Style="{StaticResource SettingsToggleSwitchStyle}" />
-                                </Button>
-                            </Grid>
+                                <TextBlock
+                                    Text="配对密钥默认隐藏；仅复制到受信任的私人 Wi-Fi 设备。"
+                                    TextWrapping="Wrap"
+                                    Style="{StaticResource SettingsDescriptionStyle}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        Content="复制配对信息"
+                                        Command="{Binding CopyTokenSyncPairingInfoCommand}"
+                                        IsEnabled="{Binding PhoneTokenSyncEnabled}"
+                                        Style="{StaticResource SettingsActionButtonStyle}" />
+                                    <Button
+                                        Content="重新生成密钥"
+                                        Command="{Binding RegenerateTokenSyncSecretCommand}"
+                                        Style="{StaticResource SettingsActionButtonStyle}" />
+                                </StackPanel>
+                                <TextBlock
+                                    Text="若手机无法连接，请检查 Windows 防火墙；应用不会自动提权或添加规则。"
+                                    TextWrapping="Wrap"
+                                    Style="{StaticResource SettingsDescriptionStyle}" />
+                            </StackPanel>
                         </Border>
                     </StackPanel>
+
+                    <TextBlock Text="个性化" Style="{StaticResource SettingsGroupHeaderStyle}" />
+                    <Border Style="{StaticResource SettingsItemCardStyle}">
+                        <Grid Style="{StaticResource SettingsRowStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                <TextBlock Text="主题" Style="{StaticResource SettingsLabelStyle}" />
+                                <TextBlock Text="设置面板和额度窗口的显示主题。" Style="{StaticResource SettingsDescriptionStyle}" />
+                            </StackPanel>
+                            <ComboBox
+                                Grid.Column="1"
+                                Width="176"
+                                ItemsSource="{Binding ThemeModes}"
+                                SelectedItem="{Binding SelectedThemeMode, Mode=TwoWay}"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Converter={StaticResource ThemeModeDisplayConverter}}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </Grid>
+                    </Border>
 
                     <TextBlock Text="额度提醒" Style="{StaticResource SettingsGroupHeaderStyle}" />
                     <Grid
@@ -368,113 +388,6 @@
                             </Border>
                     </Grid>
 
-                    <TextBlock Text="手机 Token 同步" Style="{StaticResource SettingsGroupHeaderStyle}" />
-                    <Border Style="{StaticResource SettingsItemCardStyle}">
-                        <StackPanel Spacing="10">
-                            <ToggleSwitch
-                                Header="手机 Token 同步"
-                                IsOn="{Binding PhoneTokenSyncEnabled, Mode=TwoWay}"
-                                OnContent="开启"
-                                OffContent="关闭" />
-                            <TextBlock Text="{Binding TokenSyncStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                            <TextBlock Text="{Binding TokenSyncDeviceNameText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                            <TextBlock Text="{Binding TokenSyncAddressText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                            <StackPanel x:Name="TokenSyncQrPanel" HorizontalAlignment="Center" Spacing="8">
-                                <Image
-                                    x:Name="TokenSyncQrCodeImage"
-                                    Width="220"
-                                    Height="220"
-                                    HorizontalAlignment="Center"
-                                    Stretch="Uniform" />
-                                <TextBlock
-                                    Text="使用 CodexQuota Android 扫码配对"
-                                    HorizontalAlignment="Center"
-                                    Style="{StaticResource SettingsDescriptionStyle}" />
-                            </StackPanel>
-                            <TextBlock
-                                Text="配对密钥默认隐藏；仅复制到受信任的私人 Wi-Fi 设备。"
-                                TextWrapping="Wrap"
-                                Style="{StaticResource SettingsDescriptionStyle}" />
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <Button
-                                    Content="复制配对信息"
-                                    Command="{Binding CopyTokenSyncPairingInfoCommand}"
-                                    IsEnabled="{Binding PhoneTokenSyncEnabled}"
-                                    Style="{StaticResource SettingsActionButtonStyle}" />
-                                <Button
-                                    Content="重新生成密钥"
-                                    Command="{Binding RegenerateTokenSyncSecretCommand}"
-                                    Style="{StaticResource SettingsActionButtonStyle}" />
-                            </StackPanel>
-                            <TextBlock
-                                Text="若手机无法连接，请检查 Windows 防火墙；应用不会自动提权或添加规则。"
-                                TextWrapping="Wrap"
-                                Style="{StaticResource SettingsDescriptionStyle}" />
-                        </StackPanel>
-                    </Border>
-
-                    <TextBlock Text="数据与高级选项" Style="{StaticResource SettingsGroupHeaderStyle}" />
-                    <StackPanel Spacing="8">
-                        <Grid
-                            x:Name="AdvancedActionsGrid"
-                            Style="{StaticResource SettingsOperationRowStyle}">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
-                                    <RowDefinition x:Name="AdvancedTrailingRow3" Height="Auto" />
-                                    <RowDefinition x:Name="AdvancedTrailingRow4" Height="Auto" />
-                                    <RowDefinition x:Name="AdvancedTrailingRow5" Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition x:Name="AdvancedSecondaryColumn" Width="*" />
-                                </Grid.ColumnDefinitions>
-                                <Button
-                                    x:Name="AdvancedOpenDataButton"
-                                    Grid.Row="0"
-                                    Grid.Column="0"
-                                    Content="打开数据目录"
-                                    Command="{Binding OpenDataDirectoryCommand}"
-                                    Style="{StaticResource SettingsActionButtonStyle}" />
-                                <Button
-                                    x:Name="AdvancedImportButton"
-                                    Grid.Row="0"
-                                    Grid.Column="1"
-                                    Content="导入 WinUI 预览版数据"
-                                    Command="{Binding ImportProductionDataCommand}"
-                                    Style="{StaticResource SettingsActionButtonStyle}" />
-                                <Button
-                                    x:Name="AdvancedCopySummaryButton"
-                                    Grid.Row="1"
-                                    Grid.Column="0"
-                                    Content="复制额度摘要"
-                                    Command="{Binding CopyQuotaSummaryCommand}"
-                                    Style="{StaticResource SettingsActionButtonStyle}" />
-                                <Button
-                                    x:Name="AdvancedCopyDiagnosticsButton"
-                                    Grid.Row="1"
-                                    Grid.Column="1"
-                                    Content="复制诊断信息"
-                                    Command="{Binding CopyDiagnosticsCommand}"
-                                    Style="{StaticResource SettingsActionButtonStyle}" />
-                                <Button
-                                    x:Name="AdvancedClearCacheButton"
-                                    Grid.Row="2"
-                                    Grid.Column="0"
-                                    Content="清除额度缓存"
-                                    Command="{Binding ClearQuotaCacheCommand}"
-                                    Style="{StaticResource SettingsActionButtonStyle}" />
-                                <Button
-                                    x:Name="AdvancedResetButton"
-                                    Grid.Row="2"
-                                    Grid.Column="1"
-                                    Content="恢复默认设置"
-                                    Command="{Binding ResetCommand}"
-                                    Style="{StaticResource SettingsActionButtonStyle}" />
-                        </Grid>
-                    </StackPanel>
-
                     <TextBlock Text="更新" Style="{StaticResource SettingsGroupHeaderStyle}" />
                     <Border Style="{StaticResource SettingsItemCardStyle}">
                         <StackPanel Spacing="10">
@@ -529,6 +442,52 @@
                                 Style="{StaticResource SettingsActionButtonStyle}" />
                         </StackPanel>
                     </Border>
+
+                    <TextBlock Text="数据与高级选项" Style="{StaticResource SettingsGroupHeaderStyle}" />
+                    <StackPanel Spacing="8">
+                        <Grid
+                            x:Name="AdvancedActionsGrid"
+                            Style="{StaticResource SettingsOperationRowStyle}">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition x:Name="AdvancedTrailingRow2" Height="Auto" />
+                                    <RowDefinition x:Name="AdvancedTrailingRow3" Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition x:Name="AdvancedSecondaryColumn" Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Button
+                                    x:Name="AdvancedOpenDataButton"
+                                    Grid.Row="0"
+                                    Grid.Column="0"
+                                    Content="打开数据目录"
+                                    Command="{Binding OpenDataDirectoryCommand}"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                                <Button
+                                    x:Name="AdvancedCopyDiagnosticsButton"
+                                    Grid.Row="0"
+                                    Grid.Column="1"
+                                    Content="复制诊断信息"
+                                    Command="{Binding CopyDiagnosticsCommand}"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                                <Button
+                                    x:Name="AdvancedClearCacheButton"
+                                    Grid.Row="1"
+                                    Grid.Column="0"
+                                    Content="清除额度缓存"
+                                    Command="{Binding ClearQuotaCacheCommand}"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                                <Button
+                                    x:Name="AdvancedResetButton"
+                                    Grid.Row="1"
+                                    Grid.Column="1"
+                                    Content="恢复默认设置"
+                                    Command="{Binding ResetCommand}"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                        </Grid>
+                    </StackPanel>
 
                     <Button
                         x:Name="AboutButton"
