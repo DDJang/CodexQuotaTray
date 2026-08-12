@@ -10,7 +10,6 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
 {
     private readonly PreviewDataPaths paths;
     private readonly PreviewPersistence persistence;
-    private readonly ProductionDataImporter importer;
     private readonly TokenUsageSyncController tokenSync;
     private readonly Func<bool> tokenSyncEnabled;
     private readonly string startupValueName;
@@ -18,7 +17,6 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
     public SettingsPlatformActions(
         PreviewDataPaths paths,
         PreviewPersistence persistence,
-        ProductionDataImporter importer,
         bool canConfigureStartup,
         TokenUsageSyncController tokenSync,
         Func<bool> tokenSyncEnabled,
@@ -26,7 +24,6 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
     {
         this.paths = paths;
         this.persistence = persistence;
-        this.importer = importer;
         this.tokenSync = tokenSync;
         this.tokenSyncEnabled = tokenSyncEnabled;
         this.startupValueName = startupValueName;
@@ -78,12 +75,6 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
         _ = Process.Start(new ProcessStartInfo(paths.Root) { UseShellExecute = true });
     }
 
-    public Task<int> ImportProductionDataAsync(CancellationToken cancellationToken)
-    {
-        var preview = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), AppIdentity.Preview.DataDirectoryName);
-        return importer.ImportAsync(preview, paths, cancellationToken);
-    }
-
     public Task ClearQuotaCacheAsync() => persistence.ClearQuotaCacheAsync();
 
     public Task ApplyTokenSyncEnabledAsync(bool enabled, CancellationToken cancellationToken) =>
@@ -91,7 +82,7 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
 
     public void CopyTokenSyncPairingInfo()
     {
-        var value = tokenSync.PairingInfo ?? throw new InvalidOperationException("手机 Token 同步当前未监听。");
+        var value = tokenSync.PairingInfo ?? throw new InvalidOperationException("Token 统计同步当前未监听。");
         var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
         package.SetText(value);
         Clipboard.SetContent(package);

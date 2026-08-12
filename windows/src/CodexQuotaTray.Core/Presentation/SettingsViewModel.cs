@@ -14,8 +14,6 @@ public interface ISettingsPlatformActions
 
     void OpenDataDirectory();
 
-    Task<int> ImportProductionDataAsync(CancellationToken cancellationToken);
-
     Task ClearQuotaCacheAsync();
 
     string TokenSyncStatusText { get; }
@@ -41,8 +39,6 @@ public interface ISettingsPageActions
 
     void OpenOfficialUsage();
 
-    void CopyQuotaSummary();
-
     void CopyDiagnostics();
 
     void ShowAbout(object? host);
@@ -63,7 +59,6 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showRemainingPercent;
-    [ObservableProperty] private bool use24HourTime;
     [ObservableProperty] private bool persistQuotaCache;
     [ObservableProperty] private bool refreshOnPanelOpen;
     [ObservableProperty] private bool refreshOnNetworkRestore;
@@ -184,13 +179,6 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private async Task ImportProductionDataAsync(CancellationToken cancellationToken)
-    {
-        var count = await platform.ImportProductionDataAsync(cancellationToken);
-        StatusText = count == 0 ? "没有可导入的有效正式版数据" : $"已导入 {count} 个数据文件，重启后生效";
-    }
-
-    [RelayCommand]
     private void OpenDataDirectory() => platform.OpenDataDirectory();
 
     [RelayCommand]
@@ -199,9 +187,6 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [RelayCommand]
     private void OpenOfficialUsage() => pageActions.OpenOfficialUsage();
-
-    [RelayCommand]
-    private void CopyQuotaSummary() => pageActions.CopyQuotaSummary();
 
     [RelayCommand]
     private void CopyDiagnostics() => pageActions.CopyDiagnostics();
@@ -399,7 +384,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private AppSettings ToSettings() => SettingsService.Normalize(new AppSettings(
         StartWithWindows: CanConfigureStartup && StartWithWindows,
         ShowRemainingPercent: ShowRemainingPercent,
-        Use24HourTime: Use24HourTime,
+        Use24HourTime: true,
         PersistQuotaCache: PersistQuotaCache,
         RefreshMode: SelectedRefreshMode,
         RefreshOnPanelOpen: RefreshOnPanelOpen,
@@ -421,7 +406,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             StartWithWindows = CanConfigureStartup && value.StartWithWindows;
             ShowRemainingPercent = value.ShowRemainingPercent;
-            Use24HourTime = value.Use24HourTime;
             PersistQuotaCache = value.PersistQuotaCache;
             RefreshOnPanelOpen = value.RefreshOnPanelOpen;
             RefreshOnNetworkRestore = value.RefreshOnNetworkRestore;
@@ -449,8 +433,6 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedPercentageDisplayMode));
         QueueSettingsApply();
     }
-
-    partial void OnUse24HourTimeChanged(bool value) => QueueSettingsApply();
 
     partial void OnPersistQuotaCacheChanged(bool value) => QueueSettingsApply();
 
@@ -560,12 +542,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
-    private static string FormatUpdateStatus(WindowsUpdateCheckResult result) => result.Status switch
+    internal static string FormatUpdateStatus(WindowsUpdateCheckResult result) => result.Status switch
     {
         WindowsUpdateCheckStatus.NotChecked => "尚未检查",
         WindowsUpdateCheckStatus.Checking => "正在检查…",
         WindowsUpdateCheckStatus.Disabled => "自动检查已关闭",
-        WindowsUpdateCheckStatus.Skipped => "24 小时内已检查过",
+        WindowsUpdateCheckStatus.Skipped => string.Empty,
         WindowsUpdateCheckStatus.UpToDate => $"已是最新版本 {result.Release?.Version.ToString() ?? ProductVersion.Current}",
         WindowsUpdateCheckStatus.Available => $"发现新版本 {result.Release?.Version}",
         WindowsUpdateCheckStatus.NoRelease => "当前 Release 没有有效的 Windows 安装包",

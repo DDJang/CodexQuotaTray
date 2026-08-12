@@ -30,6 +30,7 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
 
     public static AppSettings Normalize(AppSettings settings) => settings with
     {
+        Use24HourTime = true,
         RefreshMode = settings.RefreshMode == RefreshMode.Auto
             ? RefreshMode.Every15Minutes
             : settings.RefreshMode,
@@ -180,54 +181,4 @@ public class PreviewPersistence(JsonFileStore store, PreviewDataPaths paths)
         Func<bool> canCommit,
         Action onCommitted) =>
         store.SaveWithCommitAsync(paths.AlertState, value, cancellationToken, commitGate, canCommit, onCommitted);
-}
-
-public sealed class ProductionDataImporter(JsonFileStore store)
-{
-    public async Task<int> ImportAsync(string productionRoot, PreviewDataPaths preview, CancellationToken cancellationToken)
-    {
-        Directory.CreateDirectory(preview.Root);
-        var count = 0;
-        var production = new PreviewDataPaths(productionRoot);
-        if (File.Exists(production.Settings))
-        {
-            var settings = await new SettingsService(store, production).LoadAsync(cancellationToken).ConfigureAwait(false);
-            await store.SaveAsync(preview.Settings, settings with { Notifications = settings.EffectiveNotifications }, cancellationToken).ConfigureAwait(false);
-            count++;
-        }
-
-        if (File.Exists(production.QuotaCache))
-        {
-            try
-            {
-                var cache = await store.LoadAsync<QuotaCacheDocument>(production.QuotaCache, cancellationToken).ConfigureAwait(false);
-                if (cache is { FormatVersion: 1 } && cache.Windows.Count <= 32)
-                {
-                    await store.SaveAsync(preview.QuotaCache, cache, cancellationToken).ConfigureAwait(false);
-                    count++;
-                }
-            }
-            catch (Exception error) when (error is JsonException or IOException or InvalidDataException or UnauthorizedAccessException)
-            {
-            }
-        }
-
-        if (File.Exists(production.AlertState))
-        {
-            try
-            {
-                var state = await store.LoadAsync<AlertStateDocument>(production.AlertState, cancellationToken).ConfigureAwait(false);
-                if (state is { SchemaVersion: 1 } && state.Windows.Count <= 32)
-                {
-                    await store.SaveAsync(preview.AlertState, state, cancellationToken).ConfigureAwait(false);
-                    count++;
-                }
-            }
-            catch (Exception error) when (error is JsonException or IOException or InvalidDataException or UnauthorizedAccessException)
-            {
-            }
-        }
-
-        return count;
-    }
 }
