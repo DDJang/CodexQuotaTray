@@ -13,9 +13,13 @@
             <SolidColorBrush x:Key="MenuItemFocusBrush" Color="#B8087BE8" />
             <SolidColorBrush x:Key="CardSurfaceBrush" Color="#52FFFFFF" />
             <SolidColorBrush x:Key="CardBorderBrush" Color="#52B8CAE0" />
+            <SolidColorBrush x:Key="SettingsCardSurfaceBrush" Color="#8FFFFFFF" />
+            <SolidColorBrush x:Key="SettingsCardBorderBrush" Color="#78A9BED4" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="#17212B" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="#526477" />
             <SolidColorBrush x:Key="TertiaryTextBrush" Color="#7B8999" />
+            <SolidColorBrush x:Key="SettingsSecondaryTextBrush" Color="#425669" />
+            <SolidColorBrush x:Key="SettingsTertiaryTextBrush" Color="#68798A" />
             <SolidColorBrush x:Key="DividerBrush" Color="#5CD5DEE7" />
             <SolidColorBrush x:Key="TrackBrush" Color="#A9C0D0E4" />
             <SolidColorBrush x:Key="AccentQuotaBrush" Color="#087BE8" />
@@ -43,9 +47,13 @@
             <SolidColorBrush x:Key="MenuItemFocusBrush" Color="#B85AAEFF" />
             <SolidColorBrush x:Key="CardSurfaceBrush" Color="#50344254" />
             <SolidColorBrush x:Key="CardBorderBrush" Color="#527D94B2" />
+            <SolidColorBrush x:Key="SettingsCardSurfaceBrush" Color="#7A283442" />
+            <SolidColorBrush x:Key="SettingsCardBorderBrush" Color="#786F899E" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="#F3F6F8" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="#B6C2CF" />
             <SolidColorBrush x:Key="TertiaryTextBrush" Color="#92A2B3" />
+            <SolidColorBrush x:Key="SettingsSecondaryTextBrush" Color="#C2CEDB" />
+            <SolidColorBrush x:Key="SettingsTertiaryTextBrush" Color="#A4B3C2" />
             <SolidColorBrush x:Key="DividerBrush" Color="#52748796" />
             <SolidColorBrush x:Key="TrackBrush" Color="#45515E" />
             <SolidColorBrush x:Key="AccentQuotaBrush" Color="#5AAEFF" />
@@ -73,9 +81,13 @@
             <SolidColorBrush x:Key="MenuItemFocusBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="CardSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="CardBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SettingsCardSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="SettingsCardBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="PrimaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="SecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="TertiaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SettingsSecondaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+            <SolidColorBrush x:Key="SettingsTertiaryTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="DividerBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="TrackBrush" Color="{ThemeResource SystemColorButtonFaceColor}" />
             <SolidColorBrush x:Key="AccentQuotaBrush" Color="{ThemeResource SystemColorHighlightColor}" />

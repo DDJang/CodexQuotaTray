@@ -120,8 +120,8 @@
     </Style>
 
     <Style x:Key="SettingsItemCardStyle" TargetType="Border">
-        <Setter Property="Background" Value="{ThemeResource CardSurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{ThemeResource CardBorderBrush}" />
+        <Setter Property="Background" Value="{ThemeResource SettingsCardSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SettingsCardBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource QuotaCornerRadius}" />
         <Setter Property="Padding" Value="16,12" />
@@ -185,7 +185,7 @@
     </Style>
 
     <Style x:Key="SettingsDescriptionStyle" TargetType="TextBlock">
-        <Setter Property="Foreground" Value="{ThemeResource SecondaryTextBrush}" />
+        <Setter Property="Foreground" Value="{ThemeResource SettingsSecondaryTextBrush}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="Opacity" Value="1" />
         <Setter Property="TextWrapping" Value="Wrap" />
@@ -195,8 +195,8 @@
         <Setter Property="MinHeight" Value="40" />
         <Setter Property="Padding" Value="12,0" />
         <Setter Property="CornerRadius" Value="8" />
-        <Setter Property="Background" Value="{ThemeResource CardSurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{ThemeResource CardBorderBrush}" />
+        <Setter Property="Background" Value="{ThemeResource SettingsCardSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SettingsCardBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Foreground" Value="{ThemeResource PrimaryTextBrush}" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
@@ -210,7 +210,7 @@
         <Setter Property="Padding" Value="16,10" />
         <Setter Property="CornerRadius" Value="{StaticResource QuotaCornerRadius}" />
         <Setter Property="Background" Value="{ThemeResource WindowSurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{ThemeResource CardBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource SettingsCardBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Foreground" Value="{ThemeResource PrimaryTextBrush}" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />

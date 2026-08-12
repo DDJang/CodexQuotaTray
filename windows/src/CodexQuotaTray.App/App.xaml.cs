@@ -379,7 +379,9 @@ public partial class App : Application
 
     private void ShowAbout(object? host)
     {
-        if (aboutDialog is not null || host is not Microsoft.UI.Xaml.FrameworkElement hostElement || hostElement.XamlRoot is null)
+        if (aboutDialog is not null
+            || host is not Microsoft.UI.Xaml.FrameworkElement hostElement
+            || hostElement.XamlRoot?.Content is not Grid dialogHost)
         {
             return;
         }
@@ -388,15 +390,21 @@ public partial class App : Application
         var dialog = new ContentDialog
         {
             Title = $"关于 {applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName}",
-            Content = CreateAboutContent(applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName),
-            CloseButtonText = "关闭",
             XamlRoot = hostElement.XamlRoot,
         };
+        dialog.Content = CreateAboutContent(
+            applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName,
+            hostElement.ActualTheme == ElementTheme.Dark,
+            dialog.Hide);
+        dialogHost.Children.Add(dialog);
         aboutDialog = dialog;
-        _ = ShowAboutAsync(dialog, hostElement);
+        _ = ShowAboutAsync(dialog, hostElement, dialogHost);
     }
 
-    private static StackPanel CreateAboutContent(string displayName)
+    private static StackPanel CreateAboutContent(
+        string displayName,
+        bool isDarkTheme,
+        Action closeDialog)
     {
         var content = new StackPanel
         {
@@ -404,10 +412,11 @@ public partial class App : Application
             HorizontalAlignment = HorizontalAlignment.Stretch,
         };
 
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.png");
+        var iconFileName = isDarkTheme ? "AppIcon.png" : "AppIconDark.png";
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", iconFileName);
         var iconUri = File.Exists(iconPath)
             ? new Uri(iconPath, UriKind.Absolute)
-            : new Uri("ms-appx:///Assets/AppIcon.png");
+            : new Uri($"ms-appx:///Assets/{iconFileName}");
         content.Children.Add(new Image
         {
             Source = new BitmapImage(iconUri),
@@ -452,16 +461,27 @@ public partial class App : Application
             NavigateUri = new Uri("https://github.com/DDJang/CodexQuotaTray/blob/main/LICENSE"),
         });
         content.Children.Add(links);
+        var closeButton = new Button
+        {
+            Content = "关闭",
+            MinWidth = 160,
+            Margin = new Thickness(0, 18, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            HorizontalContentAlignment = HorizontalAlignment.Center,
+        };
+        closeButton.Click += (_, _) => closeDialog();
+        content.Children.Add(closeButton);
         return content;
     }
 
     private async Task ShowAboutAsync(
         ContentDialog dialog,
-        Microsoft.UI.Xaml.FrameworkElement hostElement)
+        Microsoft.UI.Xaml.FrameworkElement hostElement,
+        Grid dialogHost)
     {
         try
         {
-            await dialog.ShowAsync();
+            await dialog.ShowAsync(ContentDialogPlacement.InPlace);
         }
         catch (InvalidOperationException error)
         {
@@ -469,6 +489,7 @@ public partial class App : Application
         }
         finally
         {
+            _ = dialogHost.Children.Remove(dialog);
             if (ReferenceEquals(aboutDialog, dialog))
             {
                 aboutDialog = null;

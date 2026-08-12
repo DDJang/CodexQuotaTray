@@ -253,12 +253,26 @@
                         </Border>
                         <Border Style="{StaticResource SettingsItemCardStyle}">
                             <StackPanel Spacing="10">
-                                <ToggleSwitch
-                                    Header="Token 统计同步"
-                                    IsOn="{Binding PhoneTokenSyncEnabled, Mode=TwoWay}"
-                                    OnContent="开启"
-                                    OffContent="关闭" />
-                                <TextBlock Text="允许 CodexQuota Android 通过局域网同步 Token 统计与额度信息。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <Grid Style="{StaticResource SettingsRowStyle}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                        <TextBlock Text="Token 统计同步" Style="{StaticResource SettingsLabelStyle}" />
+                                        <TextBlock Text="允许 CodexQuota Android 通过局域网同步 Token 统计与额度信息。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    </StackPanel>
+                                    <Button
+                                        Grid.Column="1"
+                                        AutomationProperties.Name="Token 统计同步"
+                                        Click="OnSettingsToggleButtonClick"
+                                        Style="{StaticResource SettingsToggleButtonStyle}">
+                                        <ToggleSwitch
+                                            IsOn="{Binding PhoneTokenSyncEnabled, Mode=TwoWay}"
+                                            IsHitTestVisible="False"
+                                            Style="{StaticResource SettingsToggleSwitchStyle}" />
+                                    </Button>
+                                </Grid>
                                 <TextBlock Text="{Binding TokenSyncStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 <TextBlock Text="{Binding TokenSyncDeviceNameText}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 <TextBlock Text="{Binding TokenSyncAddressText}" Style="{StaticResource SettingsDescriptionStyle}" />
@@ -503,6 +517,7 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <Image
+                                x:Name="AboutIconImage"
                                 Width="36"
                                 Height="36"
                                 Source="ms-appx:///Assets/AppIcon.png"
@@ -527,7 +542,7 @@
                                 <FontIcon
                                     Glyph="&#xE76C;"
                                     FontSize="14"
-                                    Foreground="{ThemeResource SecondaryTextBrush}"
+                                    Foreground="{ThemeResource SettingsSecondaryTextBrush}"
                                     VerticalAlignment="Center" />
                             </StackPanel>
                         </Grid>

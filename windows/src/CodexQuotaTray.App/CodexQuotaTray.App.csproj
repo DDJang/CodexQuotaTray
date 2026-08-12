@@ -5,7 +5,7 @@
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <AssemblyName>codex-quota-tray-gui</AssemblyName>
     <RootNamespace>CodexQuotaTray.App</RootNamespace>
-    <Version>0.6.6</Version>
+    <Version>0.6.7</Version>
     <ApplicationIcon>..\..\assets\app-icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>
@@ -35,6 +35,8 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\..\assets\app-icon.png" Link="Assets\AppIcon.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\assets\app-icon-dark.png" Link="Assets\AppIconDark.png" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\assets\app-icon.ico" Link="Assets\AppIcon.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\assets\window-icon.ico" Link="Assets\WindowIcon.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

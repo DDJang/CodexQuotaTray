@@ -4,21 +4,27 @@ namespace CodexQuotaTray.App.Services;
 
 internal static class WindowIconService
 {
-    internal static readonly string IconPath = Path.Combine(
+    internal static readonly string LightThemeWindowIconPath = Path.Combine(
+        AppContext.BaseDirectory,
+        "Assets",
+        "WindowIcon.ico");
+
+    internal static readonly string TrayIconPath = Path.Combine(
         AppContext.BaseDirectory,
         "Assets",
         "AppIcon.ico");
 
-    internal static bool TrySetIcon(AppWindow appWindow)
+    internal static bool TrySetIcon(AppWindow appWindow, bool isDarkTheme)
     {
-        if (!File.Exists(IconPath))
+        var iconPath = isDarkTheme ? TrayIconPath : LightThemeWindowIconPath;
+        if (!File.Exists(iconPath))
         {
             return false;
         }
 
         try
         {
-            appWindow.SetIcon(IconPath);
+            appWindow.SetIcon(iconPath);
             return true;
         }
         catch (ArgumentException)

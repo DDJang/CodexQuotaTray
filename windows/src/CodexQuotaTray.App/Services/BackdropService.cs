@@ -87,15 +87,15 @@ internal sealed class BackdropService : IDisposable
         {
             acrylicController.TintColor = Color.FromArgb(255, 220, 234, 248);
             acrylicController.FallbackColor = Color.FromArgb(255, 232, 240, 248);
-            acrylicController.TintOpacity = 0.22f;
-            acrylicController.LuminosityOpacity = 0.55f;
+            acrylicController.TintOpacity = 0.36f;
+            acrylicController.LuminosityOpacity = 0.66f;
         }
         else
         {
             acrylicController.TintColor = Color.FromArgb(255, 28, 45, 64);
             acrylicController.FallbackColor = Color.FromArgb(255, 28, 38, 50);
-            acrylicController.TintOpacity = 0.18f;
-            acrylicController.LuminosityOpacity = 0.48f;
+            acrylicController.TintOpacity = 0.32f;
+            acrylicController.LuminosityOpacity = 0.60f;
         }
     }
 

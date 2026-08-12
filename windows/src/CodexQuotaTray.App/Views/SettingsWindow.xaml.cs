@@ -33,6 +33,7 @@ public sealed partial class SettingsWindow : Window
         this.viewModel = viewModel;
         InitializeComponent();
         Title = $"{displayName} 设置";
+        ApplyAboutIcon();
         AboutProductNameText.Text = displayName;
         AutomationProperties.SetName(AboutButton, $"关于 {displayName}");
         AboutVersionText.Text = $"版本 {ProductVersion.Current}";
@@ -48,18 +49,19 @@ public sealed partial class SettingsWindow : Window
             ApplyResponsiveLayout(SettingsRoot.ActualWidth);
             ApplyBackdrop();
         };
-        SettingsRoot.ActualThemeChanged += (_, _) =>
-        {
-            ApplyTitleBarTheme(viewModel.SelectedThemeMode);
-            ApplyBackdrop();
-        };
-
         var hwnd = WindowNative.GetWindowHandle(this);
         var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         appWindow = AppWindow.GetFromWindowId(id);
         appWindow.Title = Title;
         var scale = WindowPlacementService.GetRasterizationScale(hwnd);
-        _ = WindowIconService.TrySetIcon(appWindow);
+        _ = WindowIconService.TrySetIcon(appWindow, SettingsRoot.ActualTheme == ElementTheme.Dark);
+        SettingsRoot.ActualThemeChanged += (_, _) =>
+        {
+            ApplyTitleBarTheme(viewModel.SelectedThemeMode);
+            ApplyAboutIcon();
+            ApplyBackdrop();
+            _ = WindowIconService.TrySetIcon(appWindow, SettingsRoot.ActualTheme == ElementTheme.Dark);
+        };
         Activated += OnActivated;
 
         if (appWindow.Presenter is OverlappedPresenter presenter)
@@ -87,10 +89,20 @@ public sealed partial class SettingsWindow : Window
             _ => ElementTheme.Default,
         };
 
+        ApplyAboutIcon();
+        _ = WindowIconService.TrySetIcon(
+            appWindow,
+            mode == ThemeMode.Dark
+                || mode == ThemeMode.System && SettingsRoot.ActualTheme == ElementTheme.Dark);
         ApplyTitleBarTheme(mode);
         ApplyBackdrop();
         _ = DispatcherQueue.TryEnqueue(() =>
         {
+            ApplyAboutIcon();
+            _ = WindowIconService.TrySetIcon(
+                appWindow,
+                mode == ThemeMode.Dark
+                    || mode == ThemeMode.System && SettingsRoot.ActualTheme == ElementTheme.Dark);
             ApplyTitleBarTheme(mode);
             ApplyBackdrop();
         });
@@ -109,7 +121,7 @@ public sealed partial class SettingsWindow : Window
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
-        _ = WindowIconService.TrySetIcon(appWindow);
+        _ = WindowIconService.TrySetIcon(appWindow, SettingsRoot.ActualTheme == ElementTheme.Dark);
         ApplyTitleBarTheme(viewModel.SelectedThemeMode);
         if (args.WindowActivationState != WindowActivationState.Deactivated)
         {
@@ -293,6 +305,14 @@ public sealed partial class SettingsWindow : Window
     {
         var state = width >= ResponsiveWideBreakpointDips ? "Wide" : "Narrow";
         _ = VisualStateManager.GoToState(SettingsScroller, state, false);
+    }
+
+    private void ApplyAboutIcon()
+    {
+        var icon = SettingsRoot.ActualTheme == ElementTheme.Dark
+            ? "ms-appx:///Assets/AppIcon.png"
+            : "ms-appx:///Assets/AppIconDark.png";
+        AboutIconImage.Source = new BitmapImage(new Uri(icon));
     }
 
     private void ApplyTitleBarTheme(ThemeMode mode)

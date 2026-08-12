@@ -39,7 +39,7 @@ public sealed partial class MainWindow : Window
         // The app is activated once during startup before the panel is shown.
         // Set the icon before that first activation so the taskbar button does
         // not capture WinUI's default application icon.
-        _ = WindowIconService.TrySetIcon(appWindow);
+        _ = WindowIconService.TrySetIcon(appWindow, ContentRoot.ActualTheme == ElementTheme.Dark);
 
         appWindow.Closing += OnClosing;
         Activated += OnActivated;
@@ -49,7 +49,7 @@ public sealed partial class MainWindow : Window
     internal void ConfigureWindow()
     {
         appWindow.Title = Title;
-        _ = WindowIconService.TrySetIcon(appWindow);
+        _ = WindowIconService.TrySetIcon(appWindow, ContentRoot.ActualTheme == ElementTheme.Dark);
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(HeaderDragRegion);
 
@@ -153,6 +153,10 @@ public sealed partial class MainWindow : Window
             ThemeMode.Dark => ElementTheme.Dark,
             _ => ElementTheme.Default,
         };
+        _ = WindowIconService.TrySetIcon(
+            appWindow,
+            mode == ThemeMode.Dark
+                || mode == ThemeMode.System && ContentRoot.ActualTheme == ElementTheme.Dark);
         if (visibility.DesiredVisible)
         {
             _ = backdrop.Apply(this);
@@ -248,6 +252,7 @@ public sealed partial class MainWindow : Window
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
+        _ = WindowIconService.TrySetIcon(appWindow, ContentRoot.ActualTheme == ElementTheme.Dark);
         if (visibility.DesiredVisible)
         {
             _ = backdrop.Apply(this);

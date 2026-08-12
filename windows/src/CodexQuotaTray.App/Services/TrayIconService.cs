@@ -121,7 +121,7 @@ internal sealed class TrayIconService : IDisposable
         Instances.Add(callbackWindow, this);
         Instances.Add(broadcastWindow, this);
         taskbarCreatedMessage = NativeMethods.RegisterWindowMessage("TaskbarCreated");
-        var iconPath = WindowIconService.IconPath;
+        var iconPath = WindowIconService.TrayIconPath;
         var smallIcons = new IntPtr[1];
         if (!File.Exists(iconPath)
             || NativeMethods.ExtractIconEx(iconPath, 0, null, smallIcons, 1) != 1
