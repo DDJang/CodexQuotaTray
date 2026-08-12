@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "windows": {
+    "version": "0.6.8",
+    "tag": "windows-v0.6.8",
+    "installer": {
+      "name": "CodexQuotaTray-0.6.8-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.6.8/CodexQuotaTray-0.6.8-setup.exe",
+      "sha256": "cfa731c79bb25651080c62f923d52142aaf1873dc737c0afd56af348c67955a4",
+      "size": 62506532
+    },
+    "releaseNotes": "## What's Changed\n* feat: enhance Windows updater experience by @DDJang in https://github.com/DDJang/CodexQuotaTray/pull/12\n* release: Windows v0.6.8 by @DDJang in https://github.com/DDJang/CodexQuotaTray/pull/13\n\n**Full Changelog**: https://github.com/DDJang/CodexQuotaTray/compare/windows-v0.6.7...windows-v0.6.8",
+    "publishedAt": "2026-08-12T09:29:00Z"
+  },
+  "android": {
+    "version": "0.6.6",
+    "tag": "android-v0.6.6",
+    "apk": {
+      "name": "CodexQuotaTray-Android-v0.6.6.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.6.6/CodexQuotaTray-Android-v0.6.6.apk",
+      "sha256": "41140d4f942840930b14afabd9d62cba9c83b0c259e41698b219e5614c24fbcc",
+      "size": 25969192
+    },
+    "releaseNotes": "**Full Changelog**: https://github.com/DDJang/CodexQuotaTray/compare/windows-v0.6.5...android-v0.6.6",
+    "publishedAt": "2026-08-11T11:21:21Z"
+  }
+}

@@ -80,7 +80,7 @@ public sealed record WindowsUpdateRelease(
     string ReleaseNotes,
     DateTimeOffset? PublishedAt,
     WindowsUpdateAsset Installer,
-    WindowsUpdateAsset Checksums);
+    string InstallerSha256);
 
 public sealed record WindowsUpdateCheckResult(
     WindowsUpdateCheckStatus Status,

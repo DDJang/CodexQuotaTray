@@ -204,7 +204,7 @@ public sealed class WindowsUpdateCoordinator : IAsyncDisposable
                 result = new WindowsUpdateCheckResult(
                     WindowsUpdateCheckStatus.NoRelease,
                     null,
-                    "当前 Release 没有有效的 Windows 安装包",
+                    "更新清单中没有有效的 Windows 安装包",
                     checkedAt);
                 updated = attemptState with { LastSuccessfulCheckUtc = checkedAt };
             }

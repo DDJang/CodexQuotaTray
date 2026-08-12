@@ -10,46 +10,53 @@ namespace CodexQuotaTray.Tests;
 public sealed class WindowsUpdateTests
 {
     [TestMethod]
-    public void ReleaseParser_SelectsHighestWindowsReleaseRegardlessOfOrderAndIgnoresAndroid()
+    public void ManifestParser_UsesWindowsNodeRegardlessOfAndroidVersion()
     {
         const string json = """
-            [
-              {"tag_name":"android-v9.9.9","draft":false,"prerelease":false,"assets":[]},
-              {"tag_name":"windows-v0.7.0","name":"0.7.0","body":"new","published_at":"2026-08-01T00:00:00Z","assets":[
-                {"name":"CodexQuotaTray-0.7.0-setup.exe","browser_download_url":"https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.7.0/CodexQuotaTray-0.7.0-setup.exe","size":10},
-                {"name":"SHA256SUMS.txt","browser_download_url":"https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.7.0/SHA256SUMS.txt","size":100}]},
-              {"tag_name":"windows-v0.6.6","draft":false,"prerelease":false,"assets":[
-                {"name":"CodexQuotaTray-0.6.6-setup.exe","browser_download_url":"https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.6.6/CodexQuotaTray-0.6.6-setup.exe"},
-                {"name":"SHA256SUMS.txt","browser_download_url":"https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.6.6/SHA256SUMS.txt"}]}
-            ]
+            {
+              "schemaVersion": 1,
+              "android": {"version":"9.9.9","tag":"android-v9.9.9"},
+              "windows": {
+                "version":"0.7.0",
+                "tag":"windows-v0.7.0",
+                "releaseNotes":"new",
+                "publishedAt":"2026-08-01T00:00:00Z",
+                "installer": {
+                  "name":"CodexQuotaTray-0.7.0-setup.exe",
+                  "url":"https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.7.0/CodexQuotaTray-0.7.0-setup.exe",
+                  "sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "size":10
+                }
+              }
+            }
             """;
 
         using var document = JsonDocument.Parse(json);
-        var release = GitHubWindowsReleaseProvider.ParseLatestWindowsRelease(document.RootElement);
+        var release = StaticUpdateManifestProvider.ParseWindowsRelease(document.RootElement);
 
-        Assert.IsNotNull(release);
         Assert.AreEqual("windows-v0.7.0", release.TagName);
         Assert.AreEqual("CodexQuotaTray-0.7.0-setup.exe", release.Installer.Name);
+        Assert.AreEqual(new string('A', 64), release.InstallerSha256);
     }
 
     [TestMethod]
-    public void ReleaseParser_RequiresStableTagAndBothExactAssets()
+    public void ManifestParser_RejectsMalformedPlatformData()
     {
-        const string json = """
-            [
-              {"tag_name":"windows-v0.8.0","draft":true,"prerelease":false,"assets":[]},
-              {"tag_name":"windows-v0.8.1-rc.1","draft":false,"prerelease":false,"assets":[]},
-              {"tag_name":"windows-v0.8.0","draft":false,"prerelease":true,"assets":[]},
-              {"tag_name":"windows-v0.9.0","draft":false,"prerelease":false,"assets":[{"name":"other.exe","browser_download_url":"https://github.com/DDJang/CodexQuotaTray/other.exe"}]}
-            ]
-            """;
-
-        using var document = JsonDocument.Parse(json);
-        Assert.IsNull(GitHubWindowsReleaseProvider.ParseLatestWindowsRelease(document.RootElement));
+        foreach (var json in new[]
+        {
+            "{}",
+            WindowsManifestJson("0.7.0").Replace("\"schemaVersion\":1", "\"schemaVersion\":2", StringComparison.Ordinal),
+            WindowsManifestJson("0.7.0").Replace(new string('a', 64), "bad-hash", StringComparison.Ordinal),
+            WindowsManifestJson("0.7.0").Replace("windows-v0.7.0", "android-v0.7.0", StringComparison.Ordinal),
+        })
+        {
+            using var document = JsonDocument.Parse(json);
+            Assert.ThrowsExactly<JsonException>(() => StaticUpdateManifestProvider.ParseWindowsRelease(document.RootElement));
+        }
     }
 
     [TestMethod]
-    public async Task ReleaseProvider_FindsWindowsReleaseOnSecondPageAfterAndroidPage()
+    public async Task ManifestProvider_ReadsExactlyOneFixedDocument()
     {
         var requests = new List<Uri>();
         var handler = new StaticHttpHandler(request =>
@@ -57,100 +64,31 @@ public sealed class WindowsUpdateTests
             requests.Add(request.RequestUri!);
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(request.RequestUri!.Query.Contains("page=2", StringComparison.Ordinal)
-                    ? ReleasePage(1, _ => WindowsReleaseJson("windows-v0.9.0", "0.9.0"))
-                    : ReleasePage(100, _ => AndroidReleaseJson("android-v0.1.0"))),
+                Content = new StringContent(WindowsManifestJson("0.9.0")),
             };
         });
         using var client = new HttpClient(handler);
-        using var provider = new GitHubWindowsReleaseProvider(client, "https://example.test/releases?per_page=100");
+        using var provider = new StaticUpdateManifestProvider(client, "https://example.test/update-manifest.json");
 
         var release = await provider.GetLatestAsync(CancellationToken.None);
 
         Assert.IsNotNull(release);
         Assert.AreEqual("windows-v0.9.0", release.TagName);
-        Assert.AreEqual(2, requests.Count);
-        Assert.IsTrue(requests[1].Query.Contains("page=2", StringComparison.Ordinal));
-    }
-
-    [TestMethod]
-    public async Task ReleaseProvider_ChoosesHigherVersionFromLaterPage()
-    {
-        var requests = new List<Uri>();
-        var handler = new StaticHttpHandler(request =>
-        {
-            requests.Add(request.RequestUri!);
-            var body = request.RequestUri!.Query.Contains("page=2", StringComparison.Ordinal)
-                ? ReleasePage(1, _ => WindowsReleaseJson("windows-v0.9.0", "0.9.0"))
-                : ReleasePage(100, _ => WindowsReleaseJson("windows-v0.7.0", "0.7.0"));
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
-        });
-        using var client = new HttpClient(handler);
-        using var provider = new GitHubWindowsReleaseProvider(client, "https://example.test/releases?per_page=100");
-
-        var release = await provider.GetLatestAsync(CancellationToken.None);
-
-        Assert.IsNotNull(release);
-        Assert.AreEqual("windows-v0.9.0", release.TagName);
-        Assert.AreEqual(2, requests.Count);
-    }
-
-    [TestMethod]
-    public async Task ReleaseProvider_StopsWhenSecondPageIsEmpty()
-    {
-        var requests = new List<Uri>();
-        var handler = new StaticHttpHandler(request =>
-        {
-            requests.Add(request.RequestUri!);
-            var body = request.RequestUri!.Query.Contains("page=2", StringComparison.Ordinal)
-                ? "[]"
-                : ReleasePage(100, _ => AndroidReleaseJson("android-v0.1.0"));
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
-        });
-        using var client = new HttpClient(handler);
-        using var provider = new GitHubWindowsReleaseProvider(client, "https://example.test/releases?per_page=100");
-
-        Assert.IsNull(await provider.GetLatestAsync(CancellationToken.None));
-        Assert.AreEqual(2, requests.Count);
-    }
-
-    [TestMethod]
-    public async Task ReleaseProvider_StopsAfterShortPage()
-    {
-        var requests = new List<Uri>();
-        var handler = new StaticHttpHandler(request =>
-        {
-            requests.Add(request.RequestUri!);
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(ReleasePage(1, _ => AndroidReleaseJson("android-v0.1.0"))),
-            };
-        });
-        using var client = new HttpClient(handler);
-        using var provider = new GitHubWindowsReleaseProvider(client, "https://example.test/releases?per_page=100");
-
-        Assert.IsNull(await provider.GetLatestAsync(CancellationToken.None));
         Assert.AreEqual(1, requests.Count);
+        Assert.AreEqual("/update-manifest.json", requests[0].AbsolutePath);
+        Assert.IsFalse(StaticUpdateManifestProvider.ManifestUrl.Contains("api.github.com", StringComparison.Ordinal));
     }
 
     [TestMethod]
-    public async Task ReleaseProvider_StopsAtBoundedMaximumPageCount()
+    public async Task ManifestProvider_ReportsHttpAndNetworkFailures()
     {
-        var requests = new List<Uri>();
-        var handler = new StaticHttpHandler(request =>
-        {
-            requests.Add(request.RequestUri!);
-            return new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StringContent(ReleasePage(100, _ => AndroidReleaseJson("android-v0.1.0"))),
-            };
-        });
-        using var client = new HttpClient(handler);
-        using var provider = new GitHubWindowsReleaseProvider(client, "https://example.test/releases?per_page=100");
+        using var httpClient = new HttpClient(new StaticHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
+        using var httpFailure = new StaticUpdateManifestProvider(httpClient, "https://example.test/update-manifest.json");
+        await Assert.ThrowsExactlyAsync<HttpRequestException>(() => httpFailure.GetLatestAsync(CancellationToken.None));
 
-        Assert.IsNull(await provider.GetLatestAsync(CancellationToken.None));
-        Assert.AreEqual(3, requests.Count);
-        Assert.IsFalse(requests.Any(request => request.Query.Contains("page=4", StringComparison.Ordinal)));
+        using var networkClient = new HttpClient(new ThrowingHttpHandler(new HttpRequestException("offline")));
+        using var networkFailure = new StaticUpdateManifestProvider(networkClient, "https://example.test/update-manifest.json");
+        await Assert.ThrowsExactlyAsync<HttpRequestException>(() => networkFailure.GetLatestAsync(CancellationToken.None));
     }
 
     [TestMethod]
@@ -172,8 +110,7 @@ public sealed class WindowsUpdateTests
     [DataRow("windows-v0.6.6-beta")]
     public void SemanticVersion_RejectsInvalidVersions(string value)
     {
-        Assert.IsFalse(SemanticVersion.TryParse(value.StartsWith("windows-v", StringComparison.Ordinal) ? value[9..] : value, out _)
-            && GitHubWindowsReleaseProvider.TryParseWindowsTag(value, out _));
+        Assert.IsFalse(SemanticVersion.TryParse(value.StartsWith("windows-v", StringComparison.Ordinal) ? value[9..] : value, out _));
     }
 
     [TestMethod]
@@ -239,6 +176,19 @@ public sealed class WindowsUpdateTests
     }
 
     [TestMethod]
+    public async Task Coordinator_EqualVersionIsUpToDate()
+    {
+        await using var coordinator = new WindowsUpdateCoordinator(
+            new FakeReleaseProvider(CreateRelease("0.6.8")),
+            new MemoryStateStore(),
+            Parse("0.6.8"));
+
+        var result = await coordinator.CheckAsync(WindowsUpdateCheckReason.Manual, CancellationToken.None);
+
+        Assert.AreEqual(WindowsUpdateCheckStatus.UpToDate, result.Status);
+    }
+
+    [TestMethod]
     public async Task Coordinator_NotifiesEachAvailableVersionAtMostOnce()
     {
         var provider = new FakeReleaseProvider(CreateRelease("0.7.0"));
@@ -256,7 +206,6 @@ public sealed class WindowsUpdateTests
     public async Task Downloader_ValidatesSha256AndUsesPartFile()
     {
         var bytes = Encoding.UTF8.GetBytes("installer");
-        var hash = Convert.ToHexString(SHA256.HashData(bytes));
         var handler = new StaticHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new ByteArrayContent(bytes),
@@ -266,13 +215,6 @@ public sealed class WindowsUpdateTests
         {
             using var client = new HttpClient(handler);
             using var downloader = new WindowsUpdateDownloader(root, client);
-            handler.ResponseFactory = request => new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = request.RequestUri!.AbsolutePath.EndsWith("SHA256SUMS.txt", StringComparison.Ordinal)
-                    ? new StringContent($"{hash}  CodexQuotaTray-0.7.0-setup.exe\n")
-                    : new ByteArrayContent(bytes),
-            };
-
             var result = await downloader.DownloadAsync(CreateRelease("0.7.0"), CancellationToken.None);
 
             Assert.IsTrue(result.Succeeded);
@@ -301,14 +243,9 @@ public sealed class WindowsUpdateTests
         {
             using var client = new HttpClient(handler);
             using var downloader = new WindowsUpdateDownloader(root, client);
-            handler.ResponseFactory = request => new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = request.RequestUri!.AbsolutePath.EndsWith("SHA256SUMS.txt", StringComparison.Ordinal)
-                    ? new StringContent($"{new string('0', 64)}  CodexQuotaTray-0.7.0-setup.exe\n")
-                    : new ByteArrayContent(bytes),
-            };
-
-            var badHash = await downloader.DownloadAsync(CreateRelease("0.7.0"), CancellationToken.None);
+            var badHash = await downloader.DownloadAsync(
+                CreateRelease("0.7.0") with { InstallerSha256 = new string('0', 64) },
+                CancellationToken.None);
             var untrusted = await downloader.DownloadAsync(
                 CreateRelease("0.7.0") with
                 {
@@ -335,12 +272,9 @@ public sealed class WindowsUpdateTests
     public async Task Downloader_ReportsKnownTotalAndVerificationPhase()
     {
         var bytes = Encoding.UTF8.GetBytes("installer");
-        var hash = Convert.ToHexString(SHA256.HashData(bytes));
-        var handler = new StaticHttpHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
+        var handler = new StaticHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = request.RequestUri!.AbsolutePath.EndsWith("SHA256SUMS.txt", StringComparison.Ordinal)
-                ? new StringContent($"{hash}  CodexQuotaTray-0.7.0-setup.exe\n")
-                : new ByteArrayContent(bytes),
+            Content = new ByteArrayContent(bytes),
         });
         var progress = new RecordingProgress();
         var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-test-" + Guid.NewGuid().ToString("N"));
@@ -371,12 +305,9 @@ public sealed class WindowsUpdateTests
     public async Task Downloader_UsesIndeterminateProgressWhenTotalIsUnknown()
     {
         var bytes = Encoding.UTF8.GetBytes("installer");
-        var hash = Convert.ToHexString(SHA256.HashData(bytes));
-        var handler = new StaticHttpHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
+        var handler = new StaticHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = request.RequestUri!.AbsolutePath.EndsWith("SHA256SUMS.txt", StringComparison.Ordinal)
-                ? new StringContent($"{hash}  CodexQuotaTray-0.7.0-setup.exe\n")
-                : new StreamContent(new NonSeekableStream(bytes)),
+            Content = new StreamContent(new NonSeekableStream(bytes)),
         });
         var progress = new RecordingProgress();
         var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-test-" + Guid.NewGuid().ToString("N"));
@@ -529,36 +460,26 @@ public sealed class WindowsUpdateTests
         return version;
     }
 
-    private static string ReleasePage(int count, Func<int, string> releaseFactory) =>
-        "[" + string.Join(",", Enumerable.Range(0, count).Select(releaseFactory)) + "]";
-
-    private static string AndroidReleaseJson(string tag) => JsonSerializer.Serialize(new
+    private static string WindowsManifestJson(string version) => JsonSerializer.Serialize(new
     {
-        tag_name = tag,
-        draft = false,
-        prerelease = false,
-        assets = Array.Empty<object>(),
-    });
-
-    private static string WindowsReleaseJson(string tag, string version) => JsonSerializer.Serialize(new
-    {
-        tag_name = tag,
-        name = $"Release {version}",
-        body = "notes",
-        published_at = "2026-08-11T00:00:00Z",
-        draft = false,
-        prerelease = false,
-        assets = new object[]
+        schemaVersion = 1,
+        android = new
         {
-            new
+            version = "9.9.9",
+            tag = "android-v9.9.9",
+        },
+        windows = new
+        {
+            version,
+            tag = $"windows-v{version}",
+            releaseNotes = "notes",
+            publishedAt = "2026-08-11T00:00:00Z",
+            installer = new
             {
                 name = $"CodexQuotaTray-{version}-setup.exe",
-                browser_download_url = $"https://github.com/DDJang/CodexQuotaTray/releases/download/{tag}/CodexQuotaTray-{version}-setup.exe",
-            },
-            new
-            {
-                name = "SHA256SUMS.txt",
-                browser_download_url = $"https://github.com/DDJang/CodexQuotaTray/releases/download/{tag}/SHA256SUMS.txt",
+                url = $"https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v{version}/CodexQuotaTray-{version}-setup.exe",
+                sha256 = new string('a', 64),
+                size = 10,
             },
         },
     });
@@ -575,9 +496,7 @@ public sealed class WindowsUpdateTests
             new WindowsUpdateAsset(
                 $"CodexQuotaTray-{version}-setup.exe",
                 new Uri($"https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v{version}/CodexQuotaTray-{version}-setup.exe")),
-            new WindowsUpdateAsset(
-                "SHA256SUMS.txt",
-                new Uri($"https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v{version}/SHA256SUMS.txt")));
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes("installer"))));
     }
 
     private sealed class FakeReleaseProvider : IWindowsUpdateReleaseProvider
@@ -656,5 +575,11 @@ public sealed class WindowsUpdateTests
             response.RequestMessage ??= request;
             return Task.FromResult(response);
         }
+    }
+
+    private sealed class ThrowingHttpHandler(Exception error) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromException<HttpResponseMessage>(error);
     }
 }

@@ -263,6 +263,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         UpdateCheckInProgress = true;
+        UpdateStatusText = "正在检查…";
         try
         {
             var result = await updates.CheckAsync(manual: true, cancellationToken);
@@ -590,7 +591,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             var result = updates.CurrentResult;
             DownloadProgress = updates.DownloadProgress;
             ApplyDownloadPresentation(result);
-            var lastCheck = updates.LastSuccessfulCheckUtc ?? updates.LastAttemptUtc;
+            var lastCheck = updates.LastAttemptUtc ?? updates.LastSuccessfulCheckUtc;
             UpdateLastCheckText = lastCheck is { } value
                 ? value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
                 : "尚未检查";
@@ -647,9 +648,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         WindowsUpdateCheckStatus.Checking => "正在检查…",
         WindowsUpdateCheckStatus.Disabled => string.Empty,
         WindowsUpdateCheckStatus.Skipped => string.Empty,
-        WindowsUpdateCheckStatus.UpToDate => string.Empty,
+        WindowsUpdateCheckStatus.UpToDate => "当前已是最新版本",
         WindowsUpdateCheckStatus.Available => $"发现新版本 {result.Release?.Version}",
-        WindowsUpdateCheckStatus.NoRelease => "当前 Release 没有有效的 Windows 安装包",
+        WindowsUpdateCheckStatus.NoRelease => "更新清单中没有有效的 Windows 安装包",
         WindowsUpdateCheckStatus.Failed => "检查更新失败",
         _ => "尚未检查",
     };

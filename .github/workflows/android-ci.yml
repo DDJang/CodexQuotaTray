@@ -6,6 +6,9 @@ on:
       - 'android/**'
       - '.github/workflows/android-ci.yml'
       - '.github/workflows/android-release.yml'
+      - '.github/scripts/update-release-manifest.ps1'
+      - '.github/scripts/test-update-release-manifest.ps1'
+      - '.github/update-manifest.seed.json'
   push:
     branches:
       - main
@@ -13,6 +16,9 @@ on:
       - 'android/**'
       - '.github/workflows/android-ci.yml'
       - '.github/workflows/android-release.yml'
+      - '.github/scripts/update-release-manifest.ps1'
+      - '.github/scripts/test-update-release-manifest.ps1'
+      - '.github/update-manifest.seed.json'
 
 permissions:
   contents: read
@@ -41,3 +47,7 @@ jobs:
       - name: Test and assemble Debug
         working-directory: android
         run: ./gradlew :app:testDebugUnitTest :app:assembleDebug
+
+      - name: Test unified update manifest writer
+        shell: pwsh
+        run: ./.github/scripts/test-update-release-manifest.ps1

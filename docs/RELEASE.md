@@ -11,6 +11,12 @@ Windows 与 Android 版本完全独立，但所有正式 Release 都必须来自
 | Windows | `windows-v<version>` | WinUI App 项目 `Version` | `windows-release.yml` | x64 ZIP、Inno installer、Windows `SHA256SUMS.txt` |
 | Android | `android-v<version>` | `android/app/build.gradle.kts` 的 `versionName` | `android-release.yml` | `CodexQuotaTray-Android-v<version>.apk`、Android `SHA256SUMS.txt` |
 
+Android 与 Windows 客户端都从固定地址
+`https://raw.githubusercontent.com/DDJang/CodexQuotaTray/update-manifest/update-manifest.json`
+读取统一更新清单，不查询 GitHub Releases API。安装包和 APK 仍由对应 GitHub Release 托管，清单中包含下载地址、SHA256、发布说明与发布时间。
+
+两个 Release workflow 使用同一个 `update-manifest-publish` concurrency group，且不取消运行中的发布。Release 与全部资产成功创建后，workflow 的最后一步读取 `update-manifest` 分支上的现有清单，只替换当前平台节点，再提交回该分支。首次创建该分支时使用 `.github/update-manifest.seed.json` 保留另一个平台已有的最新正式版本。
+
 两个 workflow 都会 fetch `origin/main`，并拒绝不属于 `main` 历史的 tagged commit。Tag 版本必须
 与对应项目版本完全一致。平台更新器只能识别自身平台的 tag 前缀，不能依赖 GitHub “latest release”。
 

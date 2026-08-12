@@ -109,7 +109,7 @@ public partial class App : Application
                 && SemanticVersion.TryParse(ProductVersion.Current, out var currentVersion))
             {
                 var updateCoordinator = new WindowsUpdateCoordinator(
-                    new GitHubWindowsReleaseProvider(),
+                    new StaticUpdateManifestProvider(),
                     new FileWindowsUpdateStateStore(
                         jsonStore,
                         Path.Combine(paths.Root, "windows-update-state.json")),

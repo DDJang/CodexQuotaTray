@@ -26,7 +26,7 @@ class UpdateCheckCoordinator(
         settings = UpdateSettingsStore(context),
         providerFor = { source ->
             when (source) {
-                UpdateSource.GITHUB -> GithubUpdateProvider()
+                UpdateSource.GITHUB -> StaticUpdateManifestProvider()
                 UpdateSource.GITEE -> UnavailableUpdateProvider
             }
         },

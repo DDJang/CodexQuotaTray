@@ -164,7 +164,7 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
-    public void UpdateStatus_QuietStatesOnlyKeepVersionAndLastCheckFields()
+    public void UpdateStatus_ReportsSuccessfulManualCheck()
     {
         Assert.AreEqual(
             string.Empty,
@@ -174,7 +174,7 @@ public sealed class ViewModelTests
                 null,
                 null)));
         Assert.AreEqual(
-            string.Empty,
+            "当前已是最新版本",
             SettingsViewModel.FormatUpdateStatus(new WindowsUpdateCheckResult(
                 WindowsUpdateCheckStatus.UpToDate,
                 null,
@@ -209,6 +209,50 @@ public sealed class ViewModelTests
         Assert.IsNotNull(completed);
         Assert.AreEqual(WindowsUpdateCheckStatus.Disabled, completed.Status);
         Assert.AreEqual("开发版本不检查正式更新", completed.ErrorMessage);
+    }
+
+    [TestMethod]
+    public async Task ManualUpdateCheck_ShowsCheckingThenUpToDate()
+    {
+        var updates = new StubWindowsUpdateController
+        {
+            CheckGate = new TaskCompletionSource<WindowsUpdateCheckResult>(TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions(),
+            updates);
+
+        var check = viewModel.CheckForWindowsUpdatesCommand.ExecuteAsync(null);
+        Assert.AreEqual("正在检查…", viewModel.UpdateStatusText);
+        updates.CheckGate.SetResult(new WindowsUpdateCheckResult(
+            WindowsUpdateCheckStatus.UpToDate,
+            null,
+            null,
+            DateTimeOffset.UtcNow));
+
+        await check;
+        Assert.AreEqual("当前已是最新版本", viewModel.UpdateStatusText);
+    }
+
+    [TestMethod]
+    public void UpdateLastCheck_UsesMostRecentAttemptAfterFailure()
+    {
+        var updates = new StubWindowsUpdateController
+        {
+            LastSuccessfulCheckUtc = new DateTimeOffset(2026, 8, 12, 1, 0, 0, TimeSpan.Zero),
+            LastAttemptUtc = new DateTimeOffset(2026, 8, 12, 2, 0, 0, TimeSpan.Zero),
+        };
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions(),
+            updates);
+
+        Assert.AreEqual(
+            updates.LastAttemptUtc.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"),
+            viewModel.UpdateLastCheckText);
     }
 
     [TestMethod]
@@ -457,15 +501,17 @@ public sealed class ViewModelTests
 
         public bool AutoLaunchInstallerAfterDownload { get; private set; }
 
-        public DateTimeOffset? LastAttemptUtc => null;
+        public DateTimeOffset? LastAttemptUtc { get; init; }
 
-        public DateTimeOffset? LastSuccessfulCheckUtc => null;
+        public DateTimeOffset? LastSuccessfulCheckUtc { get; init; }
 
         public WindowsUpdateCheckResult CurrentResult { get; private set; } = WindowsUpdateCheckResult.NotChecked;
 
         public WindowsUpdateDownloadProgress DownloadProgress { get; private set; } = WindowsUpdateDownloadProgress.Idle;
 
         public bool InstallResult { get; set; } = true;
+
+        public TaskCompletionSource<WindowsUpdateCheckResult>? CheckGate { get; init; }
 
         public event EventHandler? Changed;
 
@@ -492,8 +538,14 @@ public sealed class ViewModelTests
             return Task.CompletedTask;
         }
 
-        public Task<WindowsUpdateCheckResult> CheckAsync(bool manual, CancellationToken cancellationToken) =>
-            Task.FromResult(CurrentResult);
+        public async Task<WindowsUpdateCheckResult> CheckAsync(bool manual, CancellationToken cancellationToken)
+        {
+            var result = CheckGate is null
+                ? CurrentResult
+                : await CheckGate.Task.WaitAsync(cancellationToken);
+            CurrentResult = result;
+            return result;
+        }
 
         public Task<WindowsUpdateDownloadResult> DownloadAsync(CancellationToken cancellationToken) =>
             Task.FromResult(WindowsUpdateDownloadResult.Failed("not used"));

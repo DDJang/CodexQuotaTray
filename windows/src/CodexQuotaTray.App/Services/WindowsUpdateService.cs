@@ -13,6 +13,7 @@ internal sealed class WindowsUpdateService : IWindowsUpdateController, IAsyncDis
     private readonly SemaphoreSlim downloadGate = new(1, 1);
     private readonly object progressGate = new();
     private string? preparedInstallerPath;
+    private string? preparedInstallerSha256;
     private WindowsUpdateDownloadProgress downloadProgress = WindowsUpdateDownloadProgress.Idle;
     private long? expectedDownloadTotal;
     private bool disposed;
@@ -89,6 +90,8 @@ internal sealed class WindowsUpdateService : IWindowsUpdateController, IAsyncDis
 
         try
         {
+            preparedInstallerPath = null;
+            preparedInstallerSha256 = null;
             var release = CurrentResult.Release;
             if (!CurrentResult.HasUpdate || release is null)
             {
@@ -104,6 +107,7 @@ internal sealed class WindowsUpdateService : IWindowsUpdateController, IAsyncDis
             if (result.Succeeded)
             {
                 preparedInstallerPath = result.InstallerPath;
+                preparedInstallerSha256 = release.InstallerSha256;
                 var completed = DownloadProgress;
                 PublishDownloadProgress(completed with { Phase = WindowsUpdateDownloadPhase.ReadyToInstall });
             }
@@ -126,7 +130,7 @@ internal sealed class WindowsUpdateService : IWindowsUpdateController, IAsyncDis
     public Task<bool> InstallPreparedAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (preparedInstallerPath is null)
+        if (preparedInstallerPath is null || preparedInstallerSha256 is null)
         {
             PublishDownloadProgress(new WindowsUpdateDownloadProgress(WindowsUpdateDownloadPhase.Failed));
             return Task.FromResult(false);
@@ -134,12 +138,16 @@ internal sealed class WindowsUpdateService : IWindowsUpdateController, IAsyncDis
 
         var progress = DownloadProgress;
         PublishDownloadProgress(progress with { Phase = WindowsUpdateDownloadPhase.Installing });
-        if (!installer.TryStart(preparedInstallerPath))
+        if (!installer.TryStart(preparedInstallerPath, preparedInstallerSha256))
         {
+            preparedInstallerPath = null;
+            preparedInstallerSha256 = null;
             PublishDownloadProgress(new WindowsUpdateDownloadProgress(WindowsUpdateDownloadPhase.Failed));
             return Task.FromResult(false);
         }
 
+        preparedInstallerPath = null;
+        preparedInstallerSha256 = null;
         installerStarted();
         return Task.FromResult(true);
     }

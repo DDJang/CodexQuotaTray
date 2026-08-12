@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: update-manifest-publish
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: windows-latest
@@ -235,3 +239,60 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "GitHub Release creation failed with exit code $LASTEXITCODE."
           }
+
+      - name: Publish unified update manifest
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $worktree = Join-Path $env:RUNNER_TEMP 'update-manifest-worktree'
+          $branchExists = git ls-remote --exit-code --heads origin update-manifest
+          if ($LASTEXITCODE -eq 0) {
+            git fetch --no-tags origin 'refs/heads/update-manifest:refs/remotes/origin/update-manifest'
+            if ($LASTEXITCODE -ne 0) { throw 'Could not fetch update-manifest branch.' }
+            git worktree add --detach $worktree refs/remotes/origin/update-manifest
+          } elseif ($LASTEXITCODE -eq 2) {
+            git worktree add --detach $worktree $env:GITHUB_SHA
+            Push-Location $worktree
+            git switch --orphan update-manifest
+            git rm -rf .
+            Pop-Location
+            Copy-Item -LiteralPath '.github\update-manifest.seed.json' -Destination (Join-Path $worktree 'update-manifest.json')
+          } else {
+            throw 'Could not determine whether update-manifest branch exists.'
+          }
+          if ($LASTEXITCODE -ne 0) { throw 'Could not create update manifest worktree.' }
+
+          $metadataPath = Join-Path $env:RUNNER_TEMP 'release-metadata.json'
+          gh release view $env:TAG_NAME --json body,publishedAt | Out-File -LiteralPath $metadataPath -Encoding utf8
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read the completed GitHub Release.' }
+          $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+          $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          [IO.File]::WriteAllText($notesPath, [string]$metadata.body, [Text.UTF8Encoding]::new($false))
+          $installerName = "CodexQuotaTray-$($env:RELEASE_VERSION)-setup.exe"
+          $installerPath = Join-Path (Get-Location) "dist-inno\$installerName"
+          $installerHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
+          & '.github\scripts\update-release-manifest.ps1' `
+            -Platform windows `
+            -ManifestPath (Join-Path $worktree 'update-manifest.json') `
+            -Version $env:RELEASE_VERSION `
+            -Tag $env:TAG_NAME `
+            -AssetName $installerName `
+            -AssetUrl "https://github.com/DDJang/CodexQuotaTray/releases/download/$($env:TAG_NAME)/$installerName" `
+            -Sha256 $installerHash `
+            -AssetSize (Get-Item -LiteralPath $installerPath).Length `
+            -ReleaseNotesPath $notesPath `
+            -PublishedAt ([string]$metadata.publishedAt)
+
+          Push-Location $worktree
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add update-manifest.json
+          git commit -m "release: update Windows manifest to $($env:RELEASE_VERSION)"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not commit Windows manifest update.' }
+          git push origin HEAD:refs/heads/update-manifest
+          if ($LASTEXITCODE -ne 0) { throw 'Could not publish Windows manifest update.' }
+          Pop-Location

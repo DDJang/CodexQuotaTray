@@ -241,7 +241,7 @@ public sealed partial class SettingsWindow : Window
         {
             await ShowUpdateMessageAsync(
                 "检查更新失败",
-                result.ErrorMessage ?? "无法读取有效的 Windows Release。",
+                result.ErrorMessage ?? "无法读取有效的 Windows 更新清单。",
                 "关闭");
         }
     }

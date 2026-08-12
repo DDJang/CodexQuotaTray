@@ -31,6 +31,23 @@ $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
 ```
 
+运行前必须先用 `java -version` 和 `.\gradlew.bat --version` 确认实际 JVM；不要只依赖 PATH。
+当前 Windows 开发机的 PATH 会命中 `C:\Windows\System32\java.exe`（Java 1.7），不能运行本项目。
+本机已验证可用的现有 Gradle JVM 是
+`C:\Users\18456\.jdks\jbr-21.0.11`，它运行 Gradle 8.11.1/AGP 8.9.1，同时项目仍按上面的
+Java/Kotlin 17 目标编译。验证时只在当前 PowerShell 进程设置：
+
+```powershell
+$env:JAVA_HOME = 'C:\Users\18456\.jdks\jbr-21.0.11'
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"
+$env:ANDROID_HOME = 'D:\Android\Sdk'
+$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+```
+
+Android Studio 当前自带的 `D:\Android\Android Studio\jbr` 是 JDK 25，不用于本仓库的
+Gradle 8.11.1 验证。不要为选择本机 JDK 修改 Gradle、AGP、SDK、`gradle.properties` 或提交
+机器专属项目配置。
+
 Debug 使用 `com.codexquotatray.android.debug` 和名称 **CodexQuotaTray Dev**，采用默认 debug
 签名，可与正式版同时安装且数据隔离：
 

@@ -13,6 +13,9 @@ on:
       - 'global.json'
       - '.github/workflows/windows-ci.yml'
       - '.github/workflows/windows-release.yml'
+      - '.github/scripts/update-release-manifest.ps1'
+      - '.github/scripts/test-update-release-manifest.ps1'
+      - '.github/update-manifest.seed.json'
   push:
     branches:
       - main
@@ -21,6 +24,9 @@ on:
       - 'global.json'
       - '.github/workflows/windows-ci.yml'
       - '.github/workflows/windows-release.yml'
+      - '.github/scripts/update-release-manifest.ps1'
+      - '.github/scripts/test-update-release-manifest.ps1'
+      - '.github/update-manifest.seed.json'
 
 permissions:
   contents: read
@@ -64,3 +70,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             throw "WinUI Full verification failed with exit code $LASTEXITCODE."
           }
+
+      - name: Test unified update manifest writer
+        shell: pwsh
+        run: ./.github/scripts/test-update-release-manifest.ps1
