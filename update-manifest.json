@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "windows": {
+    "version": "0.6.9",
+    "tag": "windows-v0.6.9",
+    "installer": {
+      "name": "CodexQuotaTray-0.6.9-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.6.9/CodexQuotaTray-0.6.9-setup.exe",
+      "sha256": "3e5067753479ccdbf299ec2b7e7d831802864e8c4c9019d23a83342703560bee",
+      "size": 62514140
+    },
+    "releaseNotes": "**Full Changelog**: https://github.com/DDJang/CodexQuotaTray/compare/windows-v0.6.8...windows-v0.6.9\n",
+    "publishedAt": "2026-08-12T11:12:02Z"
+  },
+  "android": {
+    "version": "0.6.7",
+    "tag": "android-v0.6.7",
+    "apk": {
+      "name": "CodexQuotaTray-Android-v0.6.7.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.6.7/CodexQuotaTray-Android-v0.6.7.apk",
+      "sha256": "eaaae579c7542d51474706360996a9e191847a8fadb0d318b50d18bc40acaf98",
+      "size": 25969192
+    },
+    "releaseNotes": "**Full Changelog**: https://github.com/DDJang/CodexQuotaTray/compare/windows-v0.6.8...android-v0.6.7\n",
+    "publishedAt": "2026-08-12T11:15:08Z"
+  }
+}
