@@ -41,6 +41,11 @@ public sealed class WindowsUpdateCoordinator : IAsyncDisposable
         get { lock (gate) return state.UpdateRemindersEnabled; }
     }
 
+    public bool AutoLaunchInstallerAfterDownload
+    {
+        get { lock (gate) return state.AutoLaunchInstallerAfterDownload; }
+    }
+
     public DateTimeOffset? LastAttemptUtc
     {
         get { lock (gate) return state.LastAttemptUtc; }
@@ -89,6 +94,20 @@ public sealed class WindowsUpdateCoordinator : IAsyncDisposable
         lock (gate)
         {
             updated = state with { UpdateRemindersEnabled = enabled };
+            state = updated;
+        }
+
+        await SaveStateAsync(updated, cancellationToken).ConfigureAwait(false);
+        RaiseChanged();
+    }
+
+    public async Task SetAutoLaunchInstallerAfterDownloadAsync(bool enabled, CancellationToken cancellationToken)
+    {
+        await EnsureLoadedAsync(cancellationToken).ConfigureAwait(false);
+        WindowsUpdateState updated;
+        lock (gate)
+        {
+            updated = state with { AutoLaunchInstallerAfterDownload = enabled };
             state = updated;
         }
 

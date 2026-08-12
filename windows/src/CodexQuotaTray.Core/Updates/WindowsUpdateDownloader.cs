@@ -18,8 +18,14 @@ public sealed class WindowsUpdateDownloader : IDisposable
         disposeClient = client is null;
     }
 
+    public Task<WindowsUpdateDownloadResult> DownloadAsync(
+        WindowsUpdateRelease release,
+        CancellationToken cancellationToken) =>
+        DownloadAsync(release, progress: null, cancellationToken: cancellationToken);
+
     public async Task<WindowsUpdateDownloadResult> DownloadAsync(
         WindowsUpdateRelease release,
+        IProgress<WindowsUpdateDownloadProgress>? progress,
         CancellationToken cancellationToken)
     {
         var expectedName = $"CodexQuotaTray-{release.Version}-setup.exe";
@@ -37,7 +43,17 @@ public sealed class WindowsUpdateDownloader : IDisposable
         {
             Directory.CreateDirectory(cacheDirectory);
             CleanupStaleCache();
-            await DownloadFileAsync(release.Installer.Url, part, MaximumInstallerBytes, cancellationToken).ConfigureAwait(false);
+            progress?.Report(new WindowsUpdateDownloadProgress(WindowsUpdateDownloadPhase.Downloading));
+            await DownloadFileAsync(
+                release.Installer.Url,
+                part,
+                MaximumInstallerBytes,
+                progress,
+                cancellationToken).ConfigureAwait(false);
+            progress?.Report(new WindowsUpdateDownloadProgress(
+                WindowsUpdateDownloadPhase.Verifying,
+                GetFileLength(part),
+                GetFileLength(part)));
             var checksums = await DownloadTextAsync(release.Checksums.Url, MaximumChecksumBytes, cancellationToken)
                 .ConfigureAwait(false);
             var expectedHash = FindExpectedHash(checksums, expectedName);
@@ -58,12 +74,18 @@ public sealed class WindowsUpdateDownloader : IDisposable
         catch (OperationCanceledException)
         {
             DeleteIfExists(part);
-            return WindowsUpdateDownloadResult.Failed(cancellationToken.IsCancellationRequested ? "下载已取消" : "更新下载超时");
+            var result = cancellationToken.IsCancellationRequested
+                ? WindowsUpdateDownloadResult.Cancelled()
+                : WindowsUpdateDownloadResult.Failed("更新下载超时");
+            progress?.Report(new WindowsUpdateDownloadProgress(
+                result.WasCancelled ? WindowsUpdateDownloadPhase.Cancelled : WindowsUpdateDownloadPhase.Failed));
+            return result;
         }
         catch (Exception error) when (error is IOException or InvalidDataException or HttpRequestException or UnauthorizedAccessException)
         {
             DeleteIfExists(part);
             DeleteIfExists(target);
+            progress?.Report(new WindowsUpdateDownloadProgress(WindowsUpdateDownloadPhase.Failed));
             return WindowsUpdateDownloadResult.Failed(error.Message);
         }
     }
@@ -114,10 +136,16 @@ public sealed class WindowsUpdateDownloader : IDisposable
         }
     }
 
-    private async Task DownloadFileAsync(Uri uri, string path, long maximumBytes, CancellationToken cancellationToken)
+    private async Task DownloadFileAsync(
+        Uri uri,
+        string path,
+        long maximumBytes,
+        IProgress<WindowsUpdateDownloadProgress>? progress,
+        CancellationToken cancellationToken)
     {
         using var response = await SendAssetAsync(uri, cancellationToken).ConfigureAwait(false);
-        if (response.Content.Headers.ContentLength is long length && length > maximumBytes)
+        var totalBytes = response.Content.Headers.ContentLength;
+        if (totalBytes is long length && length > maximumBytes)
         {
             throw new InvalidDataException("更新文件超过允许的大小限制。");
         }
@@ -126,6 +154,7 @@ public sealed class WindowsUpdateDownloader : IDisposable
         await using var destination = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
         var buffer = new byte[64 * 1024];
         long total = 0;
+        progress?.Report(new WindowsUpdateDownloadProgress(WindowsUpdateDownloadPhase.Downloading, 0, totalBytes));
         while (true)
         {
             var read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
@@ -141,10 +170,13 @@ public sealed class WindowsUpdateDownloader : IDisposable
             }
 
             await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+            progress?.Report(new WindowsUpdateDownloadProgress(WindowsUpdateDownloadPhase.Downloading, total, totalBytes));
         }
 
         await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
+
+    private static long GetFileLength(string path) => new FileInfo(path).Length;
 
     private async Task<string> DownloadTextAsync(Uri uri, long maximumBytes, CancellationToken cancellationToken)
     {

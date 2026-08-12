@@ -164,6 +164,71 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public void UpdateStatus_QuietStatesOnlyKeepVersionAndLastCheckFields()
+    {
+        Assert.AreEqual(
+            string.Empty,
+            SettingsViewModel.FormatUpdateStatus(new WindowsUpdateCheckResult(
+                WindowsUpdateCheckStatus.NotChecked,
+                null,
+                null,
+                null)));
+        Assert.AreEqual(
+            string.Empty,
+            SettingsViewModel.FormatUpdateStatus(new WindowsUpdateCheckResult(
+                WindowsUpdateCheckStatus.UpToDate,
+                null,
+                null,
+                DateTimeOffset.UtcNow)));
+        Assert.AreEqual(
+            "正在检查…",
+            SettingsViewModel.FormatUpdateStatus(new WindowsUpdateCheckResult(
+                WindowsUpdateCheckStatus.Checking,
+                null,
+                null,
+                null)));
+    }
+
+    [TestMethod]
+    public async Task WindowsUpdateProgress_IsProjectedAndInstallerFailureStaysInApp()
+    {
+        var updates = new StubWindowsUpdateController();
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions(),
+            updates);
+
+        Assert.IsFalse(viewModel.AutoLaunchInstallerAfterDownload);
+        updates.Publish(new WindowsUpdateDownloadProgress(
+            WindowsUpdateDownloadPhase.Downloading,
+            17 * 1024 * 1024,
+            25 * 1024 * 1024));
+
+        Assert.AreEqual("正在下载更新 · 68%", viewModel.DownloadProgressText);
+        Assert.AreEqual("17.0 MB / 25.0 MB", viewModel.DownloadProgressSizeText);
+        Assert.IsFalse(viewModel.IsDownloadProgressIndeterminate);
+        Assert.IsTrue(viewModel.HasDownloadProgress);
+
+        updates.Publish(new WindowsUpdateDownloadProgress(
+            WindowsUpdateDownloadPhase.Downloading,
+            17 * 1024 * 1024,
+            null));
+        Assert.IsTrue(viewModel.IsDownloadProgressIndeterminate);
+        Assert.AreEqual("已下载 17.0 MB", viewModel.DownloadProgressSizeText);
+
+        updates.Publish(new WindowsUpdateDownloadProgress(
+            WindowsUpdateDownloadPhase.Verifying,
+            25 * 1024 * 1024,
+            25 * 1024 * 1024));
+        Assert.AreEqual("正在验证安装包…", viewModel.UpdateStatusText);
+        Assert.IsTrue(viewModel.IsDownloadProgressIndeterminate);
+
+        updates.InstallResult = false;
+        Assert.IsFalse(await viewModel.InstallPreparedWindowsUpdateAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
     public void SettingsChangesApplyImmediatelyAndReportTheme()
     {
         var runtime = new StubRuntimeControl();
@@ -357,6 +422,68 @@ public sealed class ViewModelTests
         {
             ShowedAbout = true;
             AboutHost = host;
+        }
+    }
+
+    private sealed class StubWindowsUpdateController : IWindowsUpdateController
+    {
+        public bool IsProduction => true;
+
+        public bool AutomaticChecksEnabled { get; private set; } = true;
+
+        public bool UpdateRemindersEnabled { get; private set; } = true;
+
+        public bool AutoLaunchInstallerAfterDownload { get; private set; }
+
+        public DateTimeOffset? LastAttemptUtc => null;
+
+        public DateTimeOffset? LastSuccessfulCheckUtc => null;
+
+        public WindowsUpdateCheckResult CurrentResult { get; private set; } = WindowsUpdateCheckResult.NotChecked;
+
+        public WindowsUpdateDownloadProgress DownloadProgress { get; private set; } = WindowsUpdateDownloadProgress.Idle;
+
+        public bool InstallResult { get; set; } = true;
+
+        public event EventHandler? Changed;
+
+        public event EventHandler<WindowsUpdateDownloadProgress>? DownloadProgressChanged;
+
+        public Task SetAutomaticChecksEnabledAsync(bool enabled, CancellationToken cancellationToken)
+        {
+            AutomaticChecksEnabled = enabled;
+            Changed?.Invoke(this, EventArgs.Empty);
+            return Task.CompletedTask;
+        }
+
+        public Task SetUpdateRemindersEnabledAsync(bool enabled, CancellationToken cancellationToken)
+        {
+            UpdateRemindersEnabled = enabled;
+            Changed?.Invoke(this, EventArgs.Empty);
+            return Task.CompletedTask;
+        }
+
+        public Task SetAutoLaunchInstallerAfterDownloadAsync(bool enabled, CancellationToken cancellationToken)
+        {
+            AutoLaunchInstallerAfterDownload = enabled;
+            Changed?.Invoke(this, EventArgs.Empty);
+            return Task.CompletedTask;
+        }
+
+        public Task<WindowsUpdateCheckResult> CheckAsync(bool manual, CancellationToken cancellationToken) =>
+            Task.FromResult(CurrentResult);
+
+        public Task<WindowsUpdateDownloadResult> DownloadAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(WindowsUpdateDownloadResult.Failed("not used"));
+
+        public Task<bool> InstallPreparedAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(InstallResult);
+
+        public void Publish(WindowsUpdateDownloadProgress progress)
+        {
+            DownloadProgress = progress;
+            DownloadProgressChanged?.Invoke(this, progress);
+            Changed?.Invoke(this, EventArgs.Empty);
         }
     }
 }

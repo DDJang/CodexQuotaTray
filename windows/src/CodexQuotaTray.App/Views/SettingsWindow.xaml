@@ -8,6 +8,7 @@
         x:Name="SettingsRoot"
         Background="Transparent">
         <Grid.Resources>
+            <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
             <local:RefreshModeDisplayConverter x:Key="RefreshModeDisplayConverter" />
             <local:ThemeModeDisplayConverter x:Key="ThemeModeDisplayConverter" />
         </Grid.Resources>
@@ -404,7 +405,7 @@
 
                     <TextBlock Text="更新" Style="{StaticResource SettingsGroupHeaderStyle}" />
                     <Border Style="{StaticResource SettingsItemCardStyle}">
-                        <StackPanel Spacing="10">
+                        <StackPanel Spacing="6">
                             <Grid Style="{StaticResource SettingsRowStyle}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -439,11 +440,58 @@
                                     OffContent="关闭"
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="下载完成后自动打开安装程序" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="更新包下载并通过校验后自动启动安装程序。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <ToggleSwitch
+                                    Grid.Column="1"
+                                    IsOn="{Binding AutoLaunchInstallerAfterDownload, Mode=TwoWay}"
+                                    IsEnabled="{Binding IsWindowsUpdateAvailable}"
+                                    OnContent="开启"
+                                    OffContent="关闭"
+                                    Style="{StaticResource SettingsToggleSwitchStyle}" />
+                            </Grid>
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <TextBlock Text="当前版本：" Style="{StaticResource SettingsDescriptionStyle}" />
                                 <TextBlock Text="{Binding CurrentVersionText}" Style="{StaticResource SettingsDescriptionStyle}" />
                             </StackPanel>
-                            <TextBlock Text="{Binding UpdateStatusText}" Style="{StaticResource SettingsLabelStyle}" />
+                            <TextBlock
+                                Text="{Binding UpdateStatusText}"
+                                Style="{StaticResource SettingsLabelStyle}"
+                                Margin="0,2,0,0" />
+                            <StackPanel
+                                Spacing="4"
+                                Visibility="{Binding HasDownloadProgress, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <ProgressBar
+                                    Maximum="100"
+                                    Value="{Binding DownloadProgressValue}"
+                                    IsIndeterminate="{Binding IsDownloadProgressIndeterminate}"
+                                    Style="{StaticResource QuotaProgressStyle}" />
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="{Binding DownloadProgressText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        Text="{Binding DownloadProgressSizeText}"
+                                        TextAlignment="Right"
+                                        Style="{StaticResource SettingsDescriptionStyle}" />
+                                </Grid>
+                                <Button
+                                    Content="取消"
+                                    Command="{Binding CancelWindowsUpdateCommand}"
+                                    Style="{StaticResource SettingsActionButtonStyle}"
+                                    HorizontalAlignment="Left"
+                                    MinWidth="96" />
+                            </StackPanel>
                             <StackPanel Orientation="Horizontal" Spacing="4">
                                 <TextBlock Text="上次检查：" Style="{StaticResource SettingsDescriptionStyle}" />
                                 <TextBlock Text="{Binding UpdateLastCheckText}" Style="{StaticResource SettingsDescriptionStyle}" />
