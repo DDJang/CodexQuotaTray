@@ -20,7 +20,7 @@ WinUI Views / Services / Interop / Themes
 - `Core/Protocol` 管理 CLI 定位、子进程、JSONL transport、DTO、通知和规范化。
 - `Core/Runtime` 统一 Startup、Manual、Scheduled、Resume、NetworkRestored 和通知恢复刷新，保证
   单 in-flight、有界退避和失败时保留最后有效状态。
-- `Core/Persistence` 只保存设置、最小归一化额度缓存和提醒状态。
+- `Core/Persistence` 只保存设置、最小归一化额度缓存、按日聚合 Token 统计缓存和提醒状态。
 - `Core/Presentation` 是 UI 的唯一产品状态入口；UI 不解析 RPC。
 - `Core/TokenUsage` 流式扫描 session 文件中的 Token 计数事件并生成聚合，不进入额度协议层。
 

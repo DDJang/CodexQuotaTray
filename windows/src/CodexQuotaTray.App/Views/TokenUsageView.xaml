@@ -1,0 +1,183 @@
+<UserControl
+    x:Class="CodexQuotaTray.App.Views.TokenUsageView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:CodexQuotaTray.App"
+    xmlns:presentation="using:CodexQuotaTray.Core.Presentation">
+    <UserControl.Resources>
+        <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <local:TokenHeatmapBrushConverter x:Key="TokenHeatmapBrushConverter" />
+    </UserControl.Resources>
+
+    <Grid Margin="0,0,0,14">
+        <StackPanel
+            Spacing="9"
+            Visibility="{Binding HasData, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid ColumnSpacing="4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="1">
+                    <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" Text="{Binding TodayTokens}" />
+                    <TextBlock HorizontalAlignment="Center" FontSize="10" Foreground="{ThemeResource TertiaryTextBrush}" Text="今日 Token" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="1">
+                    <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" Text="{Binding Last7DaysTokens}" />
+                    <TextBlock HorizontalAlignment="Center" FontSize="10" Foreground="{ThemeResource TertiaryTextBrush}" Text="7 天 Token" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="1">
+                    <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" Text="{Binding Last30DaysTokens}" />
+                    <TextBlock HorizontalAlignment="Center" FontSize="10" Foreground="{ThemeResource TertiaryTextBrush}" Text="30 天 Token" />
+                </StackPanel>
+                <StackPanel Grid.Column="3" Spacing="1">
+                    <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" Text="{Binding LifetimeTokens}" />
+                    <TextBlock HorizontalAlignment="Center" FontSize="10" Foreground="{ThemeResource TertiaryTextBrush}" Text="累计 Token" />
+                </StackPanel>
+            </Grid>
+
+            <Grid ColumnSpacing="4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Spacing="1">
+                    <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" Text="{Binding PeakDailyTokens}" />
+                    <TextBlock HorizontalAlignment="Center" FontSize="10" Foreground="{ThemeResource TertiaryTextBrush}" Text="峰值 Token" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Spacing="1">
+                    <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" Text="{Binding CurrentStreak}" />
+                    <TextBlock HorizontalAlignment="Center" FontSize="10" Foreground="{ThemeResource TertiaryTextBrush}" Text="当前连续" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Spacing="1">
+                    <TextBlock HorizontalAlignment="Center" FontSize="18" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" Text="{Binding LongestStreak}" />
+                    <TextBlock HorizontalAlignment="Center" FontSize="10" Foreground="{ThemeResource TertiaryTextBrush}" Text="最长连续" />
+                </StackPanel>
+            </Grid>
+
+            <Border
+                Padding="10,9"
+                Background="{ThemeResource CardSurfaceBrush}"
+                BorderBrush="{ThemeResource CardBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource QuotaCornerRadius}">
+                <ItemsRepeater Width="353" HorizontalAlignment="Center" ItemsSource="{Binding HeatmapCells}">
+                    <ItemsRepeater.Layout>
+                        <UniformGridLayout
+                            MaximumRowsOrColumns="7"
+                            MinColumnSpacing="4"
+                            MinItemHeight="17"
+                            MinItemWidth="17"
+                            MinRowSpacing="4"
+                            Orientation="Vertical" />
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="presentation:TokenHeatmapCell">
+                            <Border
+                                Width="17"
+                                Height="17"
+                                Background="{Binding Bucket, Converter={StaticResource TokenHeatmapBrushConverter}}"
+                                BorderThickness="0"
+                                CenterPoint="8.5,8.5,0"
+                                CornerRadius="2"
+                                PointerEntered="OnHeatmapCellPointerEntered"
+                                PointerExited="OnHeatmapCellPointerExited"
+                                Scale="1,1,1"
+                                AutomationProperties.Name="{Binding AutomationText}">
+                                <ToolTipService.ToolTip>
+                                    <ToolTip
+                                        Padding="12,8"
+                                        Background="{ThemeResource TokenHeatmapToolTipSurfaceBrush}"
+                                        BorderBrush="{ThemeResource CardBorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="9"
+                                        Placement="Top">
+                                        <StackPanel Spacing="2">
+                                            <TextBlock
+                                                FontSize="16"
+                                                FontWeight="SemiBold"
+                                                Foreground="{ThemeResource PrimaryTextBrush}"
+                                                Text="{Binding TokenText}" />
+                                            <TextBlock
+                                                FontSize="14"
+                                                Foreground="{ThemeResource TertiaryTextBrush}"
+                                                Text="{Binding DateText}" />
+                                        </StackPanel>
+                                    </ToolTip>
+                                </ToolTipService.ToolTip>
+                                <Border.ScaleTransition>
+                                    <Vector3Transition Duration="0:0:0.12" />
+                                </Border.ScaleTransition>
+                                <Border.TranslationTransition>
+                                    <Vector3Transition Duration="0:0:0.12" />
+                                </Border.TranslationTransition>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+            </Border>
+
+        </StackPanel>
+
+        <StackPanel
+            Spacing="9"
+            Visibility="{Binding ShowLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid Height="42" ColumnSpacing="4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Margin="12,8" Background="{ThemeResource CardSurfaceBrush}" CornerRadius="4" />
+                <Border Grid.Column="1" Margin="12,8" Background="{ThemeResource CardSurfaceBrush}" CornerRadius="4" />
+                <Border Grid.Column="2" Margin="12,8" Background="{ThemeResource CardSurfaceBrush}" CornerRadius="4" />
+                <Border Grid.Column="3" Margin="12,8" Background="{ThemeResource CardSurfaceBrush}" CornerRadius="4" />
+            </Grid>
+            <Grid Height="36" ColumnSpacing="4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border Margin="22,8" Background="{ThemeResource CardSurfaceBrush}" CornerRadius="4" />
+                <Border Grid.Column="1" Margin="22,8" Background="{ThemeResource CardSurfaceBrush}" CornerRadius="4" />
+                <Border Grid.Column="2" Margin="22,8" Background="{ThemeResource CardSurfaceBrush}" CornerRadius="4" />
+            </Grid>
+            <Border
+                Height="168"
+                Background="{ThemeResource CardSurfaceBrush}"
+                BorderBrush="{ThemeResource CardBorderBrush}"
+                BorderThickness="1"
+                CornerRadius="{StaticResource QuotaCornerRadius}">
+                <ProgressRing
+                    Width="28"
+                    Height="28"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    IsActive="{Binding ShowLoading}" />
+            </Border>
+        </StackPanel>
+
+        <StackPanel
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Spacing="4"
+            Visibility="{Binding HasNoData, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <TextBlock HorizontalAlignment="Center" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" Text="尚无 Token 数据" />
+            <TextBlock HorizontalAlignment="Center" FontSize="11" Foreground="{ThemeResource SecondaryTextBrush}" Text="尚未在本机 Codex 会话中发现 Token 记录" />
+        </StackPanel>
+
+        <StackPanel
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            Spacing="4"
+            Visibility="{Binding HasErrorWithoutData, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <TextBlock HorizontalAlignment="Center" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource ErrorStatusBrush}" Text="无法读取 Token 统计" />
+            <TextBlock HorizontalAlignment="Center" FontSize="11" Foreground="{ThemeResource SecondaryTextBrush}" Text="请点击右上角刷新重试" />
+        </StackPanel>
+    </Grid>
+</UserControl>

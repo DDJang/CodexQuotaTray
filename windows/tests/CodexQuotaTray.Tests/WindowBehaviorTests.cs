@@ -194,6 +194,15 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
+    public void ContentHeightInterpolation_SmoothlySupportsGrowingAndShrinkingPages()
+    {
+        Assert.AreEqual(200, PopupPlacement.InterpolateContentHeight(200, 400, 0));
+        Assert.AreEqual(400, PopupPlacement.InterpolateContentHeight(200, 400, 1));
+        Assert.IsGreaterThan(200, PopupPlacement.InterpolateContentHeight(200, 400, 0.5));
+        Assert.IsLessThan(400, PopupPlacement.InterpolateContentHeight(400, 200, 0.5));
+    }
+
+    [TestMethod]
     public void ClientResize_DeduplicatesOnlyTheSamePendingPhysicalSize()
     {
         Assert.IsTrue(PopupPlacement.ShouldResizeClient(840, 760, 840, 520, null, null));
@@ -251,5 +260,19 @@ public sealed class WindowBehaviorTests
         BackdropKind expected)
     {
         Assert.AreEqual(expected, BackdropPolicy.Select(acrylic, mica, transparency, highContrast));
+    }
+
+    [DataRow(true, true, false, BackdropKind.Mica)]
+    [DataRow(false, true, false, BackdropKind.Opaque)]
+    [DataRow(true, false, false, BackdropKind.Opaque)]
+    [DataRow(true, true, true, BackdropKind.Opaque)]
+    [TestMethod]
+    public void SettingsBackdropPolicy_UsesMicaBaseOrOpaqueFallback(
+        bool mica,
+        bool transparency,
+        bool highContrast,
+        BackdropKind expected)
+    {
+        Assert.AreEqual(expected, BackdropPolicy.SelectForSettings(mica, transparency, highContrast));
     }
 }

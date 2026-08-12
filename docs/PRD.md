@@ -18,6 +18,7 @@
 
 - 使用本机 Codex CLI 既有认证，通过 App Server 读取额度。
 - 提供主面板、设置、托盘入口、开机启动、缓存和提醒。
+- 主面板以额度/统计双页展示额度窗口和本机 Token 日聚合、摘要与热力图。
 - 关闭窗口后保持低资源后台运行；显式退出才结束进程。
 - Debug/Dev 与 Production 可同时运行，设置、缓存、启动项、托盘和 LAN 身份互不覆盖。
 - 可由用户启用私人 LAN 服务，向已配对 Android 提供聚合 Token 使用量和最后成功额度快照。
@@ -36,6 +37,7 @@
 ## Token 使用量同步
 
 - Windows 只扫描本机 Codex session 中的 `token_count` 事件时间戳和数字计数，生成日聚合与摘要。
+- Windows 可按设置保存最小日聚合统计缓存，用于启动时快速恢复统计页；关闭后删除该缓存。
 - Android 必须由用户扫码或手动输入进行配对；LAN 只接受私人 IPv4，不跟随 redirect。
 - 配对 secret 与 OAuth 凭据分开加密；Token 缓存绑定 Windows `deviceId`。
 - 解除或更换配对后不能显示、提交或恢复旧设备数据。

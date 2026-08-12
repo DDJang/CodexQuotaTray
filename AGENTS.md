@@ -81,6 +81,8 @@ tray GUID 或 Installer AppId。
 
 - 不使用 `git reset`、`clean`、`restore`、`stash` 覆盖用户工作；不碰无关改动。
 - 未经授权不 commit、push、创建 PR/tag/Release、安装应用、打包、签名或运行真实账户 smoke。
+- 本地构建输出被占用时，可直接关闭 CodexQuotaTray Debug/Dev 进程，无需再次询问；不得在未获
+  明确授权时关闭 Production/正式版进程。
 - 不安装 SDK，不修改用户 NuGet/Gradle 配置，不创建替代 `global.json`，不降级依赖解决环境问题。
 - 第一次失败先区分代码与环境。Windows 验证必须优先按 `verify-winui.ps1` 的顺序使用
   `target\\dotnet-sdk-<global.json version>-full\\dotnet.exe`、`target\\dotnet-sdk-<global.json version>\\dotnet.exe`，

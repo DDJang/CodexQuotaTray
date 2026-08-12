@@ -238,8 +238,8 @@ public sealed class QuotaViewProjector(TimeProvider timeProvider, TimeZoneInfo t
         var tone = snapshot.IssueCount == 0 ? StatusTone.Success : StatusTone.Warning;
         var status = snapshot.IssueCount == 0
             ? receivedLocal.Date == nowLocal.Date
-                ? $"● 更新于 {receivedLocal:HH:mm}"
-                : $"● 更新于 {receivedLocal:MM-dd HH:mm}"
+                ? $"更新于 {receivedLocal:HH:mm}"
+                : $"更新于 {receivedLocal:MM-dd HH:mm}"
             : "⚠ 部分额度信息暂不可用";
         var resetCredits = snapshot.ResetCredits.EarliestKnownExpiry is { } expiry
             ? snapshot.ResetCredits with { ExpiryLabel = TimeZoneInfo.ConvertTime(expiry, timeZone).ToString("M月d日") }

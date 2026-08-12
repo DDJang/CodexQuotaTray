@@ -6,11 +6,9 @@ using CodexQuotaTray.Core.Protocol;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Runtime;
 using CodexQuotaTray.Core.Updates;
+using CodexQuotaTray.Core.TokenUsage;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.Windows.AppLifecycle;
 
 namespace CodexQuotaTray.App;
@@ -24,14 +22,17 @@ public partial class App : Application
     private DispatcherQueue? uiDispatcher;
     private IAsyncDisposable? providerLifetime;
     private Task? initializationTask;
+    private Task? tokenUsageInitializationTask;
+    private Task? tokenUsageRefreshTask;
     private IQuotaRuntimeControl? runtime;
     private SettingsWindow? settingsWindow;
     private ISettingsPageActions? settingsPageActions;
     private HostEventService? hostEvents;
-    private Microsoft.UI.Xaml.Controls.ContentDialog? aboutDialog;
     private TokenUsageSyncController? tokenUsageSync;
     private WindowsUpdateService? windowsUpdateService;
     private AppIdentity? applicationIdentity;
+    private CrashSessionLog? crashSessionLog;
+    private PreviousCrashInfo? previousCrashInfo;
     private bool exiting;
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
@@ -61,11 +62,17 @@ public partial class App : Application
         currentInstance.Activated += OnInstanceActivated;
         applicationIdentity = identity;
         uiDispatcher = DispatcherQueue.GetForCurrentThread();
+        var paths = CreateDataPaths(identity);
+        crashSessionLog = new CrashSessionLog(paths.Root);
+        previousCrashInfo = crashSessionLog.StartSession();
+        UnhandledException += OnApplicationUnhandledException;
+        AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         var startupLaunch = arguments.Any(value => string.Equals(value, "--startup", StringComparison.OrdinalIgnoreCase));
         var explicitCodex = ReadOption(arguments, "--codex-bin");
 
         IUiStateProvider stateProvider;
         IDiagnosticTextProvider diagnostics;
+        PreviewPersistence? persistence = null;
         if (showDemo)
         {
             var demo = new DemoStateProvider();
@@ -76,9 +83,8 @@ public partial class App : Application
         }
         else
         {
-            var paths = CreateDataPaths(identity);
             var jsonStore = new JsonFileStore();
-            var persistence = new PreviewPersistence(jsonStore, paths);
+            persistence = new PreviewPersistence(jsonStore, paths);
             var notificationSink = new TrayNotificationSink(uiDispatcher);
             var liveRuntime = new QuotaRuntimeService(
                 new CodexAppServerClientFactory(new CodexClientOptions(ExplicitCodexBinary: explicitCodex)),
@@ -141,8 +147,11 @@ public partial class App : Application
             stateProvider,
             new ExternalNavigation(),
             runtimeStateEventsAuthoritative);
+        var tokenUsageScanner = new TokenUsageScanner();
+        var tokenUsageViewModel = new TokenUsageViewModel(
+            cancellationToken => ScanTokenUsageAsync(tokenUsageScanner, persistence, cancellationToken));
         viewModelReference = viewModel;
-        mainWindow = new MainWindow(viewModel, identity.DisplayName);
+        mainWindow = new MainWindow(viewModel, tokenUsageViewModel, identity.DisplayName);
         mainWindow.Activated += (_, activation) =>
         {
             if (activation.WindowActivationState != WindowActivationState.Deactivated
@@ -167,6 +176,14 @@ public partial class App : Application
             uiDispatcher,
             runtimeStateEventsAuthoritative,
             lifetime.Token);
+        if (!showDemo)
+        {
+            tokenUsageInitializationTask = InitializeTokenUsageAsync(
+                tokenUsageViewModel,
+                persistence!,
+                lifetime.Token);
+            tokenUsageRefreshTask = RunTokenUsageRefreshLoopAsync(tokenUsageViewModel, lifetime.Token);
+        }
         if (tokenUsageSync is not null)
         {
             _ = StartTokenUsageSyncAfterInitializationAsync(tokenUsageSync, lifetime.Token);
@@ -179,8 +196,7 @@ public partial class App : Application
         settingsPageActions = new DelegateSettingsPageActions(
             cancellationToken => viewModel.RefreshCommand.ExecuteAsync(cancellationToken),
             () => viewModel.OpenUsageCommand.Execute(null),
-            clipboard.Copy,
-            ShowAbout);
+            clipboard.Copy);
         trayIcon = new TrayIconService(
             uiDispatcher,
             mainWindow.TogglePanel,
@@ -224,7 +240,37 @@ public partial class App : Application
             {
                 _ = runtime.RequestAsync(RefreshReason.CardOpened, lifetime.Token);
             }
+
+            _ = RefreshTokenUsageOnPanelShownAsync(tokenUsageViewModel);
         };
+        if (previousCrashInfo is { } crashInfo)
+        {
+            EventHandler? showCrashInfo = null;
+            var showingCrashInfo = false;
+            showCrashInfo = async (_, _) =>
+            {
+                if (mainWindow is null || showingCrashInfo)
+                {
+                    return;
+                }
+
+                showingCrashInfo = true;
+                try
+                {
+                    if (await mainWindow.ShowPreviousCrashNoticeAsync(crashInfo))
+                    {
+                        _ = crashSessionLog?.AcknowledgePreviousCrash(crashInfo);
+                        mainWindow.PanelShown -= showCrashInfo;
+                        previousCrashInfo = null;
+                    }
+                }
+                finally
+                {
+                    showingCrashInfo = false;
+                }
+            };
+            mainWindow.PanelShown += showCrashInfo;
+        }
         mainWindow.ExitRequested += (_, _) => ExitApplication();
 
         hostEvents = new HostEventService(() => RequestRuntimeRefresh(RefreshReason.NetworkRestored));
@@ -377,155 +423,16 @@ public partial class App : Application
         });
     }
 
-    private void ShowAbout(object? host)
-    {
-        if (aboutDialog is not null
-            || host is not Microsoft.UI.Xaml.FrameworkElement hostElement
-            || hostElement.XamlRoot?.Content is not Grid dialogHost)
-        {
-            return;
-        }
-
-        _ = hostElement.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-        var dialog = new ContentDialog
-        {
-            Title = $"关于 {applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName}",
-            XamlRoot = hostElement.XamlRoot,
-        };
-        dialog.Content = CreateAboutContent(
-            applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName,
-            hostElement.ActualTheme == ElementTheme.Dark,
-            dialog.Hide);
-        dialogHost.Children.Add(dialog);
-        aboutDialog = dialog;
-        _ = ShowAboutAsync(dialog, hostElement, dialogHost);
-    }
-
-    private static StackPanel CreateAboutContent(
-        string displayName,
-        bool isDarkTheme,
-        Action closeDialog)
-    {
-        var content = new StackPanel
-        {
-            Spacing = 10,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-
-        var iconFileName = isDarkTheme ? "AppIcon.png" : "AppIconDark.png";
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", iconFileName);
-        var iconUri = File.Exists(iconPath)
-            ? new Uri(iconPath, UriKind.Absolute)
-            : new Uri($"ms-appx:///Assets/{iconFileName}");
-        content.Children.Add(new Image
-        {
-            Source = new BitmapImage(iconUri),
-            Width = 64,
-            Height = 64,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Stretch = Stretch.Uniform,
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = displayName,
-            FontSize = 20,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = $"版本 {ProductVersion.Current}",
-            Opacity = 0.78,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        });
-        content.Children.Add(new TextBlock
-        {
-            Text = "只读额度桌面应用，用于查看额度窗口、重置时间和可用重置卡。不会消耗重置卡或执行账户写操作。",
-            TextWrapping = TextWrapping.Wrap,
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        });
-
-        var links = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 4,
-            HorizontalAlignment = HorizontalAlignment.Center,
-        };
-        links.Children.Add(new HyperlinkButton
-        {
-            Content = "GitHub 项目主页",
-            NavigateUri = new Uri("https://github.com/DDJang/CodexQuotaTray"),
-        });
-        links.Children.Add(new HyperlinkButton
-        {
-            Content = "开源许可证（MIT）",
-            NavigateUri = new Uri("https://github.com/DDJang/CodexQuotaTray/blob/main/LICENSE"),
-        });
-        content.Children.Add(links);
-        var closeButton = new Button
-        {
-            Content = "关闭",
-            MinWidth = 160,
-            Margin = new Thickness(0, 18, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Center,
-            HorizontalContentAlignment = HorizontalAlignment.Center,
-        };
-        closeButton.Click += (_, _) => closeDialog();
-        content.Children.Add(closeButton);
-        return content;
-    }
-
-    private async Task ShowAboutAsync(
-        ContentDialog dialog,
-        Microsoft.UI.Xaml.FrameworkElement hostElement,
-        Grid dialogHost)
-    {
-        try
-        {
-            await dialog.ShowAsync(ContentDialogPlacement.InPlace);
-        }
-        catch (InvalidOperationException error)
-        {
-            System.Diagnostics.Debug.WriteLine($"Could not show about dialog: {error.GetType().Name}");
-        }
-        finally
-        {
-            _ = dialogHost.Children.Remove(dialog);
-            if (ReferenceEquals(aboutDialog, dialog))
-            {
-                aboutDialog = null;
-            }
-
-            _ = RestoreAboutFocusAsync(hostElement);
-        }
-    }
-
-    private async Task RestoreAboutFocusAsync(Microsoft.UI.Xaml.FrameworkElement hostElement)
-    {
-        await Task.Delay(75);
-        _ = uiDispatcher?.TryEnqueue(() =>
-        {
-            settingsWindow?.Activate();
-            settingsWindow?.FocusAboutButton();
-            if (hostElement.XamlRoot is not null)
-            {
-                _ = hostElement.Focus(Microsoft.UI.Xaml.FocusState.Keyboard);
-            }
-        });
-    }
-
     private sealed class DelegateSettingsPageActions(
         Func<CancellationToken, Task> refreshQuota,
         Action openOfficialUsage,
-        Action copyDiagnostics,
-        Action<object?> showAbout) : ISettingsPageActions
+        Action copyDiagnostics) : ISettingsPageActions
     {
         public Task RefreshQuotaAsync(CancellationToken cancellationToken) => refreshQuota(cancellationToken);
 
         public void OpenOfficialUsage() => openOfficialUsage();
 
         public void CopyDiagnostics() => copyDiagnostics();
-
-        public void ShowAbout(object? host) => showAbout(host);
     }
 
     private static string? ReadOption(string[] arguments, string name)
@@ -600,6 +507,124 @@ public partial class App : Application
         _ = uiDispatcher?.TryEnqueue(() => mainWindow?.ShowPanel());
     }
 
+    private async Task<TokenUsageSnapshot> ScanTokenUsageAsync(
+        TokenUsageScanner scanner,
+        PreviewPersistence? persistence,
+        CancellationToken cancellationToken)
+    {
+        var snapshot = await Task.Run(
+            () => scanner.ScanAsync(cancellationToken: cancellationToken),
+            cancellationToken);
+        if (persistence is not null && runtime?.Settings.PersistTokenUsageCache == true)
+        {
+            try
+            {
+                await persistence.SaveTokenUsageCacheAsync(snapshot, cancellationToken);
+                if (runtime?.Settings.PersistTokenUsageCache != true)
+                {
+                    await persistence.ClearTokenUsageCacheAsync();
+                }
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                System.Diagnostics.Debug.WriteLine($"Token usage cache save failed: {error.GetType().Name}");
+            }
+        }
+
+        return snapshot;
+    }
+
+    private async Task InitializeTokenUsageAsync(
+        TokenUsageViewModel tokenUsageViewModel,
+        PreviewPersistence persistence,
+        CancellationToken cancellationToken)
+    {
+        if (initializationTask is not null)
+        {
+            await initializationTask;
+        }
+
+        if (runtime?.Settings.PersistTokenUsageCache != true)
+        {
+            return;
+        }
+
+        var snapshot = await persistence.LoadTokenUsageCacheAsync(cancellationToken);
+        if (snapshot is not null && uiDispatcher is not null)
+        {
+            await EnqueueAsync(
+                uiDispatcher,
+                () => tokenUsageViewModel.RestoreSnapshot(snapshot),
+                cancellationToken);
+        }
+    }
+
+    private async Task RefreshTokenUsageOnPanelShownAsync(TokenUsageViewModel tokenUsageViewModel)
+    {
+        try
+        {
+            if (tokenUsageInitializationTask is not null)
+            {
+                await tokenUsageInitializationTask;
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            if (runtime is not null
+                && TokenUsageRefreshPolicy.ShouldRefreshOnPanelOpen(
+                    runtime.Settings.TokenRefreshOnPanelOpen,
+                    tokenUsageViewModel.LastAttemptUtc,
+                    now))
+            {
+                await tokenUsageViewModel.RefreshNowAsync(lifetime.Token);
+            }
+        }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested)
+        {
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Panel-open Token refresh failed: {error.GetType().Name}");
+        }
+    }
+
+    private async Task RunTokenUsageRefreshLoopAsync(
+        TokenUsageViewModel tokenUsageViewModel,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (tokenUsageInitializationTask is not null)
+            {
+                await tokenUsageInitializationTask;
+            }
+
+            while (true)
+            {
+                var mode = runtime?.Settings.TokenRefreshMode ?? RefreshMode.ManualOnly;
+                if (TokenUsageRefreshPolicy.IsDue(mode, tokenUsageViewModel.LastAttemptUtc, DateTimeOffset.UtcNow))
+                {
+                    await tokenUsageViewModel.RefreshNowAsync(cancellationToken);
+                }
+
+                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+    }
+
+    private void OnApplicationUnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs args) =>
+        crashSessionLog?.Record(args.Exception, "WinUI.UnhandledException");
+
+    private void OnDomainUnhandledException(object? sender, System.UnhandledExceptionEventArgs args)
+    {
+        if (args.ExceptionObject is Exception error)
+        {
+            crashSessionLog?.Record(error, "AppDomain.UnhandledException");
+        }
+    }
+
     private async void ExitApplication()
     {
         if (exiting)
@@ -618,6 +643,12 @@ public partial class App : Application
             catch (OperationCanceledException)
             {
             }
+        }
+
+        if (tokenUsageRefreshTask is not null)
+        {
+            await tokenUsageRefreshTask;
+            tokenUsageRefreshTask = null;
         }
 
         if (providerLifetime is not null)
@@ -649,6 +680,7 @@ public partial class App : Application
         settingsWindow = null;
         currentInstance = null;
         lifetime.Dispose();
+        crashSessionLog?.CompleteSession();
         Exit();
     }
 

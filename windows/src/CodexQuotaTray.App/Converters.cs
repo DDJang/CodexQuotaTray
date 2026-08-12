@@ -57,6 +57,15 @@ public sealed class BooleanToVisibilityConverter : IValueConverter
         value is Visibility.Visible;
 }
 
+public sealed class TokenHeatmapBrushConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) =>
+        (Brush)Application.Current.Resources[$"TokenHeatmap{Math.Clamp(value is int bucket ? bucket : 0, 0, 4)}Brush"];
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
 public sealed class RefreshModeDisplayConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, string language) => value switch

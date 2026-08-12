@@ -2,17 +2,15 @@
     x:Class="CodexQuotaTray.App.Views.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:core="using:CodexQuotaTray.Core.Models"
     xmlns:local="using:CodexQuotaTray.App"
     Title="CodexQuotaTray">
     <Grid x:Name="ContentRoot" Background="Transparent">
         <Grid.Resources>
             <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
-            <local:QuotaToneBrushConverter x:Key="QuotaToneBrushConverter" />
             <local:StatusToneBrushConverter x:Key="StatusToneBrushConverter" />
         </Grid.Resources>
 
-        <Grid Background="{ThemeResource MainWindowSurfaceBrush}">
+        <Grid x:Name="PanelSurface" Background="{ThemeResource MainWindowSurfaceBrush}">
             <ScrollViewer
                 x:Name="PanelScroller"
                 HorizontalScrollBarVisibility="Disabled"
@@ -56,10 +54,11 @@
                                 <TextBlock
                                     FontSize="11"
                                     FontWeight="SemiBold"
-                                    Foreground="{ThemeResource AccentQuotaBrush}"
+                                    Foreground="{ThemeResource PanelChromeForegroundBrush}"
                                     Text="{Binding PlanBadge}" />
                             </Border>
                             <TextBlock
+                                x:Name="HeaderStatusText"
                                 Grid.Column="2"
                                 MaxLines="2"
                                 VerticalAlignment="Center"
@@ -78,6 +77,12 @@
                             Command="{Binding RefreshCommand}"
                             AutomationProperties.Name="刷新额度"
                             ToolTipService.ToolTip="刷新额度">
+                            <Button.Resources>
+                                <StaticResource x:Key="ButtonForeground" ResourceKey="PanelChromeForegroundBrush" />
+                                <StaticResource x:Key="ButtonForegroundPointerOver" ResourceKey="PanelChromeForegroundBrush" />
+                                <StaticResource x:Key="ButtonForegroundPressed" ResourceKey="PanelChromeForegroundBrush" />
+                                <StaticResource x:Key="ButtonForegroundDisabled" ResourceKey="PanelChromeForegroundBrush" />
+                            </Button.Resources>
                             <Grid>
                                 <FontIcon
                                     FontSize="16"
@@ -86,6 +91,7 @@
                                 <ProgressRing
                                     Width="18"
                                     Height="18"
+                                    Foreground="{ThemeResource PanelChromeForegroundBrush}"
                                     IsActive="{Binding IsRefreshing}"
                                     Visibility="{Binding IsRefreshing, Converter={StaticResource BooleanToVisibilityConverter}}" />
                             </Grid>
@@ -108,95 +114,74 @@
                     </Border>
 
                     <Border
-                        Padding="18,7"
-                        Background="{ThemeResource BadgeSurfaceBrush}"
-                        CornerRadius="10"
-                        Visibility="{Binding IsPrototype, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <TextBlock
-                            FontSize="11"
-                            Foreground="{ThemeResource SecondaryTextBrush}"
-                            Text="静态演示 · 未连接真实账户"
-                            TextAlignment="Center" />
-                    </Border>
-
-                    <Border
-                        Padding="16,4"
-                        Background="{ThemeResource CardSurfaceBrush}"
+                        x:Name="TabSelectorSurface"
+                        Padding="3"
+                        Background="{ThemeResource TabSelectorSurfaceBrush}"
                         BorderBrush="{ThemeResource CardBorderBrush}"
                         BorderThickness="1"
-                        CornerRadius="{StaticResource QuotaCornerRadius}"
-                        Visibility="{Binding HasWindows, Converter={StaticResource BooleanToVisibilityConverter}}">
-                        <ItemsRepeater ItemsSource="{Binding Windows}">
-                            <ItemsRepeater.ItemTemplate>
-                                <DataTemplate x:DataType="core:QuotaWindowView">
-                                    <StackPanel Padding="0,11" Spacing="8">
-                                        <Grid>
-                                            <TextBlock Style="{StaticResource QuotaNameTextStyle}" Text="{Binding Name}" />
-                                            <TextBlock
-                                                HorizontalAlignment="Right"
-                                                Foreground="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}"
-                                                Style="{StaticResource QuotaPercentTextStyle}"
-                                                Text="{Binding PercentText}" />
-                                        </Grid>
-                                        <ProgressBar
-                                            Maximum="100"
-                                            Value="{Binding DisplayPercent}"
-                                            Foreground="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}"
-                                            Style="{StaticResource QuotaProgressStyle}" />
-                                        <Grid ColumnSpacing="4">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="*" />
-                                            </Grid.ColumnDefinitions>
-                                            <TextBlock
-                                                Foreground="{ThemeResource PrimaryTextBrush}"
-                                                FontSize="12"
-                                                Text="{Binding ResetRelative}" />
-                                            <TextBlock
-                                                Grid.Column="1"
-                                                Foreground="{ThemeResource TertiaryTextBrush}"
-                                                FontSize="12"
-                                                Text="·" />
-                                            <TextBlock
-                                                Grid.Column="2"
-                                                Foreground="{ThemeResource TertiaryTextBrush}"
-                                                FontSize="12"
-                                                Text="{Binding ResetAt}"
-                                                TextTrimming="CharacterEllipsis" />
-                                        </Grid>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsRepeater.ItemTemplate>
-                        </ItemsRepeater>
+                        CornerRadius="9">
+                        <Border.Resources>
+                            <StaticResource x:Key="ToggleButtonForeground" ResourceKey="SecondaryTextBrush" />
+                            <StaticResource x:Key="ToggleButtonForegroundPointerOver" ResourceKey="SecondaryTextBrush" />
+                            <StaticResource x:Key="ToggleButtonForegroundPressed" ResourceKey="SecondaryTextBrush" />
+                            <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="TabSelectedTextBrush" />
+                            <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="TabSelectedTextBrush" />
+                            <StaticResource x:Key="ToggleButtonForegroundCheckedPressed" ResourceKey="TabSelectedTextBrush" />
+                            <StaticResource x:Key="ToggleButtonBackground" ResourceKey="ControlFillColorTransparentBrush" />
+                            <StaticResource x:Key="ToggleButtonBackgroundPointerOver" ResourceKey="CardSurfaceBrush" />
+                            <StaticResource x:Key="ToggleButtonBackgroundPressed" ResourceKey="BadgeSurfaceBrush" />
+                            <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="ControlFillColorTransparentBrush" />
+                            <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="ControlFillColorTransparentBrush" />
+                            <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="ControlFillColorTransparentBrush" />
+                            <StaticResource x:Key="ToggleButtonBorderBrush" ResourceKey="ControlFillColorTransparentBrush" />
+                            <StaticResource x:Key="ToggleButtonBorderBrushPointerOver" ResourceKey="CardBorderBrush" />
+                            <StaticResource x:Key="ToggleButtonBorderBrushPressed" ResourceKey="CardBorderBrush" />
+                            <StaticResource x:Key="ToggleButtonBorderBrushChecked" ResourceKey="ControlFillColorTransparentBrush" />
+                            <StaticResource x:Key="ToggleButtonBorderBrushCheckedPointerOver" ResourceKey="ControlFillColorTransparentBrush" />
+                            <StaticResource x:Key="ToggleButtonBorderBrushCheckedPressed" ResourceKey="ControlFillColorTransparentBrush" />
+                        </Border.Resources>
+                        <Grid x:Name="TabSelectorGrid" ColumnSpacing="3" SizeChanged="OnTabSelectorSizeChanged">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border
+                                x:Name="TabSelectionPill"
+                                Grid.Column="0"
+                                Height="30"
+                                Background="{ThemeResource TabSelectionSurfaceBrush}"
+                                CornerRadius="6"
+                                IsHitTestVisible="False">
+                                <Border.TranslationTransition>
+                                    <Vector3Transition Duration="0:0:0.18" />
+                                </Border.TranslationTransition>
+                            </Border>
+                            <ToggleButton
+                                x:Name="QuotaTabButton"
+                                Height="30"
+                                CornerRadius="6"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                IsChecked="True"
+                                Click="OnQuotaTabClick"
+                                Content="额度"
+                                AutomationProperties.Name="显示额度页面" />
+                            <ToggleButton
+                                x:Name="TokenTabButton"
+                                Grid.Column="1"
+                                Height="30"
+                                CornerRadius="6"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                Click="OnTokenTabClick"
+                                Content="统计"
+                                AutomationProperties.Name="显示统计页面" />
+                        </Grid>
                     </Border>
 
-                    <Grid x:Name="FooterRow" Height="24" ColumnSpacing="12">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <FontIcon
-                                FontSize="14"
-                                Foreground="{ThemeResource SecondaryTextBrush}"
-                                Glyph="&#xE823;" />
-                            <TextBlock
-                                VerticalAlignment="Center"
-                                FontSize="12"
-                                Foreground="{ThemeResource SecondaryTextBrush}"
-                                Text="{Binding ResetCredits.Summary}"
-                                TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <HyperlinkButton
-                            Grid.Column="1"
-                            Height="24"
-                            MinHeight="24"
-                            Padding="4,1"
-                            Command="{Binding OpenUsageCommand}"
-                            Content="官方用量 ↗"
-                            FontSize="12"
-                            AutomationProperties.Name="打开官方用量页面" />
+                    <Grid x:Name="PageHost" VerticalAlignment="Top">
+                        <Grid x:Name="QuotaPageHost" />
+                        <Grid x:Name="TokenPageHost" Visibility="Collapsed" />
                     </Grid>
                 </StackPanel>
             </ScrollViewer>

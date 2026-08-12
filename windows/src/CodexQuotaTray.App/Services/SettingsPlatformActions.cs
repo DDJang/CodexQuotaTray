@@ -82,7 +82,7 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
 
     public void CopyTokenSyncPairingInfo()
     {
-        var value = tokenSync.PairingInfo ?? throw new InvalidOperationException("Token 统计同步当前未监听。");
+        var value = tokenSync.PairingInfo ?? throw new InvalidOperationException("与手机同步当前未监听。");
         var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
         package.SetText(value);
         Clipboard.SetContent(package);

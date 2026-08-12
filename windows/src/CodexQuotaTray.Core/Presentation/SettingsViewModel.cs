@@ -40,8 +40,6 @@ public interface ISettingsPageActions
     void OpenOfficialUsage();
 
     void CopyDiagnostics();
-
-    void ShowAbout(object? host);
 }
 
 public sealed record PercentageDisplayModeOption(bool ShowRemainingPercent, string DisplayName);
@@ -61,6 +59,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showRemainingPercent;
     [ObservableProperty] private bool persistQuotaCache;
+    [ObservableProperty] private bool persistTokenUsageCache;
     [ObservableProperty] private bool refreshOnPanelOpen;
     [ObservableProperty] private bool refreshOnNetworkRestore;
     [ObservableProperty] private bool notifyRemaining50;
@@ -69,11 +68,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool notifyAfterQuotaReset;
     [ObservableProperty] private bool silentStartup;
     [ObservableProperty] private bool phoneTokenSyncEnabled;
+    [ObservableProperty] private bool tokenRefreshOnPanelOpen;
     [ObservableProperty] private string tokenSyncStatusText = string.Empty;
     [ObservableProperty] private string tokenSyncAddressText = string.Empty;
     [ObservableProperty] private string tokenSyncDeviceNameText = string.Empty;
     [ObservableProperty] private string? tokenSyncPairingInfo;
     [ObservableProperty] private RefreshMode selectedRefreshMode;
+    [ObservableProperty] private RefreshMode selectedTokenRefreshMode;
     [ObservableProperty] private ThemeMode selectedThemeMode;
     [ObservableProperty] private string statusText = string.Empty;
     [ObservableProperty] private bool automaticUpdateChecksEnabled;
@@ -238,9 +239,6 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [RelayCommand]
     private void CopyDiagnostics() => pageActions.CopyDiagnostics();
-
-    [RelayCommand]
-    private void ShowAbout(object? host) => pageActions.ShowAbout(host);
 
     [RelayCommand]
     private async Task CheckForWindowsUpdatesAsync(CancellationToken cancellationToken)
@@ -467,7 +465,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         Notifications: new NotificationSettings(NotifyRemaining50, NotifyRemaining20, NotifyRemaining10, NotifyAfterQuotaReset),
         ThemeMode: SelectedThemeMode,
         SilentStartup: SilentStartup,
-        PhoneTokenSyncEnabled: PhoneTokenSyncEnabled));
+        PhoneTokenSyncEnabled: PhoneTokenSyncEnabled,
+        TokenRefreshMode: SelectedTokenRefreshMode,
+        TokenRefreshOnPanelOpen: TokenRefreshOnPanelOpen,
+        PersistTokenUsageCache: PersistTokenUsageCache));
 
     private AppSettings Normalize(AppSettings value) => SettingsService.Normalize(value) with
     {
@@ -482,6 +483,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             StartWithWindows = CanConfigureStartup && value.StartWithWindows;
             ShowRemainingPercent = value.ShowRemainingPercent;
             PersistQuotaCache = value.PersistQuotaCache;
+            PersistTokenUsageCache = value.PersistTokenUsageCache;
             RefreshOnPanelOpen = value.RefreshOnPanelOpen;
             RefreshOnNetworkRestore = value.RefreshOnNetworkRestore;
             NotifyRemaining50 = value.EffectiveNotifications.Remaining50;
@@ -491,9 +493,13 @@ public sealed partial class SettingsViewModel : ObservableObject
             SelectedRefreshMode = value.RefreshMode == RefreshMode.Auto
                 ? RefreshMode.Every15Minutes
                 : value.RefreshMode;
+            SelectedTokenRefreshMode = value.TokenRefreshMode == RefreshMode.Auto
+                ? RefreshMode.Every15Minutes
+                : value.TokenRefreshMode;
             SelectedThemeMode = value.ThemeMode;
             SilentStartup = value.SilentStartup;
             PhoneTokenSyncEnabled = value.PhoneTokenSyncEnabled;
+            TokenRefreshOnPanelOpen = value.TokenRefreshOnPanelOpen;
         }
         finally
         {
@@ -511,6 +517,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnPersistQuotaCacheChanged(bool value) => QueueSettingsApply();
 
+    partial void OnPersistTokenUsageCacheChanged(bool value) => QueueSettingsApply();
+
     partial void OnRefreshOnPanelOpenChanged(bool value) => QueueSettingsApply();
 
     partial void OnRefreshOnNetworkRestoreChanged(bool value) => QueueSettingsApply();
@@ -527,7 +535,11 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     partial void OnPhoneTokenSyncEnabledChanged(bool value) => QueueSettingsApply();
 
+    partial void OnTokenRefreshOnPanelOpenChanged(bool value) => QueueSettingsApply();
+
     partial void OnSelectedRefreshModeChanged(RefreshMode value) => QueueSettingsApply();
+
+    partial void OnSelectedTokenRefreshModeChanged(RefreshMode value) => QueueSettingsApply();
 
     partial void OnSelectedThemeModeChanged(ThemeMode value) => QueueSettingsApply();
 

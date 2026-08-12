@@ -18,14 +18,14 @@ namespace CodexQuotaTray.App.Views;
 public sealed partial class SettingsWindow : Window
 {
     private const double DefaultWidthDips = 740;
-    private const double DefaultHeightDips = 780;
-    private const double MinimumWidthDips = 620;
-    private const double MinimumHeightDips = 540;
-    private const double ResponsiveWideBreakpointDips = 680;
-
+    private const double DefaultHeightDips = 580;
+    private const double MinimumWidthDips = 480;
+    private const double MinimumHeightDips = 420;
     private readonly SettingsViewModel viewModel;
     private readonly BackdropService backdrop = new();
     private readonly AppWindow appWindow;
+    private SettingsContentPage? currentSettingsPage;
+    private bool showingSettingsHome;
     private bool exiting;
 
     public SettingsWindow(SettingsViewModel viewModel, string displayName)
@@ -37,16 +37,15 @@ public sealed partial class SettingsWindow : Window
         AboutProductNameText.Text = displayName;
         AutomationProperties.SetName(AboutButton, $"关于 {displayName}");
         AboutVersionText.Text = $"版本 {ProductVersion.Current}";
-        AboutButton.CommandParameter = AboutButton;
+        AboutHomeDescriptionText.Text = $"{displayName} · 版本 {ProductVersion.Current}";
         SettingsRoot.DataContext = viewModel;
         viewModel.PropertyChanged += OnViewModelPropertyChanged;
         viewModel.TokenSyncChanged += OnTokenSyncChanged;
         viewModel.UpdateCheckCompleted += OnUpdateCheckCompleted;
+        InitializeSettingsNavigation();
         UpdateTokenSyncQrCode();
-        SettingsRoot.SizeChanged += OnSettingsRootSizeChanged;
         SettingsRoot.Loaded += (_, _) =>
         {
-            ApplyResponsiveLayout(SettingsRoot.ActualWidth);
             ApplyBackdrop();
         };
         var hwnd = WindowNative.GetWindowHandle(this);
@@ -67,7 +66,7 @@ public sealed partial class SettingsWindow : Window
         if (appWindow.Presenter is OverlappedPresenter presenter)
         {
             presenter.IsResizable = true;
-            presenter.IsMaximizable = false;
+            presenter.IsMaximizable = true;
             presenter.PreferredMinimumWidth = DipsToPixels(MinimumWidthDips, scale);
             presenter.PreferredMinimumHeight = DipsToPixels(MinimumHeightDips, scale);
         }
@@ -114,11 +113,6 @@ public sealed partial class SettingsWindow : Window
         backdrop.Dispose();
     }
 
-    internal void FocusAboutButton()
-    {
-        _ = AboutButton.Focus(FocusState.Programmatic);
-    }
-
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         _ = WindowIconService.TrySetIcon(appWindow, SettingsRoot.ActualTheme == ElementTheme.Dark);
@@ -131,7 +125,7 @@ public sealed partial class SettingsWindow : Window
 
     private void ApplyBackdrop()
     {
-        var kind = backdrop.Apply(this);
+        var kind = backdrop.ApplyForSettings(this);
         SettingsFallbackSurface.Visibility = kind == BackdropKind.Opaque
             ? Visibility.Visible
             : Visibility.Collapsed;
@@ -145,7 +139,82 @@ public sealed partial class SettingsWindow : Window
         }
 
         args.Cancel = true;
+        ShowSettingsHome();
         appWindow.Hide();
+    }
+
+    private void OnSettingsCategoryClick(object sender, RoutedEventArgs args)
+    {
+        if (sender is not Button { Tag: string category })
+        {
+            return;
+        }
+
+        var (title, panel) = category switch
+        {
+            "General" => ("常规", GeneralSettingsPanel),
+            "Sync" => ("刷新与同步", SyncSettingsPanel),
+            "Appearance" => ("个性化", AppearanceSettingsPanel),
+            "Alerts" => ("额度提醒", AlertSettingsPanel),
+            "Updates" => ("更新", UpdateSettingsPanel),
+            "Advanced" => ("数据与高级选项", AdvancedSettingsPanel),
+            "About" => ("关于", AboutSettingsPanel),
+            _ => (string.Empty, null),
+        };
+        if (panel is null)
+        {
+            return;
+        }
+
+        ShowSettingsPage(new SettingsPageNavigation(panel, viewModel, title, ShowSettingsHome));
+    }
+
+    private void ShowSettingsHome()
+    {
+        if (!showingSettingsHome)
+        {
+            NavigateToSettingsHome(animate: true);
+        }
+    }
+
+    private FrameworkElement[] SettingsSections() =>
+    [
+        GeneralSettingsPanel,
+        SyncSettingsPanel,
+        AppearanceSettingsPanel,
+        AlertSettingsPanel,
+        UpdateSettingsPanel,
+        AdvancedSettingsPanel,
+        AboutSettingsPanel,
+    ];
+
+    private void InitializeSettingsNavigation()
+    {
+        _ = SettingsContent.Children.Remove(SettingsHomePanel);
+        foreach (var section in SettingsSections())
+        {
+            _ = SettingsContent.Children.Remove(section);
+            section.Visibility = Visibility.Visible;
+        }
+
+        NavigateToSettingsHome(animate: false);
+    }
+
+    private void NavigateToSettingsHome(bool animate) =>
+        ShowSettingsPage(
+            new SettingsPageNavigation(SettingsHomePanel, viewModel),
+            isHome: true,
+            fromHorizontalOffset: animate ? -48 : null);
+
+    private void ShowSettingsPage(
+        SettingsPageNavigation navigation,
+        bool isHome = false,
+        double? fromHorizontalOffset = 48)
+    {
+        currentSettingsPage?.DetachPageContent();
+        currentSettingsPage = new SettingsContentPage(navigation, fromHorizontalOffset);
+        showingSettingsHome = isHome;
+        SettingsPresenter.Content = currentSettingsPage;
     }
 
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
@@ -309,29 +378,13 @@ public sealed partial class SettingsWindow : Window
         }
     }
 
-    private void OnSettingsToggleButtonClick(object sender, RoutedEventArgs args)
-    {
-        if (sender is Button { Content: ToggleSwitch toggleSwitch })
-        {
-            toggleSwitch.IsOn = !toggleSwitch.IsOn;
-        }
-    }
-
-    private void OnSettingsRootSizeChanged(object sender, SizeChangedEventArgs args) =>
-        ApplyResponsiveLayout(args.NewSize.Width);
-
-    private void ApplyResponsiveLayout(double width)
-    {
-        var state = width >= ResponsiveWideBreakpointDips ? "Wide" : "Narrow";
-        _ = VisualStateManager.GoToState(SettingsScroller, state, false);
-    }
-
     private void ApplyAboutIcon()
     {
         var icon = SettingsRoot.ActualTheme == ElementTheme.Dark
             ? "ms-appx:///Assets/AppIcon.png"
             : "ms-appx:///Assets/AppIconDark.png";
         AboutIconImage.Source = new BitmapImage(new Uri(icon));
+        AboutDetailIconImage.Source = new BitmapImage(new Uri(icon));
     }
 
     private void ApplyTitleBarTheme(ThemeMode mode)
