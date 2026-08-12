@@ -332,6 +332,188 @@ public sealed class WindowsUpdateTests
     }
 
     [TestMethod]
+    public async Task Downloader_ReportsKnownTotalAndVerificationPhase()
+    {
+        var bytes = Encoding.UTF8.GetBytes("installer");
+        var hash = Convert.ToHexString(SHA256.HashData(bytes));
+        var handler = new StaticHttpHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = request.RequestUri!.AbsolutePath.EndsWith("SHA256SUMS.txt", StringComparison.Ordinal)
+                ? new StringContent($"{hash}  CodexQuotaTray-0.7.0-setup.exe\n")
+                : new ByteArrayContent(bytes),
+        });
+        var progress = new RecordingProgress();
+        var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var client = new HttpClient(handler);
+            using var downloader = new WindowsUpdateDownloader(root, client);
+
+            var result = await downloader.DownloadAsync(CreateRelease("0.7.0"), progress, CancellationToken.None);
+
+            Assert.IsTrue(result.Succeeded);
+            Assert.IsTrue(progress.Values.Any(value =>
+                value.Phase == WindowsUpdateDownloadPhase.Downloading
+                && value.TotalBytes == bytes.Length
+                && value.Percentage == 100));
+            Assert.IsTrue(progress.Values.Any(value => value.Phase == WindowsUpdateDownloadPhase.Verifying));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task Downloader_UsesIndeterminateProgressWhenTotalIsUnknown()
+    {
+        var bytes = Encoding.UTF8.GetBytes("installer");
+        var hash = Convert.ToHexString(SHA256.HashData(bytes));
+        var handler = new StaticHttpHandler(request => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = request.RequestUri!.AbsolutePath.EndsWith("SHA256SUMS.txt", StringComparison.Ordinal)
+                ? new StringContent($"{hash}  CodexQuotaTray-0.7.0-setup.exe\n")
+                : new StreamContent(new NonSeekableStream(bytes)),
+        });
+        var progress = new RecordingProgress();
+        var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var client = new HttpClient(handler);
+            using var downloader = new WindowsUpdateDownloader(root, client);
+
+            var result = await downloader.DownloadAsync(CreateRelease("0.7.0"), progress, CancellationToken.None);
+
+            Assert.IsTrue(result.Succeeded);
+            Assert.IsTrue(progress.Values.Any(value =>
+                value.Phase == WindowsUpdateDownloadPhase.Downloading
+                && value.TotalBytes is null
+                && value.Percentage is null
+                && value.BytesDownloaded > 0));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task Downloader_CancellationCleansPartFileAndDoesNotPrepareInstaller()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var client = new HttpClient(new StaticHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new ByteArrayContent(Encoding.UTF8.GetBytes("installer")),
+            }));
+            using var downloader = new WindowsUpdateDownloader(root, client);
+
+            var result = await downloader.DownloadAsync(CreateRelease("0.7.0"), cancellation.Token);
+
+            Assert.IsFalse(result.Succeeded);
+            Assert.IsTrue(result.WasCancelled);
+            Assert.IsFalse(Directory.Exists(root) && Directory.EnumerateFiles(root, "*.part").Any());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task Coordinator_AutoLaunchSettingDefaultsFalseAndRoundTrips()
+    {
+        var store = new MemoryStateStore();
+        await using (var coordinator = new WindowsUpdateCoordinator(
+            new FakeReleaseProvider((WindowsUpdateRelease?)null),
+            store,
+            Parse("0.6.6")))
+        {
+            Assert.IsFalse(coordinator.AutoLaunchInstallerAfterDownload);
+            await coordinator.SetAutoLaunchInstallerAfterDownloadAsync(true, CancellationToken.None);
+            Assert.IsTrue(coordinator.AutoLaunchInstallerAfterDownload);
+        }
+
+        await using (var reloaded = new WindowsUpdateCoordinator(
+            new FakeReleaseProvider((WindowsUpdateRelease?)null),
+            store,
+            Parse("0.6.6")))
+        {
+            await reloaded.CheckAsync(WindowsUpdateCheckReason.Manual, CancellationToken.None);
+            Assert.IsTrue(reloaded.AutoLaunchInstallerAfterDownload);
+            await reloaded.SetAutoLaunchInstallerAfterDownloadAsync(false, CancellationToken.None);
+        }
+
+        var oldState = JsonSerializer.Deserialize<WindowsUpdateState>("{}");
+        Assert.IsNotNull(oldState);
+        Assert.IsFalse(oldState.AutoLaunchInstallerAfterDownload);
+    }
+
+    [TestMethod]
+    public void ReleaseNotesMarkdown_RendersSupportedBlocksAndInlineStyles()
+    {
+        var blocks = ReleaseNotesMarkdown.Parse("""
+            # Heading
+
+            - **bold** *italic* `code` [link](https://github.com/DDJang/CodexQuotaTray)
+            1. ordered
+            > quote
+
+            ```
+            var value = 1;
+            ```
+            """);
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                ReleaseNotesBlockKind.Heading,
+                ReleaseNotesBlockKind.UnorderedListItem,
+                ReleaseNotesBlockKind.OrderedListItem,
+                ReleaseNotesBlockKind.Quote,
+                ReleaseNotesBlockKind.CodeBlock,
+            },
+            blocks.Select(block => block.Kind).ToArray());
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                ReleaseNotesInlineKind.Bold,
+                ReleaseNotesInlineKind.Text,
+                ReleaseNotesInlineKind.Italic,
+                ReleaseNotesInlineKind.Text,
+                ReleaseNotesInlineKind.InlineCode,
+                ReleaseNotesInlineKind.Text,
+                ReleaseNotesInlineKind.Link,
+            },
+            blocks[1].Inlines.Select(inline => inline.Kind).ToArray());
+        Assert.AreEqual(1, blocks[2].ListIndex);
+        Assert.AreEqual("https://github.com/DDJang/CodexQuotaTray", blocks[1].Inlines.Last().Url);
+        StringAssert.Contains(blocks[4].Inlines[0].Text, "var value = 1;");
+    }
+
+    [TestMethod]
+    public void ReleaseNotesMarkdown_UnsupportedMarkupFallsBackWithoutThrowing()
+    {
+        var blocks = ReleaseNotesMarkdown.Parse("<table>raw</table>\n\n| a | b |\n\n``` unfinished");
+
+        Assert.IsTrue(blocks.Count >= 2);
+        Assert.IsTrue(blocks.Any(block => block.Kind == ReleaseNotesBlockKind.Paragraph));
+        Assert.AreEqual(ReleaseNotesBlockKind.CodeBlock, blocks[^1].Kind);
+    }
+
+    [TestMethod]
     public void Security_AllowsOnlyHttpsGitHubAssetHosts()
     {
         Assert.IsTrue(WindowsUpdateSecurity.IsAllowedAssetUri(new Uri("https://github.com/a")));
@@ -446,6 +628,22 @@ public sealed class WindowsUpdateTests
     {
         internal DateTimeOffset UtcNowValue { get; set; } = initial;
         public DateTimeOffset UtcNow => UtcNowValue;
+    }
+
+    private sealed class RecordingProgress : IProgress<WindowsUpdateDownloadProgress>
+    {
+        internal List<WindowsUpdateDownloadProgress> Values { get; } = [];
+
+        public void Report(WindowsUpdateDownloadProgress value) => Values.Add(value);
+    }
+
+    private sealed class NonSeekableStream(byte[] bytes) : MemoryStream(bytes, writable: false)
+    {
+        public override bool CanSeek => false;
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
     }
 
     private sealed class StaticHttpHandler(Func<HttpRequestMessage, HttpResponseMessage> factory) : HttpMessageHandler

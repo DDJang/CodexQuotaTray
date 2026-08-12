@@ -181,7 +181,7 @@ public sealed partial class SettingsWindow : Window
             content.Children.Add(new TextBlock { Text = "Release notes" });
             content.Children.Add(new ScrollViewer
             {
-                Content = new TextBlock { Text = notes, TextWrapping = TextWrapping.Wrap },
+                Content = ReleaseNotesMarkdownRenderer.Create(notes),
                 MaxHeight = 300,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             });
@@ -195,7 +195,22 @@ public sealed partial class SettingsWindow : Window
             var download = await viewModel.DownloadWindowsUpdateAsync(CancellationToken.None);
             if (!download.Succeeded)
             {
+                if (download.WasCancelled)
+                {
+                    return;
+                }
+
                 await ShowUpdateMessageAsync("更新下载失败", download.ErrorMessage ?? "无法下载更新安装包。", "关闭");
+                return;
+            }
+
+            if (viewModel.AutoLaunchInstallerAfterDownload)
+            {
+                if (!await viewModel.InstallPreparedWindowsUpdateAsync(CancellationToken.None))
+                {
+                    await ShowUpdateMessageAsync("更新启动失败", "无法启动安装器，请稍后重试。", "关闭");
+                }
+
                 return;
             }
 
@@ -218,13 +233,6 @@ public sealed partial class SettingsWindow : Window
             await ShowUpdateMessageAsync(
                 "检查更新失败",
                 result.ErrorMessage ?? "无法读取有效的 Windows Release。",
-                "关闭");
-        }
-        else if (result.Status == WindowsUpdateCheckStatus.UpToDate)
-        {
-            await ShowUpdateMessageAsync(
-                "检查更新",
-                $"已是最新版本 {viewModel.CurrentVersionText}。",
                 "关闭");
         }
     }

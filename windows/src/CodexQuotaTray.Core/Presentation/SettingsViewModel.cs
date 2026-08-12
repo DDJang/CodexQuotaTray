@@ -56,6 +56,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool suppressSettingsApply = true;
     private bool suppressUpdateApply = true;
     private long settingsRevision;
+    private CancellationTokenSource? downloadCancellationSource;
 
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showRemainingPercent;
@@ -77,12 +78,22 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string statusText = string.Empty;
     [ObservableProperty] private bool automaticUpdateChecksEnabled;
     [ObservableProperty] private bool updateRemindersEnabled;
+    [ObservableProperty] private bool autoLaunchInstallerAfterDownload;
     [ObservableProperty] private string updateStatusText = "尚未检查";
     [ObservableProperty] private string updateLastCheckText = "尚未检查";
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanCheckForWindowsUpdates))]
     private bool updateCheckInProgress;
-    [ObservableProperty] private bool updateDownloadInProgress;
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CancelWindowsUpdateCommand))]
+    private bool updateDownloadInProgress;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasDownloadProgress))]
+    [NotifyPropertyChangedFor(nameof(IsDownloadProgressIndeterminate))]
+    [NotifyPropertyChangedFor(nameof(DownloadProgressValue))]
+    [NotifyPropertyChangedFor(nameof(DownloadProgressText))]
+    [NotifyPropertyChangedFor(nameof(DownloadProgressSizeText))]
+    private WindowsUpdateDownloadProgress downloadProgress = WindowsUpdateDownloadProgress.Idle;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ResetCommand))]
     private bool isBusy;
@@ -101,6 +112,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         if (updates is not null)
         {
             updates.Changed += OnWindowsUpdateChanged;
+            updates.DownloadProgressChanged += OnWindowsUpdateProgressChanged;
         }
         Load(runtime.Settings);
         RefreshTokenSyncStatus();
@@ -128,6 +140,43 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool CanEditUpdateReminders => IsWindowsUpdateAvailable && AutomaticUpdateChecksEnabled;
 
     public bool CanCheckForWindowsUpdates => IsWindowsUpdateAvailable && !UpdateCheckInProgress;
+
+    public bool HasDownloadProgress => DownloadProgress.Phase is
+        WindowsUpdateDownloadPhase.Downloading or WindowsUpdateDownloadPhase.Verifying;
+
+    public bool IsDownloadProgressIndeterminate => DownloadProgress.Phase == WindowsUpdateDownloadPhase.Verifying
+        || DownloadProgress.Phase == WindowsUpdateDownloadPhase.Downloading && DownloadProgress.Percentage is null;
+
+    public double DownloadProgressValue => DownloadProgress.Percentage
+        ?? (DownloadProgress.Phase == WindowsUpdateDownloadPhase.Verifying ? 100 : 0);
+
+    public string DownloadProgressText => DownloadProgress.Phase switch
+    {
+        WindowsUpdateDownloadPhase.Downloading when DownloadProgress.Percentage is { } percentage => $"正在下载更新 · {percentage}%",
+        WindowsUpdateDownloadPhase.Downloading => "正在下载更新…",
+        WindowsUpdateDownloadPhase.Verifying => "正在验证安装包…",
+        WindowsUpdateDownloadPhase.ReadyToInstall => "更新已准备好",
+        WindowsUpdateDownloadPhase.Cancelled => "下载已取消",
+        WindowsUpdateDownloadPhase.Failed => "更新下载失败",
+        WindowsUpdateDownloadPhase.Installing => "正在启动安装程序…",
+        _ => string.Empty,
+    };
+
+    public string DownloadProgressSizeText
+    {
+        get
+        {
+            if (DownloadProgress.Phase is not (WindowsUpdateDownloadPhase.Downloading or WindowsUpdateDownloadPhase.Verifying))
+            {
+                return string.Empty;
+            }
+
+            var downloaded = FormatBytes(DownloadProgress.BytesDownloaded);
+            return DownloadProgress.TotalBytes is { } total && total > 0
+                ? $"{downloaded} / {FormatBytes(total)}"
+                : $"已下载 {downloaded}";
+        }
+    }
 
     public bool CanConfigureStartup => platform.CanConfigureStartup;
 
@@ -238,19 +287,33 @@ public sealed partial class SettingsViewModel : ObservableObject
             return WindowsUpdateDownloadResult.Failed("开发版本不检查正式更新");
         }
 
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (Interlocked.CompareExchange(ref downloadCancellationSource, linkedCancellation, null) is not null)
+        {
+            return WindowsUpdateDownloadResult.Failed("更新下载正在进行中。");
+        }
+
         UpdateDownloadInProgress = true;
         try
         {
-            var result = await updates.DownloadAsync(cancellationToken);
-            StatusText = result.Succeeded ? "更新已准备好" : result.ErrorMessage ?? "更新下载失败";
+            var result = await updates.DownloadAsync(linkedCancellation.Token);
+            StatusText = result.Succeeded
+                ? "更新已准备好"
+                : result.WasCancelled ? "下载已取消" : result.ErrorMessage ?? "更新下载失败";
             return result;
         }
         finally
         {
+            Interlocked.CompareExchange(ref downloadCancellationSource, null, linkedCancellation);
             UpdateDownloadInProgress = false;
             OnPropertyChanged(nameof(CanDownloadWindowsUpdate));
         }
     }
+
+    [RelayCommand(CanExecute = nameof(CanCancelWindowsUpdate))]
+    private void CancelWindowsUpdate() => downloadCancellationSource?.Cancel();
+
+    private bool CanCancelWindowsUpdate() => UpdateDownloadInProgress;
 
     public Task<bool> InstallPreparedWindowsUpdateAsync(CancellationToken cancellationToken) =>
         updates?.InstallPreparedAsync(cancellationToken) ?? Task.FromResult(false);
@@ -473,6 +536,14 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
+    partial void OnAutoLaunchInstallerAfterDownloadChanged(bool value)
+    {
+        if (!suppressUpdateApply && updates is not null)
+        {
+            _ = ApplyAutoLaunchInstallerSettingAsync(value);
+        }
+    }
+
     public void RefreshTokenSyncStatus()
     {
         TokenSyncStatusText = platform.TokenSyncStatusText;
@@ -501,9 +572,11 @@ public sealed partial class SettingsViewModel : ObservableObject
 
             AutomaticUpdateChecksEnabled = updates.AutomaticChecksEnabled;
             UpdateRemindersEnabled = updates.UpdateRemindersEnabled;
+            AutoLaunchInstallerAfterDownload = updates.AutoLaunchInstallerAfterDownload;
             OnPropertyChanged(nameof(CanEditUpdateReminders));
             var result = updates.CurrentResult;
-            UpdateStatusText = FormatUpdateStatus(result);
+            DownloadProgress = updates.DownloadProgress;
+            ApplyDownloadPresentation(result);
             var lastCheck = updates.LastSuccessfulCheckUtc ?? updates.LastAttemptUtc;
             UpdateLastCheckText = lastCheck is { } value
                 ? value.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
@@ -542,22 +615,75 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
     }
 
+    private async Task ApplyAutoLaunchInstallerSettingAsync(bool value)
+    {
+        try
+        {
+            await updates!.SetAutoLaunchInstallerAfterDownloadAsync(value, CancellationToken.None);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
+        {
+            RefreshWindowsUpdateStatus();
+            StatusText = "更新设置保存失败";
+        }
+    }
+
     internal static string FormatUpdateStatus(WindowsUpdateCheckResult result) => result.Status switch
     {
-        WindowsUpdateCheckStatus.NotChecked => "尚未检查",
+        WindowsUpdateCheckStatus.NotChecked => string.Empty,
         WindowsUpdateCheckStatus.Checking => "正在检查…",
-        WindowsUpdateCheckStatus.Disabled => "自动检查已关闭",
+        WindowsUpdateCheckStatus.Disabled => string.Empty,
         WindowsUpdateCheckStatus.Skipped => string.Empty,
-        WindowsUpdateCheckStatus.UpToDate => $"已是最新版本 {result.Release?.Version.ToString() ?? ProductVersion.Current}",
+        WindowsUpdateCheckStatus.UpToDate => string.Empty,
         WindowsUpdateCheckStatus.Available => $"发现新版本 {result.Release?.Version}",
         WindowsUpdateCheckStatus.NoRelease => "当前 Release 没有有效的 Windows 安装包",
         WindowsUpdateCheckStatus.Failed => "检查更新失败",
         _ => "尚未检查",
     };
 
+    internal static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024)
+        {
+            return $"{bytes} B";
+        }
+
+        var value = bytes / 1024d;
+        if (value < 1024)
+        {
+            return $"{value:0.0} KB";
+        }
+
+        value /= 1024d;
+        if (value < 1024)
+        {
+            return $"{value:0.0} MB";
+        }
+
+        return $"{value / 1024d:0.0} GB";
+    }
+
+    private void ApplyDownloadPresentation(WindowsUpdateCheckResult result)
+    {
+        UpdateStatusText = string.IsNullOrEmpty(DownloadProgressText)
+            ? FormatUpdateStatus(result)
+            : DownloadProgressText;
+        OnPropertyChanged(nameof(HasDownloadProgress));
+        OnPropertyChanged(nameof(IsDownloadProgressIndeterminate));
+        OnPropertyChanged(nameof(DownloadProgressValue));
+        OnPropertyChanged(nameof(DownloadProgressText));
+        OnPropertyChanged(nameof(DownloadProgressSizeText));
+    }
+
     private void OnWindowsUpdateChanged(object? sender, EventArgs args)
     {
         RefreshWindowsUpdateStatus();
+    }
+
+    private void OnWindowsUpdateProgressChanged(object? sender, WindowsUpdateDownloadProgress progress)
+    {
+        DownloadProgress = progress;
+        ApplyDownloadPresentation(updates?.CurrentResult ?? WindowsUpdateCheckResult.NotChecked);
     }
 
     private void OnTokenSyncChanged(object? sender, EventArgs args) => TokenSyncChanged?.Invoke(this, args);

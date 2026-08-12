@@ -100,11 +100,37 @@ public sealed record WindowsUpdateCheckResult(
 public sealed record WindowsUpdateDownloadResult(
     bool Succeeded,
     string? InstallerPath,
-    string? ErrorMessage)
+    string? ErrorMessage,
+    bool WasCancelled = false)
 {
     public static WindowsUpdateDownloadResult Failed(string message) => new(false, null, message);
 
+    public static WindowsUpdateDownloadResult Cancelled(string message = "下载已取消") => new(false, null, message, true);
+
     public static WindowsUpdateDownloadResult Prepared(string path) => new(true, path, null);
+}
+
+public enum WindowsUpdateDownloadPhase
+{
+    Idle,
+    Downloading,
+    Verifying,
+    ReadyToInstall,
+    Installing,
+    Failed,
+    Cancelled,
+}
+
+public sealed record WindowsUpdateDownloadProgress(
+    WindowsUpdateDownloadPhase Phase,
+    long BytesDownloaded = 0,
+    long? TotalBytes = null)
+{
+    public int? Percentage => TotalBytes is > 0
+        ? (int)Math.Clamp(BytesDownloaded * 100d / TotalBytes.Value, 0, 100)
+        : null;
+
+    public static WindowsUpdateDownloadProgress Idle { get; } = new(WindowsUpdateDownloadPhase.Idle);
 }
 
 public sealed record WindowsUpdateState(
@@ -112,7 +138,8 @@ public sealed record WindowsUpdateState(
     bool UpdateRemindersEnabled = true,
     DateTimeOffset? LastAttemptUtc = null,
     DateTimeOffset? LastSuccessfulCheckUtc = null,
-    string? LastNotifiedVersion = null);
+    string? LastNotifiedVersion = null,
+    bool AutoLaunchInstallerAfterDownload = false);
 
 public interface IWindowsUpdateReleaseProvider
 {
@@ -144,17 +171,25 @@ public interface IWindowsUpdateController
 
     bool UpdateRemindersEnabled { get; }
 
+    bool AutoLaunchInstallerAfterDownload { get; }
+
     DateTimeOffset? LastAttemptUtc { get; }
 
     DateTimeOffset? LastSuccessfulCheckUtc { get; }
 
     WindowsUpdateCheckResult CurrentResult { get; }
 
+    WindowsUpdateDownloadProgress DownloadProgress { get; }
+
     event EventHandler? Changed;
+
+    event EventHandler<WindowsUpdateDownloadProgress>? DownloadProgressChanged;
 
     Task SetAutomaticChecksEnabledAsync(bool enabled, CancellationToken cancellationToken);
 
     Task SetUpdateRemindersEnabledAsync(bool enabled, CancellationToken cancellationToken);
+
+    Task SetAutoLaunchInstallerAfterDownloadAsync(bool enabled, CancellationToken cancellationToken);
 
     Task<WindowsUpdateCheckResult> CheckAsync(bool manual, CancellationToken cancellationToken);
 
