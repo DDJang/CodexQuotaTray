@@ -113,6 +113,7 @@ public sealed partial class SettingsWindow : Window
         backdrop.Dispose();
     }
 
+
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
         _ = WindowIconService.TrySetIcon(appWindow, SettingsRoot.ActualTheme == ElementTheme.Dark);
@@ -277,61 +278,7 @@ public sealed partial class SettingsWindow : Window
                 return;
             }
 
-            var download = await viewModel.DownloadWindowsUpdateAsync(CancellationToken.None);
-            while (!download.Succeeded)
-            {
-                if (download.WasCancelled)
-                {
-                    return;
-                }
-
-                var failureContent = new TextBlock
-                {
-                    Text = download.ErrorMessage ?? "无法下载更新安装包。",
-                    TextWrapping = TextWrapping.Wrap,
-                };
-                var failureDialog = CreateUpdateDialog(
-                    "更新下载失败",
-                    failureContent,
-                    "重试",
-                    "关闭",
-                    "浏览器下载");
-                var failureResult = await TryShowDialogAsync(failureDialog);
-                if (failureResult == ContentDialogResult.Secondary)
-                {
-                    await viewModel.OpenWindowsUpdateInBrowserAsync(CancellationToken.None);
-                    return;
-                }
-
-                if (failureResult != ContentDialogResult.Primary)
-                {
-                    return;
-                }
-
-                download = await viewModel.DownloadWindowsUpdateAsync(CancellationToken.None);
-            }
-
-            if (viewModel.AutoLaunchInstallerAfterDownload)
-            {
-                if (!await viewModel.InstallPreparedWindowsUpdateAsync(CancellationToken.None))
-                {
-                    await ShowUpdateMessageAsync("更新启动失败", "无法启动安装器，请稍后重试。", "关闭");
-                }
-
-                return;
-            }
-
-            var readyDialog = CreateUpdateDialog(
-                "更新已准备好",
-                new TextBlock { Text = "安装包已通过 SHA-256 校验，可以启动现有安装器完成升级。", TextWrapping = TextWrapping.Wrap },
-                "立即安装",
-                "稍后安装");
-            if (await TryShowDialogAsync(readyDialog) == ContentDialogResult.Primary
-                && !await viewModel.InstallPreparedWindowsUpdateAsync(CancellationToken.None))
-            {
-                await ShowUpdateMessageAsync("更新启动失败", "无法启动安装器，请稍后重试。", "关闭");
-            }
-
+            await DownloadAndInstallWindowsUpdateAsync();
             return;
         }
 
@@ -341,6 +288,67 @@ public sealed partial class SettingsWindow : Window
                 "检查更新失败",
                 result.ErrorMessage ?? "无法读取有效的 Windows 更新清单。",
                 "关闭");
+        }
+    }
+
+    private async void OnDownloadWindowsUpdateRequested(object sender, RoutedEventArgs args) =>
+        await DownloadAndInstallWindowsUpdateAsync();
+
+    private async Task DownloadAndInstallWindowsUpdateAsync()
+    {
+        var download = await viewModel.DownloadWindowsUpdateAsync(CancellationToken.None);
+        while (!download.Succeeded)
+        {
+            if (download.WasCancelled)
+            {
+                return;
+            }
+
+            var failureContent = new TextBlock
+            {
+                Text = download.ErrorMessage ?? "无法下载更新安装包。",
+                TextWrapping = TextWrapping.Wrap,
+            };
+            var failureDialog = CreateUpdateDialog(
+                "更新下载失败",
+                failureContent,
+                "重试",
+                "关闭",
+                "浏览器下载");
+            var failureResult = await TryShowDialogAsync(failureDialog);
+            if (failureResult == ContentDialogResult.Secondary)
+            {
+                await viewModel.OpenWindowsUpdateInBrowserAsync(CancellationToken.None);
+                return;
+            }
+
+            if (failureResult != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            download = await viewModel.DownloadWindowsUpdateAsync(CancellationToken.None);
+        }
+
+        if (viewModel.AutoLaunchInstallerAfterDownload)
+        {
+            if (!await viewModel.InstallPreparedWindowsUpdateAsync(CancellationToken.None))
+            {
+                await ShowUpdateMessageAsync("更新启动失败", "无法启动安装器，请稍后重试。", "关闭");
+            }
+
+            return;
+        }
+
+        var readyDialog = CreateUpdateDialog(
+            "更新已准备好",
+            new TextBlock { Text = "安装包已通过 SHA-256 校验，可以启动现有安装器完成升级。", TextWrapping = TextWrapping.Wrap },
+            "立即安装",
+            "稍后安装");
+        if (await TryShowDialogAsync(readyDialog) == ContentDialogResult.Primary
+            && !await viewModel.InstallPreparedWindowsUpdateAsync(CancellationToken.None))
+        {
+            await ShowUpdateMessageAsync("更新启动失败", "无法启动安装器，请稍后重试。", "关闭");
         }
     }
 

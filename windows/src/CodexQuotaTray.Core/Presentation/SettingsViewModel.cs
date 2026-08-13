@@ -91,13 +91,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool updateCheckInProgress;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CancelWindowsUpdateCommand))]
+    [NotifyPropertyChangedFor(nameof(CanDownloadWindowsUpdate))]
     private bool updateDownloadInProgress;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasDownloadProgress))]
     [NotifyPropertyChangedFor(nameof(IsDownloadProgressIndeterminate))]
     [NotifyPropertyChangedFor(nameof(DownloadProgressValue))]
+    [NotifyPropertyChangedFor(nameof(DownloadProgressPercentageText))]
     [NotifyPropertyChangedFor(nameof(DownloadProgressText))]
     [NotifyPropertyChangedFor(nameof(DownloadProgressSizeText))]
+    [NotifyPropertyChangedFor(nameof(CanDownloadWindowsUpdate))]
     private WindowsUpdateDownloadProgress downloadProgress = WindowsUpdateDownloadProgress.Idle;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ResetCommand))]
@@ -136,7 +139,12 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public string CurrentVersionText => ProductVersion.Current;
 
-    public bool CanDownloadWindowsUpdate => updates?.CurrentResult.HasUpdate == true && !UpdateDownloadInProgress;
+    public bool CanDownloadWindowsUpdate => updates?.CurrentResult.HasUpdate == true
+        && !UpdateDownloadInProgress
+        && DownloadProgress.Phase is
+            WindowsUpdateDownloadPhase.Idle or
+            WindowsUpdateDownloadPhase.Cancelled or
+            WindowsUpdateDownloadPhase.Failed;
 
     public bool CanEditUpdateReminders => IsWindowsUpdateAvailable && AutomaticUpdateChecksEnabled;
 
@@ -152,6 +160,15 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public double DownloadProgressValue => DownloadProgress.Percentage
         ?? (DownloadProgress.Phase == WindowsUpdateDownloadPhase.Verifying ? 100 : 0);
+
+    public string DownloadProgressPercentageText => DownloadProgress switch
+    {
+        {
+            Phase: WindowsUpdateDownloadPhase.Downloading or WindowsUpdateDownloadPhase.Verifying,
+            Percentage: { } percentage,
+        } => $"{percentage}%",
+        _ => string.Empty,
+    };
 
     public string DownloadProgressText => DownloadProgress.Phase switch
     {
@@ -726,6 +743,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(HasDownloadProgress));
         OnPropertyChanged(nameof(IsDownloadProgressIndeterminate));
         OnPropertyChanged(nameof(DownloadProgressValue));
+        OnPropertyChanged(nameof(DownloadProgressPercentageText));
         OnPropertyChanged(nameof(DownloadProgressText));
         OnPropertyChanged(nameof(DownloadProgressSizeText));
     }

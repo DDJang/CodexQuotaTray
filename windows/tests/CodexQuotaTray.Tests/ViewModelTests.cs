@@ -269,6 +269,7 @@ public sealed class ViewModelTests
 
         Assert.AreEqual("正在下载更新…", viewModel.DownloadProgressText);
         Assert.AreEqual("17.0 MB / 25.0 MB", viewModel.DownloadProgressSizeText);
+        Assert.AreEqual("68%", viewModel.DownloadProgressPercentageText);
         Assert.IsFalse(viewModel.IsDownloadProgressIndeterminate);
         Assert.IsTrue(viewModel.HasDownloadProgress);
 
@@ -278,6 +279,7 @@ public sealed class ViewModelTests
             null));
         Assert.IsTrue(viewModel.IsDownloadProgressIndeterminate);
         Assert.AreEqual("17.0 MB", viewModel.DownloadProgressSizeText);
+        Assert.AreEqual(string.Empty, viewModel.DownloadProgressPercentageText);
 
         updates.Publish(new WindowsUpdateDownloadProgress(
             WindowsUpdateDownloadPhase.Downloading,
@@ -292,11 +294,57 @@ public sealed class ViewModelTests
             25 * 1024 * 1024));
         Assert.AreEqual("正在校验安装包…", viewModel.UpdateStatusText);
         Assert.AreEqual("25.0 MB / 25.0 MB", viewModel.DownloadProgressSizeText);
+        Assert.AreEqual("100%", viewModel.DownloadProgressPercentageText);
         Assert.IsFalse(viewModel.IsDownloadProgressIndeterminate);
 
         updates.InstallResult = false;
         Assert.IsFalse(await viewModel.InstallPreparedWindowsUpdateAsync(CancellationToken.None));
     }
+
+    [TestMethod]
+    public async Task CancelledDownloadKeepsRetryAndBrowserActionsAvailable()
+    {
+        var updates = new StubWindowsUpdateController
+        {
+            CurrentResult = AvailableWindowsUpdateResult(),
+            DownloadGate = new TaskCompletionSource<WindowsUpdateDownloadResult>(TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        var actions = new StubSettingsPageActions();
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            actions,
+            updates);
+
+        var download = viewModel.DownloadWindowsUpdateAsync(CancellationToken.None);
+        Assert.IsTrue(updates.DownloadStarted.Wait(TimeSpan.FromSeconds(2)));
+        Assert.IsFalse(viewModel.CanDownloadWindowsUpdate);
+
+        viewModel.CancelWindowsUpdateCommand.Execute(null);
+        var result = await download;
+
+        Assert.IsTrue(result.WasCancelled);
+        Assert.IsTrue(viewModel.CanDownloadWindowsUpdate);
+        Assert.AreEqual("下载已取消", viewModel.UpdateStatusText);
+
+        await viewModel.OpenWindowsUpdateInBrowserAsync(CancellationToken.None);
+        Assert.IsTrue(actions.OpenedWindowsUpdateBrowser);
+    }
+
+    private static WindowsUpdateCheckResult AvailableWindowsUpdateResult() => new(
+        WindowsUpdateCheckStatus.Available,
+        new WindowsUpdateRelease(
+            "windows-v0.7.5",
+            new SemanticVersion(0, 7, 5),
+            "CodexQuotaTray 0.7.5",
+            string.Empty,
+            null,
+            new WindowsUpdateAsset(
+                "CodexQuotaTray-0.7.5-setup.exe",
+                new Uri("https://github.com/DDJang/CodexQuotaTray/a.exe")),
+            new string('a', 64)),
+        null,
+        DateTimeOffset.UtcNow);
 
     [TestMethod]
     public async Task BrowserFallback_CancelsActiveDownloadBeforeOpeningBrowser()
@@ -626,6 +674,7 @@ public sealed class ViewModelTests
             catch (OperationCanceledException)
             {
                 DownloadCancellationRequested = true;
+                Publish(new WindowsUpdateDownloadProgress(WindowsUpdateDownloadPhase.Cancelled));
                 return WindowsUpdateDownloadResult.Cancelled();
             }
         }
