@@ -37,6 +37,12 @@ public sealed partial class TokenUsageViewModel : ObservableObject
     [ObservableProperty]
     private bool showLoading;
 
+    public bool ShowContent => HasData && !ShowLoading;
+
+    public bool ShowEmpty => HasNoData && !ShowLoading;
+
+    public bool ShowError => HasErrorWithoutData && !ShowLoading;
+
     [ObservableProperty]
     private string todayTokens = "0";
 
@@ -114,8 +120,11 @@ public sealed partial class TokenUsageViewModel : ObservableObject
 
     internal void Apply(TokenUsageSnapshot value, DateOnly? today = null)
     {
-        snapshot = value;
         var summary = value.Summary;
+        var localToday = today ?? DateOnly.FromDateTime(DateTime.Now);
+        var cells = TokenHeatmap.Build(value.Days, localToday, HeatmapWeeks);
+
+        snapshot = value;
         TodayTokens = TokenUsageFormatter.Format(summary.TodayTokens);
         Last7DaysTokens = TokenUsageFormatter.Format(summary.Last7DaysTokens);
         Last30DaysTokens = TokenUsageFormatter.Format(summary.Last30DaysTokens);
@@ -123,24 +132,36 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         PeakDailyTokens = TokenUsageFormatter.Format(summary.PeakDailyTokens);
         CurrentStreak = $"{summary.CurrentStreak} 天";
         LongestStreak = $"{summary.LongestStreak} 天";
-        HasData = summary.LifetimeTokens > 0;
-        HasNoData = !HasData;
-        HasErrorWithoutData = false;
-        StatusText = HasData ? $"更新于 {value.GeneratedAtUtc.ToLocalTime():HH:mm}" : "尚无 Token 数据";
-        StatusTone = HasData ? StatusTone.Success : StatusTone.Neutral;
 
-        var localToday = today ?? DateOnly.FromDateTime(DateTime.Now);
-        var cells = TokenHeatmap.Build(value.Days, localToday, HeatmapWeeks);
         HeatmapCells.Clear();
         foreach (var cell in cells)
         {
             HeatmapCells.Add(cell);
         }
 
+        HasData = summary.LifetimeTokens > 0;
+        HasNoData = !HasData;
+        HasErrorWithoutData = false;
+        StatusText = HasData ? $"更新于 {value.GeneratedAtUtc.ToLocalTime():HH:mm}" : "尚无 Token 数据";
+        StatusTone = HasData ? StatusTone.Success : StatusTone.Neutral;
+
         OnPropertyChanged(nameof(HasLoaded));
     }
 
     private bool CanRefresh() => !IsRefreshing;
+
+    partial void OnHasDataChanged(bool value) => OnPropertyChanged(nameof(ShowContent));
+
+    partial void OnHasNoDataChanged(bool value) => OnPropertyChanged(nameof(ShowEmpty));
+
+    partial void OnHasErrorWithoutDataChanged(bool value) => OnPropertyChanged(nameof(ShowError));
+
+    partial void OnShowLoadingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowContent));
+        OnPropertyChanged(nameof(ShowEmpty));
+        OnPropertyChanged(nameof(ShowError));
+    }
 }
 
 public static class TokenUsageRefreshPolicy

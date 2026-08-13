@@ -616,17 +616,52 @@
                             <StackPanel
                                 Spacing="4"
                                 Visibility="{Binding HasDownloadProgress, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock
+                                        Text="{Binding DownloadProgressSizeText}"
+                                        Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        Text="{Binding DownloadProgressPercentageText}"
+                                        Style="{StaticResource SettingsDescriptionStyle}" />
+                                </Grid>
                                 <ProgressBar
                                     Maximum="100"
                                     Value="{Binding DownloadProgressValue}"
                                     IsIndeterminate="{Binding IsDownloadProgressIndeterminate}"
                                     Style="{StaticResource QuotaProgressStyle}" />
-                                <Button
-                                    Content="取消"
-                                    Command="{Binding CancelWindowsUpdateCommand}"
-                                    Style="{StaticResource SettingsActionButtonStyle}"
-                                    HorizontalAlignment="Left"
-                                    MinWidth="96" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        Content="取消"
+                                        Command="{Binding CancelWindowsUpdateCommand}"
+                                        Style="{StaticResource SettingsActionButtonStyle}"
+                                        MinWidth="96" />
+                                    <Button
+                                        Content="浏览器下载"
+                                        Command="{Binding BrowserDownloadWindowsUpdateCommand}"
+                                        Style="{StaticResource SettingsActionButtonStyle}"
+                                        MinWidth="120" />
+                                </StackPanel>
+                            </StackPanel>
+                            <StackPanel
+                                Spacing="4"
+                                Visibility="{Binding CanDownloadWindowsUpdate, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        Content="下载并安装"
+                                        Click="OnDownloadWindowsUpdateRequested"
+                                        Style="{StaticResource SettingsActionButtonStyle}"
+                                        MinWidth="120" />
+                                    <Button
+                                        Content="浏览器下载"
+                                        Command="{Binding BrowserDownloadWindowsUpdateCommand}"
+                                        Style="{StaticResource SettingsActionButtonStyle}"
+                                        MinWidth="120" />
+                                </StackPanel>
                             </StackPanel>
                         </StackPanel>
                     </Border>

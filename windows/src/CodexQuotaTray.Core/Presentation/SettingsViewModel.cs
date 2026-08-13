@@ -39,6 +39,8 @@ public interface ISettingsPageActions
 
     void OpenOfficialUsage();
 
+    Task OpenWindowsUpdateBrowserAsync(CancellationToken cancellationToken);
+
     void CopyDiagnostics();
 }
 
@@ -55,6 +57,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool suppressUpdateApply = true;
     private long settingsRevision;
     private CancellationTokenSource? downloadCancellationSource;
+    private Task<WindowsUpdateDownloadResult>? downloadTask;
 
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showRemainingPercent;
@@ -88,13 +91,16 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool updateCheckInProgress;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CancelWindowsUpdateCommand))]
+    [NotifyPropertyChangedFor(nameof(CanDownloadWindowsUpdate))]
     private bool updateDownloadInProgress;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasDownloadProgress))]
     [NotifyPropertyChangedFor(nameof(IsDownloadProgressIndeterminate))]
     [NotifyPropertyChangedFor(nameof(DownloadProgressValue))]
+    [NotifyPropertyChangedFor(nameof(DownloadProgressPercentageText))]
     [NotifyPropertyChangedFor(nameof(DownloadProgressText))]
     [NotifyPropertyChangedFor(nameof(DownloadProgressSizeText))]
+    [NotifyPropertyChangedFor(nameof(CanDownloadWindowsUpdate))]
     private WindowsUpdateDownloadProgress downloadProgress = WindowsUpdateDownloadProgress.Idle;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ResetCommand))]
@@ -133,7 +139,12 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public string CurrentVersionText => ProductVersion.Current;
 
-    public bool CanDownloadWindowsUpdate => updates?.CurrentResult.HasUpdate == true && !UpdateDownloadInProgress;
+    public bool CanDownloadWindowsUpdate => updates?.CurrentResult.HasUpdate == true
+        && !UpdateDownloadInProgress
+        && DownloadProgress.Phase is
+            WindowsUpdateDownloadPhase.Idle or
+            WindowsUpdateDownloadPhase.Cancelled or
+            WindowsUpdateDownloadPhase.Failed;
 
     public bool CanEditUpdateReminders => IsWindowsUpdateAvailable && AutomaticUpdateChecksEnabled;
 
@@ -144,17 +155,26 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool HasDownloadProgress => DownloadProgress.Phase is
         WindowsUpdateDownloadPhase.Downloading or WindowsUpdateDownloadPhase.Verifying;
 
-    public bool IsDownloadProgressIndeterminate => DownloadProgress.Phase == WindowsUpdateDownloadPhase.Verifying
-        || DownloadProgress.Phase == WindowsUpdateDownloadPhase.Downloading && DownloadProgress.Percentage is null;
+    public bool IsDownloadProgressIndeterminate => DownloadProgress.Phase == WindowsUpdateDownloadPhase.Downloading
+        && DownloadProgress.Percentage is null;
 
     public double DownloadProgressValue => DownloadProgress.Percentage
         ?? (DownloadProgress.Phase == WindowsUpdateDownloadPhase.Verifying ? 100 : 0);
 
+    public string DownloadProgressPercentageText => DownloadProgress switch
+    {
+        {
+            Phase: WindowsUpdateDownloadPhase.Downloading or WindowsUpdateDownloadPhase.Verifying,
+            Percentage: { } percentage,
+        } => $"{percentage}%",
+        _ => string.Empty,
+    };
+
     public string DownloadProgressText => DownloadProgress.Phase switch
     {
-        WindowsUpdateDownloadPhase.Downloading when DownloadProgress.Percentage is { } percentage => $"正在下载更新 · {percentage}%",
+        WindowsUpdateDownloadPhase.Downloading when updates?.CurrentResult.Release is { } release => $"正在下载 {release.Version}",
         WindowsUpdateDownloadPhase.Downloading => "正在下载更新…",
-        WindowsUpdateDownloadPhase.Verifying => "正在验证安装包…",
+        WindowsUpdateDownloadPhase.Verifying => "正在校验安装包…",
         WindowsUpdateDownloadPhase.ReadyToInstall => "更新已准备好",
         WindowsUpdateDownloadPhase.Cancelled => "下载已取消",
         WindowsUpdateDownloadPhase.Failed => "更新下载失败",
@@ -171,10 +191,13 @@ public sealed partial class SettingsViewModel : ObservableObject
                 return string.Empty;
             }
 
-            var downloaded = FormatBytes(DownloadProgress.BytesDownloaded);
-            return DownloadProgress.TotalBytes is { } total && total > 0
-                ? $"{downloaded} / {FormatBytes(total)}"
-                : $"已下载 {downloaded}";
+            var text = WindowsUpdateDownloadFormatting.FormatSize(
+                DownloadProgress.BytesDownloaded,
+                DownloadProgress.TotalBytes);
+            return DownloadProgress.Phase == WindowsUpdateDownloadPhase.Downloading
+                && DownloadProgress.BytesPerSecond is > 0
+                ? $"{text} · {WindowsUpdateDownloadFormatting.FormatSpeed(DownloadProgress.BytesPerSecond.Value)}"
+                : text;
         }
     }
 
@@ -304,9 +327,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
 
         UpdateDownloadInProgress = true;
+        Task<WindowsUpdateDownloadResult>? activeDownload = null;
         try
         {
-            var result = await updates.DownloadAsync(linkedCancellation.Token);
+            activeDownload = updates.DownloadAsync(linkedCancellation.Token);
+            downloadTask = activeDownload;
+            var result = await activeDownload;
             StatusText = result.Succeeded
                 ? "更新已准备好"
                 : result.WasCancelled ? "下载已取消" : result.ErrorMessage ?? "更新下载失败";
@@ -314,11 +340,51 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         finally
         {
+            if (ReferenceEquals(downloadTask, activeDownload))
+            {
+                downloadTask = null;
+            }
             Interlocked.CompareExchange(ref downloadCancellationSource, null, linkedCancellation);
             UpdateDownloadInProgress = false;
             OnPropertyChanged(nameof(CanDownloadWindowsUpdate));
         }
     }
+
+    public async Task OpenWindowsUpdateInBrowserAsync(CancellationToken cancellationToken)
+    {
+        if (updates is null || !updates.IsProduction || !updates.CurrentResult.HasUpdate)
+        {
+            StatusText = "当前没有可用的 Windows 更新。";
+            return;
+        }
+
+        downloadCancellationSource?.Cancel();
+        var activeDownload = downloadTask;
+        if (activeDownload is not null)
+        {
+            try
+            {
+                await activeDownload.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+        }
+
+        try
+        {
+            await pageActions.OpenWindowsUpdateBrowserAsync(cancellationToken);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            StatusText = error.Message;
+        }
+    }
+
+    [RelayCommand]
+    private Task BrowserDownloadWindowsUpdateAsync(CancellationToken cancellationToken) =>
+        OpenWindowsUpdateInBrowserAsync(cancellationToken);
 
     [RelayCommand(CanExecute = nameof(CanCancelWindowsUpdate))]
     private void CancelWindowsUpdate() => downloadCancellationSource?.Cancel();
@@ -667,27 +733,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         _ => "尚未检查",
     };
 
-    internal static string FormatBytes(long bytes)
-    {
-        if (bytes < 1024)
-        {
-            return $"{bytes} B";
-        }
-
-        var value = bytes / 1024d;
-        if (value < 1024)
-        {
-            return $"{value:0.0} KB";
-        }
-
-        value /= 1024d;
-        if (value < 1024)
-        {
-            return $"{value:0.0} MB";
-        }
-
-        return $"{value / 1024d:0.0} GB";
-    }
+    internal static string FormatBytes(long bytes) => WindowsUpdateDownloadFormatting.FormatBytes(bytes);
 
     private void ApplyDownloadPresentation(WindowsUpdateCheckResult result)
     {
@@ -697,6 +743,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         OnPropertyChanged(nameof(HasDownloadProgress));
         OnPropertyChanged(nameof(IsDownloadProgressIndeterminate));
         OnPropertyChanged(nameof(DownloadProgressValue));
+        OnPropertyChanged(nameof(DownloadProgressPercentageText));
         OnPropertyChanged(nameof(DownloadProgressText));
         OnPropertyChanged(nameof(DownloadProgressSizeText));
     }

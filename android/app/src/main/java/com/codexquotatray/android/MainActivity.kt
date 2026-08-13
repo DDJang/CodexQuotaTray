@@ -31,6 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
 import com.codexquotatray.android.update.UpdateInstaller
+import com.codexquotatray.android.update.UpdateBrowser
+import com.codexquotatray.android.update.UpdateDownloadCancelledException
+import com.codexquotatray.android.update.UpdateDownloadProgress
 import com.codexquotatray.android.update.UpdateRelease
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -46,7 +49,9 @@ class MainActivity : ComponentActivity() {
     private var updateReminderRegistration: AutoCloseable? = null
     private var updatePrompt by mutableStateOf<UpdateRelease?>(null)
     private var updateDownloading by mutableStateOf(false)
-    private var updateProgressPercent by mutableStateOf<Int?>(null)
+    private var updateProgress by mutableStateOf(UpdateDownloadProgress.Idle)
+    private var updateDownloadError by mutableStateOf<String?>(null)
+    private var pendingBrowserDownloadUrl: String? = null
     private var pendingInstall by mutableStateOf<java.io.File?>(null)
     private val pairingWorker = Executors.newSingleThreadExecutor()
     private val pairingMain = Handler(Looper.getMainLooper())
@@ -120,9 +125,12 @@ class MainActivity : ComponentActivity() {
                         release = release,
                         currentVersion = BuildConfig.VERSION_NAME,
                         downloading = updateDownloading,
-                        progressPercent = updateProgressPercent,
-                        onLater = { updatePrompt = null },
+                        progress = updateProgress,
+                        downloadError = updateDownloadError,
+                        onLater = { updateDownloadError = null; updatePrompt = null },
                         onDownload = ::downloadAutomaticUpdate,
+                        onCancel = { (application as CodexQuotaApplication).updateDownloadManager.cancel() },
+                        onBrowserDownload = ::browserDownloadAutomaticUpdate,
                     )
                 }
             }
@@ -225,26 +233,59 @@ class MainActivity : ComponentActivity() {
         val asset = updatePrompt?.androidAsset ?: return
         if (updateDownloading) return
         updateDownloading = true
-        updateProgressPercent = null
+        updateDownloadError = null
+        updateProgress = UpdateDownloadProgress(
+            phase = com.codexquotatray.android.update.UpdateDownloadPhase.DOWNLOADING,
+            totalBytes = null,
+        )
         (application as CodexQuotaApplication).updateDownloadManager.download(
             asset = asset,
-            onProgress = { completed, total ->
-                if (total > 0L) {
-                    runOnUiThread {
-                        updateProgressPercent = ((completed * 100L) / total).toInt().coerceIn(0, 100)
-                    }
-                }
+            onProgress = { progress ->
+                runOnUiThread { updateProgress = progress }
             },
         ) { result ->
             runOnUiThread {
                 updateDownloading = false
-                result.onSuccess { apk ->
-                    pendingInstall = apk
-                    updatePrompt = null
-                    launchPendingInstall()
+                val browserUrl = pendingBrowserDownloadUrl
+                pendingBrowserDownloadUrl = null
+                if (browserUrl != null) {
+                    result.getOrNull()?.delete()
+                    openBrowserDownload(browserUrl)
+                } else {
+                    result.onSuccess { apk ->
+                        pendingInstall = apk
+                        updatePrompt = null
+                        launchPendingInstall()
+                    }.onFailure { error ->
+                        if (error !is UpdateDownloadCancelledException) {
+                            updateDownloadError = error.message ?: "无法下载更新安装包。"
+                        }
+                    }
                 }
             }
         }
+    }
+
+    private fun browserDownloadAutomaticUpdate() {
+        val url = updatePrompt?.androidAsset?.browserDownloadUrl ?: return
+        if (updateDownloading) {
+            pendingBrowserDownloadUrl = url
+            if (!(application as CodexQuotaApplication).updateDownloadManager.cancel()) {
+                // The worker may have finished just before the UI callback ran.
+                // Keep the request pending; the callback will discard the APK and
+                // open the browser instead of launching the installer.
+            }
+            return
+        }
+        openBrowserDownload(url)
+    }
+
+    private fun openBrowserDownload(url: String) {
+        runCatching { UpdateBrowser.open(this, url) }
+            .onSuccess { updatePrompt = null }
+            .onFailure { error ->
+                Toast.makeText(this, error.message ?: "无法打开浏览器下载", Toast.LENGTH_LONG).show()
+            }
     }
 
     private fun tryInstallPendingUpdate() {
