@@ -18,15 +18,44 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.CodexQuotaTray.Starting">
+        <meta-data
+            android:name="miuiWidgetVersion"
+            android:value="1" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/update_file_paths" />
+        <meta-data
+            android:name="android.support.FILE_PROVIDER_PATHS"
+            android:resource="@xml/update_file_paths" />
         </provider>
+        <receiver
+            android:name=".widget.QuotaWidgetProvider"
+            android:exported="true"
+            android:label="@string/widget_quota_name"
+            android:process=":widgetProvider">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="miui.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/quota_widget_info" />
+            <meta-data
+                android:name="miuiWidget"
+                android:value="true" />
+            <meta-data
+                android:name="miuiWidgetRefresh"
+                android:value="exposure" />
+            <meta-data
+                android:name="miuiWidgetRefreshMinInterval"
+                android:value="30000" />
+        </receiver>
+        <receiver
+            android:name=".widget.QuotaWidgetDataReceiver"
+            android:exported="false"
+            android:process=":widgetProvider" />
         <activity
             android:name=".AboutActivity"
             android:configChanges="uiMode"

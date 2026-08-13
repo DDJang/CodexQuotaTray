@@ -664,6 +664,7 @@ class SettingsActivity : ComponentActivity() {
             }
         }
         if (cleared) {
+            com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
             TokenUsageRefreshScheduler.cancel(this)
             QuotaRefreshScheduler.schedule(this)
             renderState()

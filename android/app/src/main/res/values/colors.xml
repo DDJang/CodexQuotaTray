@@ -1,4 +1,11 @@
 <resources>
     <color name="launcher_background">#172033</color>
     <color name="splash_background">#F8FAFD</color>
+    <color name="widget_background">#F8FAFD</color>
+    <color name="widget_border">#D6DEE9</color>
+    <color name="widget_primary_text">#182331</color>
+    <color name="widget_secondary_text">#5E7085</color>
+    <color name="widget_accent">#1769D2</color>
+    <color name="widget_progress_track">#D6E0ED</color>
+    <color name="widget_progress">#2D8AE0</color>
 </resources>

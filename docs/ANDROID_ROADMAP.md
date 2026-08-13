@@ -7,11 +7,11 @@
 - 额度与 Token 使用量各自独立的回到前台自动刷新/同步、手动刷新和周期 WorkManager。
 - 额度阈值/重置通知、主题、设置、脱敏日志和 pairing-bound Token cache。
 - Debug/Release 双 application identity 与平台独立 GitHub Release。
+- HyperOS/Xiaomi 4×2 quota Widget：使用最后成功 quota snapshot projection；Direct / Windows quota 成功刷新后主动更新，Xiaomi exposure refresh 只读取 Widget 本地 cache。
 
 ## Next
 
 - 持续验证后台刷新、通知、网络切换和厂商电池策略下的真机可靠性。
-- Widget。
 - Android 应用自身的开机恢复调度。
 
 ## Non-goals

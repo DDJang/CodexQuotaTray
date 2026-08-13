@@ -11,6 +11,7 @@ internal class QuotaSuccessfulRefreshCommitter(
     private val markSuccessfulRefresh: (Long) -> Unit,
     private val publishNotifications: (List<QuotaAlertEvent>) -> Boolean,
     private val restoreAlerts: () -> Unit = {},
+    private val publishWidget: (DirectQuotaResult, Long, String?) -> Unit = { _, _, _ -> },
     private val nowMillis: () -> Long = System::currentTimeMillis,
 ) {
     fun commit(result: DirectQuotaResult, windowsDeviceIdentity: String? = null): Boolean {
@@ -27,6 +28,7 @@ internal class QuotaSuccessfulRefreshCommitter(
         if (events.isNotEmpty() && !published) {
             restoreAlerts()
         }
+        runCatching { publishWidget(result, completedAtMillis, windowsDeviceIdentity) }
         return true
     }
 }

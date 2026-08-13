@@ -117,6 +117,7 @@ class AccountActivity : ComponentActivity() {
             QuotaAlertStateStore(this).clear()
             QuotaSnapshotStore(this).clear()
         }
+        com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
         QuotaRefreshScheduler.schedule(this)
         AppLogStore.record(this, "已退出登录")
         render()

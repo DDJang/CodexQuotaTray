@@ -160,6 +160,7 @@ internal class QuotaPageController(private val host: MainActivity) {
             if (!sourceAvailable) {
                 lastSuccessful = null
                 snapshotStore.clear()
+                com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
                 if (!busy) model = unauthenticatedQuotaUiModel()
                 return
             }
@@ -198,6 +199,7 @@ internal class QuotaPageController(private val host: MainActivity) {
             if (!sourceAvailable) {
                 lastSuccessful = null
                 snapshotStore.clear()
+                com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
                 if (!busy) model = unauthenticatedQuotaUiModel()
             } else {
                 lastSuccessful = loadLatestModel(windowsDeviceIdentity)
@@ -270,6 +272,7 @@ internal class QuotaPageController(private val host: MainActivity) {
                             if (lastQuotaSourceAvailable != true) {
                                 lastSuccessful = null
                                 snapshotStore.clear()
+                                com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
                                 QuotaRefreshScheduler.cancel(host)
                             }
                         }

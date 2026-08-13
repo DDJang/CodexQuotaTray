@@ -1,3 +1,10 @@
 <resources>
     <color name="splash_background">#000000</color>
+    <color name="widget_background">#20252C</color>
+    <color name="widget_border">#3C4652</color>
+    <color name="widget_primary_text">#F3F6FA</color>
+    <color name="widget_secondary_text">#AAB7C6</color>
+    <color name="widget_accent">#74B9FF</color>
+    <color name="widget_progress_track">#46515F</color>
+    <color name="widget_progress">#69B5FA</color>
 </resources>

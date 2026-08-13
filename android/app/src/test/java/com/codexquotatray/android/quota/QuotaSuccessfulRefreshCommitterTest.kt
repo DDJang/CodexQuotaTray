@@ -72,6 +72,49 @@ class QuotaSuccessfulRefreshCommitterTest {
         )
     }
 
+    @Test
+    fun widgetPublishFailureDoesNotFailSuccessfulQuotaCommit() {
+        var widgetPublishCalls = 0
+        val committer = QuotaSuccessfulRefreshCommitter(
+            saveSnapshot = { _, _, _ -> },
+            evaluateAlerts = { emptyList() },
+            markSuccessfulRefresh = { },
+            publishNotifications = { true },
+            publishWidget = { _, _, _ ->
+                widgetPublishCalls++
+                error("widget process unavailable")
+            },
+        )
+
+        assertTrue(committer.commit(quota(QuotaSource.DIRECT, 123L)))
+        assertEquals(1, widgetPublishCalls)
+    }
+
+    @Test
+    fun successfulQuotaCommitPublishesWidgetProjection() {
+        var published: DirectQuotaResult? = null
+        var publishedAt: Long? = null
+        var publishedIdentity: String? = null
+        val committer = QuotaSuccessfulRefreshCommitter(
+            saveSnapshot = { _, _, _ -> },
+            evaluateAlerts = { emptyList() },
+            markSuccessfulRefresh = { },
+            publishNotifications = { true },
+            publishWidget = { result, completedAt, identity ->
+                published = result
+                publishedAt = completedAt
+                publishedIdentity = identity
+            },
+            nowMillis = { 456L },
+        )
+
+        val result = quota(QuotaSource.WINDOWS, 123L)
+        assertTrue(committer.commit(result, "device-a"))
+        assertEquals(result, published)
+        assertEquals(456L, publishedAt)
+        assertEquals("device-a", publishedIdentity)
+    }
+
     private fun quota(source: QuotaSource, updatedAtMillis: Long, remaining: Int = 90) = DirectQuotaResult(
         planType = "plus",
         windows = listOf(QuotaWindow("primary", "Primary", "plus", "primary", 100 - remaining, remaining, 300, 1_000)),

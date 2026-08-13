@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">CodexQuotaTray</string>
+    <string name="widget_quota_name">额度概览</string>
 </resources>
