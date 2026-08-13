@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.7.0",
-    "tag": "windows-v0.7.0",
+    "version": "0.7.5",
+    "tag": "windows-v0.7.5",
     "installer": {
-      "name": "CodexQuotaTray-0.7.0-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.7.0/CodexQuotaTray-0.7.0-setup.exe",
-      "sha256": "ee077ecc021d316b1885cd3e312f71bd70c422f05b141a35911a7fdcf7c45c3e",
-      "size": 62538856
+      "name": "CodexQuotaTray-0.7.5-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.7.5/CodexQuotaTray-0.7.5-setup.exe",
+      "sha256": "3785e56ad0bbf012d7a105b0f7710517fcf5c6ad5ec24a0b0aa9160821a5addb",
+      "size": 62519561
     },
-    "releaseNotes": "## What's Changed\n* feat: prepare Windows 0.7.0 by @DDJang in https://github.com/DDJang/CodexQuotaTray/pull/14\n\n\n**Full Changelog**: https://github.com/DDJang/CodexQuotaTray/compare/android-v0.6.7...windows-v0.7.0",
-    "publishedAt": "2026-08-12T17:14:41Z"
+    "releaseNotes": "## What's Changed\n* chore: prepare 0.7.5 release by @DDJang in https://github.com/DDJang/CodexQuotaTray/pull/15\n\n\n**Full Changelog**: https://github.com/DDJang/CodexQuotaTray/compare/windows-v0.7.0...windows-v0.7.5",
+    "publishedAt": "2026-08-13T09:37:59Z"
   },
   "android": {
     "version": "0.6.7",
