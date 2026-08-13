@@ -1,9 +1,11 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 
 namespace CodexQuotaTray.Core.Updates;
 
 public sealed class WindowsUpdateDownloader : IDisposable
 {
+    private static readonly TimeSpan ProgressUpdateInterval = TimeSpan.FromMilliseconds(250);
     public const long MaximumInstallerBytes = 250L * 1024 * 1024;
     private static readonly TimeSpan StaleCacheAge = TimeSpan.FromDays(7);
     private readonly HttpClient client;
@@ -125,7 +127,34 @@ public sealed class WindowsUpdateDownloader : IDisposable
         await using var destination = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
         var buffer = new byte[64 * 1024];
         long total = 0;
-        progress?.Report(new WindowsUpdateDownloadProgress(WindowsUpdateDownloadPhase.Downloading, 0, totalBytes));
+        var stopwatch = Stopwatch.StartNew();
+        var lastReportElapsed = TimeSpan.MinValue;
+        var lastSampleElapsed = TimeSpan.Zero;
+        long lastSampleBytes = 0;
+
+        void ReportProgress(bool force = false)
+        {
+            var elapsed = stopwatch.Elapsed;
+            if (!force && elapsed - lastReportElapsed < ProgressUpdateInterval)
+            {
+                return;
+            }
+
+            var sampleElapsed = elapsed - lastSampleElapsed;
+            double? bytesPerSecond = sampleElapsed > TimeSpan.Zero && total > lastSampleBytes
+                ? (total - lastSampleBytes) / sampleElapsed.TotalSeconds
+                : null;
+            progress?.Report(new WindowsUpdateDownloadProgress(
+                WindowsUpdateDownloadPhase.Downloading,
+                total,
+                totalBytes,
+                bytesPerSecond));
+            lastReportElapsed = elapsed;
+            lastSampleElapsed = elapsed;
+            lastSampleBytes = total;
+        }
+
+        ReportProgress(force: true);
         while (true)
         {
             var read = await source.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
@@ -141,10 +170,11 @@ public sealed class WindowsUpdateDownloader : IDisposable
             }
 
             await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
-            progress?.Report(new WindowsUpdateDownloadProgress(WindowsUpdateDownloadPhase.Downloading, total, totalBytes));
+            ReportProgress();
         }
 
         await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+        ReportProgress(force: true);
     }
 
     private static long GetFileLength(string path) => new FileInfo(path).Length;

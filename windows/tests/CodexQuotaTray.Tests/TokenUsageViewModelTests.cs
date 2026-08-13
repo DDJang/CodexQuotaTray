@@ -50,6 +50,8 @@ public sealed class TokenUsageViewModelTests
         await viewModel.RefreshCommand.ExecuteAsync(null);
 
         Assert.IsTrue(viewModel.HasData);
+        Assert.IsTrue(viewModel.ShowContent);
+        Assert.IsFalse(viewModel.ShowLoading);
         Assert.AreEqual("128K", viewModel.TodayTokens);
         Assert.AreEqual($"更新于 {snapshot.GeneratedAtUtc.ToLocalTime():HH:mm}", viewModel.StatusText);
         Assert.HasCount(119, viewModel.HeatmapCells);
@@ -58,6 +60,8 @@ public sealed class TokenUsageViewModelTests
         await viewModel.RefreshCommand.ExecuteAsync(null);
 
         Assert.IsTrue(viewModel.HasData);
+        Assert.IsTrue(viewModel.ShowContent);
+        Assert.IsFalse(viewModel.ShowLoading);
         Assert.IsFalse(viewModel.HasErrorWithoutData);
         Assert.AreEqual("更新失败 · 显示上次统计", viewModel.StatusText);
         Assert.AreEqual(StatusTone.Warning, viewModel.StatusTone);
@@ -89,13 +93,76 @@ public sealed class TokenUsageViewModelTests
         var empty = new TokenUsageViewModel(_ => Task.FromResult(CreateSnapshot(0)));
         await empty.RefreshCommand.ExecuteAsync(null);
         Assert.IsTrue(empty.HasNoData);
+        Assert.IsTrue(empty.ShowEmpty);
+        Assert.IsFalse(empty.ShowLoading);
+        Assert.IsFalse(empty.ShowContent);
         Assert.IsFalse(empty.HasErrorWithoutData);
 
         var failed = new TokenUsageViewModel(_ => Task.FromException<TokenUsageSnapshot>(new IOException("scan failed")));
         await failed.RefreshCommand.ExecuteAsync(null);
         Assert.IsFalse(failed.HasNoData);
+        Assert.IsTrue(failed.ShowError);
+        Assert.IsFalse(failed.ShowLoading);
+        Assert.IsFalse(failed.ShowContent);
         Assert.IsTrue(failed.HasErrorWithoutData);
         Assert.AreEqual(StatusTone.Error, failed.StatusTone);
+    }
+
+    [TestMethod]
+    public async Task InitialRefreshDoesNotExposeContentUntilLoadingCompletes()
+    {
+        var scanStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseScan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var snapshot = CreateSnapshot(128_392);
+        var viewModel = new TokenUsageViewModel(async _ =>
+        {
+            scanStarted.SetResult();
+            await releaseScan.Task;
+            return snapshot;
+        });
+
+        var refresh = viewModel.RefreshNowAsync(CancellationToken.None);
+        await scanStarted.Task;
+
+        Assert.IsTrue(viewModel.ShowLoading);
+        Assert.IsFalse(viewModel.ShowContent);
+        Assert.IsFalse(viewModel.ShowEmpty);
+        Assert.IsFalse(viewModel.ShowError);
+
+        releaseScan.SetResult();
+        await refresh;
+
+        Assert.IsFalse(viewModel.ShowLoading);
+        Assert.IsTrue(viewModel.ShowContent);
+        Assert.IsFalse(viewModel.ShowEmpty);
+        Assert.IsFalse(viewModel.ShowError);
+        Assert.HasCount(119, viewModel.HeatmapCells);
+    }
+
+    [TestMethod]
+    public async Task RestoredContentRemainsVisibleDuringBackgroundRefresh()
+    {
+        var scanStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseScan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var snapshot = CreateSnapshot(128_392);
+        var viewModel = new TokenUsageViewModel(async _ =>
+        {
+            scanStarted.SetResult();
+            await releaseScan.Task;
+            return snapshot;
+        });
+        viewModel.RestoreSnapshot(snapshot);
+
+        var refresh = viewModel.RefreshNowAsync(CancellationToken.None);
+        await scanStarted.Task;
+
+        Assert.IsFalse(viewModel.ShowLoading);
+        Assert.IsTrue(viewModel.ShowContent);
+        Assert.IsFalse(viewModel.ShowEmpty);
+        Assert.IsFalse(viewModel.ShowError);
+
+        releaseScan.SetResult();
+        await refresh;
     }
 
     [TestMethod]

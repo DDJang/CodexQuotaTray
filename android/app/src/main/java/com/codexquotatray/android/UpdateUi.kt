@@ -18,15 +18,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.update.UpdateRelease
+import com.codexquotatray.android.update.UpdateDownloadFormatting
+import com.codexquotatray.android.update.UpdateDownloadProgress
 
 @Composable
 internal fun UpdateAvailableDialog(
     release: UpdateRelease,
     currentVersion: String,
     downloading: Boolean,
-    progressPercent: Int?,
+    progress: UpdateDownloadProgress,
+    downloadError: String?,
     onLater: () -> Unit,
     onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onBrowserDownload: () -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
     AlertDialog(
@@ -39,19 +44,52 @@ internal fun UpdateAvailableDialog(
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text("当前版本  $currentVersion", fontSize = 14.sp)
                 Text("最新版本  ${release.version}", fontSize = 14.sp)
+                downloadError?.let { error ->
+                    Spacer(Modifier.height(10.dp))
+                    Text("下载失败\n$error", fontSize = 13.sp)
+                }
                 if (release.notes.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
                     ReleaseNotesMarkdownView(release.notes)
                 }
                 if (downloading) {
                     Spacer(Modifier.height(12.dp))
+                    Text(
+                        if (progress.phase == com.codexquotatray.android.update.UpdateDownloadPhase.VERIFYING) {
+                            "正在校验安装包…"
+                        } else {
+                            "正在下载 ${release.version}"
+                        },
+                        fontSize = 13.sp,
+                    )
+                    Text(
+                        UpdateDownloadFormatting.formatProgress(progress),
+                        fontSize = 13.sp,
+                    )
                     Row(Modifier.fillMaxWidth()) {
-                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        val percentage = progress.percentage
+                        if (percentage == null) {
+                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        } else {
+                            androidx.compose.material3.LinearProgressIndicator(
+                                progress = { percentage / 100f },
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                            )
+                        }
                         Text(
-                            progressPercent?.let { "正在下载更新… $it%" } ?: "正在下载更新…",
+                            if (percentage == null) "正在处理…" else "$percentage%",
                             modifier = Modifier.padding(start = 10.dp),
-                            fontSize = 13.sp,
+                            fontSize = 12.sp,
                         )
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                ) {
+                    TextButton(onClick = onBrowserDownload) { Text("浏览器下载") }
+                    if (downloading) {
+                        TextButton(onClick = onCancel) { Text("取消") }
                     }
                 }
             }
@@ -60,7 +98,9 @@ internal fun UpdateAvailableDialog(
             TextButton(onClick = onLater, enabled = !downloading) { Text("稍后") }
         },
         confirmButton = {
-            TextButton(onClick = onDownload, enabled = !downloading) { Text("下载更新") }
+            TextButton(onClick = onDownload, enabled = !downloading) {
+                Text(if (downloadError == null) "下载并安装" else "重试")
+            }
         },
     )
 }

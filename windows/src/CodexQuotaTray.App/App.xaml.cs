@@ -196,6 +196,7 @@ public partial class App : Application
         settingsPageActions = new DelegateSettingsPageActions(
             cancellationToken => viewModel.RefreshCommand.ExecuteAsync(cancellationToken),
             () => viewModel.OpenUsageCommand.Execute(null),
+            OpenWindowsUpdateBrowserAsync,
             clipboard.Copy);
         trayIcon = new TrayIconService(
             uiDispatcher,
@@ -424,14 +425,34 @@ public partial class App : Application
         });
     }
 
+    private Task OpenWindowsUpdateBrowserAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var uri = windowsUpdateService?.CurrentResult.Release?.Installer.Url;
+        if (uri is null || !WindowsUpdateSecurity.IsAllowedAssetUri(uri))
+        {
+            throw new InvalidOperationException("更新文件来源不受信任。");
+        }
+
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri)
+        {
+            UseShellExecute = true,
+        });
+        return Task.CompletedTask;
+    }
+
     private sealed class DelegateSettingsPageActions(
         Func<CancellationToken, Task> refreshQuota,
         Action openOfficialUsage,
+        Func<CancellationToken, Task> openWindowsUpdateBrowser,
         Action copyDiagnostics) : ISettingsPageActions
     {
         public Task RefreshQuotaAsync(CancellationToken cancellationToken) => refreshQuota(cancellationToken);
 
         public void OpenOfficialUsage() => openOfficialUsage();
+
+        public Task OpenWindowsUpdateBrowserAsync(CancellationToken cancellationToken) =>
+            openWindowsUpdateBrowser(cancellationToken);
 
         public void CopyDiagnostics() => copyDiagnostics();
     }

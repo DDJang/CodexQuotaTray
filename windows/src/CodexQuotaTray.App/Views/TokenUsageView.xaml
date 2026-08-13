@@ -12,7 +12,7 @@
     <Grid Margin="0,0,0,14">
         <StackPanel
             Spacing="9"
-            Visibility="{Binding HasData, Converter={StaticResource BooleanToVisibilityConverter}}">
+            Visibility="{Binding ShowContent, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Grid ColumnSpacing="4">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -166,7 +166,7 @@
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
             Spacing="4"
-            Visibility="{Binding HasNoData, Converter={StaticResource BooleanToVisibilityConverter}}">
+            Visibility="{Binding ShowEmpty, Converter={StaticResource BooleanToVisibilityConverter}}">
             <TextBlock HorizontalAlignment="Center" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" Text="尚无 Token 数据" />
             <TextBlock HorizontalAlignment="Center" FontSize="11" Foreground="{ThemeResource SecondaryTextBrush}" Text="尚未在本机 Codex 会话中发现 Token 记录" />
         </StackPanel>
@@ -175,7 +175,7 @@
             HorizontalAlignment="Center"
             VerticalAlignment="Center"
             Spacing="4"
-            Visibility="{Binding HasErrorWithoutData, Converter={StaticResource BooleanToVisibilityConverter}}">
+            Visibility="{Binding ShowError, Converter={StaticResource BooleanToVisibilityConverter}}">
             <TextBlock HorizontalAlignment="Center" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource ErrorStatusBrush}" Text="无法读取 Token 统计" />
             <TextBlock HorizontalAlignment="Center" FontSize="11" Foreground="{ThemeResource SecondaryTextBrush}" Text="请点击右上角刷新重试" />
         </StackPanel>

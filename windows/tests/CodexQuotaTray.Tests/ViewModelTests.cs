@@ -267,7 +267,7 @@ public sealed class ViewModelTests
             17 * 1024 * 1024,
             25 * 1024 * 1024));
 
-        Assert.AreEqual("正在下载更新 · 68%", viewModel.DownloadProgressText);
+        Assert.AreEqual("正在下载更新…", viewModel.DownloadProgressText);
         Assert.AreEqual("17.0 MB / 25.0 MB", viewModel.DownloadProgressSizeText);
         Assert.IsFalse(viewModel.IsDownloadProgressIndeterminate);
         Assert.IsTrue(viewModel.HasDownloadProgress);
@@ -277,17 +277,62 @@ public sealed class ViewModelTests
             17 * 1024 * 1024,
             null));
         Assert.IsTrue(viewModel.IsDownloadProgressIndeterminate);
-        Assert.AreEqual("已下载 17.0 MB", viewModel.DownloadProgressSizeText);
+        Assert.AreEqual("17.0 MB", viewModel.DownloadProgressSizeText);
+
+        updates.Publish(new WindowsUpdateDownloadProgress(
+            WindowsUpdateDownloadPhase.Downloading,
+            17 * 1024 * 1024,
+            25 * 1024 * 1024,
+            2.1 * 1024 * 1024));
+        Assert.AreEqual("17.0 MB / 25.0 MB · 2.1 MB/s", viewModel.DownloadProgressSizeText);
 
         updates.Publish(new WindowsUpdateDownloadProgress(
             WindowsUpdateDownloadPhase.Verifying,
             25 * 1024 * 1024,
             25 * 1024 * 1024));
-        Assert.AreEqual("正在验证安装包…", viewModel.UpdateStatusText);
-        Assert.IsTrue(viewModel.IsDownloadProgressIndeterminate);
+        Assert.AreEqual("正在校验安装包…", viewModel.UpdateStatusText);
+        Assert.AreEqual("25.0 MB / 25.0 MB", viewModel.DownloadProgressSizeText);
+        Assert.IsFalse(viewModel.IsDownloadProgressIndeterminate);
 
         updates.InstallResult = false;
         Assert.IsFalse(await viewModel.InstallPreparedWindowsUpdateAsync(CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task BrowserFallback_CancelsActiveDownloadBeforeOpeningBrowser()
+    {
+        var updates = new StubWindowsUpdateController
+        {
+            CurrentResult = new WindowsUpdateCheckResult(
+                WindowsUpdateCheckStatus.Available,
+                new WindowsUpdateRelease(
+                    "windows-v0.7.5",
+                    new SemanticVersion(0, 7, 5),
+                    "CodexQuotaTray 0.7.5",
+                    string.Empty,
+                    null,
+                    new WindowsUpdateAsset(
+                        "CodexQuotaTray-0.7.5-setup.exe",
+                        new Uri("https://github.com/DDJang/CodexQuotaTray/a.exe")),
+                    new string('a', 64)),
+                null,
+                DateTimeOffset.UtcNow),
+            DownloadGate = new TaskCompletionSource<WindowsUpdateDownloadResult>(TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        var actions = new StubSettingsPageActions();
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            actions,
+            updates);
+
+        var download = viewModel.DownloadWindowsUpdateAsync(CancellationToken.None);
+        Assert.IsTrue(updates.DownloadStarted.Wait(TimeSpan.FromSeconds(2)));
+        await viewModel.OpenWindowsUpdateInBrowserAsync(CancellationToken.None);
+        await download;
+
+        Assert.IsTrue(updates.DownloadCancellationRequested);
+        Assert.IsTrue(actions.OpenedWindowsUpdateBrowser);
     }
 
     [TestMethod]
@@ -485,6 +530,8 @@ public sealed class ViewModelTests
 
         public bool CopiedDiagnostics { get; private set; }
 
+        public bool OpenedWindowsUpdateBrowser { get; private set; }
+
         public Task RefreshQuotaAsync(CancellationToken cancellationToken)
         {
             RefreshCount++;
@@ -492,6 +539,12 @@ public sealed class ViewModelTests
         }
 
         public void OpenOfficialUsage() => OpenedUsage = true;
+
+        public Task OpenWindowsUpdateBrowserAsync(CancellationToken cancellationToken)
+        {
+            OpenedWindowsUpdateBrowser = true;
+            return Task.CompletedTask;
+        }
 
         public void CopyDiagnostics() => CopiedDiagnostics = true;
     }
@@ -510,13 +563,19 @@ public sealed class ViewModelTests
 
         public DateTimeOffset? LastSuccessfulCheckUtc { get; init; }
 
-        public WindowsUpdateCheckResult CurrentResult { get; private set; } = WindowsUpdateCheckResult.NotChecked;
+        public WindowsUpdateCheckResult CurrentResult { get; set; } = WindowsUpdateCheckResult.NotChecked;
 
         public WindowsUpdateDownloadProgress DownloadProgress { get; private set; } = WindowsUpdateDownloadProgress.Idle;
 
         public bool InstallResult { get; set; } = true;
 
         public TaskCompletionSource<WindowsUpdateCheckResult>? CheckGate { get; init; }
+
+        public TaskCompletionSource<WindowsUpdateDownloadResult>? DownloadGate { get; init; }
+
+        public ManualResetEventSlim DownloadStarted { get; } = new(false);
+
+        public bool DownloadCancellationRequested { get; private set; }
 
         public event EventHandler? Changed;
 
@@ -552,8 +611,24 @@ public sealed class ViewModelTests
             return result;
         }
 
-        public Task<WindowsUpdateDownloadResult> DownloadAsync(CancellationToken cancellationToken) =>
-            Task.FromResult(WindowsUpdateDownloadResult.Failed("not used"));
+        public async Task<WindowsUpdateDownloadResult> DownloadAsync(CancellationToken cancellationToken)
+        {
+            DownloadStarted.Set();
+            if (DownloadGate is null)
+            {
+                return WindowsUpdateDownloadResult.Failed("not used");
+            }
+
+            try
+            {
+                return await DownloadGate.Task.WaitAsync(cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                DownloadCancellationRequested = true;
+                return WindowsUpdateDownloadResult.Cancelled();
+            }
+        }
 
         public Task<bool> InstallPreparedAsync(CancellationToken cancellationToken) =>
             Task.FromResult(InstallResult);

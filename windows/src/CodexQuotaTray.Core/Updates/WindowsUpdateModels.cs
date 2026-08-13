@@ -124,13 +124,55 @@ public enum WindowsUpdateDownloadPhase
 public sealed record WindowsUpdateDownloadProgress(
     WindowsUpdateDownloadPhase Phase,
     long BytesDownloaded = 0,
-    long? TotalBytes = null)
+    long? TotalBytes = null,
+    double? BytesPerSecond = null)
 {
     public int? Percentage => TotalBytes is > 0
         ? (int)Math.Clamp(BytesDownloaded * 100d / TotalBytes.Value, 0, 100)
         : null;
 
     public static WindowsUpdateDownloadProgress Idle { get; } = new(WindowsUpdateDownloadPhase.Idle);
+}
+
+public static class WindowsUpdateDownloadFormatting
+{
+    public static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024)
+        {
+            return $"{bytes} B";
+        }
+
+        var value = bytes / 1024d;
+        if (value < 1024)
+        {
+            return $"{value:0.0} KB";
+        }
+
+        value /= 1024d;
+        if (value < 1024)
+        {
+            return $"{value:0.0} MB";
+        }
+
+        return $"{value / 1024d:0.0} GB";
+    }
+
+    public static string FormatSpeed(double bytesPerSecond)
+    {
+        var megabytesPerSecond = bytesPerSecond / (1024d * 1024d);
+        return megabytesPerSecond < 1
+            ? $"{megabytesPerSecond:0.00} MB/s"
+            : $"{megabytesPerSecond:0.0} MB/s";
+    }
+
+    public static string FormatSize(long bytesDownloaded, long? totalBytes)
+    {
+        var downloaded = FormatBytes(bytesDownloaded);
+        return totalBytes is > 0
+            ? $"{downloaded} / {FormatBytes(totalBytes.Value)}"
+            : downloaded;
+    }
 }
 
 public sealed record WindowsUpdateState(

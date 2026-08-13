@@ -10,6 +10,17 @@ namespace CodexQuotaTray.Tests;
 public sealed class WindowsUpdateTests
 {
     [TestMethod]
+    public void DownloadFormatting_UsesExpectedSizeAndSpeedPrecision()
+    {
+        var downloaded = (long)(35.8 * 1024 * 1024);
+        var total = (long)(59.6 * 1024 * 1024);
+        Assert.AreEqual("35.8 MB / 59.6 MB", WindowsUpdateDownloadFormatting.FormatSize(downloaded, total));
+        Assert.AreEqual("35.8 MB", WindowsUpdateDownloadFormatting.FormatSize(downloaded, null));
+        Assert.AreEqual("0.42 MB/s", WindowsUpdateDownloadFormatting.FormatSpeed(0.42 * 1024 * 1024));
+        Assert.AreEqual("2.1 MB/s", WindowsUpdateDownloadFormatting.FormatSpeed(2.1 * 1024 * 1024));
+    }
+
+    [TestMethod]
     public void ManifestParser_UsesWindowsNodeRegardlessOfAndroidVersion()
     {
         const string json = """
