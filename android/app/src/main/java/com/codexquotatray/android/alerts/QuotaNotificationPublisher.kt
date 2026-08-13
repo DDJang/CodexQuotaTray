@@ -6,7 +6,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import com.codexquotatray.android.AppLogStore
 import com.codexquotatray.android.MainActivity
 import com.codexquotatray.android.protocol.QuotaWindow
@@ -16,7 +15,6 @@ object QuotaNotifications {
     const val CHANNEL_ID = "codex_quota_alerts"
 
     fun ensureChannel(context: Context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(

@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
@@ -13,13 +12,12 @@ enum class InstallUpdateResult { STARTED, PERMISSION_REQUIRED }
 
 object UpdateInstaller {
     fun canRequestPackageInstalls(context: Context): Boolean =
-        installPermissionGranted(Build.VERSION.SDK_INT, context.packageManager.canRequestPackageInstalls())
+        installPermissionGranted(context.packageManager.canRequestPackageInstalls())
 
-    internal fun installPermissionGranted(sdkInt: Int, packageManagerAllowsInstall: Boolean): Boolean =
-        sdkInt < Build.VERSION_CODES.O || packageManagerAllowsInstall
+    internal fun installPermissionGranted(packageManagerAllowsInstall: Boolean): Boolean =
+        packageManagerAllowsInstall
 
     fun requestInstallPermission(context: Activity) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         runCatching {
             context.startActivity(
                 Intent(

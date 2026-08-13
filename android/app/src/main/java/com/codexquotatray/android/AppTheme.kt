@@ -5,7 +5,6 @@ import android.app.UiModeManager
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
-import android.os.Build
 import android.view.View
 import android.view.Window
 import androidx.compose.animation.animateColorAsState
@@ -57,7 +56,6 @@ class ThemeSettingsStore(context: Context) {
      * without recreating the current Compose tree.
      */
     fun synchronizeLaunchTheme() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         appContext.getSystemService(UiModeManager::class.java)
             ?.setApplicationNightMode(applicationNightMode(load()))
     }
@@ -180,10 +178,8 @@ object AppTheme {
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            window.isNavigationBarContrastEnforced = false
-            window.isStatusBarContrastEnforced = false
-        }
+        window.isNavigationBarContrastEnforced = false
+        window.isStatusBarContrastEnforced = false
         val controller = WindowInsetsControllerCompat(window, window.decorView)
         controller.isAppearanceLightStatusBars = lightBars
         controller.isAppearanceLightNavigationBars = lightBars

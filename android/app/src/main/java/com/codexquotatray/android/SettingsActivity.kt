@@ -5,7 +5,6 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
-import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
@@ -555,8 +554,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun notificationsEnabled(): Boolean {
-        val permission = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        val permission = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
         return permission && (getSystemService(NotificationManager::class.java)?.areNotificationsEnabled() ?: true)
     }
 

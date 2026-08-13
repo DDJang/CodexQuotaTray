@@ -41,7 +41,7 @@ internal fun UpdateAvailableDialog(
                 Text("最新版本  ${release.version}", fontSize = 14.sp)
                 if (release.notes.isNotBlank()) {
                     Spacer(Modifier.height(10.dp))
-                    Text(release.notes, fontSize = 13.sp)
+                    ReleaseNotesMarkdownView(release.notes)
                 }
                 if (downloading) {
                     Spacer(Modifier.height(12.dp))

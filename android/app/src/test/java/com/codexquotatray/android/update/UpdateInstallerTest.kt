@@ -6,9 +6,8 @@ import org.junit.Test
 
 class UpdateInstallerTest {
     @Test
-    fun unknownSourcePermissionIsRequiredOnlyOnAndroidOAndAbove() {
-        assertTrue(UpdateInstaller.installPermissionGranted(25, false))
-        assertFalse(UpdateInstaller.installPermissionGranted(26, false))
-        assertTrue(UpdateInstaller.installPermissionGranted(35, true))
+    fun unknownSourcePermissionFollowsPackageManagerState() {
+        assertFalse(UpdateInstaller.installPermissionGranted(false))
+        assertTrue(UpdateInstaller.installPermissionGranted(true))
     }
 }

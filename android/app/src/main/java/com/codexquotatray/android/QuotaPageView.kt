@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.background
@@ -41,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.quota.CodexQuotaRepository
 import com.codexquotatray.android.quota.QuotaReadException
@@ -164,8 +164,7 @@ internal class QuotaPageController(private val host: MainActivity) {
     fun onStart() {
         if (registered) return
         val filter = IntentFilter(QuotaRefreshEvents.ACTION_COMPLETED)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) host.registerReceiver(receiver, filter, android.content.Context.RECEIVER_NOT_EXPORTED)
-        else @Suppress("DEPRECATION") host.registerReceiver(receiver, filter)
+        ContextCompat.registerReceiver(host, receiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         registered = true
     }
 

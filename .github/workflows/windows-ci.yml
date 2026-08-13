@@ -27,6 +27,13 @@ on:
       - '.github/scripts/update-release-manifest.ps1'
       - '.github/scripts/test-update-release-manifest.ps1'
       - '.github/update-manifest.seed.json'
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Optional commit SHA to build. Leave empty to build the selected branch HEAD.
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -44,7 +51,59 @@ jobs:
 
     steps:
       - name: Check out repository
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/checkout@v7
+
+      - name: Check out selected workflow ref
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve manual source commit
+        if: github.event_name == 'workflow_dispatch'
+        id: source
+        shell: pwsh
+        env:
+          WORKFLOW_REF_NAME: ${{ github.ref_name }}
+          REQUESTED_COMMIT: ${{ inputs.commit_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $selectedRef = $env:WORKFLOW_REF_NAME
+          $requested = ([string]$env:REQUESTED_COMMIT).Trim()
+          Write-Host "Selected workflow ref: $selectedRef"
+          if ([string]::IsNullOrWhiteSpace($requested)) {
+            $requested = ''
+            Write-Host 'Requested commit: <empty>'
+            $resolved = (& git rev-parse --verify 'HEAD^{commit}').Trim()
+          } else {
+            Write-Host "Requested commit: $requested"
+            if ($requested -notmatch '^[0-9a-fA-F]+$') {
+              throw "Requested commit must be a hexadecimal full or short SHA: $requested"
+            }
+
+            & git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to fetch repository history needed to resolve commit: $requested"
+            }
+
+            $resolved = [string](& git rev-parse --verify "$requested^{commit}" 2>$null)
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($resolved)) {
+              throw "Requested commit could not be resolved in the current repository: $requested"
+            }
+            $resolved = $resolved.Trim()
+          }
+
+          & git checkout --detach $resolved
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not check out resolved commit: $resolved"
+          }
+
+          $resolved = (& git rev-parse --verify 'HEAD^{commit}').Trim()
+          $shortSha = (& git rev-parse --short HEAD).Trim()
+          Write-Host "Resolved commit: $resolved"
+          "short_sha=$shortSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
       - name: Set up .NET SDK from global.json
         uses: actions/setup-dotnet@v6
@@ -71,6 +130,285 @@ jobs:
             throw "WinUI Full verification failed with exit code $LASTEXITCODE."
           }
 
+      - name: Verify WinUI Release
+        if: github.event_name == 'workflow_dispatch'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Release
+          if ($LASTEXITCODE -ne 0) {
+            throw "WinUI Release verification failed with exit code $LASTEXITCODE."
+          }
+
       - name: Test unified update manifest writer
         shell: pwsh
         run: ./.github/scripts/test-update-release-manifest.ps1
+
+  packaging-smoke:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: windows-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: 'true'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up .NET SDK from global.json
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Install pinned Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --version=6.7.1 --yes --no-progress
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Inno Setup installation failed.'
+          }
+
+          $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          $iscc = if ($command) { $command.Source } else { $null }
+          if (-not $iscc) {
+            $knownPaths = @(
+              "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+              "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe"
+            )
+            $iscc = $knownPaths | Where-Object {
+              $_ -and (Test-Path -LiteralPath $_ -PathType Leaf)
+            } | Select-Object -First 1
+          }
+
+          if (-not $iscc) {
+            throw 'ISCC.exe was not found after installing Inno Setup.'
+          }
+
+          $isccVersion = (Get-Item -LiteralPath $iscc).VersionInfo.ProductVersion
+          if ([string]::IsNullOrWhiteSpace($isccVersion)) {
+            throw "Could not determine ISCC.exe version: $iscc"
+          }
+
+          "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ISCC_VERSION=$isccVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Using Inno compiler $iscc (version $isccVersion)."
+
+      - name: Publish Windows app
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File .\windows\scripts\publish-winui.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "WinUI publish failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Compile Inno installer smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repoRoot = (Get-Location).Path
+          $windowsRoot = Join-Path $repoRoot 'windows'
+          $output = Join-Path $env:RUNNER_TEMP 'codexquotatray-inno-smoke'
+          $packageArgs = @(
+            '-SkipPublish',
+            '-Iscc', $env:ISCC_PATH,
+            '-RepoRoot', $repoRoot,
+            '-WindowsRoot', $windowsRoot,
+            '-OutputDir', $output,
+            '-PublishDir', (Join-Path $repoRoot 'target\winui-publish')
+          )
+          pwsh -NoProfile -File .\windows\scripts\package-inno.ps1 @packageArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno installer packaging failed with exit code $LASTEXITCODE."
+          }
+
+          [xml]$project = Get-Content -LiteralPath '.\windows\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj' -Raw
+          $version = ([string]$project.Project.PropertyGroup.Version).Trim()
+          $installer = Join-Path $output "CodexQuotaTray-$version-setup.exe"
+          if (-not (Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Inno installer was not produced: $installer"
+          }
+
+          Write-Host "Inno packaging smoke passed: $installer"
+
+  test-build:
+    if: github.event_name == 'workflow_dispatch'
+    needs: verify
+    runs-on: windows-latest
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: 'true'
+
+    steps:
+      - name: Check out selected workflow ref
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve manual source commit
+        id: source
+        shell: pwsh
+        env:
+          WORKFLOW_REF_NAME: ${{ github.ref_name }}
+          REQUESTED_COMMIT: ${{ inputs.commit_sha }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $selectedRef = $env:WORKFLOW_REF_NAME
+          $requested = ([string]$env:REQUESTED_COMMIT).Trim()
+          Write-Host "Selected workflow ref: $selectedRef"
+          if ([string]::IsNullOrWhiteSpace($requested)) {
+            $requested = ''
+            Write-Host 'Requested commit: <empty>'
+            $resolved = (& git rev-parse --verify 'HEAD^{commit}').Trim()
+          } else {
+            Write-Host "Requested commit: $requested"
+            if ($requested -notmatch '^[0-9a-fA-F]+$') {
+              throw "Requested commit must be a hexadecimal full or short SHA: $requested"
+            }
+
+            & git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*' '+refs/tags/*:refs/tags/*'
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to fetch repository history needed to resolve commit: $requested"
+            }
+
+            $resolved = [string](& git rev-parse --verify "$requested^{commit}" 2>$null)
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($resolved)) {
+              throw "Requested commit could not be resolved in the current repository: $requested"
+            }
+            $resolved = $resolved.Trim()
+          }
+
+          & git checkout --detach $resolved
+          if ($LASTEXITCODE -ne 0) {
+            throw "Could not check out resolved commit: $resolved"
+          }
+
+          $resolved = (& git rev-parse --verify 'HEAD^{commit}').Trim()
+          $shortSha = (& git rev-parse --short HEAD).Trim()
+          Write-Host "Resolved commit: $resolved"
+          "short_sha=$shortSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Set up .NET SDK from global.json
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      # The verify job performs Release verification once for this manual run.
+      - name: Install pinned Inno Setup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install innosetup --version=6.7.1 --yes --no-progress
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Inno Setup installation failed.'
+          }
+
+          $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+          $iscc = if ($command) { $command.Source } else { $null }
+          if (-not $iscc) {
+            $knownPaths = @(
+              "$env:ProgramFiles\Inno Setup 7\ISCC.exe",
+              "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+              "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+              "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe"
+            )
+            $iscc = $knownPaths | Where-Object {
+              $_ -and (Test-Path -LiteralPath $_ -PathType Leaf)
+            } | Select-Object -First 1
+          }
+
+          if (-not $iscc) {
+            throw 'ISCC.exe was not found after installing Inno Setup.'
+          }
+
+          $isccVersion = (Get-Item -LiteralPath $iscc).VersionInfo.ProductVersion
+          if ([string]::IsNullOrWhiteSpace($isccVersion)) {
+            throw "Could not determine ISCC.exe version: $iscc"
+          }
+
+          "ISCC_PATH=$iscc" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ISCC_VERSION=$isccVersion" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Using Inno compiler $iscc (version $isccVersion)."
+
+      - name: Build portable ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          pwsh -NoProfile -File .\windows\scripts\package-winui.ps1
+          if ($LASTEXITCODE -ne 0) {
+            throw "Portable ZIP packaging failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Build Inno installer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $repoRoot = (Get-Location).Path
+          $windowsRoot = Join-Path $repoRoot 'windows'
+          $packageArgs = @(
+            '-SkipPublish',
+            '-Iscc', $env:ISCC_PATH,
+            '-RepoRoot', $repoRoot,
+            '-WindowsRoot', $windowsRoot,
+            '-OutputDir', (Join-Path $repoRoot 'dist-inno'),
+            '-PublishDir', (Join-Path $repoRoot 'target\winui-publish')
+          )
+          pwsh -NoProfile -File .\windows\scripts\package-inno.ps1 @packageArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "Inno installer packaging failed with exit code $LASTEXITCODE."
+          }
+
+      - name: Validate outputs and generate SHA256SUMS.txt
+        id: artifacts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          [xml]$project = Get-Content -LiteralPath '.\windows\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj' -Raw
+          $version = ([string]$project.Project.PropertyGroup.Version).Trim()
+          if ([string]::IsNullOrWhiteSpace($version)) {
+            throw 'CodexQuotaTray.App.csproj does not define a Version.'
+          }
+
+          $zip = "dist/CodexQuotaTray-$version-win-x64.zip"
+          $installer = "dist-inno/CodexQuotaTray-$version-setup.exe"
+          $checksum = 'dist/SHA256SUMS.txt'
+          foreach ($path in @($zip, $installer)) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Required test artifact is missing: $path"
+            }
+          }
+
+          $lines = foreach ($path in @($zip, $installer)) {
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($path))"
+          }
+
+          [IO.File]::WriteAllText(
+            $checksum,
+            (($lines -join [Environment]::NewLine) + [Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
+
+          if (-not (Test-Path -LiteralPath $checksum -PathType Leaf)) {
+            throw "SHA-256 file was not produced: $checksum"
+          }
+
+          "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "installer=$installer" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "checksum=$checksum" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Get-Content -LiteralPath $checksum
+
+      - name: Upload test artifacts
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: CodexQuotaTray-windows-test-${{ steps.source.outputs.short_sha }}
+          path: |
+            ${{ steps.artifacts.outputs.zip }}
+            ${{ steps.artifacts.outputs.installer }}
+            ${{ steps.artifacts.outputs.checksum }}
+          if-no-files-found: error
+          retention-days: 7

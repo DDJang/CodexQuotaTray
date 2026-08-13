@@ -2,11 +2,9 @@ package com.codexquotatray.android
 
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
-import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -17,8 +15,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.asComposeRenderEffect
@@ -67,26 +63,12 @@ internal fun SettingsGradientBlurHeader(
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val overlayHeight = statusBarHeight + 96.dp
 
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && blurAlpha > 0f) {
+    if (blurAlpha > 0f) {
         RuntimeGradientBlur(
             backdrop = backdrop,
             blurAlpha = blurAlpha,
             tint = tint,
             modifier = modifier.fillMaxWidth().height(overlayHeight),
-        )
-    } else {
-        Box(
-            modifier
-                .fillMaxWidth()
-                .height(overlayHeight)
-                .alpha(blurAlpha)
-                .background(
-                    Brush.verticalGradient(
-                        0f to tint.copy(alpha = 0.92f),
-                        0.5f to tint.copy(alpha = 0.58f),
-                        1f to tint.copy(alpha = 0f),
-                    ),
-                ),
         )
     }
 }

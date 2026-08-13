@@ -19,6 +19,13 @@ on:
       - '.github/scripts/update-release-manifest.ps1'
       - '.github/scripts/test-update-release-manifest.ps1'
       - '.github/update-manifest.seed.json'
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Optional commit SHA to build. Leave empty to build the selected branch HEAD.
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -32,7 +39,57 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
+        if: github.event_name != 'workflow_dispatch'
         uses: actions/checkout@v7
+
+      - name: Check out selected workflow ref
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+
+      - name: Resolve manual source commit
+        if: github.event_name == 'workflow_dispatch'
+        id: source
+        shell: bash
+        env:
+          WORKFLOW_REF_NAME: ${{ github.ref_name }}
+          REQUESTED_COMMIT: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          selected_ref="$WORKFLOW_REF_NAME"
+          requested="$(printf '%s' "${REQUESTED_COMMIT:-}" | tr -d '[:space:]')"
+
+          echo "Selected workflow ref: $selected_ref"
+          if [[ -n "$requested" ]]; then
+            echo "Requested commit: $requested"
+            if [[ ! "$requested" =~ ^[0-9a-fA-F]+$ ]]; then
+              echo "Requested commit must be a hexadecimal full or short SHA: $requested" >&2
+              exit 1
+            fi
+
+            if ! git fetch --prune origin \
+              '+refs/heads/*:refs/remotes/origin/*' \
+              '+refs/tags/*:refs/tags/*'; then
+              echo "Failed to fetch repository history needed to resolve commit: $requested" >&2
+              exit 1
+            fi
+
+            if ! resolved="$(git rev-parse --verify "${requested}^{commit}" 2>/dev/null)"; then
+              echo "Requested commit could not be resolved in the current repository: $requested" >&2
+              exit 1
+            fi
+          else
+            echo "Requested commit: <empty>"
+            resolved="$(git rev-parse --verify 'HEAD^{commit}')"
+          fi
+
+          git checkout --detach "$resolved"
+          resolved="$(git rev-parse --verify 'HEAD^{commit}')"
+          short_sha="$(git rev-parse --short HEAD)"
+          echo "Resolved commit: $resolved"
+          echo "short_sha=$short_sha" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17 and Gradle cache
         uses: actions/setup-java@v5
@@ -51,3 +108,12 @@ jobs:
       - name: Test unified update manifest writer
         shell: pwsh
         run: ./.github/scripts/test-update-release-manifest.ps1
+
+      - name: Upload manual Debug APK
+        if: github.event_name == 'workflow_dispatch' && success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: CodexQuotaTray-android-test-${{ steps.source.outputs.short_sha }}
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
