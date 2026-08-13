@@ -46,10 +46,19 @@ jobs:
             throw "Windows release workflow requires a windows-v-prefixed tag; received '$($env:TAG_NAME)'."
           }
 
+          $strictVersionPattern = '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          if ($tagVersion -cnotmatch $strictVersionPattern) {
+            throw "Windows release version '$tagVersion' must be strict MAJOR.MINOR.PATCH; prerelease versions are not supported."
+          }
+
           [xml]$project = Get-Content -LiteralPath '.\windows\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj' -Raw
           $projectVersion = ([string]$project.Project.PropertyGroup.Version).Trim()
           if ([string]::IsNullOrWhiteSpace($projectVersion)) {
             throw 'CodexQuotaTray.App.csproj does not define a Version.'
+          }
+
+          if ($projectVersion -cnotmatch $strictVersionPattern) {
+            throw "Windows project version '$projectVersion' must be strict MAJOR.MINOR.PATCH; prerelease versions are not supported."
           }
 
           if ($tagVersion -cne $projectVersion) {
@@ -76,9 +85,7 @@ jobs:
             throw "Tagged commit $tagCommit is not contained in origin/main ($mainCommit)."
           }
 
-          $isPrerelease = $projectVersion -match '(?i)(preview|alpha|beta|rc)'
           "version=$projectVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "is_prerelease=$($isPrerelease.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Tag $($env:TAG_NAME) matches project version $projectVersion."
           Write-Host "Tagged commit $tagCommit is contained in origin/main ($mainCommit)."
 
@@ -218,7 +225,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
-          IS_PRERELEASE: ${{ steps.version.outputs.is_prerelease }}
         run: |
           $ErrorActionPreference = 'Stop'
           $files = @(
@@ -231,10 +237,6 @@ jobs:
             '--verify-tag',
             '--generate-notes'
           )
-          if ($env:IS_PRERELEASE -eq 'true') {
-            $arguments += '--prerelease'
-          }
-
           & gh @arguments
           if ($LASTEXITCODE -ne 0) {
             throw "GitHub Release creation failed with exit code $LASTEXITCODE."

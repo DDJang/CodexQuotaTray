@@ -1,7 +1,8 @@
 # CodexQuotaTray Android
 
-`android/` 是个人使用的独立 APK。额度主路径为 Android App 私有 OAuth 凭据调用 Direct HTTPS
-usage API；Windows 配对只提供 Token 使用量同步，以及 Direct 网络失败时的可选额度快照 fallback。
+`android/` 是个人使用的独立 APK。有 OAuth 时额度主路径为 Android App 私有凭据调用 Direct HTTPS
+usage API；没有 OAuth 但已有 Windows 配对时，可以直接读取 Windows 最后成功额度快照并执行
+Windows-only 刷新。Direct 网络失败时，有 OAuth 的请求才允许使用已配对 Windows 的额度 fallback。
 协议细节见 [API_CONTRACT](../docs/API_CONTRACT.md)。
 
 ## 当前结构

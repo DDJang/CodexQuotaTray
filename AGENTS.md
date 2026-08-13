@@ -63,7 +63,8 @@ UI 不得直接解析 raw JSON/RPC。前后台读取必须复用同一数据提�
 - 不把 `primary` / `secondary` 固定解释为五小时或七天；按时长、名称和标识识别窗口。
 - 刷新失败保留最后有效状态，并区分 refreshing、stale、offline、unauthenticated 与 unavailable。
 - WinUI reset-credit 数量只接受 `availableCount`。
-- Android Direct HTTPS 永远优先；只有网络失败才允许 Windows LAN fallback。
+- Android 有 OAuth 时 Direct HTTPS 永远优先，只有网络失败才允许 Windows LAN fallback；无 OAuth 但有
+  Windows pairing 时可以直接读取 Windows-only quota。
 - 重试、超时、进程恢复和局域网发现必须有界。
 
 ## Build identities

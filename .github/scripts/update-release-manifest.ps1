@@ -33,10 +33,23 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-if ($Version -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
-    throw "Version '$Version' is not a strict three-part semantic version."
+function ConvertTo-StrictVersion {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Value,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Label
+    )
+
+    if ($Value -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+        throw "$Label '$Value' is not a strict three-part semantic version."
+    }
+
+    return [Version]::new([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
 }
 
+$newVersion = ConvertTo-StrictVersion -Value $Version -Label 'Version'
 $expectedTag = "$Platform-v$Version"
 if ($Tag -cne $expectedTag) {
     throw "Tag '$Tag' does not match '$expectedTag'."
@@ -72,6 +85,18 @@ if (-not [DateTimeOffset]::TryParse($PublishedAt, [ref]$published)) {
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json -AsHashtable
 if ($manifest.schemaVersion -ne 1 -or -not $manifest.ContainsKey('windows') -or -not $manifest.ContainsKey('android')) {
     throw 'Update manifest must contain schemaVersion 1 and both platform nodes.'
+}
+
+$currentNode = $manifest[$Platform]
+if ($null -ne $currentNode -and -not ($currentNode -is [hashtable])) {
+    throw "Existing $Platform manifest node is malformed."
+}
+$currentVersionText = if ($null -eq $currentNode) { '' } else { [string]$currentNode['version'] }
+if (-not [string]::IsNullOrWhiteSpace($currentVersionText)) {
+    $currentVersion = ConvertTo-StrictVersion -Value $currentVersionText -Label "Existing $Platform version"
+    if ($newVersion -lt $currentVersion) {
+        throw "New $Platform version '$Version' is lower than the existing version '$currentVersionText'."
+    }
 }
 
 $asset = [ordered]@{

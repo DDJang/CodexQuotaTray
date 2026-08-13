@@ -35,6 +35,21 @@ class QuotaPageStateTest {
         assertFalse(hasNewerQuotaSnapshot(successful, QuotaUiModel(status = QuotaUiStatus.ERROR, updatedAtMillis = 1_535_000L)))
     }
 
+    @Test
+    fun eitherOAuthOrWindowsPairingProvidesAQuotaSource() {
+        assertTrue(quotaSourceAvailable(oauthAvailable = true, windowsPairingAvailable = false))
+        assertTrue(quotaSourceAvailable(oauthAvailable = false, windowsPairingAvailable = true))
+        assertTrue(quotaSourceAvailable(oauthAvailable = true, windowsPairingAvailable = true))
+        assertFalse(quotaSourceAvailable(oauthAvailable = false, windowsPairingAvailable = false))
+    }
+
+    @Test
+    fun losingOAuthDoesNotRemoveAWindowsOnlyQuotaSource() {
+        assertTrue(quotaSourceAvailable(oauthAvailable = true, windowsPairingAvailable = true))
+        assertTrue(quotaSourceAvailable(oauthAvailable = false, windowsPairingAvailable = true))
+        assertFalse(quotaSourceAvailable(oauthAvailable = false, windowsPairingAvailable = false))
+    }
+
     private fun loadedSnapshot(updatedAtMillis: Long) = QuotaUiModel(
         status = QuotaUiStatus.LOADED,
         updatedAtMillis = updatedAtMillis,

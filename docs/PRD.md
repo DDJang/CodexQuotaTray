@@ -26,8 +26,10 @@
 ## Android 客户端
 
 - 使用设备代码 OAuth 登录，凭据保存在 Android Keystore 保护的 App 私有存储。
-- Direct HTTPS usage API 永远是额度主路径；只有网络失败、已配对 Windows 且 Wi-Fi LAN 可用时，
-  才允许读取 Windows 最后成功快照。
+- 有 OAuth 时 Direct HTTPS usage API 永远是额度主路径；只有 Direct 网络失败、已配对 Windows 且
+  Wi-Fi LAN 可用时，才允许读取 Windows 最后成功快照。
+- 没有 OAuth 但用户已经配对 Windows 时，Android 可以直接读取 Windows 最后成功额度快照并刷新；
+  OAuth 与 Windows pairing 都不存在时才属于没有额度数据源。
 - 额度与 Token 使用量各自支持回到前台时自动读取/同步、手动读取和独立周期 WorkManager。
 - 回到前台的自动入口由应用级生命周期触发，并以最后一次自动尝试的两分钟窗口抑制重复请求；
   底栏切换只改变页面状态，手动读取不受该窗口限制。

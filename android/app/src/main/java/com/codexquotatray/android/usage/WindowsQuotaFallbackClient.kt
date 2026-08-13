@@ -18,6 +18,7 @@ import java.util.concurrent.TimeUnit
 
 enum class WindowsQuotaFallbackFailureKind {
     PAIRING_INVALID,
+    PAIRING_CHANGED,
     OFFLINE,
     HTTP_ERROR,
     INVALID_RESPONSE,

@@ -6,9 +6,13 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import javax.net.SocketFactory
 import com.codexquotatray.android.protocol.DirectQuotaResult
+import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncPairingStore
+import com.codexquotatray.android.usage.TokenUsagePairingLifecycle
 import com.codexquotatray.android.usage.WindowsQuotaFallback
 import com.codexquotatray.android.usage.WindowsQuotaFallbackException
+import com.codexquotatray.android.usage.WindowsQuotaFallbackFailureKind
+import com.codexquotatray.android.usage.matchesConfiguration
 
 interface LanAvailability {
     fun isAvailable(): Boolean
@@ -34,6 +38,11 @@ class AndroidLanAvailability(context: Context) : LanAvailability {
     }
 }
 
+internal data class ResolvedQuota(
+    val quota: DirectQuotaResult,
+    val pairing: TokenSyncPairing? = null,
+)
+
 /** Keeps the user-facing primary error when the optional Windows path cannot help. */
 internal class WindowsQuotaFallbackResolver(
     private val pairingStore: TokenSyncPairingStore,
@@ -41,7 +50,9 @@ internal class WindowsQuotaFallbackResolver(
     private val fallbackClient: WindowsQuotaFallback,
     private val recordFailure: (WindowsQuotaFallbackException) -> Unit = {},
 ) {
-    fun fetchWindowsOnly(): DirectQuotaResult {
+    fun fetchWindowsOnly(): DirectQuotaResult = fetchWindowsOnlyWithPairing().quota
+
+    internal fun fetchWindowsOnlyWithPairing(): ResolvedQuota {
         val pairing = pairingStore.load()
             ?: throw QuotaReadException(QuotaReadFailureKind.LOGIN_REQUIRED, "尚未登录 Codex，也未配对 Windows")
         if (!lanAvailability.isAvailable()) {
@@ -57,8 +68,10 @@ internal class WindowsQuotaFallbackResolver(
         }
     }
 
-    fun fetch(direct: () -> DirectQuotaResult): DirectQuotaResult = try {
-        direct()
+    fun fetch(direct: () -> DirectQuotaResult): DirectQuotaResult = fetchWithPairing(direct).quota
+
+    internal fun fetchWithPairing(direct: () -> DirectQuotaResult): ResolvedQuota = try {
+        ResolvedQuota(direct())
     } catch (primary: QuotaReadException) {
         if (primary.kind != QuotaReadFailureKind.NETWORK) throw primary
 
@@ -75,12 +88,24 @@ internal class WindowsQuotaFallbackResolver(
         }
     }
 
-    private fun fetchWindows(pairing: com.codexquotatray.android.usage.TokenSyncPairing): DirectQuotaResult = try {
+    private fun fetchWindows(pairing: TokenSyncPairing): ResolvedQuota = try {
         val result = fallbackClient.sync(pairing)
-        if (result.pairing != pairing) {
-            pairingStore.save(result.pairing)
+        TokenUsagePairingLifecycle.withLock {
+            val current = pairingStore.load()
+            if (current == null || !current.matchesConfiguration(pairing)) {
+                throw WindowsQuotaFallbackException(
+                    WindowsQuotaFallbackFailureKind.PAIRING_CHANGED,
+                    "Windows pairing changed; stale quota discarded",
+                )
+            }
+            if (result.pairing != pairing && !pairingStore.saveIfCurrent(pairing, result.pairing)) {
+                throw WindowsQuotaFallbackException(
+                    WindowsQuotaFallbackFailureKind.PAIRING_CHANGED,
+                    "Windows pairing changed; stale quota discarded",
+                )
+            }
+            ResolvedQuota(result.quota, result.pairing)
         }
-        result.quota
     } catch (failure: WindowsQuotaFallbackException) {
         recordFailure(failure)
         throw failure
@@ -96,5 +121,7 @@ internal class WindowsQuotaFallbackResolver(
         com.codexquotatray.android.usage.WindowsQuotaFallbackFailureKind.INVALID_RESPONSE,
         com.codexquotatray.android.usage.WindowsQuotaFallbackFailureKind.UNSUPPORTED,
         -> QuotaReadException(QuotaReadFailureKind.INVALID_RESPONSE, "Windows 额度数据无法识别", failure)
+        WindowsQuotaFallbackFailureKind.PAIRING_CHANGED ->
+            QuotaReadException(QuotaReadFailureKind.NETWORK, "Windows 配对已变更，请重试", failure)
     }
 }

@@ -14,7 +14,7 @@ class QuotaSuccessfulRefreshCommitterTest {
     fun directAndWindowsResultsUseTheSameSingleSuccessCommitSequence() {
         val calls = mutableListOf<String>()
         val committer = QuotaSuccessfulRefreshCommitter(
-            saveSnapshot = { _, completedAt -> calls += "snapshot:$completedAt" },
+            saveSnapshot = { _, completedAt, _ -> calls += "snapshot:$completedAt" },
             evaluateAlerts = { calls += "evaluate"; emptyList() },
             markSuccessfulRefresh = { completedAt -> calls += "mark:$completedAt" },
             publishNotifications = { calls += "notify"; true },
@@ -38,7 +38,7 @@ class QuotaSuccessfulRefreshCommitterTest {
             threshold = 50,
         )
         val committer = QuotaSuccessfulRefreshCommitter(
-            saveSnapshot = { _, _ -> },
+            saveSnapshot = { _, _, _ -> },
             evaluateAlerts = { listOf(alert) },
             markSuccessfulRefresh = { },
             publishNotifications = { published += it; true },
@@ -56,7 +56,7 @@ class QuotaSuccessfulRefreshCommitterTest {
 
         var publishSucceeded = false
         val committer = QuotaSuccessfulRefreshCommitter(
-            saveSnapshot = { _, _ -> },
+            saveSnapshot = { _, _, _ -> },
             evaluateAlerts = evaluator::evaluate,
             markSuccessfulRefresh = { },
             publishNotifications = { publishSucceeded },

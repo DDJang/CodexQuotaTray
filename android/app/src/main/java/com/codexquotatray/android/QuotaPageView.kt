@@ -60,6 +60,8 @@ import com.codexquotatray.android.ui.quotaErrorUiModel
 import com.codexquotatray.android.ui.quotaLoadingUiModel
 import com.codexquotatray.android.ui.toQuotaUiModel
 import com.codexquotatray.android.ui.unauthenticatedQuotaUiModel
+import com.codexquotatray.android.usage.TokenSyncStore
+import com.codexquotatray.android.usage.cacheIdentity
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -105,18 +107,23 @@ internal fun hasNewerQuotaSnapshot(
     return currentUpdatedAt == null || latestUpdatedAt > currentUpdatedAt
 }
 
+internal fun quotaSourceAvailable(oauthAvailable: Boolean, windowsPairingAvailable: Boolean): Boolean =
+    oauthAvailable || windowsPairingAvailable
+
 internal class QuotaPageController(private val host: MainActivity) {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private val repository by lazy { CodexQuotaRepository(host) }
     private val refreshSettings by lazy { QuotaRefreshSettingsStore(host) }
     private val snapshotStore by lazy { QuotaSnapshotStore(host) }
+    private val pairingStore by lazy { TokenSyncStore(host) }
     var model by mutableStateOf(unauthenticatedQuotaUiModel())
         private set
     var busy by mutableStateOf(false)
         private set
     private var lastSuccessful: QuotaUiModel? = null
-    private var lastAuthenticated: Boolean? = null
+    private var lastQuotaSourceAvailable: Boolean? = null
+    private var lastWindowsDeviceIdentity: String? = null
     private var registered = false
     private var initialized = false
     private var visible = false
@@ -127,34 +134,40 @@ internal class QuotaPageController(private val host: MainActivity) {
         }
     }
 
-    val canRefresh get() = !busy && OAuthStore(host).load() != null
+    val canRefresh get() = !busy && hasQuotaSource()
 
     fun initialize() {
         if (initialized) return
         initialized = true
-        lastAuthenticated = OAuthStore(host).load() != null
+        lastQuotaSourceAvailable = hasQuotaSource()
+        lastWindowsDeviceIdentity = currentWindowsDeviceIdentity()
         QuotaRefreshScheduler.schedule(host)
-        if (lastAuthenticated == true) {
-            lastSuccessful = loadLatestModel()
+        if (lastQuotaSourceAvailable == true) {
+            lastSuccessful = loadLatestModel(lastWindowsDeviceIdentity)
             model = lastSuccessful ?: quotaLoadingUiModel(null)
         } else model = unauthenticatedQuotaUiModel()
     }
 
     fun onVisible() {
         visible = true
-        val authenticated = OAuthStore(host).load() != null
-        if (lastAuthenticated != authenticated) {
-            lastAuthenticated = authenticated
-            if (!authenticated) {
+        val sourceAvailable = hasQuotaSource()
+        val windowsDeviceIdentity = currentWindowsDeviceIdentity()
+        val sourceChanged = lastQuotaSourceAvailable != sourceAvailable
+        val pairingChanged = lastWindowsDeviceIdentity != windowsDeviceIdentity
+        if (sourceChanged || pairingChanged) {
+            lastQuotaSourceAvailable = sourceAvailable
+            lastWindowsDeviceIdentity = windowsDeviceIdentity
+            if (!sourceAvailable) {
                 lastSuccessful = null
                 snapshotStore.clear()
                 if (!busy) model = unauthenticatedQuotaUiModel()
                 return
             }
-            lastSuccessful = null
+            lastSuccessful = loadLatestModel(windowsDeviceIdentity)
+            if (!busy || pairingChanged) model = lastSuccessful ?: quotaLoadingUiModel(null)
             QuotaRefreshScheduler.schedule(host)
         }
-        if (authenticated && !busy) renderLatestSnapshot()
+        if (sourceAvailable && !busy) renderLatestSnapshot()
     }
 
     fun onHidden() {
@@ -175,19 +188,24 @@ internal class QuotaPageController(private val host: MainActivity) {
     }
 
     fun onForeground(reason: AutomaticRefreshReason) {
-        val authenticated = OAuthStore(host).load() != null
-        if (lastAuthenticated != authenticated) {
-            lastAuthenticated = authenticated
-            if (!authenticated) {
+        val sourceAvailable = hasQuotaSource()
+        val windowsDeviceIdentity = currentWindowsDeviceIdentity()
+        val sourceChanged = lastQuotaSourceAvailable != sourceAvailable
+        val pairingChanged = lastWindowsDeviceIdentity != windowsDeviceIdentity
+        if (sourceChanged || pairingChanged) {
+            lastQuotaSourceAvailable = sourceAvailable
+            lastWindowsDeviceIdentity = windowsDeviceIdentity
+            if (!sourceAvailable) {
                 lastSuccessful = null
                 snapshotStore.clear()
                 if (!busy) model = unauthenticatedQuotaUiModel()
             } else {
-                lastSuccessful = null
+                lastSuccessful = loadLatestModel(windowsDeviceIdentity)
+                if (!busy || pairingChanged) model = lastSuccessful ?: quotaLoadingUiModel(null)
                 QuotaRefreshScheduler.schedule(host)
             }
         }
-        if (!authenticated || busy) return
+        if (!sourceAvailable || busy) return
         renderLatestSnapshot()
         requestRefresh(reason)
     }
@@ -207,6 +225,7 @@ internal class QuotaPageController(private val host: MainActivity) {
         if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.QUOTA, reason, enabled)) return
         busy = true
         val previous = lastSuccessful
+        val requestWindowsDeviceIdentity = currentWindowsDeviceIdentity()
         model = quotaLoadingUiModel(previous)
         worker.execute {
             val result = try {
@@ -216,6 +235,23 @@ internal class QuotaPageController(private val host: MainActivity) {
             }
             main.post {
                 busy = false
+                val currentWindowsDeviceIdentity = currentWindowsDeviceIdentity()
+                val directResultIsUsable = result.getOrNull()?.let {
+                    it.source == QuotaSource.DIRECT && it.quotaState != "unavailable"
+                } == true
+                if (requestWindowsDeviceIdentity != currentWindowsDeviceIdentity &&
+                    !directResultIsUsable
+                ) {
+                    lastWindowsDeviceIdentity = currentWindowsDeviceIdentity
+                    lastQuotaSourceAvailable = hasQuotaSource()
+                    lastSuccessful = loadLatestModel(currentWindowsDeviceIdentity)
+                    model = lastSuccessful ?: if (lastQuotaSourceAvailable == true) {
+                        quotaLoadingUiModel(null)
+                    } else {
+                        unauthenticatedQuotaUiModel()
+                    }
+                    return@post
+                }
                 model = result.fold(
                     onSuccess = { value ->
                         val candidate = value.toQuotaUiModel()
@@ -230,10 +266,21 @@ internal class QuotaPageController(private val host: MainActivity) {
                     onFailure = { error ->
                         AppLogStore.record(host, "额度读取失败：${error.message ?: "未知错误"}", "WARN")
                         if (error is QuotaReadException && error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) {
-                            lastAuthenticated = false; lastSuccessful = null; snapshotStore.clear(); QuotaRefreshScheduler.cancel(host)
+                            lastQuotaSourceAvailable = hasQuotaSource()
+                            if (lastQuotaSourceAvailable != true) {
+                                lastSuccessful = null
+                                snapshotStore.clear()
+                                QuotaRefreshScheduler.cancel(host)
+                            }
                         }
                         when (error) {
-                            is QuotaReadException -> if (error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) unauthenticatedQuotaUiModel() else quotaErrorUiModel(error.message, previous)
+                            is QuotaReadException -> if (
+                                error.kind == QuotaReadFailureKind.LOGIN_REQUIRED && lastQuotaSourceAvailable != true
+                            ) {
+                                unauthenticatedQuotaUiModel()
+                            } else {
+                                quotaErrorUiModel(error.message, previous)
+                            }
                             else -> quotaErrorUiModel("额度读取失败", previous)
                         }
                     },
@@ -242,11 +289,21 @@ internal class QuotaPageController(private val host: MainActivity) {
         }
     }
 
+    private fun hasQuotaSource(): Boolean = quotaSourceAvailable(
+        oauthAvailable = OAuthStore(host).load() != null,
+        windowsPairingAvailable = pairingStore.load() != null,
+    )
+
     fun openLogin() = host.startActivityForResult(Intent(host, LoginActivity::class.java), LOGIN_REQUEST_CODE)
 
-    private fun loadLatestModel() = snapshotStore.load()?.takeIf { it.quotaState != "unavailable" }?.toQuotaUiModel()?.takeIf { it.status == QuotaUiStatus.LOADED }
+    private fun currentWindowsDeviceIdentity(): String? = pairingStore.load()?.cacheIdentity()
+
+    private fun loadLatestModel(windowsDeviceIdentity: String? = currentWindowsDeviceIdentity()) = snapshotStore.load(windowsDeviceIdentity)
+        ?.takeIf { it.quotaState != "unavailable" }
+        ?.toQuotaUiModel()
+        ?.takeIf { it.status == QuotaUiStatus.LOADED }
     private fun renderLatestSnapshot() {
-        val latest = loadLatestModel() ?: return
+        val latest = loadLatestModel(currentWindowsDeviceIdentity()) ?: return
         if (!hasNewerQuotaSnapshot(lastSuccessful, latest)) return
         lastSuccessful = latest
         model = latest

@@ -6,6 +6,7 @@ import com.codexquotatray.android.protocol.QuotaWindow
 import com.codexquotatray.android.quota.LanAvailability
 import com.codexquotatray.android.quota.QuotaReadException
 import com.codexquotatray.android.quota.QuotaReadFailureKind
+import com.codexquotatray.android.quota.commitIfPairingCurrent
 import com.codexquotatray.android.quota.WindowsQuotaFallbackResolver
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -14,6 +15,7 @@ import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
@@ -130,7 +132,12 @@ class WindowsQuotaFallbackTest {
             pairingStore = object : TokenSyncPairingStore {
                 override fun load(): TokenSyncPairing = original
                 override fun save(pairing: TokenSyncPairing): Boolean {
-                    saved = pairing
+                    throw AssertionError("relocated pairing must use conditional save")
+                }
+                override fun saveIfCurrent(expected: TokenSyncPairing, updated: TokenSyncPairing): Boolean {
+                    assertEquals(original, expected)
+                    assertEquals(relocated, updated)
+                    saved = updated
                     return true
                 }
             },
@@ -141,9 +148,58 @@ class WindowsQuotaFallbackTest {
             },
         )
 
-        resolver.fetch { throw networkFailure() }
+        val resolved = resolver.fetchWithPairing { throw networkFailure() }
 
         assertEquals("192.168.1.11", saved?.host)
+        assertEquals(relocated, resolved.pairing)
+    }
+
+    @Test fun pairingReplacementDuringFallbackDiscardsStaleQuota() {
+        val original = pairing()
+        val replacement = pairing("123e4567-e89b-12d3-a456-426614174001")
+        var current: TokenSyncPairing? = original
+        var staleSave: TokenSyncPairing? = null
+        val resolver = WindowsQuotaFallbackResolver(
+            pairingStore = object : TokenSyncPairingStore {
+                override fun load(): TokenSyncPairing? = current
+                override fun save(pairing: TokenSyncPairing): Boolean {
+                    staleSave = pairing
+                    current = pairing
+                    return true
+                }
+            },
+            lanAvailability = object : LanAvailability { override fun isAvailable() = true },
+            fallbackClient = object : WindowsQuotaFallback {
+                override fun sync(pairing: TokenSyncPairing): WindowsQuotaFallbackResult {
+                    current = replacement
+                    return WindowsQuotaFallbackResult(windowsSuccess(), pairing.copy(lastKnownHost = "192.168.1.11"))
+                }
+            },
+        )
+
+        assertThrows(QuotaReadException::class.java) { resolver.fetchWindowsOnly() }
+
+        assertEquals(replacement, current)
+        assertNull(staleSave)
+    }
+
+    @Test fun pairingReplacementBeforeCommitDoesNotCommitStaleQuota() {
+        val original = pairing()
+        val replacement = pairing("123e4567-e89b-12d3-a456-426614174001")
+        var commitCalls = 0
+        val committed = commitIfPairingCurrent(
+            pairingStore = object : TokenSyncPairingStore {
+                override fun load(): TokenSyncPairing? = replacement
+                override fun save(pairing: TokenSyncPairing): Boolean = true
+            },
+            expectedPairing = original,
+        ) {
+            commitCalls++
+            true
+        }
+
+        assertFalse(committed)
+        assertEquals(0, commitCalls)
     }
 
     @Test fun pairingUnauthorizedDoesNotTriggerDiscovery() {
@@ -198,8 +254,10 @@ class WindowsQuotaFallbackTest {
         },
     )
 
-    private fun pairing() = TokenSyncEndpoint.validated(
-        "123e4567-e89b-12d3-a456-426614174000",
+    private fun pairing(
+        deviceId: String = "123e4567-e89b-12d3-a456-426614174000",
+    ) = TokenSyncEndpoint.validated(
+        deviceId,
         "192.168.1.10",
         43821,
         "secret",

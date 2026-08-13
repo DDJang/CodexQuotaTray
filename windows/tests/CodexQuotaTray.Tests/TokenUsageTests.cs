@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using CodexQuotaTray.Core.TokenUsage;
@@ -170,6 +171,56 @@ public sealed class TokenUsageTests
     }
 
     [TestMethod]
+    public async Task PartialClientIsClosedWhenRequestHeaderTimeoutExpires()
+    {
+        using var corpus = new TokenCorpus();
+        await using var server = new TokenUsageSyncServer(
+            new TokenUsageScanner(),
+            "test-secret",
+            corpus.Root,
+            requestHeaderTimeout: TimeSpan.FromMilliseconds(100));
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, server.Port);
+        await using var stream = client.GetStream();
+        await stream.WriteAsync("GET /v1/token-usage HTTP/1.1\r\n"u8.ToArray());
+
+        Assert.IsTrue(await WaitForConnectionClosedAsync(stream, TimeSpan.FromSeconds(2)));
+    }
+
+    [TestMethod]
+    public async Task TenPartialClientsAreAllClosedWhenRequestHeaderTimeoutExpires()
+    {
+        using var corpus = new TokenCorpus();
+        await using var server = new TokenUsageSyncServer(
+            new TokenUsageScanner(),
+            "test-secret",
+            corpus.Root,
+            requestHeaderTimeout: TimeSpan.FromMilliseconds(100));
+        server.Start(IPAddress.Loopback, 0);
+        var clients = Enumerable.Range(0, 10).Select(_ => new TcpClient()).ToArray();
+        try
+        {
+            foreach (var client in clients)
+            {
+                await client.ConnectAsync(IPAddress.Loopback, server.Port);
+                await client.GetStream().WriteAsync("GET /v1/token-usage HTTP/1.1\r\n"u8.ToArray());
+            }
+
+            var closed = await Task.WhenAll(clients.Select(client =>
+                WaitForConnectionClosedAsync(client.GetStream(), TimeSpan.FromSeconds(2))));
+            Assert.IsTrue(closed.All(value => value));
+        }
+        finally
+        {
+            foreach (var client in clients)
+            {
+                client.Dispose();
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task LanServerReusesNormalCacheButForceRefreshScansAgain()
     {
         using var corpus = new TokenCorpus();
@@ -281,6 +332,28 @@ public sealed class TokenUsageTests
         var window = document.RootElement.GetProperty("windows")[0];
         Assert.AreEqual(80, window.GetProperty("remainingPercent").GetInt32());
         Assert.AreEqual(JsonValueKind.Null, window.GetProperty("resetsAt").ValueKind);
+    }
+
+    private static async Task<bool> WaitForConnectionClosedAsync(NetworkStream stream, TimeSpan timeout)
+    {
+        var read = stream.ReadAsync(new byte[1]).AsTask();
+        if (await Task.WhenAny(read, Task.Delay(timeout)) != read)
+        {
+            return false;
+        }
+
+        try
+        {
+            return await read == 0;
+        }
+        catch (IOException)
+        {
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return true;
+        }
     }
 
     private static Task<TokenUsageSnapshot> Scan(TokenCorpus corpus) => new TokenUsageScanner().ScanAsync(
