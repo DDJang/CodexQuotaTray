@@ -51,6 +51,11 @@ jobs:
             exit 1
           fi
 
+          if [[ ! "$tag_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "Android release version '$tag_version' must be strict MAJOR.MINOR.PATCH; prerelease versions are not supported." >&2
+            exit 1
+          fi
+
           mapfile -t versions < <(sed -nE 's/^[[:space:]]*versionName[[:space:]]*=[[:space:]]*"([^"]+)"[[:space:]]*$/\1/p' android/app/build.gradle.kts)
           if [[ "${#versions[@]}" -ne 1 || -z "${versions[0]}" ]]; then
             echo 'android/app/build.gradle.kts must define exactly one quoted versionName.' >&2
@@ -77,8 +82,11 @@ jobs:
 
           previous_max=0
           while IFS= read -r previous_tag; do
+            if [[ "$previous_tag" == "$TAG_NAME" || ! "$previous_tag" =~ ^android-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+              continue
+            fi
             previous_commit="$(git rev-parse "${previous_tag}^{commit}")"
-            if [[ "$previous_commit" == "$tag_commit" ]] || ! git merge-base --is-ancestor "$previous_commit" "$tag_commit"; then
+            if ! git merge-base --is-ancestor "$previous_commit" "$main_commit"; then
               continue
             fi
             previous_code="$(git show "$previous_commit:android/app/build.gradle.kts" 2>/dev/null | sed -nE 's/^[[:space:]]*versionCode[[:space:]]*=[[:space:]]*([0-9]+)[[:space:]]*$/\1/p' | head -n 1 || true)"

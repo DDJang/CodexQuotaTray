@@ -30,8 +30,9 @@ WinUI Views / Services / Interop / Themes
 ## Android 架构
 
 ```text
-OAuthStore → DirectQuotaClient → CodexQuotaRepository
-                                  ├─ QuotaSnapshotStore
+OAuthStore ───────────────┐
+                          ├─ CodexQuotaRepository
+TokenSyncStore ───────────┘       ├─ QuotaSnapshotStore
                                   ├─ QuotaAlertEvaluator
                                   └─ QuotaRefreshWorker
 
@@ -46,8 +47,9 @@ TokenSyncStore → TokenUsageSyncCoordinator → TokenUsageCache
   先写 cache，再写成功时间与最新地址。
 - Compose 页面只消费 domain state；前台通过 refresh event 接收后台成功结果。
 
-额度 Direct 请求与 Windows LAN fallback 保持串行：只有 Direct 的 `NETWORK` 失败才尝试已保存
-地址、必要时 DNS-SD、再重试 Windows。LAN 请求绑定实际 Wi-Fi network，不在移动网络等待。
+有 OAuth 时额度 Direct 请求与 Windows LAN fallback 保持串行：只有 Direct 的 `NETWORK` 失败才尝试
+已保存地址、必要时 DNS-SD、再重试 Windows。没有 OAuth 但已有 Windows pairing 时直接读取 Windows
+额度快照。LAN 请求绑定实际 Wi-Fi network，不在移动网络等待。
 
 ## LAN 服务
 

@@ -20,10 +20,13 @@ import com.codexquotatray.android.usage.CodexUsageClient
 import com.codexquotatray.android.usage.QuotaNetworkTimeouts
 import com.codexquotatray.android.usage.TokenSyncPairingStore
 import com.codexquotatray.android.usage.TokenSyncStore
+import com.codexquotatray.android.usage.TokenSyncPairing
+import com.codexquotatray.android.usage.TokenUsagePairingLifecycle
 import com.codexquotatray.android.usage.UsageException
 import com.codexquotatray.android.usage.UsageFailureKind
 import com.codexquotatray.android.usage.WindowsQuotaFallback
 import com.codexquotatray.android.usage.WindowsQuotaFallbackClient
+import com.codexquotatray.android.usage.matchesConfiguration
 import java.io.IOException
 
 enum class QuotaReadFailureKind {
@@ -38,6 +41,14 @@ class QuotaReadException(
     override val message: String,
     cause: Throwable? = null,
 ) : IOException(message, cause)
+
+internal fun commitIfPairingCurrent(
+    pairingStore: TokenSyncPairingStore,
+    expectedPairing: TokenSyncPairing,
+    commit: () -> Boolean,
+): Boolean = TokenUsagePairingLifecycle.withLock {
+    if (pairingStore.load()?.matchesConfiguration(expectedPairing) != true) false else commit()
+}
 
 /**
  * The product data path is deliberately small: OAuth credentials -> usage HTTPS API -> UI.
@@ -82,7 +93,8 @@ class CodexQuotaRepository(
         val generation = CredentialGeneration.current()
         val loaded = credentialStore.load()
         if (loaded == null) {
-            return commitAndReturn(fallbackResolver.fetchWindowsOnly())
+            val resolved = fallbackResolver.fetchWindowsOnlyWithPairing()
+            return commitAndReturn(resolved.quota, resolved.pairing)
         }
         var credentials = currentCredentialsOrThrow(generation)
 
@@ -94,7 +106,7 @@ class CodexQuotaRepository(
             )
         }
         val fetched = fetchWithRecovery(credentials, generation)
-        return publishAndReturn(fetched.quota, fetched.credentials, generation)
+        return publishAndReturn(fetched.quota, fetched.credentials, generation, fetched.pairing)
     }
 
     fun login(onUpdate: (OAuthLoginUpdate) -> Unit = {}): OAuthCredentials {
@@ -122,7 +134,7 @@ class CodexQuotaRepository(
         initialGeneration: Long,
     ): SuccessfulQuotaFetch {
         var successfulCredentials = initial
-        val quota = fallbackResolver.fetch {
+        val resolved = fallbackResolver.fetchWithPairing {
             fetchDirectWithRecovery(
                 initial,
                 initialGeneration,
@@ -132,7 +144,7 @@ class CodexQuotaRepository(
                 onCredentialsUsed = { successfulCredentials = it },
             )
         }
-        return SuccessfulQuotaFetch(quota, successfulCredentials)
+        return SuccessfulQuotaFetch(resolved.quota, successfulCredentials, resolved.pairing)
     }
 
     private fun fetchDirectWithRecovery(
@@ -268,6 +280,7 @@ class CodexQuotaRepository(
         result: DirectQuotaResult,
         credentials: OAuthCredentials,
         generation: Long,
+        expectedPairing: TokenSyncPairing?,
     ): DirectQuotaResult {
         synchronized(CodexProcessLock.monitor) {
             val current = credentialStore.load()
@@ -275,15 +288,27 @@ class CodexQuotaRepository(
                 return@synchronized
             }
             if (result.quotaState != "unavailable") {
-                commitAndReturn(result)
+                commitAndReturn(result, expectedPairing)
             }
         }
         return result
     }
 
-    private fun commitAndReturn(result: DirectQuotaResult): DirectQuotaResult {
+    private fun commitAndReturn(
+        result: DirectQuotaResult,
+        expectedPairing: TokenSyncPairing?,
+    ): DirectQuotaResult {
         if (result.quotaState != "unavailable") {
-            successCommitter.commit(result)
+            if (expectedPairing == null) {
+                successCommitter.commit(result)
+            } else {
+                val committed = commitIfPairingCurrent(tokenSyncStore, expectedPairing) {
+                    successCommitter.commit(result)
+                }
+                if (!committed) {
+                    throw QuotaReadException(QuotaReadFailureKind.NETWORK, "Windows 配对已变更，请重试")
+                }
+            }
         }
         return result
     }
@@ -291,6 +316,7 @@ class CodexQuotaRepository(
     private data class SuccessfulQuotaFetch(
         val quota: DirectQuotaResult,
         val credentials: OAuthCredentials,
+        val pairing: TokenSyncPairing?,
     )
 
     private fun saveCredentials(credentials: OAuthCredentials) {

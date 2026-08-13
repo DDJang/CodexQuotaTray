@@ -103,7 +103,7 @@ jobs:
 
       - name: Test and assemble Debug
         working-directory: android
-        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug
+        run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 
       - name: Test unified update manifest writer
         shell: pwsh

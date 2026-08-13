@@ -18,6 +18,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
     private readonly Func<QuotaLanSnapshot?> quotaSnapshotProvider;
     private readonly string? codexHome;
     private readonly TimeSpan minimumScanInterval;
+    private readonly TimeSpan requestHeaderTimeout;
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim scanGate = new(1, 1);
     private TcpListener? listener;
@@ -31,12 +32,14 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         string secret,
         string? codexHome = null,
         TimeSpan? minimumScanInterval = null,
-        Func<QuotaLanSnapshot?>? quotaSnapshotProvider = null)
+        Func<QuotaLanSnapshot?>? quotaSnapshotProvider = null,
+        TimeSpan? requestHeaderTimeout = null)
     {
         this.scanner = scanner;
         this.secret = secret;
         this.codexHome = codexHome;
         this.minimumScanInterval = minimumScanInterval ?? TimeSpan.FromSeconds(60);
+        this.requestHeaderTimeout = requestHeaderTimeout ?? TimeSpan.FromSeconds(10);
         this.quotaSnapshotProvider = quotaSnapshotProvider ?? (() => null);
     }
 
@@ -128,61 +131,77 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
-        using (client)
+        try
         {
-            client.ReceiveTimeout = 10_000;
-            client.SendTimeout = 10_000;
-            await using var stream = client.GetStream();
-            var request = await ReadRequestAsync(stream, cancellationToken).ConfigureAwait(false);
-            if (request is null)
+            using (client)
             {
-                await WriteResponseAsync(stream, 400, "Bad Request", null, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            if (!string.Equals(request.Method, "GET", StringComparison.Ordinal))
-            {
-                await WriteResponseAsync(stream, 405, "Method Not Allowed", null, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            if (!string.Equals(request.Path, "/v1/token-usage", StringComparison.Ordinal)
-                && !string.Equals(request.Path, "/v1/quota", StringComparison.Ordinal))
-            {
-                await WriteResponseAsync(stream, 404, "Not Found", null, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            if (!Authorized(request.Authorization))
-            {
-                await WriteResponseAsync(stream, 401, "Unauthorized", null, cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            if (string.Equals(request.Path, "/v1/quota", StringComparison.Ordinal))
-            {
-                var quota = quotaSnapshotProvider();
-                if (quota is null)
+                await using var stream = client.GetStream();
+                Request? request;
+                using (var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
                 {
-                    await WriteResponseAsync(stream, 503, "Service Unavailable", null, cancellationToken).ConfigureAwait(false);
+                    requestTimeout.CancelAfter(requestHeaderTimeout);
+                    try
+                    {
+                        request = await ReadRequestAsync(stream, requestTimeout.Token).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        return;
+                    }
+                }
+                if (request is null)
+                {
+                    await WriteResponseAsync(stream, 400, "Bad Request", null, cancellationToken).ConfigureAwait(false);
                     return;
                 }
 
-                var quotaBody = JsonSerializer.SerializeToUtf8Bytes(quota, JsonOptions);
-                await WriteResponseAsync(stream, 200, "OK", quotaBody, cancellationToken).ConfigureAwait(false);
-                return;
-            }
+                if (!string.Equals(request.Method, "GET", StringComparison.Ordinal))
+                {
+                    await WriteResponseAsync(stream, 405, "Method Not Allowed", null, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
 
-            var snapshot = await GetSnapshotAsync(request.ForceRefresh, cancellationToken).ConfigureAwait(false);
-            var body = JsonSerializer.SerializeToUtf8Bytes(new
-            {
-                snapshot.SchemaVersion,
-                snapshot.GeneratedAtUtc,
-                snapshot.SourceTimeZone,
-                snapshot.Summary,
-                snapshot.Days,
-            }, JsonOptions);
-            await WriteResponseAsync(stream, 200, "OK", body, cancellationToken).ConfigureAwait(false);
+                if (!string.Equals(request.Path, "/v1/token-usage", StringComparison.Ordinal)
+                    && !string.Equals(request.Path, "/v1/quota", StringComparison.Ordinal))
+                {
+                    await WriteResponseAsync(stream, 404, "Not Found", null, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                if (!Authorized(request.Authorization))
+                {
+                    await WriteResponseAsync(stream, 401, "Unauthorized", null, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                if (string.Equals(request.Path, "/v1/quota", StringComparison.Ordinal))
+                {
+                    var quota = quotaSnapshotProvider();
+                    if (quota is null)
+                    {
+                        await WriteResponseAsync(stream, 503, "Service Unavailable", null, cancellationToken).ConfigureAwait(false);
+                        return;
+                    }
+
+                    var quotaBody = JsonSerializer.SerializeToUtf8Bytes(quota, JsonOptions);
+                    await WriteResponseAsync(stream, 200, "OK", quotaBody, cancellationToken).ConfigureAwait(false);
+                    return;
+                }
+
+                var snapshot = await GetSnapshotAsync(request.ForceRefresh, cancellationToken).ConfigureAwait(false);
+                var body = JsonSerializer.SerializeToUtf8Bytes(new
+                {
+                    snapshot.SchemaVersion,
+                    snapshot.GeneratedAtUtc,
+                    snapshot.SourceTimeZone,
+                    snapshot.Summary,
+                    snapshot.Days,
+                }, JsonOptions);
+                await WriteResponseAsync(stream, 200, "OK", body, cancellationToken).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
         }
     }
 
