@@ -4,10 +4,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Handler
+import com.codexquotatray.android.quota.QuotaSnapshotStore
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import com.codexquotatray.android.usage.TokenSyncEndpoint
 import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
+import com.codexquotatray.android.usage.TokenUsagePairingLifecycle
+import com.codexquotatray.android.usage.cacheIdentity
 import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
 import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
 import com.codexquotatray.android.usage.TokenUsageSyncResult
@@ -38,7 +41,14 @@ internal object TokenPairingFlow {
     /** Persists the pairing and keeps both independent background schedulers current. */
     fun savePairing(context: Context, pairing: TokenSyncPairing): Boolean {
         val appContext = context.applicationContext
-        if (!TokenSyncStore(appContext).save(pairing)) return false
+        val saved = TokenUsagePairingLifecycle.withLock {
+            TokenSyncStore(appContext).save(pairing).also { success ->
+                if (success) {
+                    QuotaSnapshotStore(appContext).invalidateWindowsForPairing(pairing.cacheIdentity())
+                }
+            }
+        }
+        if (!saved) return false
         TokenUsageRefreshScheduler.schedule(appContext)
         QuotaRefreshScheduler.schedule(appContext)
         return true

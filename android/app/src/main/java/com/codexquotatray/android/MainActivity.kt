@@ -142,6 +142,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         tryInstallPendingUpdate()
+        if (::quota.isInitialized && selectedIndex == 0) quota.onVisible()
         if (::usage.isInitialized) usage.reconcilePairingState()
         val restoredTheme = AppTheme.mode(this)
         if (themeMode != restoredTheme) {
@@ -204,6 +205,7 @@ class MainActivity : ComponentActivity() {
                 Toast.makeText(this, "无法安全保存配对信息", Toast.LENGTH_SHORT).show()
                 return@onSuccess
             }
+            if (selectedIndex == 0) quota.onVisible()
             usage.reconcilePairingState()
             Toast.makeText(this, "Token 同步配对已保存", Toast.LENGTH_SHORT).show()
             TokenPairingFlow.testPairing(this, pairing, pairingWorker, pairingMain) { syncResult ->

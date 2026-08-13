@@ -26,6 +26,7 @@ import com.codexquotatray.android.usage.UsageException
 import com.codexquotatray.android.usage.UsageFailureKind
 import com.codexquotatray.android.usage.WindowsQuotaFallback
 import com.codexquotatray.android.usage.WindowsQuotaFallbackClient
+import com.codexquotatray.android.usage.cacheIdentity
 import com.codexquotatray.android.usage.matchesConfiguration
 import java.io.IOException
 
@@ -81,7 +82,9 @@ class CodexQuotaRepository(
     }
     private val successCommitter by lazy {
         QuotaSuccessfulRefreshCommitter(
-            saveSnapshot = { result, completedAtMillis -> snapshotStore.save(result, completedAtMillis) },
+            saveSnapshot = { result, completedAtMillis, windowsDeviceIdentity ->
+                snapshotStore.save(result, completedAtMillis, windowsDeviceIdentity)
+            },
             evaluateAlerts = alertEvaluator::evaluate,
             markSuccessfulRefresh = alertStateStore::markSuccessfulRefresh,
             publishNotifications = notificationPublisher::publish,
@@ -303,7 +306,7 @@ class CodexQuotaRepository(
                 successCommitter.commit(result)
             } else {
                 val committed = commitIfPairingCurrent(tokenSyncStore, expectedPairing) {
-                    successCommitter.commit(result)
+                    successCommitter.commit(result, expectedPairing.cacheIdentity())
                 }
                 if (!committed) {
                     throw QuotaReadException(QuotaReadFailureKind.NETWORK, "Windows 配对已变更，请重试")

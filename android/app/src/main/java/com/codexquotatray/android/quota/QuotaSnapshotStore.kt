@@ -6,6 +6,7 @@ import org.json.JSONObject
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.protocol.QuotaWindow
+import com.codexquotatray.android.usage.TokenUsagePairingLifecycle
 
 /**
  * Stores only the last successful quota response, never credentials or raw HTTP data.
@@ -20,13 +21,18 @@ class QuotaSnapshotStore(context: Context) {
     fun save(
         result: DirectQuotaResult,
         lastSuccessfulRefreshAtMillis: Long = System.currentTimeMillis(),
-    ) {
+        windowsDeviceIdentity: String? = null,
+    ): Unit = TokenUsagePairingLifecycle.withLock {
         val root = JSONObject()
             .putNullable("planType", result.planType)
             .put("quotaState", result.quotaState)
             .put("updatedAtMillis", result.updatedAtMillis)
             .put("lastSuccessfulRefreshAtMillis", lastSuccessfulRefreshAtMillis)
             .put("source", result.source.name)
+            .putNullable(
+                "windowsDeviceIdentity",
+                result.source.takeIf { it == QuotaSource.WINDOWS }?.let { windowsDeviceIdentity },
+            )
             .put(
                 "windows",
                 JSONArray().apply {
@@ -49,47 +55,79 @@ class QuotaSnapshotStore(context: Context) {
             .putString(KEY_SNAPSHOT, root.toString())
             .putLong(KEY_LAST_SUCCESSFUL_REFRESH_AT_MILLIS, lastSuccessfulRefreshAtMillis)
             .commit()
+        Unit
     }
 
-    fun load(): DirectQuotaResult? {
-        val raw = preferences.getString(KEY_SNAPSHOT, null) ?: return null
-        return runCatching {
-            val root = JSONObject(raw)
-            val windowsJson = root.optJSONArray("windows") ?: JSONArray()
-            val windows = buildList {
-                for (index in 0 until windowsJson.length()) {
-                    val window = windowsJson.optJSONObject(index) ?: continue
-                    add(
-                        QuotaWindow(
-                            limitId = window.stringOrNull("limitId"),
-                            limitName = window.stringOrNull("limitName"),
-                            planType = window.stringOrNull("planType"),
-                            sourceSlot = window.stringOrNull("sourceSlot").orEmpty(),
-                            usedPercent = window.intOrNull("usedPercent"),
-                            remainingPercent = window.intOrNull("remainingPercent"),
-                            windowDurationMins = window.longOrNull("windowDurationMins"),
-                            resetsAt = window.longOrNull("resetsAt"),
-                        ),
-                    )
-                }
-            }
-            DirectQuotaResult(
-                planType = root.stringOrNull("planType"),
-                windows = windows,
-                quotaState = root.stringOrNull("quotaState") ?: "unavailable",
-                updatedAtMillis = root.longOrNull("updatedAtMillis") ?: return null,
-                source = root.stringOrNull("source")
+    fun load(currentWindowsDeviceIdentity: String? = null): DirectQuotaResult? =
+        TokenUsagePairingLifecycle.withLock {
+            val raw = preferences.getString(KEY_SNAPSHOT, null) ?: return@withLock null
+            runCatching {
+                val root = JSONObject(raw)
+                val source = root.stringOrNull("source")
                     ?.let { runCatching { QuotaSource.valueOf(it) }.getOrNull() }
-                    ?: QuotaSource.DIRECT,
-            )
-        }.getOrNull()
-    }
+                    ?: QuotaSource.DIRECT
+                if (!shouldRestoreQuotaSnapshot(
+                        source,
+                        root.stringOrNull("windowsDeviceIdentity"),
+                        currentWindowsDeviceIdentity,
+                    )) {
+                    return@runCatching null
+                }
+                val windowsJson = root.optJSONArray("windows") ?: JSONArray()
+                val windows = buildList {
+                    for (index in 0 until windowsJson.length()) {
+                        val window = windowsJson.optJSONObject(index) ?: continue
+                        add(
+                            QuotaWindow(
+                                limitId = window.stringOrNull("limitId"),
+                                limitName = window.stringOrNull("limitName"),
+                                planType = window.stringOrNull("planType"),
+                                sourceSlot = window.stringOrNull("sourceSlot").orEmpty(),
+                                usedPercent = window.intOrNull("usedPercent"),
+                                remainingPercent = window.intOrNull("remainingPercent"),
+                                windowDurationMins = window.longOrNull("windowDurationMins"),
+                                resetsAt = window.longOrNull("resetsAt"),
+                            ),
+                        )
+                    }
+                }
+                DirectQuotaResult(
+                    planType = root.stringOrNull("planType"),
+                    windows = windows,
+                    quotaState = root.stringOrNull("quotaState") ?: "unavailable",
+                    updatedAtMillis = root.longOrNull("updatedAtMillis") ?: return@runCatching null,
+                    source = source,
+                )
+            }.getOrNull()
+        }
 
-    fun clear() {
-        preferences.edit()
+    /** Invalidates only a Windows snapshot that belongs to another device. */
+    fun invalidateWindowsForPairing(currentWindowsDeviceIdentity: String?) =
+        TokenUsagePairingLifecycle.withLock {
+            val raw = preferences.getString(KEY_SNAPSHOT, null) ?: return@withLock
+            val isWindowsSnapshot = runCatching {
+                JSONObject(raw).stringOrNull("source") == QuotaSource.WINDOWS.name
+            }.getOrDefault(false)
+            if (!isWindowsSnapshot) return@withLock
+            val storedIdentity = runCatching {
+                JSONObject(raw).stringOrNull("windowsDeviceIdentity")
+            }.getOrNull()
+            if (shouldInvalidateWindowsQuotaSnapshot(
+                    QuotaSource.WINDOWS,
+                    storedIdentity,
+                    currentWindowsDeviceIdentity,
+                )) {
+                clearSnapshot(synchronous = true)
+            }
+        }
+
+    fun clear() = TokenUsagePairingLifecycle.withLock { clearSnapshot() }
+
+    private fun clearSnapshot(synchronous: Boolean = false) {
+        val editor = preferences.edit()
             .remove(KEY_SNAPSHOT)
             .remove(KEY_LAST_SUCCESSFUL_REFRESH_AT_MILLIS)
-            .apply()
+        if (synchronous) editor.commit() else editor.apply()
     }
 
     /**
@@ -106,6 +144,27 @@ class QuotaSnapshotStore(context: Context) {
         private const val KEY_LAST_SUCCESSFUL_REFRESH_AT_MILLIS = "last_successful_refresh_at_millis"
     }
 }
+
+internal fun windowsQuotaSnapshotMatchesPairing(
+    storedDeviceIdentity: String?,
+    currentDeviceIdentity: String?,
+): Boolean = !storedDeviceIdentity.isNullOrBlank() &&
+    !currentDeviceIdentity.isNullOrBlank() &&
+    storedDeviceIdentity.equals(currentDeviceIdentity, ignoreCase = true)
+
+internal fun shouldRestoreQuotaSnapshot(
+    source: QuotaSource,
+    storedWindowsDeviceIdentity: String?,
+    currentWindowsDeviceIdentity: String?,
+): Boolean = source != QuotaSource.WINDOWS ||
+    windowsQuotaSnapshotMatchesPairing(storedWindowsDeviceIdentity, currentWindowsDeviceIdentity)
+
+internal fun shouldInvalidateWindowsQuotaSnapshot(
+    source: QuotaSource,
+    storedWindowsDeviceIdentity: String?,
+    currentWindowsDeviceIdentity: String?,
+): Boolean = source == QuotaSource.WINDOWS &&
+    !windowsQuotaSnapshotMatchesPairing(storedWindowsDeviceIdentity, currentWindowsDeviceIdentity)
 
 private fun JSONObject.putNullable(key: String, value: Any?): JSONObject =
     put(key, value ?: JSONObject.NULL)

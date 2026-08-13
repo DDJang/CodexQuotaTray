@@ -41,6 +41,7 @@ import com.codexquotatray.android.alerts.QuotaNotifications
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import com.codexquotatray.android.quota.QuotaRefreshSettings
 import com.codexquotatray.android.quota.QuotaRefreshSettingsStore
+import com.codexquotatray.android.quota.QuotaSnapshotStore
 import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
@@ -649,7 +650,12 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun clearPairing() {
-        if (TokenUsagePairingLifecycle.clear(tokenStore, TokenUsageCache(this))) {
+        val cleared = TokenUsagePairingLifecycle.withLock {
+            TokenUsagePairingLifecycle.clear(tokenStore, TokenUsageCache(this)).also { success ->
+                if (success) QuotaSnapshotStore(this).invalidateWindowsForPairing(null)
+            }
+        }
+        if (cleared) {
             TokenUsageRefreshScheduler.cancel(this)
             QuotaRefreshScheduler.schedule(this)
             renderState()
