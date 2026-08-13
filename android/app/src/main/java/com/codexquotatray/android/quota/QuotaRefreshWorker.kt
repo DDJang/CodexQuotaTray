@@ -6,8 +6,8 @@ import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
 import com.codexquotatray.android.refresh.AutomaticRefreshChannel
-import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import androidx.work.Constraints
+import androidx.work.BackoffPolicy
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
@@ -15,37 +15,67 @@ import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
+import com.codexquotatray.android.protocol.QuotaSource
+import com.codexquotatray.android.refresh.BackgroundRefreshRetryPolicy
+import com.codexquotatray.android.refresh.BackgroundRetryDecision
 
 class QuotaRefreshWorker(
     appContext: Context,
     workerParams: WorkerParameters,
 ) : Worker(appContext, workerParams) {
     override fun doWork(): Result {
+        AppLogStore.record(applicationContext, "额度后台任务已启动")
+        val settings = QuotaRefreshSettingsStore(applicationContext).load()
+        if (!settings.enabled) {
+            AppLogStore.record(applicationContext, "额度后台任务已跳过：设置已关闭")
+            return Result.success()
+        }
+        val hasOAuth = OAuthStore(applicationContext).load() != null
+        val hasWindowsPairing = TokenSyncStore(applicationContext).load() != null
+        if (!hasOAuth && !hasWindowsPairing) {
+            AppLogStore.record(applicationContext, "额度后台任务已跳过：缺少可用数据源", "WARN")
+            return Result.success()
+        }
+
         if (!AppAutomaticRefreshCoordinator.tryStart(
                 AutomaticRefreshChannel.QUOTA,
-                AutomaticRefreshReason.SCHEDULED,
+                BackgroundRefreshRetryPolicy.reason(runAttemptCount),
+                enabled = settings.enabled,
             )
-        ) return Result.success()
+        ) {
+            AppLogStore.record(applicationContext, "额度后台任务已跳过：自动刷新门控")
+            return Result.success()
+        }
 
         return try {
             val result = CodexQuotaRepository(applicationContext).refresh()
             if (result.quotaState != "unavailable") {
                 QuotaRefreshEvents.notifyCompleted(applicationContext)
             }
+            AppLogStore.record(
+                applicationContext,
+                if (result.source == QuotaSource.WINDOWS) "额度后台任务 Windows fallback 成功" else "额度后台任务 OpenAI direct 成功",
+            )
             Result.success()
         } catch (error: QuotaReadException) {
-            if (error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) {
-                QuotaRefreshScheduler.cancel(applicationContext)
-                AppLogStore.record(applicationContext, "后台刷新已停止：需要重新登录", "WARN")
-            } else {
-                AppLogStore.record(
-                    applicationContext,
-                    "后台刷新失败：${error.message}",
-                    "WARN",
-                )
+            when (quotaRetryDecision(error.kind, runAttemptCount)) {
+                BackgroundRetryDecision.RETRY -> {
+                    AppLogStore.record(
+                        applicationContext,
+                        "额度后台任务将重试：${error.kind}，第 ${runAttemptCount + 1} 次补偿重试",
+                        "WARN",
+                    )
+                    Result.retry()
+                }
+                BackgroundRetryDecision.EXHAUSTED -> {
+                    AppLogStore.record(applicationContext, "额度后台任务本周期重试已耗尽，等待下一周期", "WARN")
+                    Result.success()
+                }
+                BackgroundRetryDecision.PERMANENT -> {
+                    AppLogStore.record(applicationContext, "额度后台任务永久失败：${error.kind}", "WARN")
+                    Result.success()
+                }
             }
-            // The next scheduled run will retry ordinary network or API failures.
-            Result.success()
         } finally {
             AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.QUOTA)
         }
@@ -63,12 +93,13 @@ object QuotaRefreshScheduler {
         val appContext = context.applicationContext
         val settings = QuotaRefreshSettingsStore(appContext).load()
         val workManager = WorkManager.getInstance(appContext)
-        if (!settings.enabled || OAuthStore(appContext).load() == null) {
+        val hasOAuth = OAuthStore(appContext).load() != null
+        val hasWindowsPairing = TokenSyncStore(appContext).load() != null
+        if (!shouldSchedule(settings, hasOAuth, hasWindowsPairing)) {
             cancel(appContext)
             return
         }
 
-        val hasWindowsPairing = TokenSyncStore(appContext).load() != null
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(requiredNetworkType(hasWindowsPairing))
             .build()
@@ -77,6 +108,11 @@ object QuotaRefreshScheduler {
             TimeUnit.MINUTES,
         )
             .setConstraints(constraints)
+            .setBackoffCriteria(
+                BackoffPolicy.EXPONENTIAL,
+                BackgroundRefreshRetryPolicy.BACKOFF_MINUTES,
+                TimeUnit.MINUTES,
+            )
             .build()
         workManager.enqueueUniquePeriodicWork(
             WORK_NAME,
@@ -93,4 +129,22 @@ object QuotaRefreshScheduler {
      */
     internal fun requiredNetworkType(hasWindowsPairing: Boolean): NetworkType =
         if (hasWindowsPairing) NetworkType.NOT_REQUIRED else NetworkType.CONNECTED
+
+    internal fun shouldSchedule(
+        settings: QuotaRefreshSettings,
+        hasOAuth: Boolean,
+        hasWindowsPairing: Boolean,
+    ): Boolean = settings.enabled && (hasOAuth || hasWindowsPairing)
+}
+
+internal fun quotaRetryDecision(
+    kind: QuotaReadFailureKind,
+    runAttemptCount: Int,
+): BackgroundRetryDecision = when (kind) {
+    QuotaReadFailureKind.NETWORK,
+    QuotaReadFailureKind.SERVER,
+    -> BackgroundRefreshRetryPolicy.transientDecision(runAttemptCount)
+    QuotaReadFailureKind.LOGIN_REQUIRED,
+    QuotaReadFailureKind.INVALID_RESPONSE,
+    -> BackgroundRetryDecision.PERMANENT
 }

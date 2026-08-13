@@ -1,4 +1,6 @@
 using CodexQuotaTray.Core.Persistence;
+using CodexQuotaTray.App.Interop;
+using CodexQuotaTray.App.Services;
 
 namespace CodexQuotaTray.Tests;
 
@@ -16,6 +18,38 @@ public sealed class CrashSessionLogTests
 
         var second = new CrashSessionLog(directory.Path);
         Assert.IsNull(second.StartSession());
+        second.CompleteSession();
+    }
+
+    [TestMethod]
+    public void ConfirmedWindowsSessionEndDoesNotReportPreviousCrash()
+    {
+        using var directory = new TemporaryDirectory();
+        var first = new CrashSessionLog(directory.Path);
+        _ = first.StartSession();
+
+        Assert.IsTrue(SessionEndingPolicy.IsConfirmed(NativeMethods.WmEndSession, 1));
+        first.MarkExpectedTermination();
+
+        var second = new CrashSessionLog(directory.Path);
+        Assert.IsNull(second.StartSession());
+        second.CompleteSession();
+    }
+
+    [TestMethod]
+    public void CancelledWindowsSessionEndStillReportsUncleanTermination()
+    {
+        using var directory = new TemporaryDirectory();
+        var first = new CrashSessionLog(directory.Path);
+        _ = first.StartSession();
+
+        Assert.IsFalse(SessionEndingPolicy.IsConfirmed(NativeMethods.WmQueryEndSession, 1));
+        Assert.IsFalse(SessionEndingPolicy.IsConfirmed(NativeMethods.WmEndSession, 0));
+
+        var second = new CrashSessionLog(directory.Path);
+        var previousCrash = second.StartSession();
+        Assert.IsNotNull(previousCrash);
+        Assert.IsTrue(second.AcknowledgePreviousCrash(previousCrash));
         second.CompleteSession();
     }
 

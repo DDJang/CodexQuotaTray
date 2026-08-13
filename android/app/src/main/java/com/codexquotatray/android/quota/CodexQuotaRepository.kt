@@ -81,7 +81,9 @@ class CodexQuotaRepository(
     fun refresh(): DirectQuotaResult {
         val generation = CredentialGeneration.current()
         val loaded = credentialStore.load()
-            ?: throw QuotaReadException(QuotaReadFailureKind.LOGIN_REQUIRED, "尚未登录 Codex")
+        if (loaded == null) {
+            return commitAndReturn(fallbackResolver.fetchWindowsOnly())
+        }
         var credentials = currentCredentialsOrThrow(generation)
 
         if (credentials.needsRefresh()) {
@@ -273,8 +275,15 @@ class CodexQuotaRepository(
                 return@synchronized
             }
             if (result.quotaState != "unavailable") {
-                successCommitter.commit(result)
+                commitAndReturn(result)
             }
+        }
+        return result
+    }
+
+    private fun commitAndReturn(result: DirectQuotaResult): DirectQuotaResult {
+        if (result.quotaState != "unavailable") {
+            successCommitter.commit(result)
         }
         return result
     }

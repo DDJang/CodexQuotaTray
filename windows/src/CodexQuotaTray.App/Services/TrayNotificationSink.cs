@@ -16,7 +16,9 @@ internal sealed class TrayNotificationSink(DispatcherQueue dispatcher) : IQuotaN
             {
                 try
                 {
-                    Tray?.ShowQuotaAlert(alert);
+                    var tray = Tray
+                        ?? throw new InvalidOperationException("The tray notification service is unavailable.");
+                    tray.ShowQuotaAlert(alert);
                     completion.TrySetResult();
                 }
                 catch (Exception error)

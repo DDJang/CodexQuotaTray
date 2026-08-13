@@ -21,6 +21,8 @@ internal static class NativeMethods
     internal const uint NiifInfo = 0x00000001;
     internal const uint NinBalloonUserClick = 0x0405;
     internal const uint WmPowerBroadcast = 0x0218;
+    internal const uint WmQueryEndSession = 0x0011;
+    internal const uint WmEndSession = 0x0016;
     internal const uint PbtApmResumeAutomatic = 0x0012;
     internal const uint NotifyIconVersion4 = 4;
     internal const uint MonitorDefaultToNearest = 0x00000002;

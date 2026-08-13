@@ -63,4 +63,47 @@ class TokenUsageRefreshSettingsTest {
             TokenUsageRefreshSettings(intervalMinutes = 5).normalizedIntervalMinutes,
         )
     }
+
+    @Test
+    fun tokenTransientFailuresRetryTwiceWhilePairingFailuresArePermanent() {
+        assertEquals(
+            com.codexquotatray.android.refresh.BackgroundRetryDecision.RETRY,
+            tokenRetryDecision(
+                TokenUsageException(TokenUsageFailureKind.OFFLINE, "offline"),
+                runAttemptCount = 0,
+            ),
+        )
+        assertEquals(
+            com.codexquotatray.android.refresh.BackgroundRetryDecision.EXHAUSTED,
+            tokenRetryDecision(
+                TokenUsageException(TokenUsageFailureKind.HTTP_ERROR, "server"),
+                runAttemptCount = 2,
+            ),
+        )
+        assertEquals(
+            com.codexquotatray.android.refresh.BackgroundRetryDecision.PERMANENT,
+            tokenRetryDecision(
+                TokenUsageException(TokenUsageFailureKind.PAIRING_INVALID, "pairing"),
+                runAttemptCount = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun quotaAndTokenRetryPoliciesRemainIndependent() {
+        assertEquals(
+            com.codexquotatray.android.refresh.BackgroundRetryDecision.PERMANENT,
+            com.codexquotatray.android.quota.quotaRetryDecision(
+                com.codexquotatray.android.quota.QuotaReadFailureKind.LOGIN_REQUIRED,
+                runAttemptCount = 0,
+            ),
+        )
+        assertEquals(
+            com.codexquotatray.android.refresh.BackgroundRetryDecision.RETRY,
+            tokenRetryDecision(
+                TokenUsageException(TokenUsageFailureKind.OFFLINE, "offline"),
+                runAttemptCount = 0,
+            ),
+        )
+    }
 }

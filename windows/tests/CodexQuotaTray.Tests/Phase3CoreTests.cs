@@ -627,6 +627,38 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public void MissingWindowPreservesHistoryAndLaterResetStillAlerts()
+    {
+        var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
+        var partial = QuotaAlertReducer.Reduce(first.State, [], new NotificationSettings());
+        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var reset = QuotaAlertReducer.Reduce(
+            partial.State,
+            [Input(98, resetAt)],
+            new NotificationSettings());
+
+        Assert.IsTrue(partial.State.ResetAlertBaselineEstablished);
+        Assert.AreEqual(20, partial.State.Windows["window"].LastReliableRemaining);
+        Assert.AreEqual(QuotaAlertKind.Reset, reset.Alert!.Kind);
+    }
+
+    [TestMethod]
+    public void PartialSnapshotPreservesOtherWindowAndReliableBaseline()
+    {
+        var first = QuotaAlertReducer.Reduce(
+            null,
+            [Input(20), Input(30, key: "other")],
+            new NotificationSettings());
+        var partial = QuotaAlertReducer.Reduce(
+            first.State,
+            [Input(25)],
+            new NotificationSettings());
+
+        Assert.IsTrue(partial.State.ResetAlertBaselineEstablished);
+        Assert.AreEqual(30, partial.State.Windows["other"].LastReliableRemaining);
+    }
+
+    [TestMethod]
     public void SmallResetCorrectionDoesNotStartNewCycle()
     {
         var previous = new AlertWindowState("window", 10_080, DateTimeOffset.UnixEpoch.AddDays(7), 10, [20, 10]);

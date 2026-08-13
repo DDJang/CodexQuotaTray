@@ -203,6 +203,7 @@ public partial class App : Application
             mainWindow.ShowPanel,
             ShowSettings,
             () => RequestRuntimeRefresh(RefreshReason.Resume),
+            () => crashSessionLog?.MarkExpectedTermination(),
             ExitApplication,
             () => runtime?.Settings.ThemeMode ?? CodexQuotaTray.Core.Persistence.ThemeMode.System,
             identity.TrayIcon);

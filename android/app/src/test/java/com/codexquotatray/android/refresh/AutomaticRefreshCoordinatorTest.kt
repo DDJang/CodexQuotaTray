@@ -68,6 +68,17 @@ class AutomaticRefreshCoordinatorTest {
     }
 
     @Test
+    fun workManagerRetryBypassesTwoMinuteAttemptSuppressionButKeepsInflightDeduplication() {
+        val coordinator = AutomaticRefreshCoordinator { 1_000_000L }
+
+        assertTrue(coordinator.tryStart(AutomaticRefreshChannel.QUOTA, AutomaticRefreshReason.SCHEDULED))
+        coordinator.finish(AutomaticRefreshChannel.QUOTA)
+        assertTrue(coordinator.tryStart(AutomaticRefreshChannel.QUOTA, AutomaticRefreshReason.RETRY))
+        assertFalse(coordinator.tryStart(AutomaticRefreshChannel.QUOTA, AutomaticRefreshReason.RETRY))
+        coordinator.finish(AutomaticRefreshChannel.QUOTA)
+    }
+
+    @Test
     fun quotaAndTokenHaveIndependentAutomaticGates() {
         val coordinator = AutomaticRefreshCoordinator { 1_000_000L }
 

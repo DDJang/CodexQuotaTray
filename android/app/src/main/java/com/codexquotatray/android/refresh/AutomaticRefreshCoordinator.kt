@@ -11,6 +11,7 @@ internal enum class AutomaticRefreshReason {
     STARTUP,
     FOREGROUND,
     SCHEDULED,
+    RETRY,
     MANUAL,
 }
 
@@ -42,7 +43,7 @@ internal class AutomaticRefreshCoordinator(
         if (reason != AutomaticRefreshReason.MANUAL && !enabled) return false
 
         val now = nowMillis()
-        if (reason != AutomaticRefreshReason.MANUAL &&
+        if (reason !in setOf(AutomaticRefreshReason.MANUAL, AutomaticRefreshReason.RETRY) &&
             !ForegroundRefreshPolicy.shouldRunOnForeground(
                 enabled = enabled,
                 lastAttemptAtMillis = state.lastAutomaticAttemptAtMillis,
@@ -52,7 +53,7 @@ internal class AutomaticRefreshCoordinator(
             return false
         }
 
-        if (reason != AutomaticRefreshReason.MANUAL) {
+        if (reason !in setOf(AutomaticRefreshReason.MANUAL, AutomaticRefreshReason.RETRY)) {
             state.lastAutomaticAttemptAtMillis = now
         }
         state.inFlight = true

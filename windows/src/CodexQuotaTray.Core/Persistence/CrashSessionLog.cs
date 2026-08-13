@@ -121,6 +121,13 @@ public sealed class CrashSessionLog
         }
     }
 
+    /// <summary>
+    /// Marks a confirmed operating-system session end as an expected termination.
+    /// This intentionally performs only the synchronous marker cleanup needed to
+    /// prevent a cancelled or time-limited shutdown from being reported as a crash.
+    /// </summary>
+    public void MarkExpectedTermination() => CompleteSession();
+
     public bool AcknowledgePreviousCrash(PreviousCrashInfo crashInfo)
     {
         ArgumentNullException.ThrowIfNull(crashInfo);

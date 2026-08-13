@@ -23,6 +23,7 @@ internal sealed class TrayIconService : IDisposable
     private readonly Action showWindow;
     private readonly Action openSettings;
     private readonly Action resume;
+    private readonly Action markExpectedTermination;
     private readonly Action exitApplication;
     private readonly Func<PersistenceThemeMode> themeProvider;
     private readonly TrayIconIdentity identity;
@@ -58,6 +59,7 @@ internal sealed class TrayIconService : IDisposable
         Action showWindow,
         Action openSettings,
         Action resume,
+        Action markExpectedTermination,
         Action exitApplication,
         Func<PersistenceThemeMode> themeProvider,
         TrayIconIdentity identity)
@@ -67,6 +69,7 @@ internal sealed class TrayIconService : IDisposable
         this.showWindow = showWindow;
         this.openSettings = openSettings;
         this.resume = resume;
+        this.markExpectedTermination = markExpectedTermination;
         this.exitApplication = exitApplication;
         this.themeProvider = themeProvider;
         this.identity = identity;
@@ -416,6 +419,15 @@ internal sealed class TrayIconService : IDisposable
 
     private void HandleMessage(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
     {
+        if (hwnd == broadcastWindow
+            && SessionEndingPolicy.IsConfirmed(message, wParam.ToUInt64()))
+        {
+            // Do not wait for the asynchronous application teardown here. Windows can
+            // terminate the process shortly after WM_ENDSESSION returns.
+            markExpectedTermination();
+            return;
+        }
+
         if (hwnd == broadcastWindow
             && message == NativeMethods.WmPowerBroadcast
             && unchecked((uint)wParam.ToUInt64()) == NativeMethods.PbtApmResumeAutomatic)

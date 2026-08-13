@@ -45,6 +45,26 @@ class WindowsQuotaFallbackTest {
         assertEquals(72, result.windows.single().remainingPercent)
     }
 
+    @Test fun windowsQuotaWorksWithoutAndroidOAuthOrDirectAttempt() {
+        var fallbackCalls = 0
+        val result = resolver(fallback = { fallbackCalls++; windowsSuccess() }).fetchWindowsOnly()
+
+        assertEquals(QuotaSource.WINDOWS, result.source)
+        assertEquals(1, fallbackCalls)
+    }
+
+    @Test fun windowsOnlyQuotaClassifiesLanAndPairingFailures() {
+        val offline = assertThrows(QuotaReadException::class.java) {
+            resolver(lanAvailable = false).fetchWindowsOnly()
+        }
+        assertEquals(QuotaReadFailureKind.NETWORK, offline.kind)
+
+        val missing = assertThrows(QuotaReadException::class.java) {
+            resolver(pairing = null).fetchWindowsOnly()
+        }
+        assertEquals(QuotaReadFailureKind.LOGIN_REQUIRED, missing.kind)
+    }
+
     @Test fun offlineWindowsFallbackKeepsPrimaryNetworkError() {
         val primary = networkFailure()
         val failure = assertThrows(QuotaReadException::class.java) {

@@ -91,9 +91,10 @@ public static class QuotaAlertReducer
     {
         var enabled = Enabled(settings).ToArray();
         var baseline = previous is null || previous.SchemaVersion != 1;
-        var resetBaseline = baseline || previous?.ResetAlertBaselineEstablished != true;
+        var baselineEstablished = !baseline && previous!.ResetAlertBaselineEstablished;
+        var resetBaseline = !baselineEstablished;
         var oldWindows = baseline ? new Dictionary<string, AlertWindowState>() : previous!.Windows;
-        var output = new Dictionary<string, AlertWindowState>(StringComparer.Ordinal);
+        var output = new Dictionary<string, AlertWindowState>(oldWindows, StringComparer.Ordinal);
         var resetAlerts = new List<QuotaResetWindow>();
         var thresholdAlerts = new List<QuotaThresholdWindow>();
         var hasValidWindow = false;
@@ -207,7 +208,11 @@ public static class QuotaAlertReducer
                     ? QuotaAlert.ForReset(resetAlerts)
                     : null;
         return new AlertReduction(
-            new AlertStateDocument(1, enabled, output, resetBaseline || hasValidWindow),
+            new AlertStateDocument(
+                1,
+                enabled,
+                output,
+                baselineEstablished || hasValidWindow),
             alert);
     }
 

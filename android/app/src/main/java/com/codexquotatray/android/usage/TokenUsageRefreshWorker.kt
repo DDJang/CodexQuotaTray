@@ -3,6 +3,7 @@ package com.codexquotatray.android.usage
 import android.content.Context
 import android.content.Intent
 import androidx.work.Constraints
+import androidx.work.BackoffPolicy
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
@@ -13,7 +14,8 @@ import com.codexquotatray.android.AppLogStore
 import com.codexquotatray.android.quota.AndroidLanAvailability
 import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
 import com.codexquotatray.android.refresh.AutomaticRefreshChannel
-import com.codexquotatray.android.refresh.AutomaticRefreshReason
+import com.codexquotatray.android.refresh.BackgroundRefreshRetryPolicy
+import com.codexquotatray.android.refresh.BackgroundRetryDecision
 import java.util.concurrent.TimeUnit
 
 /** Publishes a completed background sync to a visible statistics page. */
@@ -30,44 +32,93 @@ class TokenUsageRefreshWorker(
     workerParams: WorkerParameters,
 ) : Worker(appContext, workerParams) {
     override fun doWork(): Result {
+        AppLogStore.record(applicationContext, "Token 后台任务已启动")
         val settings = TokenUsageRefreshSettingsStore(applicationContext).load()
         val pairingStore = TokenSyncStore(applicationContext)
         val pairing = pairingStore.load()
-        if (!TokenUsageRefreshScheduler.shouldSchedule(settings, pairing != null)) return Result.success()
+        if (!settings.backgroundSyncEnabled) {
+            AppLogStore.record(applicationContext, "Token 后台任务已跳过：后台同步已关闭")
+            return Result.success()
+        }
+        if (pairing == null) {
+            AppLogStore.record(applicationContext, "Token 后台任务已跳过：缺少 Windows 配对", "WARN")
+            return Result.success()
+        }
         if (!TokenUsageRefreshScheduler.shouldRunOnWifiLan(
                 settings = settings,
-                hasPairing = pairing != null,
+                hasPairing = true,
                 isWifiLanAvailable = AndroidLanAvailability(applicationContext).isAvailable(),
             )
         ) {
-            AppLogStore.record(applicationContext, "Token 后台同步已跳过：当前不在 Wi-Fi", "INFO")
-            return Result.success()
+            return tokenRetryResult(
+                runAttemptCount,
+                "Wi-Fi LAN 暂不可用",
+            )
         }
 
         if (!AppAutomaticRefreshCoordinator.tryStart(
                 AutomaticRefreshChannel.TOKEN,
-                AutomaticRefreshReason.SCHEDULED,
+                BackgroundRefreshRetryPolicy.reason(runAttemptCount),
+                enabled = settings.backgroundSyncEnabled,
             )
-        ) return Result.success()
+        ) {
+            AppLogStore.record(applicationContext, "Token 后台任务已跳过：自动刷新门控")
+            return Result.success()
+        }
 
         return try {
-            runCatching { TokenUsageSyncCoordinator(applicationContext).sync(pairing!!) }
+            runCatching { TokenUsageSyncCoordinator(applicationContext).sync(pairing) }
                 .fold(
                     onSuccess = {
                         AppLogStore.record(applicationContext, "Token 后台同步完成")
                         Result.success()
                     },
                     onFailure = { error ->
-                        val message = tokenUsageSyncErrorMessage(error)
-                        AppLogStore.record(applicationContext, "Token 后台同步失败：$message", "WARN")
-                        // A later periodic run may recover an offline Windows host.
-                        Result.success()
+                        when (tokenRetryDecision(error, runAttemptCount)) {
+                            BackgroundRetryDecision.RETRY -> tokenRetryResult(
+                                runAttemptCount,
+                                tokenUsageSyncErrorMessage(error),
+                            )
+                            BackgroundRetryDecision.EXHAUSTED -> {
+                                AppLogStore.record(
+                                    applicationContext,
+                                    "Token 后台任务本周期重试已耗尽，等待下一周期",
+                                    "WARN",
+                                )
+                                Result.success()
+                            }
+                            BackgroundRetryDecision.PERMANENT -> {
+                                AppLogStore.record(
+                                    applicationContext,
+                                    "Token 后台任务永久配对或协议失败：${tokenUsageSyncErrorMessage(error)}",
+                                    "WARN",
+                                )
+                                Result.success()
+                            }
+                        }
                     },
                 )
         } finally {
             AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.TOKEN)
         }
     }
+
+    private fun tokenRetryResult(runAttemptCount: Int, reason: String): Result =
+        when (BackgroundRefreshRetryPolicy.transientDecision(runAttemptCount)) {
+            BackgroundRetryDecision.RETRY -> {
+                AppLogStore.record(
+                    applicationContext,
+                    "Token 后台任务将重试：$reason，第 ${runAttemptCount + 1} 次补偿重试",
+                    "WARN",
+                )
+                Result.retry()
+            }
+            BackgroundRetryDecision.EXHAUSTED -> {
+                AppLogStore.record(applicationContext, "Token 后台任务本周期重试已耗尽，等待下一周期", "WARN")
+                Result.success()
+            }
+            BackgroundRetryDecision.PERMANENT -> Result.success()
+        }
 }
 
 object TokenUsageRefreshScheduler {
@@ -106,6 +157,11 @@ object TokenUsageRefreshScheduler {
             .setConstraints(
                 Constraints.Builder().setRequiredNetworkType(requiredNetworkType()).build(),
             )
+            .setBackoffCriteria(
+                BackoffPolicy.EXPONENTIAL,
+                BackgroundRefreshRetryPolicy.BACKOFF_MINUTES,
+                TimeUnit.MINUTES,
+            )
             .build()
         WorkManager.getInstance(appContext).enqueueUniquePeriodicWork(
             WORK_NAME,
@@ -113,4 +169,21 @@ object TokenUsageRefreshScheduler {
             request,
         )
     }
+}
+
+internal fun tokenRetryDecision(
+    error: Throwable,
+    runAttemptCount: Int,
+): BackgroundRetryDecision = when (error) {
+    is TokenUsagePairingChangedException -> BackgroundRetryDecision.PERMANENT
+    is TokenUsageException -> when (error.kind) {
+        TokenUsageFailureKind.PAIRING_INVALID,
+        TokenUsageFailureKind.INVALID_RESPONSE,
+        TokenUsageFailureKind.UNSUPPORTED,
+        -> BackgroundRetryDecision.PERMANENT
+        TokenUsageFailureKind.OFFLINE,
+        TokenUsageFailureKind.HTTP_ERROR,
+        -> BackgroundRefreshRetryPolicy.transientDecision(runAttemptCount)
+    }
+    else -> BackgroundRefreshRetryPolicy.transientDecision(runAttemptCount)
 }
