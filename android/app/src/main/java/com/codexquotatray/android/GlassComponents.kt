@@ -83,6 +83,7 @@ import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
@@ -111,10 +112,16 @@ internal fun GlassSurface(
     blurRadius: Dp = 2.dp,
     refractionHeight: Dp = 12.dp,
     refractionAmount: Dp = 24.dp,
+    lensDepthEffect: Boolean = false,
+    enableColorControls: Boolean = false,
+    saturation: Float = 1f,
+    highlight: Highlight? = null,
     surfaceAlpha: Float = 0.2f,
+    surfaceColor: Color? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
+    val resolvedSurfaceColor = surfaceColor ?: palette.color(palette.surface)
     Box(
         modifier
             .drawBackdrop(
@@ -122,11 +129,15 @@ internal fun GlassSurface(
                 shape = { shape },
                 effects = {
                     vibrancy()
+                    if (enableColorControls) {
+                        colorControls(brightness = 0f, saturation = saturation, contrast = 1f)
+                    }
                     blur(blurRadius.toPx())
-                    lens(refractionHeight.toPx(), refractionAmount.toPx())
+                    lens(refractionHeight.toPx(), refractionAmount.toPx(), depthEffect = lensDepthEffect)
                 },
+                highlight = { highlight ?: Highlight.Default },
                 layerBlock = layerBlock,
-                onDrawSurface = { drawRect(palette.color(palette.surface).copy(alpha = surfaceAlpha)) },
+                onDrawSurface = { drawRect(resolvedSurfaceColor.copy(alpha = surfaceAlpha)) },
             )
             .clip(shape),
         contentAlignment = contentAlignment,

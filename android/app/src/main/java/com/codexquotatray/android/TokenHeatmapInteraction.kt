@@ -69,25 +69,44 @@ internal data class HeatmapTooltipPlacement(
     val y: Float,
 )
 
+internal fun expandedCellBounds(
+    baseBounds: Rect,
+    scale: Float,
+): Rect {
+    val scaledWidth = baseBounds.width * scale
+    val scaledHeight = baseBounds.height * scale
+    val center = baseBounds.center
+    return Rect(
+        left = center.x - scaledWidth / 2f,
+        top = center.y - scaledHeight / 2f,
+        right = center.x + scaledWidth / 2f,
+        bottom = center.y + scaledHeight / 2f,
+    )
+}
+
 internal fun placeHeatmapTooltip(
     viewportWidthPx: Float,
     containerHeightPx: Float,
     cellBounds: Rect,
     tooltipWidthPx: Float,
     tooltipHeightPx: Float,
-    topReservePx: Float,
-    gapPx: Float,
+    selectedScale: Float,
+    clearancePx: Float,
 ): HeatmapTooltipPlacement {
     val cellCenterX = cellBounds.center.x
     val maxX = max(0f, viewportWidthPx - tooltipWidthPx)
     val x = (cellCenterX - tooltipWidthPx / 2f).coerceIn(0f, maxX)
 
-    val cellTop = cellBounds.top + topReservePx
-    val above = cellTop - tooltipHeightPx - gapPx
-    val below = cellTop + cellBounds.height + gapPx
-    val preferredY = if (above >= 0f) above else below
+    val visualBounds = expandedCellBounds(cellBounds, selectedScale)
+    val above = visualBounds.top - tooltipHeightPx - clearancePx
+    val below = visualBounds.bottom + clearancePx
     val maxY = max(0f, containerHeightPx - tooltipHeightPx)
-    return HeatmapTooltipPlacement(x = x, y = preferredY.coerceIn(0f, maxY))
+    val y = when {
+        above >= 0f -> above
+        below + tooltipHeightPx <= containerHeightPx -> below
+        else -> below.coerceIn(0f, maxY)
+    }
+    return HeatmapTooltipPlacement(x = x, y = y)
 }
 
 /** A gap does not clear the active date while the finger is scrubbing. */

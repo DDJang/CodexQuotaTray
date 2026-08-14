@@ -7,6 +7,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -34,13 +35,15 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -86,6 +89,7 @@ import kotlin.math.roundToInt
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.highlight.Highlight
 
 internal class TokenUsagePageController(private val host: MainActivity) {
     private val cache by lazy { TokenUsageCache(host) }
@@ -368,13 +372,11 @@ private fun TokenHeatmap(
         } else {
             null
         }
-        val tooltipVisible = selectedDay != null
-        val tooltipReserve = if (tooltipVisible) HEATMAP_TOOLTIP_RESERVE else 0.dp
         val tooltipWidthPx = with(density) { HEATMAP_TOOLTIP_WIDTH.toPx() }
         val tooltipHeightPx = with(density) { HEATMAP_TOOLTIP_HEIGHT.toPx() }
-        val tooltipGapPx = with(density) { HEATMAP_TOOLTIP_GAP.toPx() }
-        val containerHeight = tooltipReserve + gridHeight
-        val containerHeightPx = with(density) { containerHeight.toPx() }
+        val tooltipClearancePx = with(density) { HEATMAP_TOOLTIP_CLEARANCE.toPx() }
+        val containerHeight = gridHeight
+        val containerHeightPx = with(density) { gridHeight.toPx() }
         val tooltipPlacement = if (selectedBounds != null) {
             placeHeatmapTooltip(
                 viewportWidthPx = viewportWidthPx,
@@ -382,15 +384,13 @@ private fun TokenHeatmap(
                 cellBounds = selectedBounds,
                 tooltipWidthPx = tooltipWidthPx,
                 tooltipHeightPx = tooltipHeightPx,
-                topReservePx = with(density) { tooltipReserve.toPx() },
-                gapPx = tooltipGapPx,
+                selectedScale = HEATMAP_SELECTED_SCALE,
+                clearancePx = tooltipClearancePx,
             )
         } else {
             null
         }
         val heatmapBackdrop = rememberLayerBackdrop()
-        val reservePx = with(density) { tooltipReserve.toPx() }
-        val latestReservePx = rememberUpdatedState(reservePx)
 
         Box(
             Modifier
@@ -406,7 +406,7 @@ private fun TokenHeatmap(
                     detectTokenHeatmapGestures(
                         onSelectionStart = { point ->
                             val index = geometry.hitTest(
-                                point = Offset(point.x, point.y - latestReservePx.value),
+                                point = point,
                             )
                             val date = index?.let(geometry::indexToDate)
                             if (date == null) {
@@ -420,7 +420,7 @@ private fun TokenHeatmap(
                         },
                         onSelectionMove = { point ->
                             val index = geometry.hitTest(
-                                point = Offset(point.x, point.y - latestReservePx.value),
+                                point = point,
                             )
                             val date = index?.let(geometry::indexToDate)
                             val nextDate = heatmapSelectionAfterHit(scrubbedDate, date)
@@ -439,7 +439,6 @@ private fun TokenHeatmap(
                 Modifier
                     .fillMaxWidth()
                     .height(gridHeight)
-                    .offset(y = tooltipReserve)
                     .layerBackdrop(heatmapBackdrop),
             ) {
                 Box(
@@ -476,7 +475,7 @@ private fun TokenHeatmap(
                         .offset {
                             IntOffset(
                                 selectedBounds.left.roundToInt(),
-                                (selectedBounds.top + reservePx).roundToInt(),
+                                selectedBounds.top.roundToInt(),
                             )
                         }
                         .zIndex(1f),
@@ -506,9 +505,10 @@ private fun HeatmapSelectedCell(
     val scale = remember { Animatable(1f) }
     LaunchedEffect(Unit) {
         scale.snapTo(1f)
-        scale.animateTo(HEATMAP_SELECTED_SCALE, tween(140))
+        scale.animateTo(HEATMAP_SELECTED_SCALE, tween(170))
     }
     val shape = RoundedCornerShape(HEATMAP_CORNER_RADIUS)
+    val edgeColor = lerp(color, Color.White, 0.24f)
     Box(
         modifier
             .size(cellSize)
@@ -520,13 +520,14 @@ private fun HeatmapSelectedCell(
             .dropShadow(
                 shape = shape,
                 shadow = Shadow(
-                    radius = 8.dp,
-                    spread = 1.dp,
-                    color = color.copy(alpha = 0.4f),
+                    radius = 11.dp,
+                    spread = 2.dp,
+                    color = color.copy(alpha = 0.6f),
                     offset = DpOffset.Zero,
                 ),
             )
-            .background(color, shape),
+            .background(color, shape)
+            .border(1.dp, edgeColor, shape),
     )
 }
 
@@ -537,6 +538,11 @@ private fun HeatmapGlassTooltip(
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalQuotaPalette.current
+    val tooltipSurface = if (palette.color(palette.background).luminance() < 0.35f) {
+        Color(0xff121212)
+    } else {
+        null
+    }
     val scale = remember { Animatable(0.96f) }
     LaunchedEffect(Unit) {
         scale.animateTo(1f, tween(160))
@@ -546,8 +552,13 @@ private fun HeatmapGlassTooltip(
         shape = RoundedCornerShape(16.dp),
         blurRadius = 8.dp,
         refractionHeight = 24.dp,
-        refractionAmount = 24.dp,
+        refractionAmount = 48.dp,
+        lensDepthEffect = true,
+        enableColorControls = true,
+        saturation = 1.5f,
+        highlight = Highlight.Plain,
         surfaceAlpha = 0.4f,
+        surfaceColor = tooltipSurface,
         modifier = modifier
             .width(HEATMAP_TOOLTIP_WIDTH)
             .height(HEATMAP_TOOLTIP_HEIGHT)
@@ -609,10 +620,9 @@ private fun startOfWeek(date: LocalDate): LocalDate =
 private val HEATMAP_GAP = 5.dp
 private val HEATMAP_MAX_CELL_SIZE = 24.dp
 private val HEATMAP_CORNER_RADIUS = 3.dp
-private val HEATMAP_TOOLTIP_RESERVE = 72.dp
 private val HEATMAP_TOOLTIP_WIDTH = 220.dp
 private val HEATMAP_TOOLTIP_HEIGHT = 64.dp
-private val HEATMAP_TOOLTIP_GAP = 8.dp
-private const val HEATMAP_SELECTED_SCALE = 1.15f
+private val HEATMAP_TOOLTIP_CLEARANCE = 24.dp
+internal const val HEATMAP_SELECTED_SCALE = 1.5f
 
 private fun formatSyncTime(raw: String) = runCatching { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date.from(Instant.parse(raw))) }.getOrDefault("未知")
