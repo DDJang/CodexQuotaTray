@@ -10,12 +10,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,7 +49,7 @@ class LogActivity : ComponentActivity() {
                 }
                 SecondaryScreenScaffold(title = "日志", onBack = ::finish) {
                     Column(
-                        Modifier.fillMaxSize().padding(
+                        Modifier.fillMaxWidth().padding(
                             start = CodexDimensions.screenPadding,
                             end = CodexDimensions.screenPadding,
                             top = 12.dp,
@@ -65,11 +62,11 @@ class LogActivity : ComponentActivity() {
                             fontSize = 13.sp,
                             modifier = Modifier.padding(bottom = 12.dp),
                         )
-                        CodexCard(Modifier.fillMaxWidth().weight(1f)) {
+                        CodexCard(Modifier.fillMaxWidth()) {
                             SelectionContainer {
                                 Text(
                                     logText,
-                                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                                    modifier = Modifier.fillMaxWidth(),
                                     color = palette.color(palette.body),
                                     fontSize = 13.sp,
                                     lineHeight = 19.sp,
