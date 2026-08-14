@@ -81,7 +81,7 @@ internal fun formatResetRemaining(remainingSeconds: Long): String {
     val hours = (remainingSeconds % 86_400L) / 3_600L
     val minutes = (remainingSeconds % 3_600L) / 60L
     return when {
-        days > 0L -> "$days 天 $hours 小时 $minutes 分钟"
+        days > 0L -> "$days 天 $hours 小时"
         hours > 0L -> "$hours 小时 $minutes 分钟"
         minutes > 0L -> "$minutes 分钟"
         else -> "不足 1 分钟"
@@ -377,7 +377,7 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
     val cardBrush = if (dark) {
         Brush.linearGradient(
             listOf(
-                Color(0xFF2A3037).copy(alpha = 0.76f),
+                Color(0xFF2A3037).copy(alpha = 0.68f),
                 Color(0xFF17191D).copy(alpha = 0.94f),
                 Color(0xFF101216).copy(alpha = 0.97f),
             ),
@@ -393,8 +393,9 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
     }
     val borderBrush = Brush.linearGradient(
         listOf(
-            if (dark) Color.White.copy(alpha = 0.22f) else palette.color(palette.border),
-            if (dark) Color.White.copy(alpha = 0.07f) else palette.color(palette.border).copy(alpha = 0.72f),
+            if (dark) Color.White.copy(alpha = 0.20f) else palette.color(palette.border),
+            if (dark) Color.White.copy(alpha = 0.09f) else palette.color(palette.border).copy(alpha = 0.72f),
+            if (dark) Color.Black.copy(alpha = 0.26f) else palette.color(palette.border).copy(alpha = 0.56f),
         ),
     )
     Box(
@@ -447,15 +448,15 @@ private fun QuotaProgressRing(
     trackColor: Color,
     remainingPercent: Int?,
 ) {
-    Box(Modifier.size(128.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(116.dp), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize().padding(4.dp)) {
             val strokeWidth = 10.dp.toPx()
-            val glowWidth = 22.dp.toPx()
+            val glowWidth = 15.dp.toPx()
             val inset = glowWidth / 2f
             val arcSize = Size(size.width - glowWidth, size.height - glowWidth)
             val arcStyle = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             drawArc(
-                color = trackColor.copy(alpha = 0.72f),
+                color = trackColor.copy(alpha = 0.58f),
                 startAngle = -90f,
                 sweepAngle = 360f,
                 useCenter = false,
@@ -466,22 +467,13 @@ private fun QuotaProgressRing(
             if (progress > 0f) {
                 val sweep = 360f * progress.coerceIn(0f, 1f)
                 drawArc(
-                    color = progressColor.copy(alpha = 0.16f),
+                    color = progressColor.copy(alpha = 0.15f),
                     startAngle = -90f,
                     sweepAngle = sweep,
                     useCenter = false,
                     topLeft = Offset(inset, inset),
                     size = arcSize,
                     style = Stroke(width = glowWidth, cap = StrokeCap.Round),
-                )
-                drawArc(
-                    color = progressColor.copy(alpha = 0.28f),
-                    startAngle = -90f,
-                    sweepAngle = sweep,
-                    useCenter = false,
-                    topLeft = Offset(inset, inset),
-                    size = arcSize,
-                    style = Stroke(width = strokeWidth + 3.dp.toPx(), cap = StrokeCap.Round),
                 )
                 drawArc(
                     color = progressColor,
@@ -492,21 +484,12 @@ private fun QuotaProgressRing(
                     size = arcSize,
                     style = arcStyle,
                 )
-                drawArc(
-                    color = Color.White.copy(alpha = 0.2f),
-                    startAngle = -90f,
-                    sweepAngle = sweep,
-                    useCenter = false,
-                    topLeft = Offset(inset, inset),
-                    size = arcSize,
-                    style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round),
-                )
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 remainingPercent?.let { "$it%" } ?: "—",
-                fontSize = 28.sp,
+                fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
                 color = progressColor,
             )
@@ -519,13 +502,15 @@ private const val QUOTA_PROGRESS_ANIMATION_MILLIS = 350
 
 private fun formatResetAt(epochSeconds: Long?): String {
     if (epochSeconds == null) return "重置时间未知"
-    val absolute = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(epochSeconds * 1_000L))
-    return "重置于 $absolute"
+    val absolute = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(epochSeconds * 1_000L))
+    return "重置 $absolute"
 }
 
 private fun formatRemaining(epochSeconds: Long?): String {
     if (epochSeconds == null) return "剩余时间未知"
-    return "剩余 ${formatResetRemaining(epochSeconds - System.currentTimeMillis() / 1_000L)}"
+    val remainingSeconds = epochSeconds - System.currentTimeMillis() / 1_000L
+    if (remainingSeconds in 1L until 60L) return "剩余不足 1 分钟"
+    return "剩余 ${formatResetRemaining(remainingSeconds)}"
 }
 
 private fun formatClockTime(epochMillis: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(epochMillis))
