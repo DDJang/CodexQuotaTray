@@ -393,8 +393,9 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
     }
     val borderBrush = Brush.linearGradient(
         listOf(
-            if (dark) Color.White.copy(alpha = 0.16f) else palette.color(palette.border),
-            if (dark) Color.White.copy(alpha = 0.07f) else palette.color(palette.border).copy(alpha = 0.72f),
+            if (dark) Color.White.copy(alpha = 0.20f) else palette.color(palette.border),
+            if (dark) Color.White.copy(alpha = 0.09f) else palette.color(palette.border).copy(alpha = 0.72f),
+            if (dark) Color.Black.copy(alpha = 0.26f) else palette.color(palette.border).copy(alpha = 0.56f),
         ),
     )
     Box(
@@ -466,7 +467,7 @@ private fun QuotaProgressRing(
             if (progress > 0f) {
                 val sweep = 360f * progress.coerceIn(0f, 1f)
                 drawArc(
-                    color = progressColor.copy(alpha = 0.12f),
+                    color = progressColor.copy(alpha = 0.15f),
                     startAngle = -90f,
                     sweepAngle = sweep,
                     useCenter = false,
