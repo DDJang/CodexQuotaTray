@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Text
@@ -72,7 +73,7 @@ class LogActivity : ComponentActivity() {
         renderLog()
         setContent {
             themeVersion
-            val palette = AppTheme.palette(this)
+            val palette = settingsPalette(AppTheme.palette(this), AppTheme.effectiveMode(this))
             CodexQuotaTheme(palette) {
                 LaunchedEffect(copied) {
                     if (copied) {
@@ -82,24 +83,11 @@ class LogActivity : ComponentActivity() {
                 }
                 SecondaryScreenScaffold(title = "日志", onBack = ::finish) {
                     Column(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = CodexDimensions.screenPadding, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(24.dp),
+                        Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(28.dp),
                     ) {
                         SettingsSection("日志管理") {
                             SettingsGroup {
-                                Text(
-                                    "这里只显示脱敏后的本地运行摘要，不包含 token、设备码或完整响应。",
-                                    color = palette.color(palette.muted),
-                                    fontSize = 13.sp,
-                                    lineHeight = 19.sp,
-                                    modifier = Modifier.padding(
-                                        horizontal = SettingsUiTokens.rowHorizontalPadding,
-                                        vertical = 14.dp,
-                                    ),
-                                )
-                                SettingsDivider()
                                 SettingsActionButton(
                                     label = if (copied) "已复制" else "复制全部日志",
                                     enabled = !copied,
@@ -189,9 +177,10 @@ private fun LogRow(entry: LogDisplayEntry) {
     Column(
         Modifier
             .fillMaxWidth()
+            .heightIn(min = SettingsUiTokens.rowMinHeight)
             .padding(
                 horizontal = SettingsUiTokens.rowHorizontalPadding,
-                vertical = 12.dp,
+                vertical = 8.dp,
             ),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {

@@ -7,13 +7,11 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.codexquotatray.android.alerts.QuotaAlertStateStore
 import com.codexquotatray.android.auth.CodexProcessLock
 import com.codexquotatray.android.auth.JwtClaims
@@ -35,10 +33,10 @@ class AccountActivity : ComponentActivity() {
         render()
         setContent {
             themeVersion
-            val palette = AppTheme.palette(this)
+            val palette = settingsPalette(AppTheme.palette(this), AppTheme.effectiveMode(this))
             CodexQuotaTheme(palette) {
                 SecondaryScreenScaffold(title = "Codex 额度账号", onBack = ::finish) {
-                    Column(Modifier.fillMaxWidth().padding(vertical = 20.dp)) {
+                    Column(Modifier.fillMaxWidth()) {
                         SettingsSection("OpenAI") {
                             SettingsGroup {
                                 SettingsInfoRow(

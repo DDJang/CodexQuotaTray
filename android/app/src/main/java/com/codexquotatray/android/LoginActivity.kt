@@ -44,10 +44,10 @@ class LoginActivity : ComponentActivity() {
         AppTheme.applySystemBars(this)
         setContent {
             themeVersion
-            val palette = AppTheme.palette(this)
+            val palette = settingsPalette(AppTheme.palette(this), AppTheme.effectiveMode(this))
             CodexQuotaTheme(palette) {
                 SecondaryScreenScaffold(title = "登录 Codex", onBack = ::finish) {
-                    Column(Modifier.fillMaxWidth().padding(vertical = 20.dp)) {
+                    Column(Modifier.fillMaxWidth()) {
                         SettingsSection("OpenAI 登录") {
                             SettingsGroup {
                                 SettingsInfoRow(

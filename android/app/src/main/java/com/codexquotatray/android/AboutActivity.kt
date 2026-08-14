@@ -32,14 +32,11 @@ class AboutActivity : ComponentActivity() {
         AppTheme.applySystemBars(this)
         setContent {
             themeVersion
-            val palette = AppTheme.palette(this)
+            val palette = settingsPalette(AppTheme.palette(this), AppTheme.effectiveMode(this))
             CodexQuotaTheme(palette) {
                 SecondaryScreenScaffold(title = "关于", onBack = ::finish) {
                     Column(
-                        Modifier.fillMaxWidth().padding(
-                            horizontal = CodexDimensions.screenPadding,
-                            vertical = 20.dp,
-                        ),
+                        Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Image(

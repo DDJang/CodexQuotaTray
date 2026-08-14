@@ -1,6 +1,7 @@
 package com.codexquotatray.android
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -199,9 +200,9 @@ internal fun SecondaryScreenScaffold(
                 .verticalScroll(scrollState, overscrollEffect = null)
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
+                .padding(start = 20.dp, end = 20.dp, top = 86.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(28.dp),
         ) {
-            Spacer(Modifier.height(CodexDimensions.headerHeight))
             content()
         }
         SettingsGradientBlurHeader(
