@@ -51,7 +51,7 @@ class TokenHeatmapInteractionTest {
     }
 
     @Test
-    fun tooltipStaysAboveMiddleCellWithClearance() {
+    fun tooltipStaysAboveMiddleCellWith32DpClearance() {
         val baseBounds = Rect(10f, 100f, 34f, 124f)
         val visualBounds = expandedCellBounds(baseBounds, 1.5f)
         val placement = placeHeatmapTooltip(
@@ -60,12 +60,12 @@ class TokenHeatmapInteractionTest {
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
             selectedScale = 1.5f,
-            clearancePx = 24f,
+            clearancePx = 32f,
         )
 
         assertEquals(0f, placement.x, 0.001f)
-        assertEquals(visualBounds.top - 64f - 24f, placement.y, 0.001f)
-        assertEquals(24f, visualBounds.top - placement.y - 64f, 0.001f)
+        assertEquals(visualBounds.top - 64f - 32f, placement.y, 0.001f)
+        assertEquals(32f, visualBounds.top - placement.y - 64f, 0.001f)
     }
 
     @Test
@@ -78,13 +78,13 @@ class TokenHeatmapInteractionTest {
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
             selectedScale = 1.5f,
-            clearancePx = 24f,
+            clearancePx = 32f,
         )
 
         assertEquals(2f, placement.x, 0.001f)
-        assertEquals(visualBounds.top - 64f - 24f, placement.y, 0.001f)
+        assertEquals(visualBounds.top - 64f - 32f, placement.y, 0.001f)
         assertTrue(placement.y < 0f)
-        assertEquals(24f, visualBounds.top - placement.y - 64f, 0.001f)
+        assertEquals(32f, visualBounds.top - placement.y - 64f, 0.001f)
     }
 
     @Test
@@ -96,11 +96,11 @@ class TokenHeatmapInteractionTest {
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
             selectedScale = 1.5f,
-            clearancePx = 24f,
+            clearancePx = 32f,
         )
 
         assertEquals(80f, placement.x, 0.001f)
-        assertEquals(6f, placement.y, 0.001f)
+        assertEquals(-2f, placement.y, 0.001f)
     }
 
     @Test
@@ -112,7 +112,7 @@ class TokenHeatmapInteractionTest {
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
             selectedScale = 1f,
-            clearancePx = 24f,
+            clearancePx = 32f,
         )
         val selectedPlacement = placeHeatmapTooltip(
             viewportWidthPx = 300f,
@@ -120,11 +120,11 @@ class TokenHeatmapInteractionTest {
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
             selectedScale = 1.5f,
-            clearancePx = 24f,
+            clearancePx = 32f,
         )
 
-        assertEquals(12f, basePlacement.y, 0.001f)
-        assertEquals(6f, selectedPlacement.y, 0.001f)
+        assertEquals(4f, basePlacement.y, 0.001f)
+        assertEquals(-2f, selectedPlacement.y, 0.001f)
     }
 
     @Test
@@ -137,11 +137,11 @@ class TokenHeatmapInteractionTest {
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
             selectedScale = 1.5f,
-            clearancePx = 24f,
+            clearancePx = 32f,
         )
 
-        assertEquals(visualBounds.top - 64f - 24f, placement.y, 0.001f)
-        assertEquals(24f, visualBounds.top - placement.y - 64f, 0.001f)
+        assertEquals(visualBounds.top - 64f - 32f, placement.y, 0.001f)
+        assertEquals(32f, visualBounds.top - placement.y - 64f, 0.001f)
         assertTrue(placement.y + 32f < visualBounds.center.y)
     }
 
@@ -161,6 +161,7 @@ class TokenHeatmapInteractionTest {
         val selected = LocalDate.of(2026, 7, 5)
 
         assertNull(heatmapGestureOnDown(selected, null))
+        assertEquals(selected, heatmapSelectionAfterHit(selected, null))
         val state = heatmapGestureOnDown(null, selected)!!
         assertEquals(selected, state.gestureStartDate)
         assertEquals(selected, state.currentScrubDate)

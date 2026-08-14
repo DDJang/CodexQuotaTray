@@ -42,6 +42,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -327,6 +328,12 @@ private fun SummaryRow(items: List<Pair<String, Long>>) {
     }
 }
 
+private data class HeatmapVisualSelection(
+    val date: LocalDate,
+    val bounds: Rect,
+    val color: Color,
+)
+
 @Composable
 private fun TokenHeatmap(
     days: List<TokenUsageDay>,
@@ -379,6 +386,39 @@ private fun TokenHeatmap(
         } else {
             null
         }
+        val currentVisualSelection = if (selectedDate != null && selectedBounds != null && selectedDay != null) {
+            HeatmapVisualSelection(
+                date = selectedDate,
+                bounds = selectedBounds,
+                color = colors[HeatmapBuckets.bucket(selectedDay.totalTokens, nonZero)],
+            )
+        } else {
+            null
+        }
+        var visualSelection by remember { mutableStateOf<HeatmapVisualSelection?>(null) }
+        val selectedScaleAnimation = remember {
+            Animatable(1f)
+        }
+        LaunchedEffect(currentVisualSelection) {
+            if (currentVisualSelection != null) {
+                val wasVisible = visualSelection != null
+                visualSelection = currentVisualSelection
+                if (!wasVisible) {
+                    selectedScaleAnimation.snapTo(1f)
+                }
+                selectedScaleAnimation.animateTo(
+                    targetValue = HEATMAP_SELECTED_SCALE,
+                    animationSpec = tween(170),
+                )
+            } else if (visualSelection != null) {
+                selectedScaleAnimation.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(170),
+                )
+                visualSelection = null
+            }
+        }
+        val renderedVisualSelection = currentVisualSelection ?: visualSelection
         val tooltipWidthPx = with(density) { HEATMAP_TOOLTIP_WIDTH.toPx() }
         val tooltipHeightPx = with(density) { HEATMAP_TOOLTIP_HEIGHT.toPx() }
         val tooltipClearancePx = with(density) { HEATMAP_TOOLTIP_CLEARANCE.toPx() }
@@ -448,7 +488,6 @@ private fun TokenHeatmap(
                             val state = heatmapGestureOnDown(latestSelectedDate.value, date)
                             if (state == null) {
                                 gestureState = null
-                                onClearSelection()
                                 false
                             } else {
                                 gestureState = state
@@ -514,31 +553,31 @@ private fun TokenHeatmap(
                 }
             }
 
-            if (selectedDay != null && selectedBounds != null) {
-                val selectedColor = colors[HeatmapBuckets.bucket(selectedDay.totalTokens, nonZero)]
+            renderedVisualSelection?.let { selection ->
                 HeatmapSelectedCell(
-                    color = selectedColor,
+                    color = selection.color,
                     cellSize = gridCellSize,
+                    scale = selectedScaleAnimation.value,
                     modifier = Modifier
                         .offset {
                             IntOffset(
-                                selectedBounds.left.roundToInt(),
-                                selectedBounds.top.roundToInt(),
+                                selection.bounds.left.roundToInt(),
+                                selection.bounds.top.roundToInt(),
                             )
                         }
                         .zIndex(1f),
                 )
-                if (tooltipPlacement != null) {
-                    HeatmapGlassTooltip(
-                        day = selectedDay,
-                        backdrop = heatmapBackdrop,
-                        modifier = Modifier
-                            .offset {
-                                IntOffset(tooltipOffset.x.roundToInt(), tooltipOffset.y.roundToInt())
-                            }
-                            .zIndex(2f),
-                    )
-                }
+            }
+            if (selectedDay != null && selectedBounds != null && tooltipPlacement != null) {
+                HeatmapGlassTooltip(
+                    day = selectedDay,
+                    backdrop = heatmapBackdrop,
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(tooltipOffset.x.roundToInt(), tooltipOffset.y.roundToInt())
+                        }
+                        .zIndex(2f),
+                )
             }
         }
     }
@@ -548,21 +587,17 @@ private fun TokenHeatmap(
 private fun HeatmapSelectedCell(
     color: androidx.compose.ui.graphics.Color,
     cellSize: androidx.compose.ui.unit.Dp,
+    scale: Float,
     modifier: Modifier = Modifier,
 ) {
-    val scale = remember { Animatable(1f) }
-    LaunchedEffect(Unit) {
-        scale.snapTo(1f)
-        scale.animateTo(HEATMAP_SELECTED_SCALE, tween(170))
-    }
     val shape = RoundedCornerShape(HEATMAP_CORNER_RADIUS)
     val edgeColor = lerp(color, Color.White, 0.24f)
     Box(
         modifier
             .size(cellSize)
             .graphicsLayer {
-                scaleX = scale.value
-                scaleY = scale.value
+                scaleX = scale
+                scaleY = scale
                 transformOrigin = TransformOrigin.Center
             }
             .dropShadow(
@@ -599,14 +634,14 @@ private fun HeatmapGlassTooltip(
         backdrop = backdrop,
         shape = RoundedCornerShape(16.dp),
         enableVibrancy = false,
-        blurRadius = 8.dp,
+        blurRadius = 16.dp,
         refractionHeight = 24.dp,
         refractionAmount = 48.dp,
         lensDepthEffect = true,
         enableColorControls = true,
         saturation = 1.5f,
         highlight = Highlight.Plain,
-        surfaceAlpha = 0.4f,
+        surfaceAlpha = 0.55f,
         surfaceColor = tooltipSurface,
         modifier = modifier
             .width(HEATMAP_TOOLTIP_WIDTH)
@@ -671,7 +706,7 @@ private val HEATMAP_MAX_CELL_SIZE = 24.dp
 private val HEATMAP_CORNER_RADIUS = 3.dp
 private val HEATMAP_TOOLTIP_WIDTH = 220.dp
 private val HEATMAP_TOOLTIP_HEIGHT = 64.dp
-private val HEATMAP_TOOLTIP_CLEARANCE = 24.dp
+private val HEATMAP_TOOLTIP_CLEARANCE = 32.dp
 internal const val HEATMAP_SELECTED_SCALE = 1.5f
 
 private fun formatSyncTime(raw: String) = runCatching { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date.from(Instant.parse(raw))) }.getOrDefault("未知")
