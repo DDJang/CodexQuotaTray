@@ -13,15 +13,15 @@
     "publishedAt": "2026-08-14T18:05:13Z"
   },
   "android": {
-    "version": "0.7.5",
-    "tag": "android-v0.7.5",
+    "version": "0.8.0",
+    "tag": "android-v0.8.0",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.7.5.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.7.5/CodexQuotaTray-Android-v0.7.5.apk",
-      "sha256": "f9f669da9227fecffced16e43bc727794460c95d3e384430f7f3e49cd6630cf9",
-      "size": 25821468
+      "name": "CodexQuotaTray-Android-v0.8.0.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.8.0/CodexQuotaTray-Android-v0.8.0.apk",
+      "sha256": "6bb428590931b726541d81b89b107f1325fc11b4a9d19f3bf0352f3f641b4b18",
+      "size": 26333902
     },
-    "releaseNotes": "## What's Changed\n* chore: prepare 0.7.5 release by @DDJang in https://github.com/DDJang/CodexQuotaTray/pull/15\n\n\n**Full Changelog**: https://github.com/DDJang/CodexQuotaTray/compare/windows-v0.7.0...android-v0.7.5",
-    "publishedAt": "2026-08-13T09:41:14Z"
+    "releaseNotes": "## What's Changed\n* fix: improve Windows update UX by @DDJang in https://github.com/DDJang/CodexQuotaTray/pull/16\n* feat: redesign Android quota cards by @DDJang in https://github.com/DDJang/CodexQuotaTray/pull/17\n\n\n**Full Changelog**: https://github.com/DDJang/CodexQuotaTray/compare/android-v0.7.5...android-v0.8.0",
+    "publishedAt": "2026-08-14T18:08:00Z"
   }
 }
