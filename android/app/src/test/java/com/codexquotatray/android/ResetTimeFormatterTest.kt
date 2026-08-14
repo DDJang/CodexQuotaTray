@@ -5,9 +5,9 @@ import org.junit.Test
 
 class ResetTimeFormatterTest {
     @Test
-    fun multiDayResetIncludesDaysHoursAndMinutes() {
+    fun multiDayResetOmitsMinutes() {
         assertEquals(
-            "6 天 23 小时 58 分钟",
+            "6 天 23 小时",
             formatResetRemaining(6 * 86_400L + 23 * 3_600L + 58 * 60L + 12L),
         )
     }
@@ -15,6 +15,11 @@ class ResetTimeFormatterTest {
     @Test
     fun shorterResetKeepsHoursAndMinutes() {
         assertEquals("19 小时 2 分钟", formatResetRemaining(19 * 3_600L + 2 * 60L + 20L))
+    }
+
+    @Test
+    fun lessThanOneHourOnlyShowsMinutes() {
+        assertEquals("38 分钟", formatResetRemaining(38 * 60L + 20L))
     }
 
     @Test
