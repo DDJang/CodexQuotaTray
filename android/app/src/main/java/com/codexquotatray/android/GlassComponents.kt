@@ -269,15 +269,22 @@ private fun DockTabContent(
     @DrawableRes iconRes: Int,
     label: String,
     contentColor: Color,
+    iconWidth: Dp = 27.dp,
+    iconHeight: Dp = 27.dp,
 ) {
     Box(
-        Modifier
-            .size(27.dp)
-            .paint(
-                painter = painterResource(iconRes),
-                colorFilter = ColorFilter.tint(contentColor),
-            ),
-    )
+        Modifier.size(27.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(width = iconWidth, height = iconHeight)
+                .paint(
+                    painter = painterResource(iconRes),
+                    colorFilter = ColorFilter.tint(contentColor),
+                ),
+        )
+    }
     BasicText(
         text = label,
         style = TextStyle(
@@ -455,7 +462,13 @@ private fun LiquidTabCapsule(
 
         val tabs: @Composable RowScope.() -> Unit = {
             DockTab(selected = currentIndex == 0, onSelect = { onSelected(0) }) {
-                DockTabContent(R.drawable.ic_quota, "额度", unselectedContentColor)
+                DockTabContent(
+                    R.drawable.ic_quota_tray,
+                    "额度",
+                    unselectedContentColor,
+                    iconWidth = 22.dp,
+                    iconHeight = 24.dp,
+                )
             }
             DockTab(selected = currentIndex == 1, onSelect = { onSelected(1) }) {
                 DockTabContent(R.drawable.ic_usage, "统计", unselectedContentColor)

@@ -46,22 +46,27 @@
         <activity
             android:name=".AboutActivity"
             android:configChanges="uiMode"
+            android:screenOrientation="portrait"
             android:exported="false" />
         <activity
             android:name=".AccountActivity"
             android:configChanges="uiMode"
+            android:screenOrientation="portrait"
             android:exported="false" />
         <activity
             android:name=".LoginActivity"
             android:configChanges="uiMode"
+            android:screenOrientation="portrait"
             android:exported="false" />
         <activity
             android:name=".LogActivity"
             android:configChanges="uiMode"
+            android:screenOrientation="portrait"
             android:exported="false" />
         <activity
             android:name=".SettingsActivity"
             android:configChanges="uiMode"
+            android:screenOrientation="portrait"
             android:exported="false" />
         <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
@@ -70,6 +75,7 @@
         <activity
             android:name=".MainActivity"
             android:configChanges="uiMode"
+            android:screenOrientation="portrait"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
