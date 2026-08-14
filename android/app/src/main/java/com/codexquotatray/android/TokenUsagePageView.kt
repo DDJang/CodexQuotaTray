@@ -7,7 +7,6 @@ import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -35,7 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -48,7 +47,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -304,7 +302,6 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
         days = snapshot.days,
         selectedDate = selectedDate,
         onSelected = { selectedDate = it },
-        onClearSelection = { selectedDate = null },
     )
 }
 
@@ -326,13 +323,12 @@ private fun TokenHeatmap(
     days: List<TokenUsageDay>,
     selectedDate: LocalDate?,
     onSelected: (LocalDate) -> Unit,
-    onClearSelection: () -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
     val density = LocalDensity.current
     val hapticFeedback = LocalHapticFeedback.current
-    val viewConfiguration = LocalViewConfiguration.current
-    val range = remember(days) { tokenHeatmapRange(days) }
+    val today = LocalDate.now()
+    val range = remember(today) { tokenHeatmapRange(today) }
     val values = remember(days) { days.associateBy { it.date } }
     val nonZero = remember(days) { days.map { it.totalTokens }.filter { it > 0L } }
     val colors = remember(palette) {
@@ -344,31 +340,19 @@ private fun TokenHeatmap(
             androidx.compose.ui.graphics.Color(0xff196127),
         )
     }
-    val scroll = rememberScrollState(initial = Int.MAX_VALUE)
-    var scrubbing by remember { mutableStateOf(false) }
-
-    LaunchedEffect(scroll) {
-        snapshotFlow { scroll.isScrollInProgress to scrubbing }.collect { (scrolling, activeScrub) ->
-            if (scrolling && !activeScrub) onClearSelection()
-        }
-    }
-
-    LaunchedEffect(range.start, range.end) {
-        if (selectedDate != null && selectedDate !in range.start..range.end) onClearSelection()
-    }
 
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val viewportWidthPx = with(density) { maxWidth.toPx() }
-        val geometry = remember(range.start, range.end, maxWidth, density) {
-            val cellSizePx = with(density) { HEATMAP_CELL_SIZE.toPx() }
+        val geometry = remember(range.start, range.dayCount, maxWidth, density) {
             val gapPx = with(density) { HEATMAP_GAP.toPx() }
-            val contentWidthPx = if (range.columnCount == 0) 0f else {
-                range.columnCount * cellSizePx + (range.columnCount - 1) * gapPx
-            }
+            val maxCellSizePx = with(density) { HEATMAP_MAX_CELL_SIZE.toPx() }
+            val cellSizePx = ((viewportWidthPx - (TOKEN_HEATMAP_COLUMNS - 1) * gapPx) / TOKEN_HEATMAP_COLUMNS)
+                .coerceAtLeast(1f)
+                .coerceAtMost(maxCellSizePx)
+            val contentWidthPx = TOKEN_HEATMAP_COLUMNS * cellSizePx + (TOKEN_HEATMAP_COLUMNS - 1) * gapPx
             HeatmapGeometry(
                 cellSizePx = cellSizePx,
                 gapPx = gapPx,
-                columnCount = range.columnCount,
                 startDate = range.start,
                 dayCount = range.dayCount,
                 contentOffsetX = centeredHeatmapOffset(viewportWidthPx, contentWidthPx),
@@ -376,7 +360,7 @@ private fun TokenHeatmap(
         }
         val gridWidth = with(density) { geometry.contentWidthPx.toDp() }
         val gridHeight = with(density) { geometry.contentHeightPx.toDp() }
-        val scrollContentWidth = maxOf(maxWidth, gridWidth)
+        val gridCellSize = with(density) { geometry.cellSizePx.toDp() }
         val selectedIndex = selectedDate?.let { ChronoUnit.DAYS.between(range.start, it).toInt() }
         val selectedBounds = selectedIndex?.let(geometry::cellBounds)
         val selectedDay = if (selectedDate != null && selectedBounds != null) {
@@ -396,7 +380,6 @@ private fun TokenHeatmap(
                 viewportWidthPx = viewportWidthPx,
                 containerHeightPx = containerHeightPx,
                 cellBounds = selectedBounds,
-                horizontalScrollPx = scroll.value.toFloat(),
                 tooltipWidthPx = tooltipWidthPx,
                 tooltipHeightPx = tooltipHeightPx,
                 topReservePx = with(density) { tooltipReserve.toPx() },
@@ -407,6 +390,7 @@ private fun TokenHeatmap(
         }
         val heatmapBackdrop = rememberLayerBackdrop()
         val reservePx = with(density) { tooltipReserve.toPx() }
+        val latestReservePx = rememberUpdatedState(reservePx)
 
         Box(
             Modifier
@@ -417,54 +401,36 @@ private fun TokenHeatmap(
                         "${formatHeatmapTooltipDate(it.date)}，${formatHeatmapTooltipTokenCount(it.totalTokens)}"
                     } ?: "Token 使用热力图"
                 }
-                .pointerInput(geometry, reservePx, scroll) {
+                .pointerInput(geometry) {
                     var scrubbedDate: LocalDate? = null
                     detectTokenHeatmapGestures(
-                        touchSlop = viewConfiguration.touchSlop,
-                        longPressTimeoutMillis = viewConfiguration.longPressTimeoutMillis,
-                        onTap = { point ->
+                        onSelectionStart = { point ->
                             val index = geometry.hitTest(
-                                point = Offset(point.x, point.y - reservePx),
-                                horizontalScrollPx = scroll.value.toFloat(),
-                            )
-                            val date = index?.let(geometry::indexToDate)
-                            if (date == null) {
-                                onClearSelection()
-                            } else {
-                                hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
-                                onSelected(date)
-                            }
-                        },
-                        onScrubStart = { point ->
-                            val index = geometry.hitTest(
-                                point = Offset(point.x, point.y - reservePx),
-                                horizontalScrollPx = scroll.value.toFloat(),
+                                point = Offset(point.x, point.y - latestReservePx.value),
                             )
                             val date = index?.let(geometry::indexToDate)
                             if (date == null) {
                                 false
                             } else {
                                 scrubbedDate = date
-                                scrubbing = true
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
                                 onSelected(date)
                                 true
                             }
                         },
-                        onScrubMove = { point ->
+                        onSelectionMove = { point ->
                             val index = geometry.hitTest(
-                                point = Offset(point.x, point.y - reservePx),
-                                horizontalScrollPx = scroll.value.toFloat(),
+                                point = Offset(point.x, point.y - latestReservePx.value),
                             )
                             val date = index?.let(geometry::indexToDate)
-                            if (date != null && date != scrubbedDate) {
-                                scrubbedDate = date
-                                onSelected(date)
+                            val nextDate = heatmapSelectionAfterHit(scrubbedDate, date)
+                            if (nextDate != null && nextDate != scrubbedDate) {
+                                scrubbedDate = nextDate
+                                onSelected(nextDate)
                             }
                         },
-                        onScrubEnd = {
+                        onSelectionEnd = {
                             scrubbedDate = null
-                            scrubbing = false
                         },
                     )
                 },
@@ -478,29 +444,24 @@ private fun TokenHeatmap(
             ) {
                 Box(
                     Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(scroll),
+                        .width(gridWidth)
+                        .height(gridHeight)
+                        .align(androidx.compose.ui.Alignment.Center),
                 ) {
-                    Box(Modifier.width(scrollContentWidth).height(gridHeight)) {
-                        Canvas(
-                            Modifier
-                                .offset(x = with(density) { geometry.contentOffsetX.toDp() })
-                                .size(gridWidth, gridHeight),
-                        ) {
-                            repeat(range.dayCount) { index ->
-                                val date = range.start.plusDays(index.toLong())
-                                val tokens = values[date]?.totalTokens ?: 0L
-                                val column = index / geometry.rowCount
-                                val row = index % geometry.rowCount
-                                drawRoundRect(
-                                    color = colors[HeatmapBuckets.bucket(tokens, nonZero)],
-                                    topLeft = Offset(column * geometry.stridePx, row * geometry.stridePx),
-                                    size = Size(geometry.cellSizePx, geometry.cellSizePx),
-                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(
-                                        with(density) { HEATMAP_CORNER_RADIUS.toPx() },
-                                    ),
-                                )
-                            }
+                    Canvas(Modifier.fillMaxSize()) {
+                        repeat(range.dayCount) { index ->
+                            val date = range.start.plusDays(index.toLong())
+                            val tokens = values[date]?.totalTokens ?: 0L
+                            val column = index / geometry.rowCount
+                            val row = index % geometry.rowCount
+                            drawRoundRect(
+                                color = colors[HeatmapBuckets.bucket(tokens, nonZero)],
+                                topLeft = Offset(column * geometry.stridePx, row * geometry.stridePx),
+                                size = Size(geometry.cellSizePx, geometry.cellSizePx),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                                    with(density) { HEATMAP_CORNER_RADIUS.toPx() },
+                                ),
+                            )
                         }
                     }
                 }
@@ -510,11 +471,11 @@ private fun TokenHeatmap(
                 val selectedColor = colors[HeatmapBuckets.bucket(selectedDay.totalTokens, nonZero)]
                 HeatmapSelectedCell(
                     color = selectedColor,
-                    animate = !scrubbing,
+                    cellSize = gridCellSize,
                     modifier = Modifier
                         .offset {
                             IntOffset(
-                                (selectedBounds.left - scroll.value).roundToInt(),
+                                selectedBounds.left.roundToInt(),
                                 (selectedBounds.top + reservePx).roundToInt(),
                             )
                         }
@@ -539,22 +500,18 @@ private fun TokenHeatmap(
 @Composable
 private fun HeatmapSelectedCell(
     color: androidx.compose.ui.graphics.Color,
-    animate: Boolean,
+    cellSize: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier,
 ) {
     val scale = remember { Animatable(1f) }
     LaunchedEffect(Unit) {
-        if (animate) {
-            scale.snapTo(1f)
-            scale.animateTo(HEATMAP_SELECTED_SCALE, tween(140))
-        } else {
-            scale.snapTo(HEATMAP_SELECTED_SCALE)
-        }
+        scale.snapTo(1f)
+        scale.animateTo(HEATMAP_SELECTED_SCALE, tween(140))
     }
     val shape = RoundedCornerShape(HEATMAP_CORNER_RADIUS)
     Box(
         modifier
-            .size(HEATMAP_CELL_SIZE)
+            .size(cellSize)
             .graphicsLayer {
                 scaleX = scale.value
                 scaleY = scale.value
@@ -587,6 +544,10 @@ private fun HeatmapGlassTooltip(
     GlassSurface(
         backdrop = backdrop,
         shape = RoundedCornerShape(16.dp),
+        blurRadius = 8.dp,
+        refractionHeight = 24.dp,
+        refractionAmount = 24.dp,
+        surfaceAlpha = 0.4f,
         modifier = modifier
             .width(HEATMAP_TOOLTIP_WIDTH)
             .height(HEATMAP_TOOLTIP_HEIGHT)
@@ -625,23 +586,13 @@ internal data class TokenHeatmapRange(
     val end: LocalDate,
 ) {
     val dayCount: Int get() = ChronoUnit.DAYS.between(start, end).toInt() + 1
-    val columnCount: Int get() = (dayCount + 6) / 7
+    val columnCount: Int get() = TOKEN_HEATMAP_COLUMNS
 }
 
 internal fun tokenHeatmapRange(
-    days: List<TokenUsageDay>,
     today: LocalDate = LocalDate.now(),
 ): TokenHeatmapRange {
-    val recentEightWeeksStart = startOfWeek(today).minusWeeks(7)
-    val firstUsageWeek = days
-        .asSequence()
-        .filter { it.date <= today && it.totalTokens > 0L }
-        .map { startOfWeek(it.date) }
-        .minOrNull()
-    val desiredStart = firstUsageWeek?.let { minOf(it, recentEightWeeksStart) } ?: recentEightWeeksStart
-    val oldestAllowedWeek = today.minusDays(MAX_HEATMAP_DAYS - 1L)
-        .with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
-    return TokenHeatmapRange(maxOf(desiredStart, oldestAllowedWeek), today)
+    return TokenHeatmapRange(startOfWeek(today).minusWeeks(12), today)
 }
 
 internal fun formatHeatmapTooltipTokenCount(totalTokens: Long): String =
@@ -655,14 +606,13 @@ internal fun formatHeatmapSelection(day: TokenUsageDay): String =
 private fun startOfWeek(date: LocalDate): LocalDate =
     date.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
 
-private val HEATMAP_CELL_SIZE = 18.dp
-private val HEATMAP_GAP = 4.dp
+private val HEATMAP_GAP = 5.dp
+private val HEATMAP_MAX_CELL_SIZE = 24.dp
 private val HEATMAP_CORNER_RADIUS = 3.dp
 private val HEATMAP_TOOLTIP_RESERVE = 72.dp
 private val HEATMAP_TOOLTIP_WIDTH = 220.dp
 private val HEATMAP_TOOLTIP_HEIGHT = 64.dp
 private val HEATMAP_TOOLTIP_GAP = 8.dp
 private const val HEATMAP_SELECTED_SCALE = 1.15f
-private const val MAX_HEATMAP_DAYS = 365
 
 private fun formatSyncTime(raw: String) = runCatching { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date.from(Instant.parse(raw))) }.getOrDefault("未知")

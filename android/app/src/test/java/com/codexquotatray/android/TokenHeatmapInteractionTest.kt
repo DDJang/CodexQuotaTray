@@ -10,34 +10,37 @@ import java.time.LocalDate
 class TokenHeatmapInteractionTest {
     private val start = LocalDate.of(2026, 8, 2)
     private val geometry = HeatmapGeometry(
-        cellSizePx = 18f,
-        gapPx = 4f,
-        columnCount = 3,
+        cellSizePx = 22f,
+        gapPx = 5f,
         startDate = start,
-        dayCount = 20,
-        contentOffsetX = 10f,
+        dayCount = 85,
     )
 
     @Test
     fun cellBoundsAndCentersFollowColumnThenWeekdayRows() {
-        assertEquals(Rect(10f, 0f, 28f, 18f), geometry.cellBounds(0))
-        assertEquals(Rect(32f, 0f, 50f, 18f), geometry.cellBounds(7))
-        assertEquals(Offset(19f, 9f), geometry.cellCenter(0))
+        assertEquals(Rect(0f, 0f, 22f, 22f), geometry.cellBounds(0))
+        assertEquals(Rect(27f, 0f, 49f, 22f), geometry.cellBounds(7))
+        assertEquals(Offset(11f, 11f), geometry.cellCenter(0))
         assertEquals(start.plusDays(7), geometry.indexToDate(7))
+        assertEquals(13, geometry.columnCount)
+        assertEquals(346f, geometry.contentWidthPx, 0.001f)
+        assertEquals(184f, geometry.contentHeightPx, 0.001f)
     }
 
     @Test
     fun hitTestRejectsGapsAndOutOfRangeCells() {
-        assertEquals(0, geometry.hitTest(Offset(19f, 9f), horizontalScrollPx = 0f))
-        assertEquals(7, geometry.hitTest(Offset(41f, 9f), horizontalScrollPx = 0f))
-        assertNull(geometry.hitTest(Offset(30f, 9f), horizontalScrollPx = 0f))
-        assertNull(geometry.hitTest(Offset(19f, 20f), horizontalScrollPx = 0f))
-        assertNull(geometry.hitTest(Offset(100f, 9f), horizontalScrollPx = 0f))
+        assertEquals(0, geometry.hitTest(Offset(11f, 11f)))
+        assertEquals(7, geometry.hitTest(Offset(38f, 11f)))
+        assertNull(geometry.hitTest(Offset(24f, 11f)))
+        assertNull(geometry.hitTest(Offset(11f, 24f)))
+        assertNull(geometry.hitTest(Offset(335f, 38f)))
+        assertNull(geometry.hitTest(Offset(400f, 11f)))
     }
 
     @Test
-    fun hitTestAccountsForHorizontalScroll() {
-        assertEquals(7, geometry.hitTest(Offset(19f, 9f), horizontalScrollPx = 22f))
+    fun dynamicCellsAreLargerThanThePreviousFixedSize() {
+        assertEquals(22f, geometry.cellSizePx, 0.001f)
+        assertEquals(5f, geometry.gapPx, 0.001f)
     }
 
     @Test
@@ -52,7 +55,6 @@ class TokenHeatmapInteractionTest {
             viewportWidthPx = 300f,
             containerHeightPx = 250f,
             cellBounds = Rect(10f, 100f, 28f, 118f),
-            horizontalScrollPx = 0f,
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
             topReservePx = 72f,
@@ -69,7 +71,6 @@ class TokenHeatmapInteractionTest {
             viewportWidthPx = 300f,
             containerHeightPx = 250f,
             cellBounds = Rect(100f, 0f, 118f, 18f),
-            horizontalScrollPx = 0f,
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
             topReservePx = 0f,
@@ -78,5 +79,17 @@ class TokenHeatmapInteractionTest {
 
         assertEquals(0f, placement.x, 0.001f)
         assertEquals(26f, placement.y, 0.001f)
+    }
+
+    @Test
+    fun scrubbingKeepsTheLastDateWhenFingerCrossesAGap() {
+        val first = start
+        val second = start.plusDays(7)
+        val third = start.plusDays(14)
+
+        assertEquals(first, heatmapSelectionAfterHit(null, first))
+        assertEquals(second, heatmapSelectionAfterHit(first, second))
+        assertEquals(second, heatmapSelectionAfterHit(second, null))
+        assertEquals(third, heatmapSelectionAfterHit(second, third))
     }
 }

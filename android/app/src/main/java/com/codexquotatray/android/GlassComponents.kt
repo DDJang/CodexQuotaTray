@@ -108,6 +108,10 @@ internal fun GlassSurface(
     modifier: Modifier = Modifier,
     layerBlock: GraphicsLayerScope.() -> Unit = {},
     contentAlignment: Alignment = Alignment.Center,
+    blurRadius: Dp = 2.dp,
+    refractionHeight: Dp = 12.dp,
+    refractionAmount: Dp = 24.dp,
+    surfaceAlpha: Float = 0.2f,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
@@ -118,11 +122,11 @@ internal fun GlassSurface(
                 shape = { shape },
                 effects = {
                     vibrancy()
-                    blur(2.dp.toPx())
-                    lens(12.dp.toPx(), 24.dp.toPx())
+                    blur(blurRadius.toPx())
+                    lens(refractionHeight.toPx(), refractionAmount.toPx())
                 },
                 layerBlock = layerBlock,
-                onDrawSurface = { drawRect(palette.color(palette.surface).copy(alpha = 0.2f)) },
+                onDrawSurface = { drawRect(palette.color(palette.surface).copy(alpha = surfaceAlpha)) },
             )
             .clip(shape),
         contentAlignment = contentAlignment,
