@@ -33,7 +33,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.text.font.FontWeight
@@ -67,18 +66,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 
-private val QuotaProgressGreen = Color(0xFF35E66B)
-private val QuotaProgressYellow = Color(0xFFFFD84D)
-private val QuotaProgressRed = Color(0xFFFF4D5D)
-
-internal fun quotaProgressColor(remainingPercent: Int): Color {
-    val remaining = remainingPercent.coerceIn(0, 100) / 100f
-    return if (remaining >= 0.5f) {
-        lerp(QuotaProgressYellow, QuotaProgressGreen, (remaining - 0.5f) * 2f)
-    } else {
-        lerp(QuotaProgressRed, QuotaProgressYellow, remaining * 2f)
-    }
-}
+internal fun quotaProgressColor(remainingPercent: Int): Color = Color(quotaProgressArgb(remainingPercent))
 
 internal fun quotaProgress(remainingPercent: Int): Float =
     remainingPercent.coerceIn(0, 100) / 100f

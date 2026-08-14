@@ -11,9 +11,7 @@ internal object QuotaWidgetDisplayFormatter {
     fun formatResetAt(resetsAtSeconds: Long?, nowMillis: Long): String {
         if (resetsAtSeconds == null) return "重置时间未知"
         val remainingSeconds = resetsAtSeconds - nowMillis / 1_000L
-        val absolute = SimpleDateFormat("M月d日 HH:mm", Locale.getDefault())
-            .format(Date(resetsAtSeconds * 1_000L))
-        if (remainingSeconds <= 0L) return "已到期或正在刷新 · $absolute"
+        if (remainingSeconds <= 0L) return "已到期或正在刷新"
         val days = remainingSeconds / 86_400L
         val hours = (remainingSeconds % 86_400L) / 3_600L
         val minutes = (remainingSeconds % 3_600L) / 60L
@@ -23,6 +21,6 @@ internal object QuotaWidgetDisplayFormatter {
             minutes > 0L -> "$minutes 分钟后重置"
             else -> "不足 1 分钟后重置"
         }
-        return "$relative · $absolute"
+        return relative
     }
 }

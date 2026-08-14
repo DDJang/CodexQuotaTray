@@ -45,6 +45,13 @@
         android:textSize="13sp"
         android:visibility="gone" />
 
+    <TextView
+        android:id="@+id/widget_single_window_top_spacer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:visibility="gone" />
+
     <LinearLayout
         android:id="@+id/widget_primary_row"
         android:layout_width="match_parent"
@@ -80,7 +87,7 @@
             android:id="@+id/widget_primary_progress"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="6dp"
+            android:layout_height="7dp"
             android:layout_marginTop="4dp"
             android:max="100"
             android:progressDrawable="@drawable/widget_progress" />
@@ -93,6 +100,13 @@
             android:textColor="@color/widget_secondary_text"
             android:textSize="10sp" />
     </LinearLayout>
+
+    <TextView
+        android:id="@+id/widget_single_window_bottom_spacer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:visibility="gone" />
 
     <LinearLayout
         android:id="@+id/widget_secondary_row"
@@ -130,7 +144,7 @@
             android:id="@+id/widget_secondary_progress"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="6dp"
+            android:layout_height="7dp"
             android:layout_marginTop="4dp"
             android:max="100"
             android:progressDrawable="@drawable/widget_progress" />

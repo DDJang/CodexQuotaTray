@@ -61,7 +61,22 @@ class QuotaWidgetProjectionTest {
             QuotaWidgetDisplayFormatter.formatResetAt(
                 resetsAtSeconds = 1_700_003_600L,
                 nowMillis = 1_700_000_000_000L,
-            ).contains("后重置"),
+            ).endsWith("后重置"),
+        )
+        assertEquals(
+            "1 小时 0 分钟后重置",
+            QuotaWidgetDisplayFormatter.formatResetAt(
+                resetsAtSeconds = 1_700_003_600L,
+                nowMillis = 1_700_000_000_000L,
+            ),
+        )
+        assertEquals("重置时间未知", QuotaWidgetDisplayFormatter.formatResetAt(null, 1_700_000_000_000L))
+        assertEquals(
+            "已到期或正在刷新",
+            QuotaWidgetDisplayFormatter.formatResetAt(
+                resetsAtSeconds = 1_699_999_900L,
+                nowMillis = 1_700_000_000_000L,
+            ),
         )
     }
 
