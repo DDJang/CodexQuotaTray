@@ -634,14 +634,13 @@ private fun HeatmapGlassTooltip(
         backdrop = backdrop,
         shape = RoundedCornerShape(16.dp),
         enableVibrancy = false,
-        blurRadius = 16.dp,
+        blurRadius = 24.dp,
         refractionHeight = 24.dp,
         refractionAmount = 48.dp,
         lensDepthEffect = true,
-        enableColorControls = true,
-        saturation = 1.5f,
+        enableColorControls = false,
         highlight = Highlight.Plain,
-        surfaceAlpha = 0.55f,
+        surfaceAlpha = 0.65f,
         surfaceColor = tooltipSurface,
         modifier = modifier
             .width(HEATMAP_TOOLTIP_WIDTH)
