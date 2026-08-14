@@ -86,7 +86,6 @@ internal fun expandedCellBounds(
 
 internal fun placeHeatmapTooltip(
     viewportWidthPx: Float,
-    containerHeightPx: Float,
     cellBounds: Rect,
     tooltipWidthPx: Float,
     tooltipHeightPx: Float,
@@ -98,16 +97,45 @@ internal fun placeHeatmapTooltip(
     val x = (cellCenterX - tooltipWidthPx / 2f).coerceIn(0f, maxX)
 
     val visualBounds = expandedCellBounds(cellBounds, selectedScale)
-    val above = visualBounds.top - tooltipHeightPx - clearancePx
-    val below = visualBounds.bottom + clearancePx
-    val maxY = max(0f, containerHeightPx - tooltipHeightPx)
-    val y = when {
-        above >= 0f -> above
-        below + tooltipHeightPx <= containerHeightPx -> below
-        else -> below.coerceIn(0f, maxY)
-    }
+    val y = visualBounds.top - tooltipHeightPx - clearancePx
     return HeatmapTooltipPlacement(x = x, y = y)
 }
+
+internal data class HeatmapGestureState(
+    val gestureStartDate: LocalDate,
+    val currentScrubDate: LocalDate,
+    val startedOnSelected: Boolean,
+    val changedToDifferentDate: Boolean = false,
+)
+
+internal fun heatmapGestureOnDown(
+    selectedDate: LocalDate?,
+    hitDate: LocalDate?,
+): HeatmapGestureState? = hitDate?.let { date ->
+    HeatmapGestureState(
+        gestureStartDate = date,
+        currentScrubDate = date,
+        startedOnSelected = selectedDate == date,
+    )
+}
+
+internal fun heatmapGestureOnMove(
+    state: HeatmapGestureState,
+    hitDate: LocalDate?,
+): HeatmapGestureState {
+    val nextDate = hitDate ?: state.currentScrubDate
+    return if (nextDate == state.currentScrubDate) {
+        state
+    } else {
+        state.copy(
+            currentScrubDate = nextDate,
+            changedToDifferentDate = true,
+        )
+    }
+}
+
+internal fun heatmapGestureShouldClear(state: HeatmapGestureState): Boolean =
+    state.startedOnSelected && !state.changedToDifferentDate
 
 /** A gap does not clear the active date while the finger is scrubbing. */
 internal fun heatmapSelectionAfterHit(previous: LocalDate?, hitDate: LocalDate?): LocalDate? =

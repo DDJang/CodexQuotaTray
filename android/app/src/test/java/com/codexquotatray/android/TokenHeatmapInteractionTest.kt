@@ -51,12 +51,11 @@ class TokenHeatmapInteractionTest {
     }
 
     @Test
-    fun tooltipStaysInViewportAndPrefersSpaceAboveCell() {
+    fun tooltipStaysAboveMiddleCellWithClearance() {
         val baseBounds = Rect(10f, 100f, 34f, 124f)
         val visualBounds = expandedCellBounds(baseBounds, 1.5f)
         val placement = placeHeatmapTooltip(
             viewportWidthPx = 300f,
-            containerHeightPx = 250f,
             cellBounds = baseBounds,
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
@@ -70,12 +69,11 @@ class TokenHeatmapInteractionTest {
     }
 
     @Test
-    fun tooltipFallsBelowTopCellWhenThereIsNoSpaceAbove() {
+    fun tooltipStaysAboveTopCellEvenWhenPlacementIsNegative() {
         val baseBounds = Rect(100f, 20f, 124f, 44f)
         val visualBounds = expandedCellBounds(baseBounds, 1.5f)
         val placement = placeHeatmapTooltip(
             viewportWidthPx = 300f,
-            containerHeightPx = 250f,
             cellBounds = baseBounds,
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
@@ -84,16 +82,16 @@ class TokenHeatmapInteractionTest {
         )
 
         assertEquals(2f, placement.x, 0.001f)
-        assertEquals(visualBounds.bottom + 24f, placement.y, 0.001f)
-        assertEquals(24f, placement.y - visualBounds.bottom, 0.001f)
+        assertEquals(visualBounds.top - 64f - 24f, placement.y, 0.001f)
+        assertTrue(placement.y < 0f)
+        assertEquals(24f, visualBounds.top - placement.y - 64f, 0.001f)
     }
 
     @Test
-    fun tooltipPlacementClampsRightEdgeWhilePreferringSpaceAbove() {
+    fun tooltipPlacementClampsRightEdgeWhileStayingAbove() {
         val baseBounds = Rect(280f, 100f, 304f, 124f)
         val placement = placeHeatmapTooltip(
             viewportWidthPx = 300f,
-            containerHeightPx = 250f,
             cellBounds = baseBounds,
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
@@ -110,7 +108,6 @@ class TokenHeatmapInteractionTest {
         val baseBounds = Rect(100f, 100f, 124f, 124f)
         val basePlacement = placeHeatmapTooltip(
             viewportWidthPx = 300f,
-            containerHeightPx = 300f,
             cellBounds = baseBounds,
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
@@ -119,7 +116,6 @@ class TokenHeatmapInteractionTest {
         )
         val selectedPlacement = placeHeatmapTooltip(
             viewportWidthPx = 300f,
-            containerHeightPx = 300f,
             cellBounds = baseBounds,
             tooltipWidthPx = 220f,
             tooltipHeightPx = 64f,
@@ -129,6 +125,47 @@ class TokenHeatmapInteractionTest {
 
         assertEquals(12f, basePlacement.y, 0.001f)
         assertEquals(6f, selectedPlacement.y, 0.001f)
+    }
+
+    @Test
+    fun tooltipStaysAboveBottomRowWithTheSameClearance() {
+        val baseBounds = Rect(100f, 174f, 124f, 198f)
+        val visualBounds = expandedCellBounds(baseBounds, 1.5f)
+        val placement = placeHeatmapTooltip(
+            viewportWidthPx = 300f,
+            cellBounds = baseBounds,
+            tooltipWidthPx = 220f,
+            tooltipHeightPx = 64f,
+            selectedScale = 1.5f,
+            clearancePx = 24f,
+        )
+
+        assertEquals(visualBounds.top - 64f - 24f, placement.y, 0.001f)
+        assertEquals(24f, visualBounds.top - placement.y - 64f, 0.001f)
+        assertTrue(placement.y + 32f < visualBounds.center.y)
+    }
+
+    @Test
+    fun tappingSelectedCellClearsOnlyWhenTheGestureDoesNotChangeDate() {
+        val selected = LocalDate.of(2026, 7, 5)
+        val sameCell = heatmapGestureOnDown(selected, selected)!!
+        val moved = heatmapGestureOnMove(sameCell, selected.plusDays(1))
+
+        assertTrue(heatmapGestureShouldClear(sameCell))
+        assertEquals(selected.plusDays(1), moved.currentScrubDate)
+        assertTrue(!heatmapGestureShouldClear(moved))
+    }
+
+    @Test
+    fun blankDownHasNoGestureStateAndValidDownStartsSelection() {
+        val selected = LocalDate.of(2026, 7, 5)
+
+        assertNull(heatmapGestureOnDown(selected, null))
+        val state = heatmapGestureOnDown(null, selected)!!
+        assertEquals(selected, state.gestureStartDate)
+        assertEquals(selected, state.currentScrubDate)
+        assertTrue(!state.startedOnSelected)
+        assertTrue(!heatmapGestureShouldClear(state))
     }
 
     @Test

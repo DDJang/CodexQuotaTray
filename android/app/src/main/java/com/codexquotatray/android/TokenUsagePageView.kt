@@ -23,7 +23,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -35,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -306,6 +310,7 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
         days = snapshot.days,
         selectedDate = selectedDate,
         onSelected = { selectedDate = it },
+        onClearSelection = { selectedDate = null },
     )
 }
 
@@ -327,10 +332,12 @@ private fun TokenHeatmap(
     days: List<TokenUsageDay>,
     selectedDate: LocalDate?,
     onSelected: (LocalDate) -> Unit,
+    onClearSelection: () -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
     val density = LocalDensity.current
     val hapticFeedback = LocalHapticFeedback.current
+    val latestSelectedDate = rememberUpdatedState(selectedDate)
     val today = LocalDate.now()
     val range = remember(today) { tokenHeatmapRange(today) }
     val values = remember(days) { days.associateBy { it.date } }
@@ -376,11 +383,9 @@ private fun TokenHeatmap(
         val tooltipHeightPx = with(density) { HEATMAP_TOOLTIP_HEIGHT.toPx() }
         val tooltipClearancePx = with(density) { HEATMAP_TOOLTIP_CLEARANCE.toPx() }
         val containerHeight = gridHeight
-        val containerHeightPx = with(density) { gridHeight.toPx() }
         val tooltipPlacement = if (selectedBounds != null) {
             placeHeatmapTooltip(
                 viewportWidthPx = viewportWidthPx,
-                containerHeightPx = containerHeightPx,
                 cellBounds = selectedBounds,
                 tooltipWidthPx = tooltipWidthPx,
                 tooltipHeightPx = tooltipHeightPx,
@@ -389,6 +394,37 @@ private fun TokenHeatmap(
             )
         } else {
             null
+        }
+        val tooltipTarget = tooltipPlacement?.let { Offset(it.x, it.y) }
+        val tooltipPositionAnimation = remember {
+            Animatable(
+                initialValue = Offset.Zero,
+                typeConverter = Offset.VectorConverter,
+                visibilityThreshold = Offset.VisibilityThreshold,
+            )
+        }
+        var tooltipPositionInitialized by remember { mutableStateOf(false) }
+        LaunchedEffect(tooltipTarget) {
+            if (tooltipTarget == null) {
+                tooltipPositionInitialized = false
+            } else if (!tooltipPositionInitialized) {
+                tooltipPositionAnimation.snapTo(tooltipTarget)
+                tooltipPositionInitialized = true
+            } else {
+                tooltipPositionAnimation.animateTo(
+                    targetValue = tooltipTarget,
+                    animationSpec = spring(
+                        dampingRatio = 0.5f,
+                        stiffness = 300f,
+                        visibilityThreshold = Offset.VisibilityThreshold,
+                    ),
+                )
+            }
+        }
+        val tooltipOffset = if (tooltipTarget != null && !tooltipPositionInitialized) {
+            tooltipTarget
+        } else {
+            tooltipPositionAnimation.value
         }
         val heatmapBackdrop = rememberLayerBackdrop()
 
@@ -402,19 +438,24 @@ private fun TokenHeatmap(
                     } ?: "Token 使用热力图"
                 }
                 .pointerInput(geometry) {
-                    var scrubbedDate: LocalDate? = null
+                    var gestureState: HeatmapGestureState? = null
                     detectTokenHeatmapGestures(
                         onSelectionStart = { point ->
                             val index = geometry.hitTest(
                                 point = point,
                             )
                             val date = index?.let(geometry::indexToDate)
-                            if (date == null) {
+                            val state = heatmapGestureOnDown(latestSelectedDate.value, date)
+                            if (state == null) {
+                                gestureState = null
+                                onClearSelection()
                                 false
                             } else {
-                                scrubbedDate = date
+                                gestureState = state
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
-                                onSelected(date)
+                                if (!state.startedOnSelected) {
+                                    onSelected(state.currentScrubDate)
+                                }
                                 true
                             }
                         },
@@ -423,14 +464,21 @@ private fun TokenHeatmap(
                                 point = point,
                             )
                             val date = index?.let(geometry::indexToDate)
-                            val nextDate = heatmapSelectionAfterHit(scrubbedDate, date)
-                            if (nextDate != null && nextDate != scrubbedDate) {
-                                scrubbedDate = nextDate
-                                onSelected(nextDate)
+                            gestureState?.let { currentState ->
+                                val nextState = heatmapGestureOnMove(currentState, date)
+                                if (nextState.currentScrubDate != currentState.currentScrubDate) {
+                                    onSelected(nextState.currentScrubDate)
+                                }
+                                gestureState = nextState
                             }
                         },
                         onSelectionEnd = {
-                            scrubbedDate = null
+                            gestureState?.let { state ->
+                                if (heatmapGestureShouldClear(state)) {
+                                    onClearSelection()
+                                }
+                            }
+                            gestureState = null
                         },
                     )
                 },
@@ -480,13 +528,13 @@ private fun TokenHeatmap(
                         }
                         .zIndex(1f),
                 )
-                tooltipPlacement?.let { placement ->
+                if (tooltipPlacement != null) {
                     HeatmapGlassTooltip(
                         day = selectedDay,
                         backdrop = heatmapBackdrop,
                         modifier = Modifier
                             .offset {
-                                IntOffset(placement.x.roundToInt(), placement.y.roundToInt())
+                                IntOffset(tooltipOffset.x.roundToInt(), tooltipOffset.y.roundToInt())
                             }
                             .zIndex(2f),
                     )
@@ -550,6 +598,7 @@ private fun HeatmapGlassTooltip(
     GlassSurface(
         backdrop = backdrop,
         shape = RoundedCornerShape(16.dp),
+        enableVibrancy = false,
         blurRadius = 8.dp,
         refractionHeight = 24.dp,
         refractionAmount = 48.dp,

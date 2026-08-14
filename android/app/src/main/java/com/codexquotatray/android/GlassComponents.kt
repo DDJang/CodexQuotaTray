@@ -112,6 +112,7 @@ internal fun GlassSurface(
     blurRadius: Dp = 2.dp,
     refractionHeight: Dp = 12.dp,
     refractionAmount: Dp = 24.dp,
+    enableVibrancy: Boolean = true,
     lensDepthEffect: Boolean = false,
     enableColorControls: Boolean = false,
     saturation: Float = 1f,
@@ -128,7 +129,9 @@ internal fun GlassSurface(
                 backdrop = backdrop,
                 shape = { shape },
                 effects = {
-                    vibrancy()
+                    if (enableVibrancy) {
+                        vibrancy()
+                    }
                     if (enableColorControls) {
                         colorControls(brightness = 0f, saturation = saturation, contrast = 1f)
                     }
