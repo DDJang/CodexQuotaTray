@@ -5,20 +5,13 @@ import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.alerts.QuotaAlertStateStore
 import com.codexquotatray.android.auth.CodexProcessLock
 import com.codexquotatray.android.auth.JwtClaims
@@ -40,39 +33,39 @@ class AccountActivity : ComponentActivity() {
         render()
         setContent {
             themeVersion
-            val palette = AppTheme.palette(this)
+            val palette = settingsPalette(AppTheme.palette(this), AppTheme.effectiveMode(this))
             CodexQuotaTheme(palette) {
                 SecondaryScreenScaffold(title = "Codex 额度账号", onBack = ::finish) {
-                    Column(
-                        Modifier.fillMaxSize().padding(
-                            horizontal = CodexDimensions.screenPadding,
-                            vertical = 20.dp,
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        CodexCard(Modifier.fillMaxWidth()) {
-                            Text(
-                                "当前登录状态",
-                                color = palette.color(palette.title),
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                            Text(
-                                credentials?.let(::displayAccount) ?: "尚未登录 Codex",
-                                modifier = Modifier.padding(top = 10.dp),
-                                color = palette.color(palette.secondary),
-                                fontSize = 15.sp,
-                                lineHeight = 22.sp,
-                            )
+                    Column(Modifier.fillMaxWidth()) {
+                        SettingsSection("OpenAI") {
+                            SettingsGroup {
+                                SettingsInfoRow(
+                                    title = "状态",
+                                    value = if (credentials == null) "尚未登录 Codex" else "已登录",
+                                )
+                                credentials?.let { value ->
+                                    JwtClaims.planType(value.idToken)?.takeIf(String::isNotBlank)?.let { plan ->
+                                        SettingsDivider()
+                                        SettingsInfoRow(
+                                            title = "账户类型",
+                                            value = plan.replaceFirstChar { character -> character.uppercase() },
+                                        )
+                                    }
+                                    value.accountId?.let { accountId ->
+                                        SettingsDivider()
+                                        SettingsInfoRow("账号标识", mask(accountId))
+                                    }
+                                }
+                                SettingsActionButton(
+                                    label = if (credentials == null) "登录 Codex" else "退出登录",
+                                    danger = credentials != null,
+                                    bottomPadding = SettingsUiTokens.actionEdgeInset,
+                                    onClick = {
+                                        if (credentials == null) openLogin() else showLogoutDialog = true
+                                    },
+                                )
+                            }
                         }
-                        CodexButton(
-                            text = if (credentials == null) "登录 Codex" else "退出登录",
-                            onClick = {
-                                if (credentials == null) openLogin() else showLogoutDialog = true
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            style = if (credentials == null) CodexButtonStyle.PRIMARY else CodexButtonStyle.DANGER,
-                        )
                     }
                 }
                 if (showLogoutDialog) {
@@ -98,14 +91,6 @@ class AccountActivity : ComponentActivity() {
 
     private fun render() { credentials = oauthStore.load() }
 
-    private fun displayAccount(value: OAuthCredentials): String = buildString {
-        append("已登录 Codex")
-        JwtClaims.planType(value.idToken)?.takeIf(String::isNotBlank)?.let {
-            append("\n账户类型：${it.replaceFirstChar { character -> character.uppercase() }}")
-        }
-        value.accountId?.let { append("\n账号标识：${mask(it)}") }
-    }
-
     private fun mask(value: String): String =
         if (value.length <= 8) "••••" else "${value.take(4)}…${value.takeLast(4)}"
 
@@ -117,6 +102,7 @@ class AccountActivity : ComponentActivity() {
             QuotaAlertStateStore(this).clear()
             QuotaSnapshotStore(this).clear()
         }
+        com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
         QuotaRefreshScheduler.schedule(this)
         AppLogStore.record(this, "已退出登录")
         render()

@@ -35,6 +35,7 @@ import com.codexquotatray.android.update.UpdateBrowser
 import com.codexquotatray.android.update.UpdateDownloadCancelledException
 import com.codexquotatray.android.update.UpdateDownloadProgress
 import com.codexquotatray.android.update.UpdateRelease
+import com.codexquotatray.android.widget.QuotaWidgetBridge
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import java.util.concurrent.Executors
@@ -105,7 +106,7 @@ class MainActivity : ComponentActivity() {
                             iconRes = R.drawable.ic_settings,
                             description = "设置",
                             backdrop = pageBackdrop,
-                            size = 52.dp,
+                            buttonSize = 52.dp,
                             iconSize = 24.dp,
                             onClick = ::openSettings,
                         )
@@ -149,6 +150,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onResume() {
         super.onResume()
+        QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
         tryInstallPendingUpdate()
         if (::quota.isInitialized && selectedIndex == 0) quota.onVisible()
         if (::usage.isInitialized) usage.reconcilePairingState()

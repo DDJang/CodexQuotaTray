@@ -49,6 +49,7 @@ internal object TokenPairingFlow {
             }
         }
         if (!saved) return false
+        com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(appContext)
         TokenUsageRefreshScheduler.schedule(appContext)
         QuotaRefreshScheduler.schedule(appContext)
         return true

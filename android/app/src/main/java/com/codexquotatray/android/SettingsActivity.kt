@@ -166,7 +166,7 @@ class SettingsActivity : ComponentActivity() {
                             iconRes = R.drawable.ic_back,
                             description = "返回",
                             backdrop = backdrop,
-                            size = 52.dp,
+                            buttonSize = 52.dp,
                             iconSize = 25.dp,
                             onClick = ::finish,
                         )
@@ -421,12 +421,12 @@ class SettingsActivity : ComponentActivity() {
                     SettingsActionButton(
                         label = "解除配对",
                         danger = true,
-                        bottomPadding = SettingsUiTokens.actionBottomInset,
+                        bottomPadding = SettingsUiTokens.actionEdgeInset,
                     ) { showClearPairingDialog = true }
                 } ?: run {
                     SettingsActionButton(
                         label = "扫码配对",
-                        bottomPadding = SettingsUiTokens.actionBottomInset,
+                        bottomPadding = SettingsUiTokens.actionEdgeInset,
                         onClick = ::scanPairing,
                     )
                 }
@@ -465,24 +465,6 @@ class SettingsActivity : ComponentActivity() {
             updateLastCheckAtMillis = update.lastCheckAtMillis
         }
     }
-
-    private fun settingsPalette(base: ThemePalette, effectiveTheme: ThemeMode): ThemePalette =
-        if (effectiveTheme == ThemeMode.DARK) {
-            base.copy(
-                background = 0xff000000.toInt(),
-                surface = 0xff252525.toInt(),
-                border = 0xff343434.toInt(),
-                title = 0xfff5f5f5.toInt(),
-                body = 0xffeeeeee.toInt(),
-                secondary = 0xff969696.toInt(),
-                muted = 0xff8d8d8d.toInt(),
-                secondaryButton = 0xff333333.toInt(),
-                secondaryButtonText = 0xfff2f2f2.toInt(),
-                progressTrack = 0xff3a3a3a.toInt(),
-            )
-        } else {
-            base
-        }
 
     private fun updateQuotaAutoRefresh(enabled: Boolean) {
         quotaAutoRefresh = enabled
@@ -628,7 +610,7 @@ class SettingsActivity : ComponentActivity() {
                 SettingsActionButton(
                     label = if (updateChecking) "正在检查…" else "检查更新",
                     enabled = !updateChecking,
-                    bottomPadding = SettingsUiTokens.actionBottomInset,
+                    bottomPadding = SettingsUiTokens.actionEdgeInset,
                     onClick = ::checkForUpdates,
                 )
             }
@@ -664,6 +646,7 @@ class SettingsActivity : ComponentActivity() {
             }
         }
         if (cleared) {
+            com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
             TokenUsageRefreshScheduler.cancel(this)
             QuotaRefreshScheduler.schedule(this)
             renderState()

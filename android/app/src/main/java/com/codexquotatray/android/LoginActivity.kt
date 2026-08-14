@@ -8,9 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
@@ -18,7 +16,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -47,50 +44,67 @@ class LoginActivity : ComponentActivity() {
         AppTheme.applySystemBars(this)
         setContent {
             themeVersion
-            val palette = AppTheme.palette(this)
+            val palette = settingsPalette(AppTheme.palette(this), AppTheme.effectiveMode(this))
             CodexQuotaTheme(palette) {
                 SecondaryScreenScaffold(title = "登录 Codex", onBack = ::finish) {
-                    Column(
-                        Modifier.fillMaxSize().padding(horizontal = CodexDimensions.screenPadding),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        CodexCard(Modifier.fillMaxWidth()) {
-                            Text(
-                                statusText,
-                                modifier = Modifier.fillMaxWidth(),
-                                color = palette.color(if (failed) palette.error else palette.secondary),
-                                fontSize = 16.sp,
-                                lineHeight = 23.sp,
-                                textAlign = TextAlign.Center,
-                            )
-                            userCode?.let { code ->
-                                Text(
-                                    code,
-                                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
-                                    color = palette.color(palette.accent),
-                                    fontSize = 25.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    letterSpacing = 2.sp,
-                                    textAlign = TextAlign.Center,
+                    Column(Modifier.fillMaxWidth()) {
+                        SettingsSection("OpenAI 登录") {
+                            SettingsGroup {
+                                SettingsInfoRow(
+                                    title = "状态",
+                                    value = statusText,
+                                    valueColor = if (failed) {
+                                        palette.color(palette.error)
+                                    } else {
+                                        palette.color(palette.secondary)
+                                    },
+                                    valueMaxLines = 4,
                                 )
+                                userCode?.let { code ->
+                                    SettingsDivider()
+                                    Column(
+                                        Modifier.fillMaxWidth().padding(
+                                            horizontal = SettingsUiTokens.rowHorizontalPadding,
+                                            vertical = 14.dp,
+                                        ),
+                                    ) {
+                                        Text(
+                                            "登录码",
+                                            color = palette.color(palette.secondary),
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                        Text(
+                                            code,
+                                            modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                                            color = palette.color(palette.accent),
+                                            fontSize = 25.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace,
+                                            letterSpacing = 2.sp,
+                                            textAlign = TextAlign.Center,
+                                        )
+                                    }
+                                }
+                                if (!verificationUrl.isNullOrBlank()) {
+                                    SettingsActionButton(
+                                        label = "打开浏览器",
+                                        bottomPadding = if (busy) {
+                                            SettingsUiTokens.actionEdgeInset
+                                        } else {
+                                            SettingsUiTokens.actionInnerInset
+                                        },
+                                        onClick = ::openVerificationBrowser,
+                                    )
+                                }
+                                if (!busy) {
+                                    SettingsActionButton(
+                                        label = "重新登录",
+                                        bottomPadding = SettingsUiTokens.actionEdgeInset,
+                                        onClick = ::beginLogin,
+                                    )
+                                }
                             }
-                        }
-                        if (!verificationUrl.isNullOrBlank()) {
-                            CodexButton(
-                                text = "打开浏览器",
-                                onClick = ::openVerificationBrowser,
-                                modifier = Modifier.fillMaxWidth().padding(top = 14.dp),
-                                style = CodexButtonStyle.PRIMARY,
-                            )
-                        }
-                        if (!busy) {
-                            CodexButton(
-                                text = "重新登录",
-                                onClick = ::beginLogin,
-                                modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                            )
                         }
                     }
                 }

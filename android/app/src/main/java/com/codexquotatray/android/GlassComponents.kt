@@ -5,13 +5,11 @@ import android.util.Log
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -46,8 +44,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.paint
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -58,9 +58,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
@@ -69,6 +73,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.TextStyle
 import androidx.annotation.DrawableRes
 import androidx.compose.ui.util.fastCoerceIn
+import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.fastFirstOrNull
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
@@ -78,6 +83,7 @@ import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
@@ -90,7 +96,59 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.sign
+import kotlin.math.sin
+import kotlin.math.tanh
+
+@Composable
+internal fun GlassSurface(
+    backdrop: Backdrop,
+    shape: Shape,
+    modifier: Modifier = Modifier,
+    clippedModifier: Modifier = Modifier,
+    layerBlock: GraphicsLayerScope.() -> Unit = {},
+    contentAlignment: Alignment = Alignment.Center,
+    blurRadius: Dp = 2.dp,
+    refractionHeight: Dp = 12.dp,
+    refractionAmount: Dp = 24.dp,
+    enableVibrancy: Boolean = true,
+    lensDepthEffect: Boolean = false,
+    enableColorControls: Boolean = false,
+    saturation: Float = 1f,
+    highlight: Highlight? = null,
+    surfaceAlpha: Float = 0.2f,
+    surfaceColor: Color? = null,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val palette = LocalQuotaPalette.current
+    val resolvedSurfaceColor = surfaceColor ?: palette.color(palette.surface)
+    Box(
+        modifier
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = { shape },
+                effects = {
+                    if (enableVibrancy) {
+                        vibrancy()
+                    }
+                    if (enableColorControls) {
+                        colorControls(brightness = 0f, saturation = saturation, contrast = 1f)
+                    }
+                    blur(blurRadius.toPx())
+                    lens(refractionHeight.toPx(), refractionAmount.toPx(), depthEffect = lensDepthEffect)
+                },
+                highlight = { highlight ?: Highlight.Default },
+                layerBlock = layerBlock,
+                onDrawSurface = { drawRect(resolvedSurfaceColor.copy(alpha = surfaceAlpha)) },
+            )
+            .clip(shape)
+            .then(clippedModifier),
+        contentAlignment = contentAlignment,
+        content = content,
+    )
+}
 
 @Composable
 internal fun GlassIconButton(
@@ -99,55 +157,62 @@ internal fun GlassIconButton(
     backdrop: Backdrop,
     enabled: Boolean = true,
     busy: Boolean = false,
-    size: Dp = 52.dp,
+    buttonSize: Dp = 52.dp,
     iconSize: Dp = 24.dp,
     onClick: () -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
+    val animationScope = rememberCoroutineScope()
     val hapticOnClick = rememberSystemHapticClick(onClick)
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val pressProgress by animateFloatAsState(
-        if (pressed) 1f else 0f,
-        spring(dampingRatio = 0.62f, stiffness = 520f),
-        label = "glass-button-press",
-    )
-    Box(
-        Modifier
-            .size(size)
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { KyantShapes.capsule() },
-                effects = {
-                    vibrancy()
-                    blur(7.dp.toPx())
-                    lens(
-                        11.dp.toPx() * (0.8f + 0.2f * pressProgress),
-                        10.dp.toPx(),
-                        chromaticAberration = false,
-                    )
-                },
-                highlight = { Highlight.Default.copy(alpha = 0.7f) },
-                shadow = { Shadow(alpha = 0.55f) },
-                innerShadow = { InnerShadow(radius = 5.dp, alpha = 0.5f) },
-                layerBlock = {
-                    val scale = lerp(1f, 0.9f, pressProgress)
-                    scaleX = scale
-                    scaleY = scale
-                },
-                onDrawSurface = { drawRect(palette.color(palette.surface).copy(alpha = 0.2f)) },
-            )
-            .clip(KyantShapes.capsule())
+    val interactiveHighlight = remember(animationScope) {
+        GlassInteractiveHighlight(animationScope)
+    }
+    GlassSurface(
+        backdrop = backdrop,
+        shape = KyantShapes.capsule(),
+        modifier = Modifier.size(buttonSize),
+        clippedModifier = Modifier
             .clickable(
-                interactionSource = interaction,
+                interactionSource = null,
                 indication = null,
                 enabled = enabled,
                 role = Role.Button,
                 onClick = hapticOnClick,
             )
+            .then(
+                if (enabled) {
+                    Modifier
+                        .then(interactiveHighlight.modifier)
+                        .then(interactiveHighlight.gestureModifier)
+                } else {
+                    Modifier
+                },
+            )
             .semantics { contentDescription = description }
             .alpha(if (enabled) 1f else 0.45f),
-        contentAlignment = Alignment.Center,
+        layerBlock = {
+                    val width = size.width
+                    val height = size.height
+                    val progress = interactiveHighlight.pressProgress
+                    val scale = lerp(1f, 1f + 4.dp.toPx() / height, progress)
+                    val maxOffset = size.minDimension
+                    val initialDerivative = 0.05f
+                    val rawOffset = interactiveHighlight.offset
+                    val offset = Offset(
+                        rawOffset.x.fastCoerceIn(-maxOffset, maxOffset),
+                        rawOffset.y.fastCoerceIn(-maxOffset, maxOffset),
+                    )
+                    translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
+                    translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
+                    val maxDragScale = 4.dp.toPx() / height
+                    val offsetAngle = atan2(offset.y, offset.x)
+                    scaleX = scale + maxDragScale *
+                        abs(cos(offsetAngle) * offset.x / size.maxDimension) *
+                        (width / height).fastCoerceAtMost(1f)
+                    scaleY = scale + maxDragScale *
+                        abs(sin(offsetAngle) * offset.y / size.maxDimension) *
+                        (height / width).fastCoerceAtMost(1f)
+                },
     ) {
         if (busy) {
             CircularProgressIndicator(
@@ -169,16 +234,30 @@ internal fun GlassIconButton(
 private val LocalDockTabScale = compositionLocalOf { { 1f } }
 
 @Composable
-private fun RowScope.DockTab(onClick: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+private fun RowScope.DockTab(
+    selected: Boolean,
+    onSelect: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val scale = LocalDockTabScale.current
-    val hapticOnClick = rememberSystemHapticClick(onClick)
     Column(
         Modifier
             .clip(KyantShapes.capsule())
-            .clickable(interactionSource = null, indication = null, role = Role.Tab, onClick = hapticOnClick)
+            .semantics {
+                role = Role.Tab
+                this.selected = selected
+                onClick {
+                    onSelect()
+                    true
+                }
+            }
             .fillMaxHeight()
             .weight(1f)
-            .graphicsLayer { scaleX = scale(); scaleY = scale() },
+            .graphicsLayer {
+                val selectedScale = if (selected) 1.02f else 1f
+                scaleX = scale() * selectedScale
+                scaleY = scale() * selectedScale
+            },
         verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content,
@@ -238,7 +317,7 @@ internal fun LiquidMainDock(
                 backdrop = backdrop,
                 enabled = actionEnabled && !actionBusy,
                 busy = actionBusy,
-                size = actionSize,
+                buttonSize = actionSize,
                 iconSize = 24.dp,
                 onClick = onAction,
             )
@@ -270,6 +349,7 @@ private fun LiquidTabCapsule(
 
     BoxWithConstraints(modifier, contentAlignment = Alignment.CenterStart) {
         val density = LocalDensity.current
+        val touchSlop = LocalViewConfiguration.current.touchSlop
         val tabWidth = with(density) { (constraints.maxWidth.toFloat() - 8.dp.toPx()) / 2f }
         val pressedScaleX = with(density) { (tabWidth + 22.dp.toPx()) / tabWidth }
         val offsetAnimation = remember { Animatable(0f) }
@@ -281,6 +361,9 @@ private fun LiquidTabCapsule(
         }
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         var currentIndex by remember { mutableIntStateOf(selectedIndex) }
+        var tapIndex by remember { mutableIntStateOf(selectedIndex) }
+        var totalHorizontalDrag by remember { mutableStateOf(0f) }
+        var gestureMoved by remember { mutableStateOf(false) }
         var settledLogJob by remember { mutableStateOf<Job?>(null) }
         val drag = remember(scope, hapticFeedback) {
             BottomDockDampedDragAnimation(
@@ -292,19 +375,32 @@ private fun LiquidTabCapsule(
                 pressedScaleX = pressedScaleX,
                 pressedScaleY = 78f / 56f,
                 onDragStarted = {
+                    tapIndex = if (it.x < constraints.maxWidth / 2f) {
+                        if (isLtr) 0 else 1
+                    } else {
+                        if (isLtr) 1 else 0
+                    }
+                    totalHorizontalDrag = 0f
+                    gestureMoved = false
                     settledLogJob?.cancel()
                     logBottomDockState(debugLogging, "DOWN", currentIndex, this)
                 },
                 onDragStopped = {
                     settledLogJob?.cancel()
                     logBottomDockState(debugLogging, "UP", currentIndex, this)
-                    val target = targetValue.fastRoundToInt().fastCoerceIn(0, 1)
+                    val target = if (gestureMoved) {
+                        targetValue.fastRoundToInt().fastCoerceIn(0, 1)
+                    } else {
+                        tapIndex
+                    }
                     if (target != currentIndex) {
                         logBottomDockState(debugLogging, "HAPTIC", target, this)
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
                     }
                     currentIndex = target
                     settleToValue(target.toFloat())
+                    totalHorizontalDrag = 0f
+                    gestureMoved = false
                     scope.launch { offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f)) }
                     val animation = this
                     settledLogJob = scope.launch {
@@ -312,9 +408,26 @@ private fun LiquidTabCapsule(
                         logBottomDockState(debugLogging, "SETTLED", currentIndex, animation)
                     }
                 },
+                onDragCancelled = {
+                    settleToValue(currentIndex.toFloat())
+                    totalHorizontalDrag = 0f
+                    gestureMoved = false
+                    scope.launch { offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f)) }
+                },
                 onDrag = { _, amount ->
-                    updateValue((targetValue + amount.x / tabWidth * if (isLtr) 1f else -1f).fastCoerceIn(0f, 1f))
-                    scope.launch { offsetAnimation.snapTo(offsetAnimation.value + amount.x) }
+                    totalHorizontalDrag += amount.x
+                    val crossedTouchSlop = !gestureMoved && isDockDrag(totalHorizontalDrag, touchSlop)
+                    if (crossedTouchSlop) {
+                        gestureMoved = true
+                        updateValue(
+                            (targetValue + totalHorizontalDrag / tabWidth * if (isLtr) 1f else -1f)
+                                .fastCoerceIn(0f, 1f),
+                        )
+                        scope.launch { offsetAnimation.snapTo(totalHorizontalDrag) }
+                    } else if (gestureMoved) {
+                        updateValue((targetValue + amount.x / tabWidth * if (isLtr) 1f else -1f).fastCoerceIn(0f, 1f))
+                        scope.launch { offsetAnimation.snapTo(offsetAnimation.value + amount.x) }
+                    }
                 },
             )
         }
@@ -328,7 +441,7 @@ private fun LiquidTabCapsule(
             }
         }
         val interactiveHighlight = remember(scope) {
-            BottomDockInteractiveHighlight(
+            GlassInteractiveHighlight(
                 animationScope = scope,
                 position = { size, _ ->
                     Offset(
@@ -341,10 +454,10 @@ private fun LiquidTabCapsule(
         }
 
         val tabs: @Composable RowScope.() -> Unit = {
-            DockTab({ currentIndex = 0 }) {
+            DockTab(selected = currentIndex == 0, onSelect = { onSelected(0) }) {
                 DockTabContent(R.drawable.ic_quota, "额度", unselectedContentColor)
             }
-            DockTab({ currentIndex = 1 }) {
+            DockTab(selected = currentIndex == 1, onSelect = { onSelected(1) }) {
                 DockTabContent(R.drawable.ic_usage, "统计", unselectedContentColor)
             }
         }
@@ -416,8 +529,6 @@ private fun LiquidTabCapsule(
         Box(
             Modifier.padding(horizontal = 4.dp)
                 .graphicsLayer { translationX = if (isLtr) drag.value * tabWidth + panelOffset else size.width - (drag.value + 1f) * tabWidth + panelOffset }
-                .then(interactiveHighlight.gestureModifier)
-                .then(drag.modifier)
                 .drawBackdrop(
                     rememberCombinedBackdrop(backdrop, tabsBackdrop), { KyantShapes.capsule() },
                     effects = { lens(10.dp.toPx() * drag.pressProgress, 14.dp.toPx() * drag.pressProgress, chromaticAberration = true) },
@@ -436,6 +547,12 @@ private fun LiquidTabCapsule(
                     },
                 )
                 .height(56.dp).fillMaxWidth(0.5f),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(interactiveHighlight.gestureModifier)
+                .then(drag.modifier),
         )
     }
 }

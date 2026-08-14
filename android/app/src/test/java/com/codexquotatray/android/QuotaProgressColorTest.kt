@@ -16,6 +16,14 @@ class QuotaProgressColorTest {
     fun `remaining percentage is clamped before interpolation`() {
         assertEquals(quotaProgressColor(100), quotaProgressColor(150))
         assertEquals(quotaProgressColor(0), quotaProgressColor(-20))
+        assertEquals(0xff35e66b.toInt(), quotaProgressArgb(110))
+        assertEquals(0xffff4d5d.toInt(), quotaProgressArgb(-10))
+    }
+
+    @Test
+    fun `pure argb helper preserves continuous red yellow green interpolation`() {
+        assertEquals(0xffff9355.toInt(), quotaProgressArgb(25))
+        assertEquals(0xff9adf5c.toInt(), quotaProgressArgb(75))
     }
 
     @Test

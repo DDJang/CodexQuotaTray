@@ -57,11 +57,30 @@ internal object SettingsUiTokens {
     val actionHeight = 52.dp
     val actionCornerRadius = 18.dp
     val actionHorizontalInset = 12.dp
-    val actionBottomInset = 10.dp
+    val actionInnerInset = 4.dp
+    val actionEdgeInset = 10.dp
     val segmentedHeight = 48.dp
     val segmentedCornerRadius = 16.dp
     val segmentedBottomInset = 10.dp
 }
+
+internal fun settingsPalette(base: ThemePalette, effectiveTheme: ThemeMode): ThemePalette =
+    if (effectiveTheme == ThemeMode.DARK) {
+        base.copy(
+            background = 0xff000000.toInt(),
+            surface = 0xff252525.toInt(),
+            border = 0xff343434.toInt(),
+            title = 0xfff5f5f5.toInt(),
+            body = 0xffeeeeee.toInt(),
+            secondary = 0xff969696.toInt(),
+            muted = 0xff8d8d8d.toInt(),
+            secondaryButton = 0xff333333.toInt(),
+            secondaryButtonText = 0xfff2f2f2.toInt(),
+            progressTrack = 0xff3a3a3a.toInt(),
+        )
+    } else {
+        base
+    }
 
 @Composable
 internal fun SettingsSection(
@@ -224,6 +243,8 @@ internal fun SettingsSelectionRow(
 internal fun SettingsInfoRow(
     title: String,
     value: String,
+    valueColor: Color? = null,
+    valueMaxLines: Int = 2,
 ) {
     val palette = LocalQuotaPalette.current
     Row(
@@ -243,9 +264,9 @@ internal fun SettingsInfoRow(
         Spacer(Modifier.width(16.dp))
         Text(
             text = value,
-            color = palette.color(palette.secondary),
+            color = valueColor ?: palette.color(palette.secondary),
             fontSize = 14.sp,
-            maxLines = 2,
+            maxLines = valueMaxLines,
             overflow = TextOverflow.Ellipsis,
         )
     }
@@ -294,7 +315,8 @@ internal fun SettingsActionButton(
     label: String,
     danger: Boolean = false,
     enabled: Boolean = true,
-    bottomPadding: Dp = 4.dp,
+    topPadding: Dp = SettingsUiTokens.actionInnerInset,
+    bottomPadding: Dp = SettingsUiTokens.actionInnerInset,
     onClick: () -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
@@ -307,7 +329,7 @@ internal fun SettingsActionButton(
             .fillMaxWidth()
             .padding(
                 start = SettingsUiTokens.actionHorizontalInset,
-                top = 4.dp,
+                top = topPadding,
                 end = SettingsUiTokens.actionHorizontalInset,
                 bottom = bottomPadding,
             )

@@ -7,38 +7,65 @@ import android.os.Handler
 import android.os.Looper
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.VisibilityThreshold
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import com.codexquotatray.android.usage.HeatmapBuckets
 import com.codexquotatray.android.usage.TokenFormatter
@@ -65,6 +92,13 @@ import java.time.temporal.TemporalAdjusters
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.blur.HazeColorEffect
+import dev.chrisbanes.haze.blur.blurEffect
 
 internal class TokenUsagePageController(private val host: MainActivity) {
     private val cache by lazy { TokenUsageCache(host) }
@@ -79,7 +113,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         private set
     var snapshot by mutableStateOf<TokenUsageSnapshot?>(null)
         private set
-    var status by mutableStateOf("尚未打开统计")
+    var status by mutableStateOf(RefreshStatusFormatter.tokenUnpaired())
         private set
     var paired by mutableStateOf(false)
         private set
@@ -124,7 +158,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
             observedPairing = null
             paired = false
             snapshot = null
-            status = "尚未配对 Windows"
+            status = RefreshStatusFormatter.tokenUnpaired()
             return
         }
 
@@ -132,10 +166,11 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         paired = true
         if (decision.pairingChanged) {
             snapshot = decision.snapshotToDisplay
-            status = snapshot?.let { "上次同步于 ${formatSyncTime(it.generatedAtUtc)}" } ?: "已配对，尚未同步"
+            status = snapshot?.let { RefreshStatusFormatter.loaded("Windows", formatSyncTime(it.generatedAtUtc)) }
+                ?: RefreshStatusFormatter.tokenPairedWithoutData()
         } else if (decision.snapshotToDisplay !== snapshot && decision.snapshotToDisplay != null) {
             snapshot = decision.snapshotToDisplay
-            status = "上次同步于 ${formatSyncTime(decision.snapshotToDisplay.generatedAtUtc)}"
+            status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(decision.snapshotToDisplay.generatedAtUtc))
         }
     }
 
@@ -162,7 +197,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.TOKEN, reason, enabled)) return
         val snapshotAtStart = snapshot
         syncing = true
-        status = if (snapshot == null) "正在从 Windows 同步…" else "正在同步；当前显示缓存"
+        status = RefreshStatusFormatter.refreshing(snapshot != null)
         worker.execute {
             val result = try {
                 runCatching {
@@ -180,15 +215,18 @@ internal class TokenUsagePageController(private val host: MainActivity) {
                 result.onSuccess { synced ->
                     snapshot = synced.snapshot
                     observedPairing = store.load() ?: synced.pairing
-                    status = "上次同步于 ${formatSyncTime(synced.snapshot.generatedAtUtc)}"
+                    status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(synced.snapshot.generatedAtUtc))
                 }.onFailure { error ->
                     val latestSnapshot = loadCachedSnapshot()
                     if (latestSnapshot != null && hasNewerTokenUsageSnapshot(snapshotAtStart, latestSnapshot)) {
                         snapshot = latestSnapshot
-                        status = "上次同步于 ${formatSyncTime(latestSnapshot.generatedAtUtc)}"
+                        status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(latestSnapshot.generatedAtUtc))
                     } else {
                         val message = tokenUsageSyncErrorMessage(error)
-                        status = snapshot?.let { "上次同步于 ${formatSyncTime(it.generatedAtUtc)} · $message" } ?: message
+                        status = RefreshStatusFormatter.failure(
+                            reason = message,
+                            updatedAt = snapshot?.let { formatSyncTime(it.generatedAtUtc) },
+                        )
                     }
                 }
             }
@@ -262,42 +300,76 @@ internal fun TokenUsagePage(controller: TokenUsagePageController, onPairing: () 
 
 @Composable
 private fun TokenUsageStatusLine(status: String) {
-    val palette = LocalQuotaPalette.current
-    val separator = " · "
-    val separatorIndex = status.indexOf(separator)
-    if (separatorIndex >= 0) {
-        Row {
-            Text(status.substring(0, separatorIndex), fontSize = 14.sp, color = palette.color(palette.muted))
-            Text(separator, fontSize = 14.sp, color = palette.color(palette.muted))
-            Text(status.substring(separatorIndex + separator.length), fontSize = 14.sp, color = palette.color(palette.error))
-        }
-    } else {
-        Text(
-            status,
-            fontSize = 14.sp,
-            color = palette.color(
-                if (status.contains("Windows 当前不可用") || status.contains("Token 同步数据保存失败")) palette.error else palette.muted,
-            ),
-        )
-    }
-
+    RefreshStatusLine(status)
 }
 
 @Composable
 private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
-    val palette = LocalQuotaPalette.current
     val first = listOf("今日 Token" to snapshot.summary.todayTokens, "7 天 Token" to snapshot.summary.last7DaysTokens, "30 天 Token" to snapshot.summary.last30DaysTokens, "累计 Token" to snapshot.summary.lifetimeTokens)
     val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续天数" to snapshot.summary.currentStreak.toLong(), "最长连续天数" to snapshot.summary.longestStreak.toLong())
-    SummaryRow(first)
-    SummaryRow(second)
-    Text("Token 热力图", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.title), modifier = Modifier.padding(top = 10.dp))
-    var selected by androidx.compose.runtime.remember { mutableStateOf<TokenUsageDay?>(null) }
-    Text(
-        selected?.let(::formatHeatmapSelection) ?: "触摸方格查看当日用量",
-        color = palette.color(palette.secondary),
-        fontSize = 14.sp,
-    )
-    TokenHeatmap(snapshot.days) { selected = it }
+    val tokenContentHazeState = rememberHazeState()
+    var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
+    var tooltipPresentation by remember { mutableStateOf<HeatmapTooltipPresentation?>(null) }
+    val tooltipTarget = tooltipPresentation?.target
+    val tooltipPositionAnimation = remember {
+        Animatable(
+            initialValue = Offset.Zero,
+            typeConverter = Offset.VectorConverter,
+            visibilityThreshold = Offset.VisibilityThreshold,
+        )
+    }
+    var tooltipPositionInitialized by remember { mutableStateOf(false) }
+    LaunchedEffect(tooltipTarget) {
+        if (tooltipTarget == null) {
+            tooltipPositionInitialized = false
+        } else if (!tooltipPositionInitialized) {
+            tooltipPositionAnimation.snapTo(tooltipTarget)
+            tooltipPositionInitialized = true
+        } else {
+            tooltipPositionAnimation.animateTo(
+                targetValue = tooltipTarget,
+                animationSpec = spring(
+                    dampingRatio = 0.5f,
+                    stiffness = 300f,
+                    visibilityThreshold = Offset.VisibilityThreshold,
+                ),
+            )
+        }
+    }
+    val tooltipOffset = if (tooltipTarget != null && !tooltipPositionInitialized) {
+        tooltipTarget
+    } else {
+        tooltipPositionAnimation.value
+    }
+    Box(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .hazeSource(tokenContentHazeState),
+        ) {
+            SummaryRow(first)
+            SummaryRow(second)
+            Spacer(Modifier.height(16.dp))
+            TokenHeatmap(
+                days = snapshot.days,
+                selectedDate = selectedDate,
+                onSelected = { selectedDate = it },
+                onClearSelection = { selectedDate = null },
+                onTooltipChanged = { tooltipPresentation = it },
+            )
+        }
+        tooltipPresentation?.let { presentation ->
+            HeatmapBlurTooltip(
+                day = presentation.day,
+                hazeState = tokenContentHazeState,
+                modifier = Modifier
+                    .offset {
+                        IntOffset(tooltipOffset.x.roundToInt(), tooltipOffset.y.roundToInt())
+                    }
+                    .zIndex(2f),
+            )
+        }
+    }
 }
 
 @Composable
@@ -313,34 +385,333 @@ private fun SummaryRow(items: List<Pair<String, Long>>) {
     }
 }
 
+private data class HeatmapVisualSelection(
+    val date: LocalDate,
+    val bounds: Rect,
+    val color: Color,
+)
+
+private data class HeatmapTooltipPresentation(
+    val day: TokenUsageDay,
+    val target: Offset,
+)
+
 @Composable
-private fun TokenHeatmap(days: List<TokenUsageDay>, selected: (TokenUsageDay) -> Unit) {
+private fun TokenHeatmap(
+    days: List<TokenUsageDay>,
+    selectedDate: LocalDate?,
+    onSelected: (LocalDate) -> Unit,
+    onClearSelection: () -> Unit,
+    onTooltipChanged: (HeatmapTooltipPresentation?) -> Unit,
+) {
     val palette = LocalQuotaPalette.current
+    val density = LocalDensity.current
     val hapticFeedback = LocalHapticFeedback.current
-    val range = tokenHeatmapRange(days)
-    val values = days.associateBy { it.date }
-    val nonZero = days.map { it.totalTokens }.filter { it > 0L }
-    val colors = listOf(palette.color(palette.progressTrack), androidx.compose.ui.graphics.Color(0xffc6e48b), androidx.compose.ui.graphics.Color(0xff7bc96f), androidx.compose.ui.graphics.Color(0xff239a3b), androidx.compose.ui.graphics.Color(0xff196127))
-    val scroll = rememberScrollState(initial = Int.MAX_VALUE)
-    Canvas(
+    val latestSelectedDate = rememberUpdatedState(selectedDate)
+    val today = LocalDate.now()
+    val range = remember(today) { tokenHeatmapRange(today) }
+    val values = remember(days) { days.associateBy { it.date } }
+    val nonZero = remember(days) { days.map { it.totalTokens }.filter { it > 0L } }
+    val colors = remember(palette) {
+        listOf(
+            palette.color(palette.progressTrack),
+            androidx.compose.ui.graphics.Color(0xffc6e48b),
+            androidx.compose.ui.graphics.Color(0xff7bc96f),
+            androidx.compose.ui.graphics.Color(0xff239a3b),
+            androidx.compose.ui.graphics.Color(0xff196127),
+        )
+    }
+
+    var heatmapOriginInParent by remember { mutableStateOf(Offset.Zero) }
+    BoxWithConstraints(
         Modifier
-            .horizontalScroll(scroll)
-            .size(width = (range.columnCount * 18 - 3).dp, height = 126.dp)
-            .pointerInput(range, days) {
-            detectTapGestures { point ->
-                val column = (point.x / 18.dp.toPx()).toInt(); val row = (point.y / 18.dp.toPx()).toInt(); val index = column * 7 + row
-                if (index in 0 until range.dayCount) {
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
-                    val date = range.start.plusDays(index.toLong())
-                    selected(values[date] ?: TokenUsageDay(date, 0, null, null, null, null))
+            .fillMaxWidth()
+            .onGloballyPositioned { coordinates ->
+                heatmapOriginInParent = coordinates.positionInParent()
+            },
+    ) {
+        val viewportWidthPx = with(density) { maxWidth.toPx() }
+        val geometry = remember(range.start, range.dayCount, maxWidth, density) {
+            val gapPx = with(density) { HEATMAP_GAP.toPx() }
+            val maxCellSizePx = with(density) { HEATMAP_MAX_CELL_SIZE.toPx() }
+            val cellSizePx = ((viewportWidthPx - (TOKEN_HEATMAP_COLUMNS - 1) * gapPx) / TOKEN_HEATMAP_COLUMNS)
+                .coerceAtLeast(1f)
+                .coerceAtMost(maxCellSizePx)
+            val contentWidthPx = TOKEN_HEATMAP_COLUMNS * cellSizePx + (TOKEN_HEATMAP_COLUMNS - 1) * gapPx
+            HeatmapGeometry(
+                cellSizePx = cellSizePx,
+                gapPx = gapPx,
+                startDate = range.start,
+                dayCount = range.dayCount,
+                contentOffsetX = centeredHeatmapOffset(viewportWidthPx, contentWidthPx),
+            )
+        }
+        val gridWidth = with(density) { geometry.contentWidthPx.toDp() }
+        val gridHeight = with(density) { geometry.contentHeightPx.toDp() }
+        val gridCellSize = with(density) { geometry.cellSizePx.toDp() }
+        val selectedIndex = selectedDate?.let { ChronoUnit.DAYS.between(range.start, it).toInt() }
+        val selectedBounds = selectedIndex?.let(geometry::cellBounds)
+        val selectedDay = if (selectedDate != null && selectedBounds != null) {
+            values[selectedDate] ?: TokenUsageDay(selectedDate, 0, null, null, null, null)
+        } else {
+            null
+        }
+        val currentVisualSelection = if (selectedDate != null && selectedBounds != null && selectedDay != null) {
+            HeatmapVisualSelection(
+                date = selectedDate,
+                bounds = selectedBounds,
+                color = colors[HeatmapBuckets.bucket(selectedDay.totalTokens, nonZero)],
+            )
+        } else {
+            null
+        }
+        var visualSelection by remember { mutableStateOf<HeatmapVisualSelection?>(null) }
+        val selectedScaleAnimation = remember {
+            Animatable(1f)
+        }
+        LaunchedEffect(currentVisualSelection) {
+            if (currentVisualSelection != null) {
+                val wasVisible = visualSelection != null
+                visualSelection = currentVisualSelection
+                if (!wasVisible) {
+                    selectedScaleAnimation.snapTo(1f)
+                }
+                selectedScaleAnimation.animateTo(
+                    targetValue = HEATMAP_SELECTED_SCALE,
+                    animationSpec = tween(170),
+                )
+            } else if (visualSelection != null) {
+                selectedScaleAnimation.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(170),
+                )
+                visualSelection = null
+            }
+        }
+        val renderedVisualSelection = currentVisualSelection ?: visualSelection
+        val tooltipWidthPx = with(density) { HEATMAP_TOOLTIP_WIDTH.toPx() }
+        val tooltipHeightPx = with(density) { HEATMAP_TOOLTIP_HEIGHT.toPx() }
+        val tooltipClearancePx = with(density) { HEATMAP_TOOLTIP_CLEARANCE.toPx() }
+        val selectedBoundsInParent = selectedBounds?.let { bounds ->
+            Rect(
+                left = bounds.left + heatmapOriginInParent.x,
+                top = bounds.top + heatmapOriginInParent.y,
+                right = bounds.right + heatmapOriginInParent.x,
+                bottom = bounds.bottom + heatmapOriginInParent.y,
+            )
+        }
+        val tooltipPlacement = if (selectedBoundsInParent != null) {
+            placeHeatmapTooltip(
+                viewportWidthPx = viewportWidthPx,
+                cellBounds = selectedBoundsInParent,
+                tooltipWidthPx = tooltipWidthPx,
+                tooltipHeightPx = tooltipHeightPx,
+                selectedScale = HEATMAP_SELECTED_SCALE,
+                clearancePx = tooltipClearancePx,
+            )
+        } else {
+            null
+        }
+        val tooltipPresentation = if (selectedDay != null && tooltipPlacement != null) {
+            HeatmapTooltipPresentation(
+                day = selectedDay,
+                target = Offset(tooltipPlacement.x, tooltipPlacement.y),
+            )
+        } else {
+            null
+        }
+        LaunchedEffect(tooltipPresentation) {
+            onTooltipChanged(tooltipPresentation)
+        }
+        val containerHeight = gridHeight
+
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(containerHeight)
+                .semantics {
+                    contentDescription = selectedDay?.let {
+                        "${formatHeatmapTooltipDate(it.date)}，${formatHeatmapTooltipTokenCount(it.totalTokens)}"
+                    } ?: "Token 使用热力图"
+                }
+                .pointerInput(geometry) {
+                    var gestureState: HeatmapGestureState? = null
+                    detectTokenHeatmapGestures(
+                        onSelectionStart = { point ->
+                            val index = geometry.hitTest(
+                                point = point,
+                            )
+                            val date = index?.let(geometry::indexToDate)
+                            val state = heatmapGestureOnDown(latestSelectedDate.value, date)
+                            if (state == null) {
+                                gestureState = null
+                                false
+                            } else {
+                                gestureState = state
+                                hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                if (!state.startedOnSelected) {
+                                    onSelected(state.currentScrubDate)
+                                }
+                                true
+                            }
+                        },
+                        onSelectionMove = { point ->
+                            val index = geometry.hitTest(
+                                point = point,
+                            )
+                            val date = index?.let(geometry::indexToDate)
+                            gestureState?.let { currentState ->
+                                val nextState = heatmapGestureOnMove(currentState, date)
+                                if (nextState.currentScrubDate != currentState.currentScrubDate) {
+                                    onSelected(nextState.currentScrubDate)
+                                }
+                                gestureState = nextState
+                            }
+                        },
+                        onSelectionEnd = {
+                            gestureState?.let { state ->
+                                if (heatmapGestureShouldClear(state)) {
+                                    onClearSelection()
+                                }
+                            }
+                            gestureState = null
+                        },
+                    )
+                },
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(gridHeight),
+            ) {
+                Box(
+                    Modifier
+                        .width(gridWidth)
+                        .height(gridHeight)
+                        .align(androidx.compose.ui.Alignment.Center),
+                ) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        repeat(range.dayCount) { index ->
+                            val date = range.start.plusDays(index.toLong())
+                            val tokens = values[date]?.totalTokens ?: 0L
+                            val column = index / geometry.rowCount
+                            val row = index % geometry.rowCount
+                            drawRoundRect(
+                                color = colors[HeatmapBuckets.bucket(tokens, nonZero)],
+                                topLeft = Offset(column * geometry.stridePx, row * geometry.stridePx),
+                                size = Size(geometry.cellSizePx, geometry.cellSizePx),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                                    with(density) { HEATMAP_CORNER_RADIUS.toPx() },
+                                ),
+                            )
+                        }
+                    }
                 }
             }
-        },
+
+            renderedVisualSelection?.let { selection ->
+                HeatmapSelectedCell(
+                    color = selection.color,
+                    cellSize = gridCellSize,
+                    scale = selectedScaleAnimation.value,
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(
+                                selection.bounds.left.roundToInt(),
+                                selection.bounds.top.roundToInt(),
+                            )
+                        }
+                        .zIndex(1f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeatmapSelectedCell(
+    color: androidx.compose.ui.graphics.Color,
+    cellSize: androidx.compose.ui.unit.Dp,
+    scale: Float,
+    modifier: Modifier = Modifier,
+) {
+    val shape = RoundedCornerShape(HEATMAP_CORNER_RADIUS)
+    val edgeColor = lerp(color, Color.White, 0.24f)
+    Box(
+        modifier
+            .size(cellSize)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                transformOrigin = TransformOrigin.Center
+            }
+            .dropShadow(
+                shape = shape,
+                shadow = Shadow(
+                    radius = 11.dp,
+                    spread = 2.dp,
+                    color = color.copy(alpha = 0.6f),
+                    offset = DpOffset.Zero,
+                ),
+            )
+            .background(color, shape)
+            .border(1.dp, edgeColor, shape),
+    )
+}
+
+@Composable
+private fun HeatmapBlurTooltip(
+    day: TokenUsageDay,
+    hazeState: HazeState,
+    modifier: Modifier = Modifier,
+) {
+    val containerColor = Color(0xFF121212)
+    val shape = RoundedCornerShape(16.dp)
+    val scale = remember { Animatable(0.96f) }
+    LaunchedEffect(Unit) {
+        scale.animateTo(1f, tween(160))
+    }
+    Box(
+        modifier
+            .width(HEATMAP_TOOLTIP_WIDTH)
+            .height(HEATMAP_TOOLTIP_HEIGHT)
+            .graphicsLayer {
+                scaleX = scale.value
+                scaleY = scale.value
+                transformOrigin = TransformOrigin.Center
+            }
+            .clip(shape)
+            .hazeEffect(hazeState) {
+                blurEffect {
+                    blurRadius = 24.dp
+                    backgroundColor = containerColor
+                    colorEffects = listOf(
+                        HazeColorEffect.tint(containerColor.copy(alpha = 0.65f)),
+                    )
+                }
+            }
+            .border(1.dp, Color.White.copy(alpha = 0.18f), shape)
+            .semantics {
+                contentDescription = "${formatHeatmapTooltipDate(day.date)}，${formatHeatmapTooltipTokenCount(day.totalTokens)}"
+            },
     ) {
-        val cell = 15.dp.toPx(); val gap = 3.dp.toPx()
-        repeat(range.dayCount) { index ->
-            val date = range.start.plusDays(index.toLong()); val tokens = values[date]?.totalTokens ?: 0L
-            drawRoundRect(colors[HeatmapBuckets.bucket(tokens, nonZero)], Offset((index / 7) * (cell + gap), (index % 7) * (cell + gap)), Size(cell, cell), androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
+        Column(
+            Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(1.dp),
+        ) {
+            Text(
+                formatHeatmapTooltipTokenCount(day.totalTokens),
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+            )
+            Text(
+                formatHeatmapTooltipDate(day.date),
+                color = Color.White.copy(alpha = 0.72f),
+                fontSize = 14.sp,
+                maxLines = 1,
+            )
         }
     }
 }
@@ -350,40 +721,32 @@ internal data class TokenHeatmapRange(
     val end: LocalDate,
 ) {
     val dayCount: Int get() = ChronoUnit.DAYS.between(start, end).toInt() + 1
-    val columnCount: Int get() = (dayCount + 6) / 7
+    val columnCount: Int get() = TOKEN_HEATMAP_COLUMNS
 }
 
 internal fun tokenHeatmapRange(
-    days: List<TokenUsageDay>,
     today: LocalDate = LocalDate.now(),
 ): TokenHeatmapRange {
-    val recentEightWeeksStart = startOfWeek(today).minusWeeks(7)
-    val firstUsageWeek = days
-        .asSequence()
-        .filter { it.date <= today && it.totalTokens > 0L }
-        .map { startOfWeek(it.date) }
-        .minOrNull()
-    val desiredStart = firstUsageWeek?.let { minOf(it, recentEightWeeksStart) } ?: recentEightWeeksStart
-    val oldestAllowedWeek = today.minusDays(MAX_HEATMAP_DAYS - 1L)
-        .with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
-    return TokenHeatmapRange(maxOf(desiredStart, oldestAllowedWeek), today)
+    return TokenHeatmapRange(startOfWeek(today).minusWeeks(12), today)
 }
 
-internal fun formatHeatmapSelection(
-    day: TokenUsageDay,
-    currentYear: Int = LocalDate.now().year,
-): String {
-    val datePrefix = if (day.date.year == currentYear) {
-        "${day.date.monthValue} 月 ${day.date.dayOfMonth} 日"
-    } else {
-        "${day.date.year} 年 ${day.date.monthValue} 月 ${day.date.dayOfMonth} 日"
-    }
-    return "$datePrefix  ${String.format(Locale.US, "%,d", day.totalTokens)} Token"
-}
+internal fun formatHeatmapTooltipTokenCount(totalTokens: Long): String =
+    String.format(Locale.US, "%,d Token", totalTokens)
+
+internal fun formatHeatmapTooltipDate(date: LocalDate): String = date.toString()
+
+internal fun formatHeatmapSelection(day: TokenUsageDay): String =
+    "${formatHeatmapTooltipTokenCount(day.totalTokens)}\n${formatHeatmapTooltipDate(day.date)}"
 
 private fun startOfWeek(date: LocalDate): LocalDate =
     date.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
 
-private const val MAX_HEATMAP_DAYS = 365
+private val HEATMAP_GAP = 5.dp
+private val HEATMAP_MAX_CELL_SIZE = 24.dp
+private val HEATMAP_CORNER_RADIUS = 3.dp
+private val HEATMAP_TOOLTIP_WIDTH = 220.dp
+private val HEATMAP_TOOLTIP_HEIGHT = 64.dp
+private val HEATMAP_TOOLTIP_CLEARANCE = 32.dp
+internal const val HEATMAP_SELECTED_SCALE = 1.5f
 
 private fun formatSyncTime(raw: String) = runCatching { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date.from(Instant.parse(raw))) }.getOrDefault("未知")

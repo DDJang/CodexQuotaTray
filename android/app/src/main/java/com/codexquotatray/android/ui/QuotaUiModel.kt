@@ -41,12 +41,12 @@ fun DirectQuotaResult.toQuotaUiModel(): QuotaUiModel {
 
 fun unauthenticatedQuotaUiModel(): QuotaUiModel = QuotaUiModel(
     status = QuotaUiStatus.UNAUTHENTICATED,
-    message = "尚未登录 Codex",
+    message = "尚未连接额度来源",
 )
 
 fun quotaLoadingUiModel(
     previous: QuotaUiModel? = null,
-    message: String = "正在读取额度…",
+    message: String = "正在刷新…",
 ): QuotaUiModel = QuotaUiModel(
     status = QuotaUiStatus.LOADING,
     accountLabel = previous?.accountLabel ?: "Codex",

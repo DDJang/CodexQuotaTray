@@ -6,48 +6,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.temporal.TemporalAdjusters
 
 class TokenHeatmapRangeTest {
     private val today = LocalDate.of(2026, 8, 10)
 
     @Test
-    fun noUsageShowsTheMostRecentEightWeekColumns() {
-        val range = tokenHeatmapRange(emptyList(), today)
+    fun rangeAlwaysUsesTheMostRecentThirteenWeeks() {
+        listOf(
+            LocalDate.of(2026, 8, 9),
+            LocalDate.of(2026, 8, 10),
+            LocalDate.of(2026, 8, 12),
+            LocalDate.of(2026, 8, 15),
+        ).forEach { date ->
+            val range = tokenHeatmapRange(date)
+            val expectedStart = date.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY)).minusWeeks(12)
 
-        assertEquals(LocalDate.of(2026, 6, 21), range.start)
-        assertEquals(today, range.end)
-        assertEquals(8, range.columnCount)
+            assertEquals(expectedStart, range.start)
+            assertEquals(date, range.end)
+            assertEquals(13, range.columnCount)
+            assertTrue(range.dayCount in 85..91)
+        }
     }
 
     @Test
-    fun recentUsageStillShowsAtLeastEightWeeks() {
-        val range = tokenHeatmapRange(listOf(day(LocalDate.of(2026, 7, 22))), today)
-
-        assertEquals(LocalDate.of(2026, 6, 21), range.start)
-        assertEquals(8, range.columnCount)
-    }
-
-    @Test
-    fun olderUsageStartsAtTheFirstUsageWeek() {
-        val range = tokenHeatmapRange(listOf(day(LocalDate.of(2026, 5, 12))), today)
-
-        assertEquals(LocalDate.of(2026, 5, 10), range.start)
-        assertEquals(DayOfWeek.SUNDAY, range.start.dayOfWeek)
-    }
-
-    @Test
-    fun historyIsClampedToTheLast365DaysOnACompleteWeekBoundary() {
-        val range = tokenHeatmapRange(listOf(day(LocalDate.of(2024, 1, 1))), today)
-
-        assertEquals(LocalDate.of(2025, 8, 17), range.start)
-        assertTrue(range.dayCount <= 365)
-        assertEquals(DayOfWeek.SUNDAY, range.start.dayOfWeek)
-    }
-
-    @Test
-    fun selectedDaysOutsideTheCurrentYearIncludeTheirYear() {
-        assertEquals("8 月 10 日  12 Token", formatHeatmapSelection(day(today, 12), 2026))
-        assertEquals("2025 年 8 月 10 日  12 Token", formatHeatmapSelection(day(today.minusYears(1), 12), 2026))
+    fun selectedDayTooltipUsesExactTokenCountAndIsoDate() {
+        assertEquals("12 Token\n2026-08-10", formatHeatmapSelection(day(today, 12)))
+        assertEquals("12 Token\n2025-08-10", formatHeatmapSelection(day(today.minusYears(1), 12)))
     }
 
     private fun day(date: LocalDate, tokens: Long = 1) = TokenUsageDay(date, tokens, null, null, null, null)

@@ -16,12 +16,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -32,12 +33,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.shadow.Shadow
-import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -67,18 +70,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 
-private val QuotaProgressGreen = Color(0xFF35E66B)
-private val QuotaProgressYellow = Color(0xFFFFD84D)
-private val QuotaProgressRed = Color(0xFFFF4D5D)
-
-internal fun quotaProgressColor(remainingPercent: Int): Color {
-    val remaining = remainingPercent.coerceIn(0, 100) / 100f
-    return if (remaining >= 0.5f) {
-        lerp(QuotaProgressYellow, QuotaProgressGreen, (remaining - 0.5f) * 2f)
-    } else {
-        lerp(QuotaProgressRed, QuotaProgressYellow, remaining * 2f)
-    }
-}
+internal fun quotaProgressColor(remainingPercent: Int): Color = Color(quotaProgressArgb(remainingPercent))
 
 internal fun quotaProgress(remainingPercent: Int): Float =
     remainingPercent.coerceIn(0, 100) / 100f
@@ -89,10 +81,10 @@ internal fun formatResetRemaining(remainingSeconds: Long): String {
     val hours = (remainingSeconds % 86_400L) / 3_600L
     val minutes = (remainingSeconds % 3_600L) / 60L
     return when {
-        days > 0L -> "$days 天 $hours 小时 $minutes 分钟后重置"
-        hours > 0L -> "$hours 小时 $minutes 分钟后重置"
-        minutes > 0L -> "$minutes 分钟后重置"
-        else -> "不足 1 分钟后重置"
+        days > 0L -> "$days 天 $hours 小时 $minutes 分钟"
+        hours > 0L -> "$hours 小时 $minutes 分钟"
+        minutes > 0L -> "$minutes 分钟"
+        else -> "不足 1 分钟"
     }
 }
 
@@ -160,6 +152,7 @@ internal class QuotaPageController(private val host: MainActivity) {
             if (!sourceAvailable) {
                 lastSuccessful = null
                 snapshotStore.clear()
+                com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
                 if (!busy) model = unauthenticatedQuotaUiModel()
                 return
             }
@@ -198,6 +191,7 @@ internal class QuotaPageController(private val host: MainActivity) {
             if (!sourceAvailable) {
                 lastSuccessful = null
                 snapshotStore.clear()
+                com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
                 if (!busy) model = unauthenticatedQuotaUiModel()
             } else {
                 lastSuccessful = loadLatestModel(windowsDeviceIdentity)
@@ -270,6 +264,7 @@ internal class QuotaPageController(private val host: MainActivity) {
                             if (lastQuotaSourceAvailable != true) {
                                 lastSuccessful = null
                                 snapshotStore.clear()
+                                com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
                                 QuotaRefreshScheduler.cancel(host)
                             }
                         }
@@ -313,7 +308,10 @@ internal class QuotaPageController(private val host: MainActivity) {
 }
 
 @Composable
-internal fun QuotaPage(controller: QuotaPageController, modifier: Modifier = Modifier) {
+internal fun QuotaPage(
+    controller: QuotaPageController,
+    modifier: Modifier = Modifier,
+) {
     val palette = LocalQuotaPalette.current
     val model = controller.model
     Column(
@@ -339,35 +337,23 @@ internal fun QuotaPage(controller: QuotaPageController, modifier: Modifier = Mod
 
 @Composable
 private fun QuotaStatusLine(model: QuotaUiModel) {
-    val palette = LocalQuotaPalette.current
-    val isNetworkError = model.status == QuotaUiStatus.ERROR && model.message?.contains("无法连接") == true
-    val lastSync = model.updatedAtMillis?.let { "上次同步于 ${formatClockTime(it)}" }
-    if (isNetworkError && lastSync != null) {
-        Row {
-            Text(lastSync, color = palette.color(palette.muted), fontSize = 14.sp)
-            Text(" · ", color = palette.color(palette.muted), fontSize = 14.sp)
-            Text("网络连接异常", color = palette.color(palette.error), fontSize = 14.sp)
-        }
-        return
-    }
-    Text(
-        text = if (isNetworkError) "网络连接异常" else quotaStatusLine(model),
-        color = palette.color(if (model.status == QuotaUiStatus.ERROR) palette.error else palette.muted),
-        fontSize = 14.sp,
-    )
+    RefreshStatusLine(quotaStatusLine(model))
 }
 
 private fun quotaStatusLine(model: QuotaUiModel): String {
-    val status = model.message ?: when (model.status) {
-        QuotaUiStatus.LOADING -> "正在读取额度…"
-        QuotaUiStatus.UNAUTHENTICATED -> "尚未登录 Codex"
-        QuotaUiStatus.LOADED -> "额度读取成功"
-        QuotaUiStatus.ERROR -> "额度读取失败"
+    val updatedAt = model.updatedAtMillis?.let(::formatClockTime)
+    return when (model.status) {
+        QuotaUiStatus.LOADING -> RefreshStatusFormatter.refreshing(model.updatedAtMillis != null)
+        QuotaUiStatus.UNAUTHENTICATED -> RefreshStatusFormatter.quotaNoSource()
+        QuotaUiStatus.LOADED -> RefreshStatusFormatter.loaded(
+            source = if (model.source == QuotaSource.WINDOWS) "Windows" else "OpenAI",
+            updatedAt = updatedAt,
+        )
+        QuotaUiStatus.ERROR -> RefreshStatusFormatter.failure(
+            reason = shortQuotaRefreshFailure(model.message),
+            updatedAt = updatedAt,
+        )
     }
-    if (model.status != QuotaUiStatus.LOADED) return status
-    val updatedAt = model.updatedAtMillis?.let { "更新于 ${formatClockTime(it)}" } ?: "尚未更新"
-    val source = if (model.source == QuotaSource.WINDOWS) " · Windows" else ""
-    return "$status · $updatedAt$source"
 }
 
 @Composable
@@ -386,64 +372,145 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
         animationSpec = tween(durationMillis = QUOTA_PROGRESS_ANIMATION_MILLIS),
         label = "quota-progress-color",
     )
-    Card(
-        Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    val cardShape = RoundedCornerShape(18.dp)
+    val dark = palette.color(palette.background).luminance() < 0.1f
+    val cardBrush = if (dark) {
+        Brush.linearGradient(
+            listOf(
+                Color(0xFF2A3037).copy(alpha = 0.76f),
+                Color(0xFF17191D).copy(alpha = 0.94f),
+                Color(0xFF101216).copy(alpha = 0.97f),
+            ),
+        )
+    } else {
+        Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = 0.96f),
+                palette.color(palette.surface).copy(alpha = 0.9f),
+                palette.color(palette.surface).copy(alpha = 0.98f),
+            ),
+        )
+    }
+    val borderBrush = Brush.linearGradient(
+        listOf(
+            if (dark) Color.White.copy(alpha = 0.22f) else palette.color(palette.border),
+            if (dark) Color.White.copy(alpha = 0.07f) else palette.color(palette.border).copy(alpha = 0.72f),
+        ),
+    )
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .background(cardBrush, cardShape)
+            .border(1.dp, borderBrush, cardShape)
+            .padding(16.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(window.title, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Text(
-                remainingPercent?.let { "剩余 $it%" } ?: "剩余未知",
-                fontSize = 26.sp,
-                fontWeight = FontWeight.Bold,
-                color = animatedColor,
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            QuotaProgressRing(
+                progress = animatedProgress,
+                progressColor = animatedColor,
+                trackColor = palette.color(palette.progressTrack),
+                remainingPercent = remainingPercent,
             )
-            remainingPercent?.let {
-                QuotaGlowProgressBar(
-                    progress = animatedProgress,
-                    progressColor = animatedColor,
-                    trackColor = palette.color(palette.progressTrack),
-                    modifier = Modifier.fillMaxWidth(),
+            Spacer(Modifier.size(16.dp))
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Text(
+                    window.title,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.color(palette.title),
+                )
+                Text(
+                    formatResetAt(window.resetsAt),
+                    color = palette.color(palette.secondary),
+                    fontSize = 14.sp,
+                )
+                Text(
+                    formatRemaining(window.resetsAt),
+                    color = palette.color(palette.secondary),
+                    fontSize = 14.sp,
                 )
             }
-            Text(formatResetAt(window.resetsAt), color = palette.color(palette.secondary), fontSize = 14.sp)
         }
     }
 }
 
 @Composable
-private fun QuotaGlowProgressBar(
+private fun QuotaProgressRing(
     progress: Float,
     progressColor: Color,
     trackColor: Color,
-    modifier: Modifier = Modifier,
+    remainingPercent: Int?,
 ) {
-    val capsule = RoundedCornerShape(percent = 50)
-    Box(modifier.height(21.dp), contentAlignment = Alignment.CenterStart) {
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .height(7.dp)
-                .background(trackColor, capsule),
-        )
-        if (progress > 0f) {
-            Box(
-                Modifier
-                    .fillMaxWidth(progress.coerceIn(0f, 1f))
-                    .height(7.dp)
-                    .dropShadow(
-                        shape = capsule,
-                        shadow = Shadow(
-                            radius = 8.dp,
-                            spread = 1.dp,
-                            color = progressColor.copy(alpha = 0.28f),
-                            offset = DpOffset.Zero,
-                        ),
-                    )
-                    .background(progressColor, capsule),
+    Box(Modifier.size(128.dp), contentAlignment = Alignment.Center) {
+        Canvas(Modifier.fillMaxSize().padding(4.dp)) {
+            val strokeWidth = 10.dp.toPx()
+            val glowWidth = 22.dp.toPx()
+            val inset = glowWidth / 2f
+            val arcSize = Size(size.width - glowWidth, size.height - glowWidth)
+            val arcStyle = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+            drawArc(
+                color = trackColor.copy(alpha = 0.72f),
+                startAngle = -90f,
+                sweepAngle = 360f,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = arcSize,
+                style = arcStyle,
             )
+            if (progress > 0f) {
+                val sweep = 360f * progress.coerceIn(0f, 1f)
+                drawArc(
+                    color = progressColor.copy(alpha = 0.16f),
+                    startAngle = -90f,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = arcSize,
+                    style = Stroke(width = glowWidth, cap = StrokeCap.Round),
+                )
+                drawArc(
+                    color = progressColor.copy(alpha = 0.28f),
+                    startAngle = -90f,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = arcSize,
+                    style = Stroke(width = strokeWidth + 3.dp.toPx(), cap = StrokeCap.Round),
+                )
+                drawArc(
+                    color = progressColor,
+                    startAngle = -90f,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = arcSize,
+                    style = arcStyle,
+                )
+                drawArc(
+                    color = Color.White.copy(alpha = 0.2f),
+                    startAngle = -90f,
+                    sweepAngle = sweep,
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = arcSize,
+                    style = Stroke(width = 1.dp.toPx(), cap = StrokeCap.Round),
+                )
+            }
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                remainingPercent?.let { "$it%" } ?: "—",
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                color = progressColor,
+            )
+            Text("余额", fontSize = 12.sp, color = LocalQuotaPalette.current.color(LocalQuotaPalette.current.secondary))
         }
     }
 }
@@ -453,7 +520,12 @@ private const val QUOTA_PROGRESS_ANIMATION_MILLIS = 350
 private fun formatResetAt(epochSeconds: Long?): String {
     if (epochSeconds == null) return "重置时间未知"
     val absolute = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date(epochSeconds * 1_000L))
-    return "重置于 $absolute\n${formatResetRemaining(epochSeconds - System.currentTimeMillis() / 1_000L)}"
+    return "重置于 $absolute"
+}
+
+private fun formatRemaining(epochSeconds: Long?): String {
+    if (epochSeconds == null) return "剩余时间未知"
+    return "剩余 ${formatResetRemaining(epochSeconds - System.currentTimeMillis() / 1_000L)}"
 }
 
 private fun formatClockTime(epochMillis: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(epochMillis))
