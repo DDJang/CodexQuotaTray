@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.quota.QuotaSnapshotStore
+import com.codexquotatray.android.usage.TokenUsageCache
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.cacheIdentity
 
@@ -13,12 +14,15 @@ object QuotaWidgetBridge {
     fun publish(
         context: Context,
         result: DirectQuotaResult,
-        updatedAtMillis: Long,
     ) {
         if (!hasWidgets(context)) return
         sendUpdate(
             context,
-            QuotaWidgetProjection.fromResult(result, updatedAtMillis),
+            QuotaWidgetProjection.fromResult(
+                result,
+                result.updatedAtMillis,
+                tokenSummary(context.applicationContext),
+            ),
         )
     }
 
@@ -34,9 +38,20 @@ object QuotaWidgetBridge {
                 appContext,
                 QuotaWidgetProjection.fromResult(
                     snapshot,
-                    QuotaSnapshotStore(appContext).lastSuccessfulRefreshAtMillis()
-                        ?: snapshot.updatedAtMillis,
+                    snapshot.updatedAtMillis,
+                    tokenSummary(appContext),
                 ),
+            )
+        }
+    }
+
+    private fun tokenSummary(context: Context): QuotaWidgetTokenSummary? {
+        val pairing = TokenSyncStore(context).load() ?: return null
+        return TokenUsageCache(context).load(pairing)?.summary?.let { summary ->
+            QuotaWidgetTokenSummary(
+                todayTokens = summary.todayTokens,
+                last7DaysTokens = summary.last7DaysTokens,
+                lifetimeTokens = summary.lifetimeTokens,
             )
         }
     }

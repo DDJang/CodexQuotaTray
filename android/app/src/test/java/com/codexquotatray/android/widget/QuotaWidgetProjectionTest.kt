@@ -42,16 +42,32 @@ class QuotaWidgetProjectionTest {
 
     @Test
     fun codecRoundTripsAndMalformedInputFailsClosed() {
+        val tokenSummary = QuotaWidgetTokenSummary(
+            todayTokens = 188_000_000L,
+            last7DaysTokens = 1_600_000_000L,
+            lifetimeTokens = 4_600_000_000L,
+        )
         val original = QuotaWidgetProjection(
             planType = "Plus",
             updatedAtMillis = 1_700_000_000_000L,
             primary = QuotaWidgetWindow("5 小时", 72, 1_900_000_000L, 300L),
             secondary = null,
+            tokenSummary = tokenSummary,
         )
 
-        assertEquals(original, QuotaWidgetProjectionCodec.decode(QuotaWidgetProjectionCodec.encode(original)))
+        val decoded = QuotaWidgetProjectionCodec.decode(QuotaWidgetProjectionCodec.encode(original))
+        assertEquals(original, decoded)
+        assertEquals(tokenSummary, decoded?.tokenSummary)
         assertNull(QuotaWidgetProjectionCodec.decode("{not-json"))
         assertNull(QuotaWidgetProjectionCodec.decode("{}"))
+    }
+
+    @Test
+    fun ringWindowsPutTheLongestWindowOutside() {
+        val fiveHour = QuotaWidgetWindow("5 小时", 35, null, 300L)
+        val sevenDay = QuotaWidgetWindow("7 天", 80, null, 10_080L)
+
+        assertEquals(listOf(sevenDay, fiveHour), widgetRingWindows(listOf(fiveHour, sevenDay)))
     }
 
     @Test

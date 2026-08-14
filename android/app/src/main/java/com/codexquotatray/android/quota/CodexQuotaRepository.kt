@@ -89,12 +89,11 @@ class CodexQuotaRepository(
             markSuccessfulRefresh = alertStateStore::markSuccessfulRefresh,
             publishNotifications = notificationPublisher::publish,
             restoreAlerts = alertEvaluator::restoreLastEvaluation,
-            publishWidget = { result, completedAtMillis, _ ->
+            publishWidget = { result, _, _ ->
                 runCatching {
                     com.codexquotatray.android.widget.QuotaWidgetBridge.publish(
                         appContext,
                         result,
-                        completedAtMillis,
                     )
                 }.onFailure {
                     AppLogStore.record(appContext, "额度小组件更新失败", "DEBUG")

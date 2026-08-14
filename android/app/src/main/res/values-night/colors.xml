@@ -7,4 +7,6 @@
     <color name="widget_accent">#74B9FF</color>
     <color name="widget_progress_track">#46515F</color>
     <color name="widget_progress">#69B5FA</color>
+    <color name="widget_ring_track">#3F4855</color>
+    <color name="widget_divider">#303943</color>
 </resources>

@@ -12,17 +12,28 @@ data class QuotaWidgetWindow(
     val windowDurationMins: Long?,
 )
 
+data class QuotaWidgetTokenSummary(
+    val todayTokens: Long,
+    val last7DaysTokens: Long,
+    val lifetimeTokens: Long,
+)
+
 data class QuotaWidgetProjection(
     val planType: String,
     val updatedAtMillis: Long,
     val primary: QuotaWidgetWindow?,
     val secondary: QuotaWidgetWindow?,
+    val tokenSummary: QuotaWidgetTokenSummary? = null,
 ) {
     val windows: List<QuotaWidgetWindow>
         get() = listOfNotNull(primary, secondary)
 
     companion object {
-        fun fromResult(result: DirectQuotaResult, updatedAtMillis: Long): QuotaWidgetProjection {
+        fun fromResult(
+            result: DirectQuotaResult,
+            updatedAtMillis: Long,
+            tokenSummary: QuotaWidgetTokenSummary? = null,
+        ): QuotaWidgetProjection {
             val model = result.toQuotaUiModel()
             val cards = if (model.status == QuotaUiStatus.LOADED) {
                 model.windows.take(2)
@@ -42,6 +53,7 @@ data class QuotaWidgetProjection(
                 updatedAtMillis = updatedAtMillis,
                 primary = windows.getOrNull(0),
                 secondary = windows.getOrNull(1),
+                tokenSummary = tokenSummary,
             )
         }
     }
@@ -56,6 +68,7 @@ object QuotaWidgetProjectionCodec {
         .put("updatedAtMillis", projection.updatedAtMillis)
         .put("primary", projection.primary?.let(::encodeWindow) ?: JSONObject.NULL)
         .put("secondary", projection.secondary?.let(::encodeWindow) ?: JSONObject.NULL)
+        .put("tokenSummary", projection.tokenSummary?.let(::encodeTokenSummary) ?: JSONObject.NULL)
         .toString()
 
     fun decode(raw: String): QuotaWidgetProjection? = runCatching {
@@ -70,14 +83,29 @@ object QuotaWidgetProjectionCodec {
             updatedAtMillis = updatedAtMillis,
             primary = decodeWindow(root.opt("primary")),
             secondary = decodeWindow(root.opt("secondary")),
+            tokenSummary = decodeTokenSummary(root.opt("tokenSummary")),
         )
     }.getOrNull()
+
+    private fun decodeTokenSummary(value: Any?): QuotaWidgetTokenSummary? {
+        if (value !is JSONObject) return null
+        return QuotaWidgetTokenSummary(
+            todayTokens = value.optLong("todayTokens", -1L).takeIf { it >= 0L } ?: return null,
+            last7DaysTokens = value.optLong("last7DaysTokens", -1L).takeIf { it >= 0L } ?: return null,
+            lifetimeTokens = value.optLong("lifetimeTokens", -1L).takeIf { it >= 0L } ?: return null,
+        )
+    }
 
     private fun encodeWindow(window: QuotaWidgetWindow): JSONObject = JSONObject()
         .put("title", window.title)
         .put("remainingPercent", window.remainingPercent ?: JSONObject.NULL)
         .put("resetsAt", window.resetsAt ?: JSONObject.NULL)
         .put("windowDurationMins", window.windowDurationMins ?: JSONObject.NULL)
+
+    private fun encodeTokenSummary(summary: QuotaWidgetTokenSummary): JSONObject = JSONObject()
+        .put("todayTokens", summary.todayTokens)
+        .put("last7DaysTokens", summary.last7DaysTokens)
+        .put("lifetimeTokens", summary.lifetimeTokens)
 
     private fun decodeWindow(value: Any?): QuotaWidgetWindow? {
         if (value !is JSONObject) return null
@@ -94,3 +122,8 @@ object QuotaWidgetProjectionCodec {
         return QuotaWidgetWindow(title, remaining, resetsAt, duration)
     }
 }
+
+internal fun widgetRingWindows(windows: List<QuotaWidgetWindow>): List<QuotaWidgetWindow> =
+    windows.take(2).sortedWith(
+        compareByDescending<QuotaWidgetWindow> { it.windowDurationMins ?: Long.MIN_VALUE },
+    )

@@ -16,6 +16,7 @@ import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
 import com.codexquotatray.android.refresh.AutomaticRefreshChannel
 import com.codexquotatray.android.refresh.BackgroundRefreshRetryPolicy
 import com.codexquotatray.android.refresh.BackgroundRetryDecision
+import com.codexquotatray.android.widget.QuotaWidgetBridge
 import java.util.concurrent.TimeUnit
 
 /** Publishes a completed background sync to a visible statistics page. */
@@ -23,6 +24,7 @@ object TokenUsageRefreshEvents {
     const val ACTION_COMPLETED = "com.codexquotatray.android.TOKEN_USAGE_REFRESH_COMPLETED"
 
     fun notifyCompleted(context: Context) {
+        QuotaWidgetBridge.syncFromCurrentMainSnapshot(context)
         context.sendBroadcast(Intent(ACTION_COMPLETED).setPackage(context.packageName))
     }
 }

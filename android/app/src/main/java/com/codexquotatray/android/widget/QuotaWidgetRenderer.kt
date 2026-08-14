@@ -3,13 +3,13 @@ package com.codexquotatray.android.widget
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
-import android.content.res.ColorStateList
 import android.content.Intent
 import android.view.View
 import android.widget.RemoteViews
 import com.codexquotatray.android.MainActivity
 import com.codexquotatray.android.R
 import com.codexquotatray.android.quotaProgressArgb
+import com.codexquotatray.android.usage.TokenFormatter
 
 internal object QuotaWidgetRenderer {
     fun updateAll(context: Context) {
@@ -41,51 +41,62 @@ internal object QuotaWidgetRenderer {
         views.setOnClickPendingIntent(android.R.id.background, pendingIntent)
 
         val windows = projection?.windows.orEmpty()
-        views.setTextViewText(R.id.widget_plan, projection?.planType?.let { "Codex · $it" } ?: "Codex")
+        val ringWindows = widgetRingWindows(windows)
+        val outer = ringWindows.getOrNull(0)
+        val inner = ringWindows.getOrNull(1)
+        views.setTextViewText(
+            R.id.widget_plan,
+            "Codex · ${projection?.planType?.takeIf { it.isNotBlank() } ?: "Plus"}",
+        )
         views.setTextViewText(
             R.id.widget_updated,
             projection?.let { QuotaWidgetDisplayFormatter.formatUpdatedAt(it.updatedAtMillis) } ?: "",
         )
-        views.setViewVisibility(R.id.widget_empty, if (windows.isEmpty()) View.VISIBLE else View.GONE)
-        val spacerVisibility = if (windows.size == 1) View.VISIBLE else View.GONE
-        views.setViewVisibility(R.id.widget_single_window_top_spacer, spacerVisibility)
-        views.setViewVisibility(R.id.widget_single_window_bottom_spacer, spacerVisibility)
-        renderWindow(context, views, R.id.widget_primary_row, R.id.widget_primary_title, R.id.widget_primary_percent, R.id.widget_primary_progress, R.id.widget_primary_reset, windows.getOrNull(0))
-        renderWindow(context, views, R.id.widget_secondary_row, R.id.widget_secondary_title, R.id.widget_secondary_percent, R.id.widget_secondary_progress, R.id.widget_secondary_reset, windows.getOrNull(1))
+        views.setViewVisibility(R.id.widget_empty, if (outer == null) View.VISIBLE else View.GONE)
+        views.setViewVisibility(R.id.widget_dashboard, if (outer == null) View.GONE else View.VISIBLE)
+        if (outer == null) return
+
+        views.setImageViewBitmap(
+            R.id.widget_quota_rings,
+            QuotaWidgetRingRenderer.render(context, outer, inner),
+        )
+        views.setViewVisibility(R.id.widget_quota_single_label, if (inner == null) View.VISIBLE else View.GONE)
+        views.setViewVisibility(R.id.widget_quota_double_labels, if (inner == null) View.GONE else View.VISIBLE)
+        views.setViewVisibility(R.id.widget_quota_center_caption, if (inner == null) View.VISIBLE else View.GONE)
+        if (inner == null) {
+            views.setTextViewText(R.id.widget_quota_single_label, compactTitle(outer.title))
+            views.setTextViewText(R.id.widget_quota_center_value, formatPercent(outer))
+            views.setTextColor(R.id.widget_quota_center_value, quotaColor(context, outer))
+            views.setTextViewText(R.id.widget_quota_center_caption, "余额")
+        } else {
+            views.setTextViewText(R.id.widget_quota_outer_label, formatQuotaLabel(outer))
+            views.setTextViewText(R.id.widget_quota_inner_label, formatQuotaLabel(inner))
+            views.setTextColor(R.id.widget_quota_outer_label, quotaColor(context, outer))
+            views.setTextColor(R.id.widget_quota_inner_label, quotaColor(context, inner))
+            views.setTextViewText(R.id.widget_quota_center_value, "额度")
+        }
+
+        val tokenSummary = projection?.tokenSummary
+        views.setViewVisibility(R.id.widget_token_stats, if (tokenSummary == null) View.GONE else View.VISIBLE)
+        views.setViewVisibility(R.id.widget_token_empty, if (tokenSummary == null) View.VISIBLE else View.GONE)
+        if (tokenSummary != null) {
+            views.setTextViewText(R.id.widget_token_today, TokenFormatter.format(tokenSummary.todayTokens))
+            views.setTextViewText(R.id.widget_token_week, TokenFormatter.format(tokenSummary.last7DaysTokens))
+            views.setTextViewText(R.id.widget_token_lifetime, TokenFormatter.format(tokenSummary.lifetimeTokens))
+        }
     }
 
-    private fun renderWindow(
-        context: Context,
-        views: RemoteViews,
-        rowId: Int,
-        titleId: Int,
-        percentId: Int,
-        progressId: Int,
-        resetId: Int,
-        window: QuotaWidgetWindow?,
-    ) {
-        views.setViewVisibility(rowId, if (window == null) android.view.View.GONE else android.view.View.VISIBLE)
-        if (window == null) return
-        views.setTextViewText(titleId, window.title)
-        val remaining = window.remainingPercent?.coerceIn(0, 100)
-        if (remaining == null) {
-            views.setTextViewText(percentId, "不可用")
-            views.setTextColor(percentId, context.getColor(R.color.widget_secondary_text))
-            views.setViewVisibility(progressId, View.GONE)
-        } else {
-            val progressColor = quotaProgressArgb(remaining)
-            views.setTextViewText(percentId, "$remaining%")
-            views.setTextColor(percentId, progressColor)
-            views.setViewVisibility(progressId, View.VISIBLE)
-            views.setProgressBar(progressId, 100, remaining, false)
-            views.setColorStateList(
-                progressId,
-                "setProgressTintList",
-                ColorStateList.valueOf(progressColor),
-            )
-        }
-        views.setTextViewText(resetId, QuotaWidgetDisplayFormatter.formatResetAt(window.resetsAt, System.currentTimeMillis()))
-    }
+    private fun formatQuotaLabel(window: QuotaWidgetWindow): String =
+        "${compactTitle(window.title)} · ${formatPercent(window)}"
+
+    private fun compactTitle(title: String): String = title.replace(" ", "")
+
+    private fun formatPercent(window: QuotaWidgetWindow): String =
+        window.remainingPercent?.coerceIn(0, 100)?.let { "$it%" } ?: "不可用"
+
+    private fun quotaColor(context: Context, window: QuotaWidgetWindow): Int =
+        window.remainingPercent?.coerceIn(0, 100)?.let(::quotaProgressArgb)
+            ?: context.getColor(R.color.widget_secondary_text)
 
     internal fun widgetIds(context: Context): IntArray = widgetIds(
         context,

@@ -1,11 +1,13 @@
 <resources>
     <color name="launcher_background">#172033</color>
     <color name="splash_background">#F8FAFD</color>
-    <color name="widget_background">#F8FAFD</color>
-    <color name="widget_border">#D6DEE9</color>
-    <color name="widget_primary_text">#182331</color>
-    <color name="widget_secondary_text">#5E7085</color>
-    <color name="widget_accent">#1769D2</color>
-    <color name="widget_progress_track">#D6E0ED</color>
-    <color name="widget_progress">#2D8AE0</color>
+    <color name="widget_background">#181D24</color>
+    <color name="widget_border">#303943</color>
+    <color name="widget_primary_text">#F3F6FA</color>
+    <color name="widget_secondary_text">#AAB7C6</color>
+    <color name="widget_accent">#74B9FF</color>
+    <color name="widget_progress_track">#46515F</color>
+    <color name="widget_progress">#69B5FA</color>
+    <color name="widget_ring_track">#3F4855</color>
+    <color name="widget_divider">#303943</color>
 </resources>
