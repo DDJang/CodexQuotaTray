@@ -9,4 +9,5 @@
     <color name="widget_progress">#69B5FA</color>
     <color name="widget_ring_track">#3F4855</color>
     <color name="widget_divider">#303943</color>
+    <color name="widget_vertical_divider">#66303943</color>
 </resources>

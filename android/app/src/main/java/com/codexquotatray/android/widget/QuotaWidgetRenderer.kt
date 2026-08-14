@@ -82,6 +82,10 @@ internal object QuotaWidgetRenderer {
         if (tokenSummary != null) {
             views.setTextViewText(R.id.widget_token_today, TokenFormatter.format(tokenSummary.todayTokens))
             views.setTextViewText(R.id.widget_token_week, TokenFormatter.format(tokenSummary.last7DaysTokens))
+            views.setTextViewText(
+                R.id.widget_token_month,
+                tokenSummary.last30DaysTokens?.let(TokenFormatter::format) ?: "—",
+            )
             views.setTextViewText(R.id.widget_token_lifetime, TokenFormatter.format(tokenSummary.lifetimeTokens))
         }
     }

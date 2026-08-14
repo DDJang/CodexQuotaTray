@@ -15,6 +15,8 @@ data class QuotaWidgetWindow(
 data class QuotaWidgetTokenSummary(
     val todayTokens: Long,
     val last7DaysTokens: Long,
+    /** Null only when decoding a pre-30-day Widget projection. */
+    val last30DaysTokens: Long? = null,
     val lifetimeTokens: Long,
 )
 
@@ -92,6 +94,7 @@ object QuotaWidgetProjectionCodec {
         return QuotaWidgetTokenSummary(
             todayTokens = value.optLong("todayTokens", -1L).takeIf { it >= 0L } ?: return null,
             last7DaysTokens = value.optLong("last7DaysTokens", -1L).takeIf { it >= 0L } ?: return null,
+            last30DaysTokens = value.optLong("last30DaysTokens", -1L).takeIf { it >= 0L },
             lifetimeTokens = value.optLong("lifetimeTokens", -1L).takeIf { it >= 0L } ?: return null,
         )
     }
@@ -105,6 +108,7 @@ object QuotaWidgetProjectionCodec {
     private fun encodeTokenSummary(summary: QuotaWidgetTokenSummary): JSONObject = JSONObject()
         .put("todayTokens", summary.todayTokens)
         .put("last7DaysTokens", summary.last7DaysTokens)
+        .apply { summary.last30DaysTokens?.let { put("last30DaysTokens", it) } }
         .put("lifetimeTokens", summary.lifetimeTokens)
 
     private fun decodeWindow(value: Any?): QuotaWidgetWindow? {

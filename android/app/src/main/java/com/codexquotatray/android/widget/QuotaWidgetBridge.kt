@@ -7,6 +7,7 @@ import android.content.Intent
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.quota.QuotaSnapshotStore
 import com.codexquotatray.android.usage.TokenUsageCache
+import com.codexquotatray.android.usage.TokenUsageSummary
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.cacheIdentity
 
@@ -48,11 +49,7 @@ object QuotaWidgetBridge {
     private fun tokenSummary(context: Context): QuotaWidgetTokenSummary? {
         val pairing = TokenSyncStore(context).load() ?: return null
         return TokenUsageCache(context).load(pairing)?.summary?.let { summary ->
-            QuotaWidgetTokenSummary(
-                todayTokens = summary.todayTokens,
-                last7DaysTokens = summary.last7DaysTokens,
-                lifetimeTokens = summary.lifetimeTokens,
-            )
+            summary.toQuotaWidgetTokenSummary()
         }
     }
 
@@ -81,3 +78,11 @@ object QuotaWidgetBridge {
         ).isNotEmpty()
     }
 }
+
+internal fun TokenUsageSummary.toQuotaWidgetTokenSummary(): QuotaWidgetTokenSummary =
+    QuotaWidgetTokenSummary(
+        todayTokens = todayTokens,
+        last7DaysTokens = last7DaysTokens,
+        last30DaysTokens = last30DaysTokens,
+        lifetimeTokens = lifetimeTokens,
+    )

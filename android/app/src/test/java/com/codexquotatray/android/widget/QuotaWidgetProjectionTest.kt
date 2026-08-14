@@ -3,9 +3,11 @@ package com.codexquotatray.android.widget
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.protocol.QuotaWindow
+import com.codexquotatray.android.usage.TokenUsageSummary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import java.time.LocalDate
 import org.junit.Test
 
 class QuotaWidgetProjectionTest {
@@ -45,6 +47,7 @@ class QuotaWidgetProjectionTest {
         val tokenSummary = QuotaWidgetTokenSummary(
             todayTokens = 188_000_000L,
             last7DaysTokens = 1_600_000_000L,
+            last30DaysTokens = 3_200_000_000L,
             lifetimeTokens = 4_600_000_000L,
         )
         val original = QuotaWidgetProjection(
@@ -60,6 +63,38 @@ class QuotaWidgetProjectionTest {
         assertEquals(tokenSummary, decoded?.tokenSummary)
         assertNull(QuotaWidgetProjectionCodec.decode("{not-json"))
         assertNull(QuotaWidgetProjectionCodec.decode("{}"))
+    }
+
+    @Test
+    fun legacyProjectionWithoutThirtyDayTokenStillDecodesWithoutFabricatingValue() {
+        val raw = """
+            {"schemaVersion":1,"planType":"Plus","updatedAtMillis":1700000000000,
+             "primary":{"title":"7 天","remainingPercent":80,"resetsAt":1900000000,"windowDurationMins":10080},
+             "secondary":null,
+             "tokenSummary":{"todayTokens":188000000,"last7DaysTokens":1600000000,"lifetimeTokens":4600000000}}
+        """.trimIndent()
+
+        val decoded = QuotaWidgetProjectionCodec.decode(raw)
+
+        assertEquals(188_000_000L, decoded?.tokenSummary?.todayTokens)
+        assertNull(decoded?.tokenSummary?.last30DaysTokens)
+    }
+
+    @Test
+    fun bridgeProjectionUsesExistingThirtyDaySummary() {
+        val summary = TokenUsageSummary(
+            todayTokens = 1L,
+            last7DaysTokens = 2L,
+            last30DaysTokens = 3L,
+            lifetimeTokens = 4L,
+            peakDailyTokens = 5L,
+            peakDate = LocalDate.of(2026, 8, 14),
+            activeDays = 6,
+            currentStreak = 7,
+            longestStreak = 8,
+        )
+
+        assertEquals(3L, summary.toQuotaWidgetTokenSummary().last30DaysTokens)
     }
 
     @Test
