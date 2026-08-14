@@ -106,6 +106,8 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.4.0")
     implementation("io.github.kyant0:backdrop:2.0.0")
     implementation("io.github.kyant0:shapes:1.2.0")
+    implementation("dev.chrisbanes.haze:haze:2.0.0-alpha02")
+    implementation("dev.chrisbanes.haze:haze-blur:2.0.0-alpha02")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("androidx.work:work-runtime:2.9.1")

@@ -48,8 +48,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.shadow.Shadow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -93,10 +93,12 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
-import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.kyant.backdrop.highlight.Highlight
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.blur.HazeColorEffect
+import dev.chrisbanes.haze.blur.blurEffect
 
 internal class TokenUsagePageController(private val host: MainActivity) {
     private val cache by lazy { TokenUsageCache(host) }
@@ -305,7 +307,7 @@ private fun TokenUsageStatusLine(status: String) {
 private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
     val first = listOf("今日 Token" to snapshot.summary.todayTokens, "7 天 Token" to snapshot.summary.last7DaysTokens, "30 天 Token" to snapshot.summary.last30DaysTokens, "累计 Token" to snapshot.summary.lifetimeTokens)
     val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续天数" to snapshot.summary.currentStreak.toLong(), "最长连续天数" to snapshot.summary.longestStreak.toLong())
-    val tokenContentBackdrop = rememberLayerBackdrop()
+    val tokenContentHazeState = rememberHazeState()
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
     var tooltipPresentation by remember { mutableStateOf<HeatmapTooltipPresentation?>(null) }
     val tooltipTarget = tooltipPresentation?.target
@@ -343,7 +345,7 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .layerBackdrop(tokenContentBackdrop),
+                .hazeSource(tokenContentHazeState),
         ) {
             SummaryRow(first)
             SummaryRow(second)
@@ -357,9 +359,9 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
             )
         }
         tooltipPresentation?.let { presentation ->
-            HeatmapGlassTooltip(
+            HeatmapBlurTooltip(
                 day = presentation.day,
-                backdrop = tokenContentBackdrop,
+                hazeState = tokenContentHazeState,
                 modifier = Modifier
                     .offset {
                         IntOffset(tooltipOffset.x.roundToInt(), tooltipOffset.y.roundToInt())
@@ -658,34 +660,19 @@ private fun HeatmapSelectedCell(
 }
 
 @Composable
-private fun HeatmapGlassTooltip(
+private fun HeatmapBlurTooltip(
     day: TokenUsageDay,
-    backdrop: Backdrop,
+    hazeState: HazeState,
     modifier: Modifier = Modifier,
 ) {
-    val palette = LocalQuotaPalette.current
-    val tooltipSurface = if (palette.color(palette.background).luminance() < 0.35f) {
-        Color(0xff121212)
-    } else {
-        null
-    }
+    val tooltipTint = Color(0xff121212).copy(alpha = 0.72f)
+    val shape = RoundedCornerShape(16.dp)
     val scale = remember { Animatable(0.96f) }
     LaunchedEffect(Unit) {
         scale.animateTo(1f, tween(160))
     }
-    GlassSurface(
-        backdrop = backdrop,
-        shape = RoundedCornerShape(16.dp),
-        enableVibrancy = false,
-        blurRadius = 24.dp,
-        refractionHeight = 24.dp,
-        refractionAmount = 48.dp,
-        lensDepthEffect = true,
-        enableColorControls = false,
-        highlight = Highlight.Plain,
-        surfaceAlpha = 0.65f,
-        surfaceColor = tooltipSurface,
-        modifier = modifier
+    Box(
+        modifier
             .width(HEATMAP_TOOLTIP_WIDTH)
             .height(HEATMAP_TOOLTIP_HEIGHT)
             .graphicsLayer {
@@ -693,6 +680,14 @@ private fun HeatmapGlassTooltip(
                 scaleY = scale.value
                 transformOrigin = TransformOrigin.Center
             }
+            .clip(shape)
+            .hazeEffect(hazeState) {
+                blurEffect {
+                    blurRadius = 24.dp
+                    colorEffects = listOf(HazeColorEffect.tint(tooltipTint))
+                }
+            }
+            .border(1.dp, Color.White.copy(alpha = 0.18f), shape)
             .semantics {
                 contentDescription = "${formatHeatmapTooltipDate(day.date)}，${formatHeatmapTooltipTokenCount(day.totalTokens)}"
             },
@@ -703,14 +698,14 @@ private fun HeatmapGlassTooltip(
         ) {
             Text(
                 formatHeatmapTooltipTokenCount(day.totalTokens),
-                color = palette.color(palette.title),
+                color = Color.White,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
             Text(
                 formatHeatmapTooltipDate(day.date),
-                color = palette.color(palette.muted),
+                color = Color.White.copy(alpha = 0.72f),
                 fontSize = 14.sp,
                 maxLines = 1,
             )
