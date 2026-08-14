@@ -55,10 +55,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
@@ -191,13 +194,21 @@ private val LocalDockTabScale = compositionLocalOf { { 1f } }
 @Composable
 private fun RowScope.DockTab(
     selected: Boolean,
+    onSelect: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scale = LocalDockTabScale.current
     Column(
         Modifier
             .clip(KyantShapes.capsule())
-            .semantics { role = Role.Tab }
+            .semantics {
+                role = Role.Tab
+                this.selected = selected
+                onClick {
+                    onSelect()
+                    true
+                }
+            }
             .fillMaxHeight()
             .weight(1f)
             .graphicsLayer {
@@ -296,6 +307,7 @@ private fun LiquidTabCapsule(
 
     BoxWithConstraints(modifier, contentAlignment = Alignment.CenterStart) {
         val density = LocalDensity.current
+        val touchSlop = LocalViewConfiguration.current.touchSlop
         val tabWidth = with(density) { (constraints.maxWidth.toFloat() - 8.dp.toPx()) / 2f }
         val pressedScaleX = with(density) { (tabWidth + 22.dp.toPx()) / tabWidth }
         val offsetAnimation = remember { Animatable(0f) }
@@ -308,6 +320,7 @@ private fun LiquidTabCapsule(
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         var currentIndex by remember { mutableIntStateOf(selectedIndex) }
         var tapIndex by remember { mutableIntStateOf(selectedIndex) }
+        var totalHorizontalDrag by remember { mutableStateOf(0f) }
         var gestureMoved by remember { mutableStateOf(false) }
         var settledLogJob by remember { mutableStateOf<Job?>(null) }
         val drag = remember(scope, hapticFeedback) {
@@ -325,6 +338,7 @@ private fun LiquidTabCapsule(
                     } else {
                         if (isLtr) 1 else 0
                     }
+                    totalHorizontalDrag = 0f
                     gestureMoved = false
                     settledLogJob?.cancel()
                     logBottomDockState(debugLogging, "DOWN", currentIndex, this)
@@ -343,6 +357,8 @@ private fun LiquidTabCapsule(
                     }
                     currentIndex = target
                     settleToValue(target.toFloat())
+                    totalHorizontalDrag = 0f
+                    gestureMoved = false
                     scope.launch { offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f)) }
                     val animation = this
                     settledLogJob = scope.launch {
@@ -352,12 +368,24 @@ private fun LiquidTabCapsule(
                 },
                 onDragCancelled = {
                     settleToValue(currentIndex.toFloat())
+                    totalHorizontalDrag = 0f
+                    gestureMoved = false
                     scope.launch { offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f)) }
                 },
                 onDrag = { _, amount ->
-                    if (amount.x != 0f || amount.y != 0f) gestureMoved = true
-                    updateValue((targetValue + amount.x / tabWidth * if (isLtr) 1f else -1f).fastCoerceIn(0f, 1f))
-                    scope.launch { offsetAnimation.snapTo(offsetAnimation.value + amount.x) }
+                    totalHorizontalDrag += amount.x
+                    val crossedTouchSlop = !gestureMoved && isDockDrag(totalHorizontalDrag, touchSlop)
+                    if (crossedTouchSlop) {
+                        gestureMoved = true
+                        updateValue(
+                            (targetValue + totalHorizontalDrag / tabWidth * if (isLtr) 1f else -1f)
+                                .fastCoerceIn(0f, 1f),
+                        )
+                        scope.launch { offsetAnimation.snapTo(totalHorizontalDrag) }
+                    } else if (gestureMoved) {
+                        updateValue((targetValue + amount.x / tabWidth * if (isLtr) 1f else -1f).fastCoerceIn(0f, 1f))
+                        scope.launch { offsetAnimation.snapTo(offsetAnimation.value + amount.x) }
+                    }
                 },
             )
         }
@@ -384,10 +412,10 @@ private fun LiquidTabCapsule(
         }
 
         val tabs: @Composable RowScope.() -> Unit = {
-            DockTab(selected = currentIndex == 0) {
+            DockTab(selected = currentIndex == 0, onSelect = { onSelected(0) }) {
                 DockTabContent(R.drawable.ic_quota, "额度", unselectedContentColor)
             }
-            DockTab(selected = currentIndex == 1) {
+            DockTab(selected = currentIndex == 1, onSelect = { onSelected(1) }) {
                 DockTabContent(R.drawable.ic_usage, "统计", unselectedContentColor)
             }
         }

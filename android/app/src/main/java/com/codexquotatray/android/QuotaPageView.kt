@@ -330,35 +330,23 @@ internal fun QuotaPage(controller: QuotaPageController, modifier: Modifier = Mod
 
 @Composable
 private fun QuotaStatusLine(model: QuotaUiModel) {
-    val palette = LocalQuotaPalette.current
-    val isNetworkError = model.status == QuotaUiStatus.ERROR && model.message?.contains("无法连接") == true
-    val lastSync = model.updatedAtMillis?.let { "上次同步于 ${formatClockTime(it)}" }
-    if (isNetworkError && lastSync != null) {
-        Row {
-            Text(lastSync, color = palette.color(palette.muted), fontSize = 14.sp)
-            Text(" · ", color = palette.color(palette.muted), fontSize = 14.sp)
-            Text("网络连接异常", color = palette.color(palette.error), fontSize = 14.sp)
-        }
-        return
-    }
-    Text(
-        text = if (isNetworkError) "网络连接异常" else quotaStatusLine(model),
-        color = palette.color(if (model.status == QuotaUiStatus.ERROR) palette.error else palette.muted),
-        fontSize = 14.sp,
-    )
+    RefreshStatusLine(quotaStatusLine(model))
 }
 
 private fun quotaStatusLine(model: QuotaUiModel): String {
-    val status = model.message ?: when (model.status) {
-        QuotaUiStatus.LOADING -> "正在读取额度…"
-        QuotaUiStatus.UNAUTHENTICATED -> "尚未登录 Codex"
-        QuotaUiStatus.LOADED -> "额度读取成功"
-        QuotaUiStatus.ERROR -> "额度读取失败"
+    val updatedAt = model.updatedAtMillis?.let(::formatClockTime)
+    return when (model.status) {
+        QuotaUiStatus.LOADING -> RefreshStatusFormatter.refreshing(model.updatedAtMillis != null)
+        QuotaUiStatus.UNAUTHENTICATED -> RefreshStatusFormatter.quotaNoSource()
+        QuotaUiStatus.LOADED -> RefreshStatusFormatter.loaded(
+            source = if (model.source == QuotaSource.WINDOWS) "Windows" else "OpenAI",
+            updatedAt = updatedAt,
+        )
+        QuotaUiStatus.ERROR -> RefreshStatusFormatter.failure(
+            reason = shortQuotaRefreshFailure(model.message),
+            updatedAt = updatedAt,
+        )
     }
-    if (model.status != QuotaUiStatus.LOADED) return status
-    val updatedAt = model.updatedAtMillis?.let { "更新于 ${formatClockTime(it)}" } ?: "尚未更新"
-    val source = if (model.source == QuotaSource.WINDOWS) " · Windows" else ""
-    return "$status · $updatedAt$source"
 }
 
 @Composable

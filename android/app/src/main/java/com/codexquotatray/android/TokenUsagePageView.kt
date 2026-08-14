@@ -79,7 +79,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         private set
     var snapshot by mutableStateOf<TokenUsageSnapshot?>(null)
         private set
-    var status by mutableStateOf("尚未打开统计")
+    var status by mutableStateOf(RefreshStatusFormatter.tokenUnpaired())
         private set
     var paired by mutableStateOf(false)
         private set
@@ -124,7 +124,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
             observedPairing = null
             paired = false
             snapshot = null
-            status = "尚未配对 Windows"
+            status = RefreshStatusFormatter.tokenUnpaired()
             return
         }
 
@@ -132,10 +132,11 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         paired = true
         if (decision.pairingChanged) {
             snapshot = decision.snapshotToDisplay
-            status = snapshot?.let { "上次同步于 ${formatSyncTime(it.generatedAtUtc)}" } ?: "已配对，尚未同步"
+            status = snapshot?.let { RefreshStatusFormatter.loaded("Windows", formatSyncTime(it.generatedAtUtc)) }
+                ?: RefreshStatusFormatter.tokenPairedWithoutData()
         } else if (decision.snapshotToDisplay !== snapshot && decision.snapshotToDisplay != null) {
             snapshot = decision.snapshotToDisplay
-            status = "上次同步于 ${formatSyncTime(decision.snapshotToDisplay.generatedAtUtc)}"
+            status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(decision.snapshotToDisplay.generatedAtUtc))
         }
     }
 
@@ -162,7 +163,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.TOKEN, reason, enabled)) return
         val snapshotAtStart = snapshot
         syncing = true
-        status = if (snapshot == null) "正在从 Windows 同步…" else "正在同步；当前显示缓存"
+        status = RefreshStatusFormatter.refreshing(snapshot != null)
         worker.execute {
             val result = try {
                 runCatching {
@@ -180,15 +181,18 @@ internal class TokenUsagePageController(private val host: MainActivity) {
                 result.onSuccess { synced ->
                     snapshot = synced.snapshot
                     observedPairing = store.load() ?: synced.pairing
-                    status = "上次同步于 ${formatSyncTime(synced.snapshot.generatedAtUtc)}"
+                    status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(synced.snapshot.generatedAtUtc))
                 }.onFailure { error ->
                     val latestSnapshot = loadCachedSnapshot()
                     if (latestSnapshot != null && hasNewerTokenUsageSnapshot(snapshotAtStart, latestSnapshot)) {
                         snapshot = latestSnapshot
-                        status = "上次同步于 ${formatSyncTime(latestSnapshot.generatedAtUtc)}"
+                        status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(latestSnapshot.generatedAtUtc))
                     } else {
                         val message = tokenUsageSyncErrorMessage(error)
-                        status = snapshot?.let { "上次同步于 ${formatSyncTime(it.generatedAtUtc)} · $message" } ?: message
+                        status = RefreshStatusFormatter.failure(
+                            reason = message,
+                            updatedAt = snapshot?.let { formatSyncTime(it.generatedAtUtc) },
+                        )
                     }
                 }
             }
@@ -262,25 +266,7 @@ internal fun TokenUsagePage(controller: TokenUsagePageController, onPairing: () 
 
 @Composable
 private fun TokenUsageStatusLine(status: String) {
-    val palette = LocalQuotaPalette.current
-    val separator = " · "
-    val separatorIndex = status.indexOf(separator)
-    if (separatorIndex >= 0) {
-        Row {
-            Text(status.substring(0, separatorIndex), fontSize = 14.sp, color = palette.color(palette.muted))
-            Text(separator, fontSize = 14.sp, color = palette.color(palette.muted))
-            Text(status.substring(separatorIndex + separator.length), fontSize = 14.sp, color = palette.color(palette.error))
-        }
-    } else {
-        Text(
-            status,
-            fontSize = 14.sp,
-            color = palette.color(
-                if (status.contains("Windows 当前不可用") || status.contains("Token 同步数据保存失败")) palette.error else palette.muted,
-            ),
-        )
-    }
-
+    RefreshStatusLine(status)
 }
 
 @Composable

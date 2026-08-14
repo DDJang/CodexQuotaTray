@@ -41,7 +41,11 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import kotlin.time.Clock
+
+internal fun isDockDrag(totalHorizontalDrag: Float, touchSlop: Float): Boolean =
+    abs(totalHorizontalDrag) > touchSlop
 
 internal class BottomDockDampedDragAnimation(
     private val animationScope: CoroutineScope,
