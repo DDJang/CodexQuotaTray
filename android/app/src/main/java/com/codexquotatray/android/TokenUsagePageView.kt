@@ -665,7 +665,7 @@ private fun HeatmapBlurTooltip(
     hazeState: HazeState,
     modifier: Modifier = Modifier,
 ) {
-    val tooltipTint = Color(0xff121212).copy(alpha = 0.72f)
+    val containerColor = Color(0xFF121212)
     val shape = RoundedCornerShape(16.dp)
     val scale = remember { Animatable(0.96f) }
     LaunchedEffect(Unit) {
@@ -684,7 +684,10 @@ private fun HeatmapBlurTooltip(
             .hazeEffect(hazeState) {
                 blurEffect {
                     blurRadius = 24.dp
-                    colorEffects = listOf(HazeColorEffect.tint(tooltipTint))
+                    backgroundColor = containerColor
+                    colorEffects = listOf(
+                        HazeColorEffect.tint(containerColor.copy(alpha = 0.65f)),
+                    )
                 }
             }
             .border(1.dp, Color.White.copy(alpha = 0.18f), shape)
