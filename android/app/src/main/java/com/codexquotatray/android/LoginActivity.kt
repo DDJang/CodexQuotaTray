@@ -53,6 +53,12 @@ class LoginActivity : ComponentActivity() {
                                 SettingsInfoRow(
                                     title = "状态",
                                     value = statusText,
+                                    valueColor = if (failed) {
+                                        palette.color(palette.error)
+                                    } else {
+                                        palette.color(palette.secondary)
+                                    },
+                                    valueMaxLines = 4,
                                 )
                                 userCode?.let { code ->
                                     SettingsDivider()

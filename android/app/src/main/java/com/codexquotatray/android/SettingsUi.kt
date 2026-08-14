@@ -243,6 +243,8 @@ internal fun SettingsSelectionRow(
 internal fun SettingsInfoRow(
     title: String,
     value: String,
+    valueColor: Color? = null,
+    valueMaxLines: Int = 2,
 ) {
     val palette = LocalQuotaPalette.current
     Row(
@@ -262,9 +264,9 @@ internal fun SettingsInfoRow(
         Spacer(Modifier.width(16.dp))
         Text(
             text = value,
-            color = palette.color(palette.secondary),
+            color = valueColor ?: palette.color(palette.secondary),
             fontSize = 14.sp,
-            maxLines = 2,
+            maxLines = valueMaxLines,
             overflow = TextOverflow.Ellipsis,
         )
     }

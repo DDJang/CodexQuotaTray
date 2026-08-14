@@ -48,7 +48,7 @@ private fun parseLogEntries(raw: String): List<LogDisplayEntry> {
                 LogDisplayEntry("未知时间", "INFO", line)
             } else {
                 LogDisplayEntry(
-                    time = match.groupValues[1].substringAfterLast(' '),
+                    time = match.groupValues[1].substring(5, 16),
                     level = match.groupValues[2].uppercase(Locale.ROOT),
                     message = match.groupValues[3],
                 )

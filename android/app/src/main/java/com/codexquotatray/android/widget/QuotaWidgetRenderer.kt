@@ -44,9 +44,12 @@ internal object QuotaWidgetRenderer {
         val ringWindows = widgetRingWindows(windows)
         val outer = ringWindows.getOrNull(0)
         val inner = ringWindows.getOrNull(1)
+        val plan = projection?.planType?.takeIf {
+            it.isNotBlank() && !it.equals("Codex", ignoreCase = true)
+        }
         views.setTextViewText(
             R.id.widget_plan,
-            "Codex · ${projection?.planType?.takeIf { it.isNotBlank() } ?: "Plus"}",
+            plan?.let { "Codex · $it" } ?: "Codex",
         )
         views.setTextViewText(
             R.id.widget_updated,
