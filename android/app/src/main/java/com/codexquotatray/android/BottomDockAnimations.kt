@@ -53,6 +53,7 @@ internal class BottomDockDampedDragAnimation(
     private val pressedScaleY: Float,
     private val onDragStarted: BottomDockDampedDragAnimation.(position: Offset) -> Unit,
     private val onDragStopped: BottomDockDampedDragAnimation.() -> Unit,
+    private val onDragCancelled: BottomDockDampedDragAnimation.() -> Unit,
     private val onDrag: BottomDockDampedDragAnimation.(size: IntSize, dragAmount: Offset) -> Unit,
 ) {
     private val valueAnimationSpec = spring(1f, 1000f, visibilityThreshold)
@@ -87,7 +88,7 @@ internal class BottomDockDampedDragAnimation(
                 release()
             },
             onDragCancel = {
-                onDragStopped()
+                onDragCancelled()
                 release()
             },
         ) { _, dragAmount -> onDrag(size, dragAmount) }
@@ -162,7 +163,7 @@ internal class BottomDockDampedDragAnimation(
     }
 }
 
-internal class BottomDockInteractiveHighlight(
+internal class GlassInteractiveHighlight(
     animationScope: CoroutineScope,
     private val position: (size: Size, offset: Offset) -> Offset = { _, offset -> offset },
 ) {
@@ -213,6 +214,9 @@ internal class BottomDockInteractiveHighlight(
         }
         drawContent()
     }
+
+    val pressProgress: Float get() = pressProgressAnimation.value
+    val offset: Offset get() = positionAnimation.value - startPosition
 
     val gestureModifier: Modifier = Modifier.pointerInput(animationScope) {
         inspectBottomDockDragGestures(

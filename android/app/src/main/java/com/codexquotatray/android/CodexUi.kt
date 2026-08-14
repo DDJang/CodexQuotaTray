@@ -201,7 +201,7 @@ internal fun SecondaryScreenScaffold(
                 iconRes = R.drawable.ic_back,
                 description = "返回",
                 backdrop = backdrop,
-                size = 52.dp,
+                buttonSize = 52.dp,
                 iconSize = 25.dp,
                 onClick = onBack,
             )

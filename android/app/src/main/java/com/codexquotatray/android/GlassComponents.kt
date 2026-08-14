@@ -5,10 +5,7 @@ import android.util.Log
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,6 +58,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.Dp
@@ -69,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.TextStyle
 import androidx.annotation.DrawableRes
 import androidx.compose.ui.util.fastCoerceIn
+import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.fastFirstOrNull
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
@@ -90,7 +89,11 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.sign
+import kotlin.math.sin
+import kotlin.math.tanh
 
 @Composable
 internal fun GlassIconButton(
@@ -99,51 +102,68 @@ internal fun GlassIconButton(
     backdrop: Backdrop,
     enabled: Boolean = true,
     busy: Boolean = false,
-    size: Dp = 52.dp,
+    buttonSize: Dp = 52.dp,
     iconSize: Dp = 24.dp,
     onClick: () -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
+    val animationScope = rememberCoroutineScope()
     val hapticOnClick = rememberSystemHapticClick(onClick)
-    val interaction = remember { MutableInteractionSource() }
-    val pressed by interaction.collectIsPressedAsState()
-    val pressProgress by animateFloatAsState(
-        if (pressed) 1f else 0f,
-        spring(dampingRatio = 0.62f, stiffness = 520f),
-        label = "glass-button-press",
-    )
+    val interactiveHighlight = remember(animationScope) {
+        GlassInteractiveHighlight(animationScope)
+    }
     Box(
         Modifier
-            .size(size)
+            .size(buttonSize)
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { KyantShapes.capsule() },
                 effects = {
                     vibrancy()
-                    blur(7.dp.toPx())
-                    lens(
-                        11.dp.toPx() * (0.8f + 0.2f * pressProgress),
-                        10.dp.toPx(),
-                        chromaticAberration = false,
-                    )
+                    blur(2.dp.toPx())
+                    lens(12.dp.toPx(), 24.dp.toPx())
                 },
-                highlight = { Highlight.Default.copy(alpha = 0.7f) },
-                shadow = { Shadow(alpha = 0.55f) },
-                innerShadow = { InnerShadow(radius = 5.dp, alpha = 0.5f) },
                 layerBlock = {
-                    val scale = lerp(1f, 0.9f, pressProgress)
-                    scaleX = scale
-                    scaleY = scale
+                    val width = size.width
+                    val height = size.height
+                    val progress = interactiveHighlight.pressProgress
+                    val scale = lerp(1f, 1f + 4.dp.toPx() / height, progress)
+                    val maxOffset = size.minDimension
+                    val initialDerivative = 0.05f
+                    val rawOffset = interactiveHighlight.offset
+                    val offset = Offset(
+                        rawOffset.x.fastCoerceIn(-maxOffset, maxOffset),
+                        rawOffset.y.fastCoerceIn(-maxOffset, maxOffset),
+                    )
+                    translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
+                    translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
+                    val maxDragScale = 4.dp.toPx() / height
+                    val offsetAngle = atan2(offset.y, offset.x)
+                    scaleX = scale + maxDragScale *
+                        abs(cos(offsetAngle) * offset.x / size.maxDimension) *
+                        (width / height).fastCoerceAtMost(1f)
+                    scaleY = scale + maxDragScale *
+                        abs(sin(offsetAngle) * offset.y / size.maxDimension) *
+                        (height / width).fastCoerceAtMost(1f)
                 },
                 onDrawSurface = { drawRect(palette.color(palette.surface).copy(alpha = 0.2f)) },
             )
             .clip(KyantShapes.capsule())
             .clickable(
-                interactionSource = interaction,
+                interactionSource = null,
                 indication = null,
                 enabled = enabled,
                 role = Role.Button,
                 onClick = hapticOnClick,
+            )
+            .then(
+                if (enabled) {
+                    Modifier
+                        .then(interactiveHighlight.modifier)
+                        .then(interactiveHighlight.gestureModifier)
+                } else {
+                    Modifier
+                },
             )
             .semantics { contentDescription = description }
             .alpha(if (enabled) 1f else 0.45f),
@@ -169,16 +189,22 @@ internal fun GlassIconButton(
 private val LocalDockTabScale = compositionLocalOf { { 1f } }
 
 @Composable
-private fun RowScope.DockTab(onClick: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+private fun RowScope.DockTab(
+    selected: Boolean,
+    content: @Composable ColumnScope.() -> Unit,
+) {
     val scale = LocalDockTabScale.current
-    val hapticOnClick = rememberSystemHapticClick(onClick)
     Column(
         Modifier
             .clip(KyantShapes.capsule())
-            .clickable(interactionSource = null, indication = null, role = Role.Tab, onClick = hapticOnClick)
+            .semantics { role = Role.Tab }
             .fillMaxHeight()
             .weight(1f)
-            .graphicsLayer { scaleX = scale(); scaleY = scale() },
+            .graphicsLayer {
+                val selectedScale = if (selected) 1.02f else 1f
+                scaleX = scale() * selectedScale
+                scaleY = scale() * selectedScale
+            },
         verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
         horizontalAlignment = Alignment.CenterHorizontally,
         content = content,
@@ -238,7 +264,7 @@ internal fun LiquidMainDock(
                 backdrop = backdrop,
                 enabled = actionEnabled && !actionBusy,
                 busy = actionBusy,
-                size = actionSize,
+                buttonSize = actionSize,
                 iconSize = 24.dp,
                 onClick = onAction,
             )
@@ -281,6 +307,8 @@ private fun LiquidTabCapsule(
         }
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         var currentIndex by remember { mutableIntStateOf(selectedIndex) }
+        var tapIndex by remember { mutableIntStateOf(selectedIndex) }
+        var gestureMoved by remember { mutableStateOf(false) }
         var settledLogJob by remember { mutableStateOf<Job?>(null) }
         val drag = remember(scope, hapticFeedback) {
             BottomDockDampedDragAnimation(
@@ -292,13 +320,23 @@ private fun LiquidTabCapsule(
                 pressedScaleX = pressedScaleX,
                 pressedScaleY = 78f / 56f,
                 onDragStarted = {
+                    tapIndex = if (it.x < constraints.maxWidth / 2f) {
+                        if (isLtr) 0 else 1
+                    } else {
+                        if (isLtr) 1 else 0
+                    }
+                    gestureMoved = false
                     settledLogJob?.cancel()
                     logBottomDockState(debugLogging, "DOWN", currentIndex, this)
                 },
                 onDragStopped = {
                     settledLogJob?.cancel()
                     logBottomDockState(debugLogging, "UP", currentIndex, this)
-                    val target = targetValue.fastRoundToInt().fastCoerceIn(0, 1)
+                    val target = if (gestureMoved) {
+                        targetValue.fastRoundToInt().fastCoerceIn(0, 1)
+                    } else {
+                        tapIndex
+                    }
                     if (target != currentIndex) {
                         logBottomDockState(debugLogging, "HAPTIC", target, this)
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
@@ -312,7 +350,12 @@ private fun LiquidTabCapsule(
                         logBottomDockState(debugLogging, "SETTLED", currentIndex, animation)
                     }
                 },
+                onDragCancelled = {
+                    settleToValue(currentIndex.toFloat())
+                    scope.launch { offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f)) }
+                },
                 onDrag = { _, amount ->
+                    if (amount.x != 0f || amount.y != 0f) gestureMoved = true
                     updateValue((targetValue + amount.x / tabWidth * if (isLtr) 1f else -1f).fastCoerceIn(0f, 1f))
                     scope.launch { offsetAnimation.snapTo(offsetAnimation.value + amount.x) }
                 },
@@ -328,7 +371,7 @@ private fun LiquidTabCapsule(
             }
         }
         val interactiveHighlight = remember(scope) {
-            BottomDockInteractiveHighlight(
+            GlassInteractiveHighlight(
                 animationScope = scope,
                 position = { size, _ ->
                     Offset(
@@ -341,10 +384,10 @@ private fun LiquidTabCapsule(
         }
 
         val tabs: @Composable RowScope.() -> Unit = {
-            DockTab({ currentIndex = 0 }) {
+            DockTab(selected = currentIndex == 0) {
                 DockTabContent(R.drawable.ic_quota, "额度", unselectedContentColor)
             }
-            DockTab({ currentIndex = 1 }) {
+            DockTab(selected = currentIndex == 1) {
                 DockTabContent(R.drawable.ic_usage, "统计", unselectedContentColor)
             }
         }
@@ -416,8 +459,6 @@ private fun LiquidTabCapsule(
         Box(
             Modifier.padding(horizontal = 4.dp)
                 .graphicsLayer { translationX = if (isLtr) drag.value * tabWidth + panelOffset else size.width - (drag.value + 1f) * tabWidth + panelOffset }
-                .then(interactiveHighlight.gestureModifier)
-                .then(drag.modifier)
                 .drawBackdrop(
                     rememberCombinedBackdrop(backdrop, tabsBackdrop), { KyantShapes.capsule() },
                     effects = { lens(10.dp.toPx() * drag.pressProgress, 14.dp.toPx() * drag.pressProgress, chromaticAberration = true) },
@@ -436,6 +477,12 @@ private fun LiquidTabCapsule(
                     },
                 )
                 .height(56.dp).fillMaxWidth(0.5f),
+        )
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(interactiveHighlight.gestureModifier)
+                .then(drag.modifier),
         )
     }
 }
