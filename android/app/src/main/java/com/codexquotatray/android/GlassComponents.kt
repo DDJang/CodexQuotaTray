@@ -107,6 +107,7 @@ internal fun GlassSurface(
     backdrop: Backdrop,
     shape: Shape,
     modifier: Modifier = Modifier,
+    clippedModifier: Modifier = Modifier,
     layerBlock: GraphicsLayerScope.() -> Unit = {},
     contentAlignment: Alignment = Alignment.Center,
     blurRadius: Dp = 2.dp,
@@ -142,7 +143,8 @@ internal fun GlassSurface(
                 layerBlock = layerBlock,
                 onDrawSurface = { drawRect(resolvedSurfaceColor.copy(alpha = surfaceAlpha)) },
             )
-            .clip(shape),
+            .clip(shape)
+            .then(clippedModifier),
         contentAlignment = contentAlignment,
         content = content,
     )
@@ -168,8 +170,8 @@ internal fun GlassIconButton(
     GlassSurface(
         backdrop = backdrop,
         shape = KyantShapes.capsule(),
-        modifier = Modifier
-            .size(buttonSize)
+        modifier = Modifier.size(buttonSize),
+        clippedModifier = Modifier
             .clickable(
                 interactionSource = null,
                 indication = null,

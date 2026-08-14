@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -303,16 +305,69 @@ private fun TokenUsageStatusLine(status: String) {
 private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
     val first = listOf("今日 Token" to snapshot.summary.todayTokens, "7 天 Token" to snapshot.summary.last7DaysTokens, "30 天 Token" to snapshot.summary.last30DaysTokens, "累计 Token" to snapshot.summary.lifetimeTokens)
     val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续天数" to snapshot.summary.currentStreak.toLong(), "最长连续天数" to snapshot.summary.longestStreak.toLong())
-    SummaryRow(first)
-    SummaryRow(second)
-    Spacer(Modifier.height(16.dp))
+    val tokenContentBackdrop = rememberLayerBackdrop()
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
-    TokenHeatmap(
-        days = snapshot.days,
-        selectedDate = selectedDate,
-        onSelected = { selectedDate = it },
-        onClearSelection = { selectedDate = null },
-    )
+    var tooltipPresentation by remember { mutableStateOf<HeatmapTooltipPresentation?>(null) }
+    val tooltipTarget = tooltipPresentation?.target
+    val tooltipPositionAnimation = remember {
+        Animatable(
+            initialValue = Offset.Zero,
+            typeConverter = Offset.VectorConverter,
+            visibilityThreshold = Offset.VisibilityThreshold,
+        )
+    }
+    var tooltipPositionInitialized by remember { mutableStateOf(false) }
+    LaunchedEffect(tooltipTarget) {
+        if (tooltipTarget == null) {
+            tooltipPositionInitialized = false
+        } else if (!tooltipPositionInitialized) {
+            tooltipPositionAnimation.snapTo(tooltipTarget)
+            tooltipPositionInitialized = true
+        } else {
+            tooltipPositionAnimation.animateTo(
+                targetValue = tooltipTarget,
+                animationSpec = spring(
+                    dampingRatio = 0.5f,
+                    stiffness = 300f,
+                    visibilityThreshold = Offset.VisibilityThreshold,
+                ),
+            )
+        }
+    }
+    val tooltipOffset = if (tooltipTarget != null && !tooltipPositionInitialized) {
+        tooltipTarget
+    } else {
+        tooltipPositionAnimation.value
+    }
+    Box(Modifier.fillMaxWidth()) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .layerBackdrop(tokenContentBackdrop),
+        ) {
+            SummaryRow(first)
+            SummaryRow(second)
+            Spacer(Modifier.height(16.dp))
+            TokenHeatmap(
+                days = snapshot.days,
+                selectedDate = selectedDate,
+                onSelected = { selectedDate = it },
+                onClearSelection = { selectedDate = null },
+                onTooltipChanged = { tooltipPresentation = it },
+            )
+        }
+        tooltipPresentation?.let { presentation ->
+            HeatmapGlassTooltip(
+                day = presentation.day,
+                backdrop = tokenContentBackdrop,
+                modifier = Modifier
+                    .offset {
+                        IntOffset(tooltipOffset.x.roundToInt(), tooltipOffset.y.roundToInt())
+                    }
+                    .zIndex(2f),
+            )
+        }
+    }
 }
 
 @Composable
@@ -334,12 +389,18 @@ private data class HeatmapVisualSelection(
     val color: Color,
 )
 
+private data class HeatmapTooltipPresentation(
+    val day: TokenUsageDay,
+    val target: Offset,
+)
+
 @Composable
 private fun TokenHeatmap(
     days: List<TokenUsageDay>,
     selectedDate: LocalDate?,
     onSelected: (LocalDate) -> Unit,
     onClearSelection: () -> Unit,
+    onTooltipChanged: (HeatmapTooltipPresentation?) -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
     val density = LocalDensity.current
@@ -359,7 +420,14 @@ private fun TokenHeatmap(
         )
     }
 
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    var heatmapOriginInParent by remember { mutableStateOf(Offset.Zero) }
+    BoxWithConstraints(
+        Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { coordinates ->
+                heatmapOriginInParent = coordinates.positionInParent()
+            },
+    ) {
         val viewportWidthPx = with(density) { maxWidth.toPx() }
         val geometry = remember(range.start, range.dayCount, maxWidth, density) {
             val gapPx = with(density) { HEATMAP_GAP.toPx() }
@@ -422,11 +490,18 @@ private fun TokenHeatmap(
         val tooltipWidthPx = with(density) { HEATMAP_TOOLTIP_WIDTH.toPx() }
         val tooltipHeightPx = with(density) { HEATMAP_TOOLTIP_HEIGHT.toPx() }
         val tooltipClearancePx = with(density) { HEATMAP_TOOLTIP_CLEARANCE.toPx() }
-        val containerHeight = gridHeight
-        val tooltipPlacement = if (selectedBounds != null) {
+        val selectedBoundsInParent = selectedBounds?.let { bounds ->
+            Rect(
+                left = bounds.left + heatmapOriginInParent.x,
+                top = bounds.top + heatmapOriginInParent.y,
+                right = bounds.right + heatmapOriginInParent.x,
+                bottom = bounds.bottom + heatmapOriginInParent.y,
+            )
+        }
+        val tooltipPlacement = if (selectedBoundsInParent != null) {
             placeHeatmapTooltip(
                 viewportWidthPx = viewportWidthPx,
-                cellBounds = selectedBounds,
+                cellBounds = selectedBoundsInParent,
                 tooltipWidthPx = tooltipWidthPx,
                 tooltipHeightPx = tooltipHeightPx,
                 selectedScale = HEATMAP_SELECTED_SCALE,
@@ -435,38 +510,18 @@ private fun TokenHeatmap(
         } else {
             null
         }
-        val tooltipTarget = tooltipPlacement?.let { Offset(it.x, it.y) }
-        val tooltipPositionAnimation = remember {
-            Animatable(
-                initialValue = Offset.Zero,
-                typeConverter = Offset.VectorConverter,
-                visibilityThreshold = Offset.VisibilityThreshold,
+        val tooltipPresentation = if (selectedDay != null && tooltipPlacement != null) {
+            HeatmapTooltipPresentation(
+                day = selectedDay,
+                target = Offset(tooltipPlacement.x, tooltipPlacement.y),
             )
-        }
-        var tooltipPositionInitialized by remember { mutableStateOf(false) }
-        LaunchedEffect(tooltipTarget) {
-            if (tooltipTarget == null) {
-                tooltipPositionInitialized = false
-            } else if (!tooltipPositionInitialized) {
-                tooltipPositionAnimation.snapTo(tooltipTarget)
-                tooltipPositionInitialized = true
-            } else {
-                tooltipPositionAnimation.animateTo(
-                    targetValue = tooltipTarget,
-                    animationSpec = spring(
-                        dampingRatio = 0.5f,
-                        stiffness = 300f,
-                        visibilityThreshold = Offset.VisibilityThreshold,
-                    ),
-                )
-            }
-        }
-        val tooltipOffset = if (tooltipTarget != null && !tooltipPositionInitialized) {
-            tooltipTarget
         } else {
-            tooltipPositionAnimation.value
+            null
         }
-        val heatmapBackdrop = rememberLayerBackdrop()
+        LaunchedEffect(tooltipPresentation) {
+            onTooltipChanged(tooltipPresentation)
+        }
+        val containerHeight = gridHeight
 
         Box(
             Modifier
@@ -525,8 +580,7 @@ private fun TokenHeatmap(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(gridHeight)
-                    .layerBackdrop(heatmapBackdrop),
+                    .height(gridHeight),
             ) {
                 Box(
                     Modifier
@@ -566,17 +620,6 @@ private fun TokenHeatmap(
                             )
                         }
                         .zIndex(1f),
-                )
-            }
-            if (selectedDay != null && selectedBounds != null && tooltipPlacement != null) {
-                HeatmapGlassTooltip(
-                    day = selectedDay,
-                    backdrop = heatmapBackdrop,
-                    modifier = Modifier
-                        .offset {
-                            IntOffset(tooltipOffset.x.roundToInt(), tooltipOffset.y.roundToInt())
-                        }
-                        .zIndex(2f),
                 )
             }
         }
