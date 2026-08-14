@@ -57,7 +57,8 @@ internal object SettingsUiTokens {
     val actionHeight = 52.dp
     val actionCornerRadius = 18.dp
     val actionHorizontalInset = 12.dp
-    val actionBottomInset = 10.dp
+    val actionInnerInset = 4.dp
+    val actionEdgeInset = 10.dp
     val segmentedHeight = 48.dp
     val segmentedCornerRadius = 16.dp
     val segmentedBottomInset = 10.dp
@@ -312,7 +313,8 @@ internal fun SettingsActionButton(
     label: String,
     danger: Boolean = false,
     enabled: Boolean = true,
-    bottomPadding: Dp = 4.dp,
+    topPadding: Dp = SettingsUiTokens.actionInnerInset,
+    bottomPadding: Dp = SettingsUiTokens.actionInnerInset,
     onClick: () -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
@@ -325,7 +327,7 @@ internal fun SettingsActionButton(
             .fillMaxWidth()
             .padding(
                 start = SettingsUiTokens.actionHorizontalInset,
-                top = 4.dp,
+                top = topPadding,
                 end = SettingsUiTokens.actionHorizontalInset,
                 bottom = bottomPadding,
             )

@@ -91,11 +91,13 @@ class LogActivity : ComponentActivity() {
                                 SettingsActionButton(
                                     label = if (copied) "已复制" else "复制全部日志",
                                     enabled = !copied,
+                                    topPadding = SettingsUiTokens.actionEdgeInset,
                                     onClick = ::copyLogs,
                                 )
                                 SettingsActionButton(
                                     label = "清空日志",
                                     danger = true,
+                                    bottomPadding = SettingsUiTokens.actionEdgeInset,
                                     onClick = { showClearDialog = true },
                                 )
                             }
@@ -113,6 +115,7 @@ class LogActivity : ComponentActivity() {
                                     if (visibleLogCount < logEntries.size) {
                                         SettingsActionButton(
                                             label = "显示更早日志",
+                                            bottomPadding = SettingsUiTokens.actionEdgeInset,
                                             onClick = {
                                                 visibleLogCount = (visibleLogCount + LOG_PAGE_SIZE)
                                                     .coerceAtMost(logEntries.size)

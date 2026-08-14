@@ -83,12 +83,18 @@ class LoginActivity : ComponentActivity() {
                                 if (!verificationUrl.isNullOrBlank()) {
                                     SettingsActionButton(
                                         label = "打开浏览器",
+                                        bottomPadding = if (busy) {
+                                            SettingsUiTokens.actionEdgeInset
+                                        } else {
+                                            SettingsUiTokens.actionInnerInset
+                                        },
                                         onClick = ::openVerificationBrowser,
                                     )
                                 }
                                 if (!busy) {
                                     SettingsActionButton(
                                         label = "重新登录",
+                                        bottomPadding = SettingsUiTokens.actionEdgeInset,
                                         onClick = ::beginLogin,
                                     )
                                 }

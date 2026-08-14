@@ -59,6 +59,7 @@ class AccountActivity : ComponentActivity() {
                                 SettingsActionButton(
                                     label = if (credentials == null) "登录 Codex" else "退出登录",
                                     danger = credentials != null,
+                                    bottomPadding = SettingsUiTokens.actionEdgeInset,
                                     onClick = {
                                         if (credentials == null) openLogin() else showLogoutDialog = true
                                     },

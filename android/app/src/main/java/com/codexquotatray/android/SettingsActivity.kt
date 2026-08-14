@@ -421,12 +421,12 @@ class SettingsActivity : ComponentActivity() {
                     SettingsActionButton(
                         label = "解除配对",
                         danger = true,
-                        bottomPadding = SettingsUiTokens.actionBottomInset,
+                        bottomPadding = SettingsUiTokens.actionEdgeInset,
                     ) { showClearPairingDialog = true }
                 } ?: run {
                     SettingsActionButton(
                         label = "扫码配对",
-                        bottomPadding = SettingsUiTokens.actionBottomInset,
+                        bottomPadding = SettingsUiTokens.actionEdgeInset,
                         onClick = ::scanPairing,
                     )
                 }
@@ -610,7 +610,7 @@ class SettingsActivity : ComponentActivity() {
                 SettingsActionButton(
                     label = if (updateChecking) "正在检查…" else "检查更新",
                     enabled = !updateChecking,
-                    bottomPadding = SettingsUiTokens.actionBottomInset,
+                    bottomPadding = SettingsUiTokens.actionEdgeInset,
                     onClick = ::checkForUpdates,
                 )
             }
