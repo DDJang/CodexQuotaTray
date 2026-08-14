@@ -9,6 +9,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -43,8 +44,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.paint
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -99,6 +102,35 @@ import kotlin.math.sin
 import kotlin.math.tanh
 
 @Composable
+internal fun GlassSurface(
+    backdrop: Backdrop,
+    shape: Shape,
+    modifier: Modifier = Modifier,
+    layerBlock: GraphicsLayerScope.() -> Unit = {},
+    contentAlignment: Alignment = Alignment.Center,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val palette = LocalQuotaPalette.current
+    Box(
+        modifier
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = { shape },
+                effects = {
+                    vibrancy()
+                    blur(2.dp.toPx())
+                    lens(12.dp.toPx(), 24.dp.toPx())
+                },
+                layerBlock = layerBlock,
+                onDrawSurface = { drawRect(palette.color(palette.surface).copy(alpha = 0.2f)) },
+            )
+            .clip(shape),
+        contentAlignment = contentAlignment,
+        content = content,
+    )
+}
+
+@Composable
 internal fun GlassIconButton(
     @DrawableRes iconRes: Int,
     description: String,
@@ -115,18 +147,30 @@ internal fun GlassIconButton(
     val interactiveHighlight = remember(animationScope) {
         GlassInteractiveHighlight(animationScope)
     }
-    Box(
-        Modifier
+    GlassSurface(
+        backdrop = backdrop,
+        shape = KyantShapes.capsule(),
+        modifier = Modifier
             .size(buttonSize)
-            .drawBackdrop(
-                backdrop = backdrop,
-                shape = { KyantShapes.capsule() },
-                effects = {
-                    vibrancy()
-                    blur(2.dp.toPx())
-                    lens(12.dp.toPx(), 24.dp.toPx())
+            .clickable(
+                interactionSource = null,
+                indication = null,
+                enabled = enabled,
+                role = Role.Button,
+                onClick = hapticOnClick,
+            )
+            .then(
+                if (enabled) {
+                    Modifier
+                        .then(interactiveHighlight.modifier)
+                        .then(interactiveHighlight.gestureModifier)
+                } else {
+                    Modifier
                 },
-                layerBlock = {
+            )
+            .semantics { contentDescription = description }
+            .alpha(if (enabled) 1f else 0.45f),
+        layerBlock = {
                     val width = size.width
                     val height = size.height
                     val progress = interactiveHighlight.pressProgress
@@ -149,28 +193,6 @@ internal fun GlassIconButton(
                         abs(sin(offsetAngle) * offset.y / size.maxDimension) *
                         (height / width).fastCoerceAtMost(1f)
                 },
-                onDrawSurface = { drawRect(palette.color(palette.surface).copy(alpha = 0.2f)) },
-            )
-            .clip(KyantShapes.capsule())
-            .clickable(
-                interactionSource = null,
-                indication = null,
-                enabled = enabled,
-                role = Role.Button,
-                onClick = hapticOnClick,
-            )
-            .then(
-                if (enabled) {
-                    Modifier
-                        .then(interactiveHighlight.modifier)
-                        .then(interactiveHighlight.gestureModifier)
-                } else {
-                    Modifier
-                },
-            )
-            .semantics { contentDescription = description }
-            .alpha(if (enabled) 1f else 0.45f),
-        contentAlignment = Alignment.Center,
     ) {
         if (busy) {
             CircularProgressIndicator(

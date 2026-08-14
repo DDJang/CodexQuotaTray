@@ -45,9 +45,9 @@ class TokenHeatmapRangeTest {
     }
 
     @Test
-    fun selectedDaysOutsideTheCurrentYearIncludeTheirYear() {
-        assertEquals("8 月 10 日  12 Token", formatHeatmapSelection(day(today, 12), 2026))
-        assertEquals("2025 年 8 月 10 日  12 Token", formatHeatmapSelection(day(today.minusYears(1), 12), 2026))
+    fun selectedDayTooltipUsesExactTokenCountAndIsoDate() {
+        assertEquals("12 Token\n2026-08-10", formatHeatmapSelection(day(today, 12)))
+        assertEquals("12 Token\n2025-08-10", formatHeatmapSelection(day(today.minusYears(1), 12)))
     }
 
     private fun day(date: LocalDate, tokens: Long = 1) = TokenUsageDay(date, tokens, null, null, null, null)
