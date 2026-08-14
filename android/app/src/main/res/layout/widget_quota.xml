@@ -52,6 +52,7 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:layout_marginTop="8dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:visibility="gone">
@@ -66,11 +67,12 @@
                 android:id="@+id/widget_quota_single_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_gravity="top|start"
+                android:layout_gravity="center_horizontal|center_vertical"
                 android:layout_marginStart="2dp"
                 android:includeFontPadding="false"
                 android:textColor="@color/widget_secondary_text"
-                android:textSize="12sp" />
+                android:textSize="12sp"
+                android:translationY="-58dp" />
 
             <LinearLayout
                 android:id="@+id/widget_quota_double_labels"
