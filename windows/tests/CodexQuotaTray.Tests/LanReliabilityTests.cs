@@ -18,9 +18,18 @@ public sealed class LanReliabilityTests
         var logs = new List<string>();
         var publisher = Publisher(native, logs);
 
-        await publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821);
+        var start = publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821);
+        await WaitUntilAsync(() => native.RegisterCalls == 1);
+        Assert.IsFalse(start.IsCompleted, "Register must return PENDING before its callback completes StartAsync.");
+        native.ReleaseRegistrationCallback();
+        await start;
         Assert.IsTrue(publisher.IsStarted);
-        await publisher.DisposeAsync();
+        var dispose = publisher.DisposeAsync().AsTask();
+        await WaitUntilAsync(() => native.DeregisterCalls == 1);
+        Assert.IsFalse(dispose.IsCompleted, "Deregister must return PENDING before its callback completes disposal.");
+        native.ReleaseDeregistrationCallback();
+        await dispose;
+        await native.WaitForCallbacksAsync();
 
         Assert.AreEqual(1, native.DeregisterCalls);
         Assert.AreEqual(1, native.FreeCalls);
@@ -35,12 +44,38 @@ public sealed class LanReliabilityTests
         var logs = new List<string>();
         var publisher = Publisher(native, logs);
 
-        await Assert.ThrowsAsync<Win32Exception>(() => publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821));
+        var start = publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821);
+        await WaitUntilAsync(() => native.RegisterCalls == 1);
+        Assert.IsFalse(start.IsCompleted);
+        native.ReleaseRegistrationCallback();
+        await Assert.ThrowsAsync<Win32Exception>(() => start);
+        await native.WaitForCallbacksAsync();
 
         Assert.IsFalse(publisher.IsStarted);
         Assert.AreEqual(0, native.DeregisterCalls);
         Assert.AreEqual(1, native.FreeCalls);
         Assert.IsTrue(logs.Any(value => value.Contains("registration failure status=1234", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task DnsSdRegistrationTimeoutReleasesContextAndLateCallbackIsHarmless()
+    {
+        var activeBefore = DnsSdServicePublisher.ActivePublisherCount;
+        var native = new FakeDnsSdNative(registerStatus: 0, deregisterStatus: 0);
+        var publisher = Publisher(native, [], callbackTimeout: TimeSpan.FromMilliseconds(25));
+
+        await Assert.ThrowsAsync<TimeoutException>(() => publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821));
+        Assert.IsFalse(publisher.IsStarted);
+        Assert.AreEqual(1, native.FreeCalls);
+        Assert.AreEqual(activeBefore, DnsSdServicePublisher.ActivePublisherCount);
+
+        native.ReleaseRegistrationCallback();
+        await native.WaitForCallbacksAsync();
+        Assert.IsNull(native.CallbackFailure);
+        Assert.IsFalse(publisher.IsStarted);
+        Assert.AreEqual(1, native.FreeCalls);
+        Assert.AreEqual(activeBefore, DnsSdServicePublisher.ActivePublisherCount);
+        await publisher.DisposeAsync();
     }
 
     [TestMethod]
@@ -119,8 +154,40 @@ public sealed class LanReliabilityTests
         Assert.AreEqual(2, publisherAttempts);
     }
 
-    private static DnsSdServicePublisher Publisher(FakeDnsSdNative native, List<string> logs) =>
-        new(Guid.NewGuid(), "Desk", native: native, callbackTimeout: TimeSpan.FromSeconds(1), diagnostic: logs.Add);
+    [TestMethod]
+    public async Task ControllerCanEnableAfterInitialSettingsLoadFails()
+    {
+        var loadAttempts = 0;
+        var serverStarts = 0;
+        var settings = new TokenUsageSettings(2, Guid.NewGuid(), new string('a', 64));
+        await using var controller = new TokenUsageSyncController(
+            _ => ++loadAttempts == 1
+                ? Task.FromException<TokenUsageSettings>(new IOException("settings unavailable"))
+                : Task.FromResult(settings),
+            _ => Task.FromResult(settings),
+            () => IPAddress.Parse("192.168.1.20"),
+            _ => new FakeLanServer(false, [], () => serverStarts++),
+            (_, _) => new FakePublisher(),
+            43821,
+            "",
+            TimeSpan.FromMilliseconds(20));
+
+        await Assert.ThrowsAsync<IOException>(() => controller.SetEnabledAsync(true, CancellationToken.None));
+        Assert.AreEqual("已关闭", controller.StatusText);
+        Assert.AreEqual(string.Empty, controller.AddressText);
+        Assert.AreEqual(0, serverStarts);
+
+        await controller.SetEnabledAsync(true, CancellationToken.None);
+        Assert.AreEqual(2, loadAttempts);
+        Assert.AreEqual(1, serverStarts);
+        Assert.AreEqual("正在监听", controller.StatusText);
+    }
+
+    private static DnsSdServicePublisher Publisher(
+        FakeDnsSdNative native,
+        List<string> logs,
+        TimeSpan? callbackTimeout = null) =>
+        new(Guid.NewGuid(), "Desk", native: native, callbackTimeout: callbackTimeout ?? TimeSpan.FromSeconds(1), diagnostic: logs.Add);
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
@@ -131,29 +198,50 @@ public sealed class LanReliabilityTests
 
     private sealed class FakeDnsSdNative(uint registerStatus, uint deregisterStatus) : IDnsSdNative
     {
+        private readonly object callbackLock = new();
+        private readonly List<Task> callbacks = [];
+        private readonly TaskCompletionSource registrationCallback = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource deregistrationCallback = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int RegisterCalls { get; private set; }
         public int DeregisterCalls { get; private set; }
         public int FreeCalls { get; private set; }
+        public Exception? CallbackFailure { get; private set; }
         public IntPtr ConstructInstance(string serviceName, string hostName, IntPtr ip4Address, ushort port, uint propertyCount, IntPtr keys, IntPtr values) => new(42);
         public uint Register(ref DnsSdRegisterRequest request)
         {
-            Complete(request, registerStatus);
+            RegisterCalls++;
+            ScheduleComplete(request, registerStatus, registrationCallback.Task);
             return DnsSdServicePublisher.DnsRequestPending;
         }
         public uint Deregister(ref DnsSdRegisterRequest request)
         {
             DeregisterCalls++;
-            Complete(request, deregisterStatus);
+            ScheduleComplete(request, deregisterStatus, deregistrationCallback.Task);
             return DnsSdServicePublisher.DnsRequestPending;
         }
         public void FreeInstance(IntPtr instance) => FreeCalls++;
-        private static void Complete(DnsSdRegisterRequest request, uint status)
+        public void ReleaseRegistrationCallback() => registrationCallback.TrySetResult();
+        public void ReleaseDeregistrationCallback() => deregistrationCallback.TrySetResult();
+        public async Task WaitForCallbacksAsync()
+        {
+            Task[] pending;
+            lock (callbackLock) pending = callbacks.ToArray();
+            await Task.WhenAll(pending);
+        }
+        private void ScheduleComplete(DnsSdRegisterRequest request, uint status, Task release)
         {
             var callback = Marshal.GetDelegateForFunctionPointer<DnsServiceRegisterComplete>(request.RegisterCompletionCallback);
-            callback(status, request.QueryContext, request.ServiceInstance);
+            var pending = Task.Run(async () =>
+            {
+                await release;
+                try { callback(status, request.QueryContext, request.ServiceInstance); }
+                catch (Exception error) { CallbackFailure = error; }
+            });
+            lock (callbackLock) callbacks.Add(pending);
         }
     }
 
-    private sealed class FakeLanServer(bool failStart, List<IPAddress> started) : ILanSyncServer
+    private sealed class FakeLanServer(bool failStart, List<IPAddress> started, Action? onStart = null) : ILanSyncServer
     {
         public IPAddress? Address { get; private set; }
         public int Port { get; private set; }
@@ -163,6 +251,7 @@ public sealed class LanReliabilityTests
             Address = address;
             Port = port;
             started.Add(address);
+            onStart?.Invoke();
         }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

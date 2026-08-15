@@ -92,10 +92,11 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         try
         {
             if (this.enabled) return;
-            this.enabled = true;
-            settings = await loadSettings(cancellationToken).ConfigureAwait(false);
+            var loadedSettings = await loadSettings(cancellationToken).ConfigureAwait(false);
+            settings = loadedSettings;
             displayName = CreateDisplayName(displayNameSuffix);
             monitorLifetime = new CancellationTokenSource();
+            this.enabled = true;
             monitorTask = MonitorAddressAsync(monitorLifetime.Token);
             var address = addressProvider();
             if (address is null)

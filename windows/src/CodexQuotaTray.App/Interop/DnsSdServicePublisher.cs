@@ -44,6 +44,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     }
 
     internal bool IsStarted => phase == RegistrationPhase.Registered && serviceInstance != IntPtr.Zero;
+    internal static int ActivePublisherCount => ActivePublishers.Count;
 
     internal async Task StartAsync(IPAddress address, int port, CancellationToken cancellationToken = default)
     {
@@ -82,7 +83,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             {
                 throw new InvalidOperationException("Could not allocate a DNS-SD callback context.");
             }
-            registrationCompletion = new TaskCompletionSource<uint>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var completion = new TaskCompletionSource<uint>(TaskCreationOptions.RunContinuationsAsynchronously);
             request = new DnsSdRegisterRequest
             {
                 Version = DnsQueryRequestVersion1,
@@ -93,29 +94,42 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
                 Credentials = IntPtr.Zero,
                 UnicastEnabled = false,
             };
-            phase = RegistrationPhase.Registering;
+            lock (callbackStateLock)
+            {
+                phase = RegistrationPhase.Registering;
+                registrationCompletion = completion;
+            }
             var result = native.Register(ref request);
             var status = result == DnsRequestPending
-                ? await registrationCompletion.Task.WaitAsync(callbackTimeout, cancellationToken).ConfigureAwait(false)
+                ? await completion.Task.WaitAsync(callbackTimeout, cancellationToken).ConfigureAwait(false)
                 : result;
             if (status != 0)
             {
                 diagnostic($"DNS-SD registration failure status={status}");
                 throw new Win32Exception((int)status, "Windows DNS-SD registration failed.");
             }
-            phase = RegistrationPhase.Registered;
+            lock (callbackStateLock)
+            {
+                phase = RegistrationPhase.Registered;
+            }
             diagnostic("DNS-SD registration success");
         }
         catch
         {
-            phase = RegistrationPhase.Stopped;
+            lock (callbackStateLock)
+            {
+                phase = RegistrationPhase.Stopped;
+            }
             ReleaseCallbackContext();
             FreeNative();
             throw;
         }
         finally
         {
-            registrationCompletion = null;
+            lock (callbackStateLock)
+            {
+                registrationCompletion = null;
+            }
         }
     }
 
