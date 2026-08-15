@@ -191,19 +191,22 @@ internal fun SecondaryScreenScaffold(
     val scrollState = rememberScrollState()
     var upwardOverscrollActive by remember { mutableStateOf(false) }
     val backgroundColor = palette.color(palette.background)
-    Box(modifier.fillMaxSize().background(palette.color(palette.background))) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .layerBackdrop(backdrop)
-                .dampedVerticalOverscroll { upwardOverscrollActive = it }
-                .verticalScroll(scrollState, overscrollEffect = null)
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, top = 86.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(28.dp),
-        ) {
-            content()
+    Box(modifier.fillMaxSize().background(backgroundColor)) {
+        Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+            Box(Modifier.fillMaxSize().background(backgroundColor)) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .dampedVerticalOverscroll { upwardOverscrollActive = it }
+                        .verticalScroll(scrollState, overscrollEffect = null)
+                        .statusBarsPadding()
+                        .navigationBarsPadding()
+                        .padding(start = 20.dp, end = 20.dp, top = 86.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(28.dp),
+                ) {
+                    content()
+                }
+            }
         }
         SettingsGradientBlurHeader(
             backdrop = backdrop,
