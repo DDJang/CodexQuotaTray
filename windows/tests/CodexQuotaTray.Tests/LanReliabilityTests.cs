@@ -14,6 +14,7 @@ public sealed class LanReliabilityTests
     [TestMethod]
     public async Task DnsSdAsyncRegistrationSuccessRemainsRegisteredUntilDeregistrationCompletes()
     {
+        var activeBefore = DnsSdServicePublisher.ActivePublisherCount;
         var native = new FakeDnsSdNative(registerStatus: 0, deregisterStatus: 0);
         var logs = new List<string>();
         var publisher = Publisher(native, logs);
@@ -32,7 +33,9 @@ public sealed class LanReliabilityTests
         await native.WaitForCallbacksAsync();
 
         Assert.AreEqual(1, native.DeregisterCalls);
-        Assert.AreEqual(1, native.FreeCalls);
+        Assert.AreEqual(0, native.RegisterCancelCalls);
+        native.AssertEveryInstanceFreedOnce(includeDeregistrationCallback: true);
+        Assert.AreEqual(activeBefore, DnsSdServicePublisher.ActivePublisherCount);
         Assert.IsTrue(logs.Any(value => value.Contains("registration success", StringComparison.Ordinal)));
         Assert.IsTrue(logs.Any(value => value.Contains("deregistration status=0", StringComparison.Ordinal)));
     }
@@ -53,29 +56,99 @@ public sealed class LanReliabilityTests
 
         Assert.IsFalse(publisher.IsStarted);
         Assert.AreEqual(0, native.DeregisterCalls);
-        Assert.AreEqual(1, native.FreeCalls);
+        Assert.AreEqual(0, native.RegisterCancelCalls);
+        native.AssertEveryInstanceFreedOnce(includeDeregistrationCallback: false);
         Assert.IsTrue(logs.Any(value => value.Contains("registration failure status=1234", StringComparison.Ordinal)));
     }
 
     [TestMethod]
-    public async Task DnsSdRegistrationTimeoutReleasesContextAndLateCallbackIsHarmless()
+    public async Task DnsSdRegistrationTimeoutCancelsThenWaitsForLateCallbackBeforeCleanup()
     {
         var activeBefore = DnsSdServicePublisher.ActivePublisherCount;
         var native = new FakeDnsSdNative(registerStatus: 0, deregisterStatus: 0);
         var publisher = Publisher(native, [], callbackTimeout: TimeSpan.FromMilliseconds(25));
 
-        await Assert.ThrowsAsync<TimeoutException>(() => publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821));
-        Assert.IsFalse(publisher.IsStarted);
-        Assert.AreEqual(1, native.FreeCalls);
-        Assert.AreEqual(activeBefore, DnsSdServicePublisher.ActivePublisherCount);
+        var start = publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821);
+        await WaitUntilAsync(() => native.RegisterCancelCalls == 1);
+        Assert.IsFalse(start.IsCompleted, "Cleanup must wait for the native cancellation callback.");
+        Assert.AreEqual(activeBefore + 1, DnsSdServicePublisher.ActivePublisherCount);
 
         native.ReleaseRegistrationCallback();
+        await Assert.ThrowsAsync<TimeoutException>(() => start);
         await native.WaitForCallbacksAsync();
         Assert.IsNull(native.CallbackFailure);
         Assert.IsFalse(publisher.IsStarted);
-        Assert.AreEqual(1, native.FreeCalls);
+        Assert.AreEqual(1, native.RegisterCancelCalls);
+        native.AssertEveryInstanceFreedOnce(includeDeregistrationCallback: false);
         Assert.AreEqual(activeBefore, DnsSdServicePublisher.ActivePublisherCount);
         await publisher.DisposeAsync();
+    }
+
+    [TestMethod]
+    public async Task DnsSdRegistrationCancellationTokenCancelsThenCleansUp()
+    {
+        var activeBefore = DnsSdServicePublisher.ActivePublisherCount;
+        var native = new FakeDnsSdNative(registerStatus: 0, deregisterStatus: 0);
+        var publisher = Publisher(native, [], callbackTimeout: TimeSpan.FromSeconds(1));
+        using var cancellation = new CancellationTokenSource();
+
+        var start = publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821, cancellation.Token);
+        await WaitUntilAsync(() => native.RegisterCalls == 1);
+        cancellation.Cancel();
+        await WaitUntilAsync(() => native.RegisterCancelCalls == 1);
+        Assert.IsFalse(start.IsCompleted);
+        native.ReleaseRegistrationCallback();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => start);
+        await native.WaitForCallbacksAsync();
+        native.AssertEveryInstanceFreedOnce(includeDeregistrationCallback: false);
+        Assert.AreEqual(activeBefore, DnsSdServicePublisher.ActivePublisherCount);
+        Assert.IsFalse(publisher.IsStarted);
+    }
+
+    [TestMethod]
+    public async Task DnsSdTimeoutRacingSuccessfulCallbackDeregistersBeforeCleanup()
+    {
+        var activeBefore = DnsSdServicePublisher.ActivePublisherCount;
+        var native = new FakeDnsSdNative(registerStatus: 0, deregisterStatus: 0, cancelledRegistrationStatus: 0);
+        var publisher = Publisher(native, [], callbackTimeout: TimeSpan.FromMilliseconds(25));
+
+        var start = publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821);
+        await WaitUntilAsync(() => native.RegisterCancelCalls == 1);
+        native.ReleaseRegistrationCallback();
+        await WaitUntilAsync(() => native.DeregisterCalls == 1);
+        Assert.IsFalse(start.IsCompleted, "A raced successful registration must be deregistered before cleanup.");
+        native.ReleaseDeregistrationCallback();
+
+        await Assert.ThrowsAsync<TimeoutException>(() => start);
+        await native.WaitForCallbacksAsync();
+        Assert.AreEqual(1, native.RegisterCancelCalls);
+        Assert.AreEqual(1, native.DeregisterCalls);
+        native.AssertEveryInstanceFreedOnce(includeDeregistrationCallback: true);
+        Assert.AreEqual(activeBefore, DnsSdServicePublisher.ActivePublisherCount);
+        Assert.IsFalse(publisher.IsStarted);
+    }
+
+    [TestMethod]
+    public async Task DnsSdSuccessfulCallbackWinningCancellationRaceIsNotCancelled()
+    {
+        var native = new FakeDnsSdNative(registerStatus: 0, deregisterStatus: 0);
+        var publisher = Publisher(native, []);
+        using var cancellation = new CancellationTokenSource();
+
+        var start = publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821, cancellation.Token);
+        await WaitUntilAsync(() => native.RegisterCalls == 1);
+        native.ReleaseRegistrationCallback();
+        await start;
+        cancellation.Cancel();
+
+        Assert.IsTrue(publisher.IsStarted);
+        Assert.AreEqual(0, native.RegisterCancelCalls);
+        var dispose = publisher.DisposeAsync().AsTask();
+        await WaitUntilAsync(() => native.DeregisterCalls == 1);
+        native.ReleaseDeregistrationCallback();
+        await dispose;
+        native.AssertEveryInstanceFreedOnce(includeDeregistrationCallback: true);
     }
 
     [TestMethod]
@@ -196,30 +269,57 @@ public sealed class LanReliabilityTests
         Assert.IsTrue(condition(), "condition did not become true before timeout");
     }
 
-    private sealed class FakeDnsSdNative(uint registerStatus, uint deregisterStatus) : IDnsSdNative
+    private sealed class FakeDnsSdNative(
+        uint registerStatus,
+        uint deregisterStatus,
+        uint cancelledRegistrationStatus = 1223) : IDnsSdNative
     {
+        private static readonly IntPtr OriginalInstance = new(42);
+        private static readonly IntPtr RegistrationCallbackInstance = new(43);
+        private static readonly IntPtr DeregistrationCallbackInstance = new(44);
+        private static readonly IntPtr CancelHandle = new(45);
         private readonly object callbackLock = new();
         private readonly List<Task> callbacks = [];
+        private readonly List<IntPtr> freeInstanceCalls = [];
         private readonly TaskCompletionSource registrationCallback = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource deregistrationCallback = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int currentRegistrationStatus = unchecked((int)registerStatus);
         public int RegisterCalls { get; private set; }
+        public int RegisterCancelCalls { get; private set; }
         public int DeregisterCalls { get; private set; }
-        public int FreeCalls { get; private set; }
         public Exception? CallbackFailure { get; private set; }
-        public IntPtr ConstructInstance(string serviceName, string hostName, IntPtr ip4Address, ushort port, uint propertyCount, IntPtr keys, IntPtr values) => new(42);
-        public uint Register(ref DnsSdRegisterRequest request)
+        public IntPtr ConstructInstance(string serviceName, string hostName, IntPtr ip4Address, ushort port, uint propertyCount, IntPtr keys, IntPtr values) => OriginalInstance;
+        public uint Register(ref DnsSdRegisterRequest request, ref DnsSdCancel cancel)
         {
             RegisterCalls++;
-            ScheduleComplete(request, registerStatus, registrationCallback.Task);
+            cancel.Reserved = CancelHandle;
+            ScheduleComplete(
+                request,
+                () => unchecked((uint)Volatile.Read(ref currentRegistrationStatus)),
+                RegistrationCallbackInstance,
+                registrationCallback.Task);
             return DnsSdServicePublisher.DnsRequestPending;
+        }
+        public uint CancelRegistration(ref DnsSdCancel cancel)
+        {
+            if (cancel.Reserved != CancelHandle) throw new InvalidOperationException("Registration cancel handle was not preserved.");
+            RegisterCancelCalls++;
+            Volatile.Write(ref currentRegistrationStatus, unchecked((int)cancelledRegistrationStatus));
+            return 0;
         }
         public uint Deregister(ref DnsSdRegisterRequest request)
         {
             DeregisterCalls++;
-            ScheduleComplete(request, deregisterStatus, deregistrationCallback.Task);
+            ScheduleComplete(request, () => deregisterStatus, DeregistrationCallbackInstance, deregistrationCallback.Task);
             return DnsSdServicePublisher.DnsRequestPending;
         }
-        public void FreeInstance(IntPtr instance) => FreeCalls++;
+        public void FreeInstance(IntPtr instance)
+        {
+            lock (callbackLock)
+            {
+                freeInstanceCalls.Add(instance);
+            }
+        }
         public void ReleaseRegistrationCallback() => registrationCallback.TrySetResult();
         public void ReleaseDeregistrationCallback() => deregistrationCallback.TrySetResult();
         public async Task WaitForCallbacksAsync()
@@ -228,13 +328,26 @@ public sealed class LanReliabilityTests
             lock (callbackLock) pending = callbacks.ToArray();
             await Task.WhenAll(pending);
         }
-        private void ScheduleComplete(DnsSdRegisterRequest request, uint status, Task release)
+        public void AssertEveryInstanceFreedOnce(bool includeDeregistrationCallback)
+        {
+            IntPtr[] actual;
+            lock (callbackLock) actual = freeInstanceCalls.Order().ToArray();
+            var expected = includeDeregistrationCallback
+                ? new[] { OriginalInstance, RegistrationCallbackInstance, DeregistrationCallbackInstance }
+                : new[] { OriginalInstance, RegistrationCallbackInstance };
+            CollectionAssert.AreEqual(expected.Order().ToArray(), actual);
+        }
+        private void ScheduleComplete(
+            DnsSdRegisterRequest request,
+            Func<uint> status,
+            IntPtr callbackInstance,
+            Task release)
         {
             var callback = Marshal.GetDelegateForFunctionPointer<DnsServiceRegisterComplete>(request.RegisterCompletionCallback);
             var pending = Task.Run(async () =>
             {
                 await release;
-                try { callback(status, request.QueryContext, request.ServiceInstance); }
+                try { callback(status(), request.QueryContext, callbackInstance); }
                 catch (Exception error) { CallbackFailure = error; }
             });
             lock (callbackLock) callbacks.Add(pending);
