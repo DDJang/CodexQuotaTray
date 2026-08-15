@@ -367,7 +367,7 @@ function Wait-PrChecks {
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
     while ((Get-Date) -lt $deadline) {
         $result = Invoke-Captured -FilePath $script:Gh -Arguments @(
-            'pr', 'checks', ([string]$Number), '--json', 'name,state,bucket,workflow,url'
+            'pr', 'checks', ([string]$Number), '--json', 'name,state,bucket,workflow,link'
         )
         if ($result.ExitCode -ne 0) {
             if ($result.Text -match 'no checks') {
