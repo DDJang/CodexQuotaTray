@@ -38,65 +38,7 @@ internal fun AboutAmbientBackground(
     dark: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val animation = rememberAuroraAnimation(isResumed = rememberIsResumed())
-
-    Canvas(modifier) {
-        val width = size.width
-        val height = size.height
-        val radius = minOf(width, height)
-        val theta = animation.progress * (2f * PI.toFloat())
-        val breatheStrength = 0.85f + 0.15f * sin(animation.breathe)
-        val alpha = (if (dark) 0.35f else 0.18f) * breatheStrength
-
-        drawRect(color = if (dark) Color(0xFF0A0A0A) else Color(0xFFFAFAFA))
-
-        val firstColor = interpolateLoopColor(ABOUT_AURORA_COLORS, animation.progress, offset = 0)
-        drawRect(
-            brush = Brush.radialGradient(
-                colors = listOf(firstColor.copy(alpha = alpha), Color.Transparent),
-                center = Offset(
-                    width * (0.20f + 0.15f * sin(theta)),
-                    height * (0.25f + 0.15f * sin(theta * 0.70f)),
-                ),
-                radius = radius * 0.90f,
-            ),
-        )
-
-        val secondColor = interpolateLoopColor(ABOUT_AURORA_COLORS, animation.progress, offset = 2)
-        drawRect(
-            brush = Brush.radialGradient(
-                colors = listOf(secondColor.copy(alpha = alpha * 0.90f), Color.Transparent),
-                center = Offset(
-                    width * (0.80f + 0.15f * sin(theta * 1.30f)),
-                    height * (0.30f + 0.15f * sin(theta * 0.90f)),
-                ),
-                radius = radius * 0.85f,
-            ),
-        )
-
-        val thirdColor = interpolateLoopColor(ABOUT_AURORA_COLORS, animation.progress, offset = 4)
-        drawRect(
-            brush = Brush.radialGradient(
-                colors = listOf(thirdColor.copy(alpha = alpha * 0.85f), Color.Transparent),
-                center = Offset(
-                    width * (0.50f + 0.20f * sin(theta * 0.80f)),
-                    height * (0.70f + 0.12f * sin(theta * 1.10f)),
-                ),
-                radius = radius * 0.90f,
-            ),
-        )
-    }
-}
-
-private data class AuroraAnimation(
-    val progress: Float,
-    val breathe: Float,
-)
-
-@Composable
-private fun rememberAuroraAnimation(isResumed: Boolean): AuroraAnimation {
-    if (!isResumed) return AuroraAnimation(progress = 0f, breathe = 0f)
-
+    val isResumed = rememberIsResumed()
     val transition = rememberInfiniteTransition(label = "aboutAurora")
     val progress by transition.animateFloat(
         initialValue = 0f,
@@ -116,7 +58,56 @@ private fun rememberAuroraAnimation(isResumed: Boolean): AuroraAnimation {
         ),
         label = "aboutAuroraBreathe",
     )
-    return AuroraAnimation(progress = progress, breathe = breathe)
+
+    Canvas(modifier) {
+        val width = size.width
+        val height = size.height
+        val radius = minOf(width, height)
+
+        drawRect(color = if (dark) Color(0xFF0A0A0A) else Color(0xFFFAFAFA))
+
+        if (!isResumed) return@Canvas
+
+        val theta = progress * (2f * PI.toFloat())
+        val breatheStrength = 0.85f + 0.15f * sin(breathe)
+        val alpha = (if (dark) 0.35f else 0.18f) * breatheStrength
+
+        val firstColor = interpolateLoopColor(ABOUT_AURORA_COLORS, progress, offset = 0)
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(firstColor.copy(alpha = alpha), Color.Transparent),
+                center = Offset(
+                    width * (0.20f + 0.15f * sin(theta)),
+                    height * (0.25f + 0.15f * sin(theta * 0.70f)),
+                ),
+                radius = radius * 0.90f,
+            ),
+        )
+
+        val secondColor = interpolateLoopColor(ABOUT_AURORA_COLORS, progress, offset = 2)
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(secondColor.copy(alpha = alpha * 0.90f), Color.Transparent),
+                center = Offset(
+                    width * (0.80f + 0.15f * sin(theta * 1.30f)),
+                    height * (0.30f + 0.15f * sin(theta * 0.90f)),
+                ),
+                radius = radius * 0.85f,
+            ),
+        )
+
+        val thirdColor = interpolateLoopColor(ABOUT_AURORA_COLORS, progress, offset = 4)
+        drawRect(
+            brush = Brush.radialGradient(
+                colors = listOf(thirdColor.copy(alpha = alpha * 0.85f), Color.Transparent),
+                center = Offset(
+                    width * (0.50f + 0.20f * sin(theta * 0.80f)),
+                    height * (0.70f + 0.12f * sin(theta * 1.10f)),
+                ),
+                radius = radius * 0.90f,
+            ),
+        )
+    }
 }
 
 @Composable
