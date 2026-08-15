@@ -165,6 +165,24 @@ class TokenUsageTest {
         assertEquals(TokenUsageFailureKind.OFFLINE, failure { client.sync(pairingWithId()) }.kind)
     }
 
+    @Test fun discoveryTimeoutOrFailureRemainsOffline() {
+        val discovery = object : TokenSyncDiscovery {
+            override fun find(deviceId: String, timeoutMs: Long): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? = null
+        }
+        val client = TokenUsageSyncClient(client { throw SocketTimeoutException("timeout") }, discovery)
+        assertEquals(TokenUsageFailureKind.OFFLINE, failure { client.sync(pairingWithId()) }.kind)
+    }
+
+    @Test fun lanDiagnosticsNeverContainPairingSecret() {
+        val messages = mutableListOf<String>()
+        val client = TokenUsageSyncClient(
+            client = client { response(it, 401, "") },
+            diagnostics = LanDiagnosticLogger(messages::add),
+        )
+        failure { client.sync(pairingWithId()) }
+        assertFalse(messages.joinToString("\n").contains("secret", ignoreCase = true))
+    }
+
     @Test fun cacheRoundTripUsesAggregateJsonOnlyAndIsBoundToThePairedWindowsDevice() {
         val directory = Files.createTempDirectory("token-usage-cache").toFile()
         try {

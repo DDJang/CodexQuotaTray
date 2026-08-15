@@ -7,41 +7,50 @@ namespace CodexQuotaTray.App.Interop;
 
 internal sealed class DnsSdServicePublisher : IAsyncDisposable
 {
+    internal const uint DnsRequestPending = 9500;
     private const uint DnsQueryRequestVersion1 = 1;
-    private const uint DnsRequestPending = 9500;
-    private static readonly DnsServiceRegisterComplete RegisterCompleteCallback = OnRegistrationComplete;
+    private static readonly DnsServiceRegisterComplete RegisterCompleteCallback = OnNativeCompletion;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, DnsSdServicePublisher> ActivePublishers = new();
     private static long nextQueryContext;
     private readonly Guid deviceId;
     private readonly string displayName;
     private readonly string serviceInstancePrefix;
+    private readonly IDnsSdNative native;
+    private readonly TimeSpan callbackTimeout;
+    private readonly Action<string> diagnostic;
     private readonly List<IntPtr> allocations = [];
     private readonly object callbackStateLock = new();
-    private TaskCompletionSource<bool>? deregistrationCompletion;
-    private RegisterRequest request;
+    private TaskCompletionSource<uint>? registrationCompletion;
+    private TaskCompletionSource<uint>? deregistrationCompletion;
+    private DnsSdRegisterRequest request;
     private IntPtr serviceInstance;
     private IntPtr queryContext;
-    private bool registered;
+    private RegistrationPhase phase;
 
     internal DnsSdServicePublisher(
         Guid deviceId,
         string displayName,
-        string serviceInstancePrefix = "CodexQuotaTray")
+        string serviceInstancePrefix = "CodexQuotaTray",
+        IDnsSdNative? native = null,
+        TimeSpan? callbackTimeout = null,
+        Action<string>? diagnostic = null)
     {
         this.deviceId = deviceId;
         this.displayName = displayName;
         this.serviceInstancePrefix = serviceInstancePrefix;
+        this.native = native ?? WindowsDnsSdNative.Instance;
+        this.callbackTimeout = callbackTimeout ?? TimeSpan.FromSeconds(2);
+        this.diagnostic = diagnostic ?? (message => System.Diagnostics.Debug.WriteLine(message));
     }
 
-    internal bool IsStarted => serviceInstance != IntPtr.Zero;
+    internal bool IsStarted => phase == RegistrationPhase.Registered && serviceInstance != IntPtr.Zero;
 
-    internal void Start(IPAddress address, int port)
+    internal async Task StartAsync(IPAddress address, int port, CancellationToken cancellationToken = default)
     {
-        if (IsStarted)
+        if (phase != RegistrationPhase.Stopped || serviceInstance != IntPtr.Zero)
         {
-            throw new InvalidOperationException("DNS-SD service is already registered.");
+            throw new InvalidOperationException("DNS-SD service is already registering or registered.");
         }
-
         if (!TokenUsageSyncServer.IsPrivateLanAddress(address))
         {
             throw new ArgumentException("DNS-SD requires a private IPv4 address.", nameof(address));
@@ -55,14 +64,11 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             var keyValues = metadata.TextAttributes;
             var keys = AllocateStringArray(keyValues.Keys);
             var values = AllocateStringArray(keyValues.Values);
-            serviceInstance = DnsServiceConstructInstance(
+            serviceInstance = native.ConstructInstance(
                 $"{SanitizeLabel(serviceInstancePrefix)}-{deviceId:N}._codexquota._tcp.local",
                 $"{SanitizeLabel(Environment.MachineName)}.local",
                 ip4,
-                IntPtr.Zero,
                 checked((ushort)port),
-                0,
-                0,
                 checked((uint)keyValues.Count),
                 keys,
                 values);
@@ -76,8 +82,8 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             {
                 throw new InvalidOperationException("Could not allocate a DNS-SD callback context.");
             }
-
-            request = new RegisterRequest
+            registrationCompletion = new TaskCompletionSource<uint>(TaskCreationOptions.RunContinuationsAsynchronously);
+            request = new DnsSdRegisterRequest
             {
                 Version = DnsQueryRequestVersion1,
                 InterfaceIndex = 0,
@@ -87,113 +93,101 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
                 Credentials = IntPtr.Zero,
                 UnicastEnabled = false,
             };
-            var result = DnsServiceRegister(ref request, IntPtr.Zero);
-            if (result != 0 && result != DnsRequestPending)
+            phase = RegistrationPhase.Registering;
+            var result = native.Register(ref request);
+            var status = result == DnsRequestPending
+                ? await registrationCompletion.Task.WaitAsync(callbackTimeout, cancellationToken).ConfigureAwait(false)
+                : result;
+            if (status != 0)
             {
-                throw new Win32Exception((int)result, "Windows DNS-SD registration failed.");
+                diagnostic($"DNS-SD registration failure status={status}");
+                throw new Win32Exception((int)status, "Windows DNS-SD registration failed.");
             }
-
-            registered = true;
+            phase = RegistrationPhase.Registered;
+            diagnostic("DNS-SD registration success");
         }
         catch
         {
+            phase = RegistrationPhase.Stopped;
             ReleaseCallbackContext();
             FreeNative();
             throw;
+        }
+        finally
+        {
+            registrationCompletion = null;
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (!IsStarted)
+        if (serviceInstance == IntPtr.Zero)
         {
             return;
         }
-
-        var callbackPending = false;
-        if (registered)
+        try
         {
-            registered = false;
-            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            lock (callbackStateLock)
+            if (phase == RegistrationPhase.Registered)
             {
-                deregistrationCompletion = completion;
-            }
-
-            try
-            {
-                var result = DnsServiceDeRegister(ref request, IntPtr.Zero);
-                if (result == 0 || result == DnsRequestPending)
+                var completion = new TaskCompletionSource<uint>(TaskCreationOptions.RunContinuationsAsynchronously);
+                lock (callbackStateLock)
                 {
-                    callbackPending = true;
-                    await completion.Task.WaitAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
-                    callbackPending = false;
+                    phase = RegistrationPhase.Deregistering;
+                    deregistrationCompletion = completion;
                 }
-            }
-            catch (DllNotFoundException)
-            {
-            }
-            catch (EntryPointNotFoundException)
-            {
-            }
-            catch (Win32Exception)
-            {
-            }
-            catch (TimeoutException)
-            {
+                var result = native.Deregister(ref request);
+                var status = result == DnsRequestPending
+                    ? await completion.Task.WaitAsync(callbackTimeout).ConfigureAwait(false)
+                    : result;
+                diagnostic($"DNS-SD deregistration status={status}");
             }
         }
-
-        if (!callbackPending)
-        {
-            ReleaseCallbackContext();
-        }
-
-        FreeNative();
-        if (!callbackPending)
+        catch (DllNotFoundException) { }
+        catch (EntryPointNotFoundException) { }
+        catch (Win32Exception) { }
+        catch (TimeoutException) { }
+        finally
         {
             lock (callbackStateLock)
             {
+                phase = RegistrationPhase.Stopped;
                 deregistrationCompletion = null;
             }
+            ReleaseCallbackContext();
+            FreeNative();
         }
     }
 
-    private static void OnRegistrationComplete(uint status, IntPtr queryContext, IntPtr instance)
+    private static void OnNativeCompletion(uint status, IntPtr queryContext, IntPtr instance)
     {
         if (ActivePublishers.TryGetValue(queryContext, out var publisher))
         {
-            publisher.OnRegistrationComplete(status);
+            publisher.CompleteCurrentOperation(status);
         }
     }
 
-    private void OnRegistrationComplete(uint status)
+    private void CompleteCurrentOperation(uint status)
     {
-        TaskCompletionSource<bool>? completion;
+        TaskCompletionSource<uint>? completion;
         lock (callbackStateLock)
         {
-            completion = deregistrationCompletion;
-            if (completion is null)
+            completion = phase switch
             {
-                return;
-            }
-
-            deregistrationCompletion = null;
+                RegistrationPhase.Registering => registrationCompletion,
+                RegistrationPhase.Deregistering => deregistrationCompletion,
+                _ => null,
+            };
         }
-
-        completion.TrySetResult(status == 0);
-        ReleaseCallbackContext();
+        completion?.TrySetResult(status);
     }
 
     private void ReleaseCallbackContext()
     {
         var context = Interlocked.Exchange(ref queryContext, IntPtr.Zero);
-        if (context == IntPtr.Zero)
+        if (context != IntPtr.Zero)
         {
-            return;
+            _ = ActivePublishers.TryRemove(context, out _);
         }
-
-        _ = ActivePublishers.TryRemove(context, out _);
     }
 
     private IntPtr Allocate(int bytes)
@@ -206,17 +200,12 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     private IntPtr AllocateStringArray(IEnumerable<string> values)
     {
         var strings = values.Select(Marshal.StringToHGlobalUni).ToArray();
-        foreach (var value in strings)
-        {
-            allocations.Add(value);
-        }
-
+        allocations.AddRange(strings);
         var array = Allocate(IntPtr.Size * strings.Length);
         for (var index = 0; index < strings.Length; index++)
         {
             Marshal.WriteIntPtr(array, index * IntPtr.Size, strings[index]);
         }
-
         return array;
     }
 
@@ -224,25 +213,12 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     {
         if (serviceInstance != IntPtr.Zero)
         {
-            try
-            {
-                DnsServiceFreeInstance(serviceInstance);
-            }
-            catch (DllNotFoundException)
-            {
-            }
-            catch (EntryPointNotFoundException)
-            {
-            }
-
+            try { native.FreeInstance(serviceInstance); }
+            catch (DllNotFoundException) { }
+            catch (EntryPointNotFoundException) { }
             serviceInstance = IntPtr.Zero;
         }
-
-        foreach (var allocation in allocations)
-        {
-            Marshal.FreeHGlobal(allocation);
-        }
-
+        foreach (var allocation in allocations) Marshal.FreeHGlobal(allocation);
         allocations.Clear();
     }
 
@@ -258,41 +234,44 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
         return string.IsNullOrWhiteSpace(filtered) ? "CodexQuotaTray" : filtered[..Math.Min(63, filtered.Length)];
     }
 
+    private enum RegistrationPhase { Stopped, Registering, Registered, Deregistering }
+}
+
+[UnmanagedFunctionPointer(CallingConvention.Winapi)]
+internal delegate void DnsServiceRegisterComplete(uint status, IntPtr queryContext, IntPtr instance);
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct DnsSdRegisterRequest
+{
+    public uint Version;
+    public uint InterfaceIndex;
+    public IntPtr ServiceInstance;
+    public IntPtr RegisterCompletionCallback;
+    public IntPtr QueryContext;
+    public IntPtr Credentials;
+    [MarshalAs(UnmanagedType.Bool)] public bool UnicastEnabled;
+}
+
+internal interface IDnsSdNative
+{
+    IntPtr ConstructInstance(string serviceName, string hostName, IntPtr ip4Address, ushort port, uint propertyCount, IntPtr keys, IntPtr values);
+    uint Register(ref DnsSdRegisterRequest request);
+    uint Deregister(ref DnsSdRegisterRequest request);
+    void FreeInstance(IntPtr instance);
+}
+
+internal sealed class WindowsDnsSdNative : IDnsSdNative
+{
+    internal static readonly WindowsDnsSdNative Instance = new();
+    public IntPtr ConstructInstance(string serviceName, string hostName, IntPtr ip4Address, ushort port, uint propertyCount, IntPtr keys, IntPtr values) =>
+        DnsServiceConstructInstance(serviceName, hostName, ip4Address, IntPtr.Zero, port, 0, 0, propertyCount, keys, values);
+    public uint Register(ref DnsSdRegisterRequest request) => DnsServiceRegister(ref request, IntPtr.Zero);
+    public uint Deregister(ref DnsSdRegisterRequest request) => DnsServiceDeRegister(ref request, IntPtr.Zero);
+    public void FreeInstance(IntPtr instance) => DnsServiceFreeInstance(instance);
+
     [DllImport("dnsapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern IntPtr DnsServiceConstructInstance(
-        string serviceName,
-        string hostName,
-        IntPtr ip4Address,
-        IntPtr ip6Address,
-        ushort port,
-        ushort priority,
-        ushort weight,
-        uint propertyCount,
-        IntPtr keys,
-        IntPtr values);
-
-    [DllImport("dnsapi.dll", SetLastError = true)]
-    private static extern uint DnsServiceRegister(ref RegisterRequest request, IntPtr cancel);
-
-    [DllImport("dnsapi.dll", SetLastError = true)]
-    private static extern uint DnsServiceDeRegister(ref RegisterRequest request, IntPtr cancel);
-
-    [DllImport("dnsapi.dll", SetLastError = true)]
-    private static extern void DnsServiceFreeInstance(IntPtr instance);
-
-    [UnmanagedFunctionPointer(CallingConvention.Winapi)]
-    private delegate void DnsServiceRegisterComplete(uint status, IntPtr queryContext, IntPtr instance);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RegisterRequest
-    {
-        public uint Version;
-        public uint InterfaceIndex;
-        public IntPtr ServiceInstance;
-        public IntPtr RegisterCompletionCallback;
-        public IntPtr QueryContext;
-        public IntPtr Credentials;
-        [MarshalAs(UnmanagedType.Bool)]
-        public bool UnicastEnabled;
-    }
+    private static extern IntPtr DnsServiceConstructInstance(string serviceName, string hostName, IntPtr ip4Address, IntPtr ip6Address, ushort port, ushort priority, ushort weight, uint propertyCount, IntPtr keys, IntPtr values);
+    [DllImport("dnsapi.dll", SetLastError = true)] private static extern uint DnsServiceRegister(ref DnsSdRegisterRequest request, IntPtr cancel);
+    [DllImport("dnsapi.dll", SetLastError = true)] private static extern uint DnsServiceDeRegister(ref DnsSdRegisterRequest request, IntPtr cancel);
+    [DllImport("dnsapi.dll", SetLastError = true)] private static extern void DnsServiceFreeInstance(IntPtr instance);
 }

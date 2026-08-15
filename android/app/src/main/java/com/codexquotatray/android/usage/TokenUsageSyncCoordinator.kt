@@ -24,12 +24,14 @@ internal class TokenUsageSyncCoordinator(
     private val cache: TokenUsageCacheStore,
     private val pairingStore: TokenSyncPairingStore,
     private val notifyCompleted: () -> Unit = {},
+    private val diagnostics: LanDiagnosticLogger = NoOpLanDiagnosticLogger,
 ) {
     constructor(context: Context) : this(
         transport = TokenUsageSyncClient(context),
         cache = TokenUsageCache(context),
         pairingStore = TokenSyncStore(context),
         notifyCompleted = { TokenUsageRefreshEvents.notifyCompleted(context.applicationContext) },
+        diagnostics = AndroidLanDiagnosticLogger(context),
     )
 
     fun sync(pairing: TokenSyncPairing, forceRefresh: Boolean = false): TokenUsageSyncResult =
@@ -49,7 +51,11 @@ internal class TokenUsageSyncCoordinator(
                 throw TokenUsageCommitException()
             }
             val updatedPairing = TokenSyncEndpoint.markSynced(synced.pairing, synced.snapshot)
-            if (!pairingStore.saveIfCurrent(pairing, updatedPairing)) {
+            val pairingSaved = pairingStore.saveIfCurrent(pairing, updatedPairing)
+            if (updatedPairing.host != pairing.host) {
+                diagnostics.record("Token LAN relocated endpoint persisted=$pairingSaved")
+            }
+            if (!pairingSaved) {
                 if (pairingStore.load()?.matchesConfiguration(pairing) != true) {
                     throw TokenUsagePairingChangedException()
                 }

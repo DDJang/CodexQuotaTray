@@ -48,14 +48,12 @@ class WindowsQuotaFallbackClient(
     private val client: OkHttpClient = defaultClient(),
     private val discovery: TokenSyncDiscovery? = null,
     private val lanAvailability: LanAvailability? = null,
+    private val diagnostics: LanDiagnosticLogger = NoOpLanDiagnosticLogger,
 ) : WindowsQuotaFallback {
-    constructor(context: Context, client: OkHttpClient = defaultClient()) : this(
-        client,
-        AndroidNsdDiscovery(context),
-        AndroidLanAvailability(context),
-    )
+    constructor(context: Context, client: OkHttpClient = defaultClient()) : this(client, diagnostics = AndroidLanDiagnosticLogger(context), discovery = AndroidNsdDiscovery(context), lanAvailability = AndroidLanAvailability(context))
 
     override fun sync(pairing: TokenSyncPairing): WindowsQuotaFallbackResult {
+        diagnostics.record("Quota LAN stored endpoint=${pairing.host}:${pairing.port}")
         val direct = runCatching { fetchDirect(pairing) }
         direct.getOrNull()?.let { return WindowsQuotaFallbackResult(it, pairing) }
         val error = direct.exceptionOrNull()
@@ -74,6 +72,7 @@ class WindowsQuotaFallbackClient(
             ?.takeIf { it.deviceId.equals(pairing.deviceId, ignoreCase = true) }
             ?: throw error
         val relocated = TokenSyncEndpoint.updateHost(pairing, candidate)
+        diagnostics.record("Quota LAN discovered endpoint=${relocated.host}:${relocated.port}")
         return WindowsQuotaFallbackResult(fetchDirect(relocated), relocated)
     }
 
@@ -87,13 +86,17 @@ class WindowsQuotaFallbackClient(
             .header("Authorization", "Bearer ${safe.secret}")
             .header("Accept", "application/json")
             .build()
+        val startedAt = System.nanoTime()
         val response = try {
-            client.bindToWifiLan(lanAvailability).newCall(request).execute().use { result -> result.code to result.body?.string().orEmpty() }
+            client.bindToWifiLan(lanAvailability, safe.host).newCall(request).execute().use { result -> result.code to result.body?.string().orEmpty() }
         } catch (_: SocketTimeoutException) {
+            diagnostics.record("Quota LAN direct failure=TIMEOUT elapsedMs=${elapsedMillis(startedAt)}")
             throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.OFFLINE, "Windows quota unavailable")
         } catch (_: IOException) {
+            diagnostics.record("Quota LAN direct failure=IO elapsedMs=${elapsedMillis(startedAt)}")
             throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.OFFLINE, "Windows quota unavailable")
         }
+        diagnostics.record("Quota LAN direct status=${response.first} elapsedMs=${elapsedMillis(startedAt)}")
         if (response.first == 401) {
             throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.PAIRING_INVALID, "Windows pairing invalid")
         }
@@ -104,6 +107,7 @@ class WindowsQuotaFallbackClient(
     }
 
     companion object {
+        private fun elapsedMillis(startedAt: Long): Long = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
         internal fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(QuotaNetworkTimeouts.WINDOWS_CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
             .readTimeout(QuotaNetworkTimeouts.WINDOWS_READ_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)

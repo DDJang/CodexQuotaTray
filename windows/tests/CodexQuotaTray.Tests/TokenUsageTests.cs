@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -10,6 +11,31 @@ namespace CodexQuotaTray.Tests;
 [TestClass]
 public sealed class TokenUsageTests
 {
+    [TestMethod]
+    public void LanAddressSelectionPrefersPhysicalWifiOverVpnTunnelAndVirtualAdapters()
+    {
+        var candidates = new[]
+        {
+            Candidate("10.8.0.2", "255.255.255.0", NetworkInterfaceType.Ppp, "10.8.0.1", "1", "VPN"),
+            Candidate("172.20.0.1", "255.255.240.0", NetworkInterfaceType.Ethernet, "172.20.0.254", "2", "Hyper-V Virtual Ethernet"),
+            Candidate("192.168.50.20", "255.255.255.0", NetworkInterfaceType.Wireless80211, "192.168.50.1", "3", "physical"),
+        };
+
+        Assert.AreEqual(IPAddress.Parse("192.168.50.20"), TokenUsageSyncServer.SelectPrivateLanAddress(candidates));
+    }
+
+    [TestMethod]
+    public void LanAddressSelectionFailsClosedWithoutPhysicalOnLinkGateway()
+    {
+        var candidates = new[]
+        {
+            Candidate("10.8.0.2", "255.255.255.0", NetworkInterfaceType.Tunnel, "10.8.0.1", "1", "tunnel"),
+            Candidate("192.168.50.20", "255.255.255.0", NetworkInterfaceType.Wireless80211, "192.168.60.1", "2", "physical"),
+        };
+
+        Assert.IsNull(TokenUsageSyncServer.SelectPrivateLanAddress(candidates));
+    }
+
     [TestMethod]
     public async Task ScannerUsesLastUsageAndDoesNotSumCumulativeCounters()
     {
@@ -372,6 +398,21 @@ public sealed class TokenUsageTests
 
     private static string Usage(long total) =>
         $"{{\"total_tokens\":{total},\"input_tokens\":{total},\"cached_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0}}";
+
+    private static LanAddressCandidate Candidate(
+        string address,
+        string mask,
+        NetworkInterfaceType type,
+        string gateway,
+        string id,
+        string description) => new(
+            IPAddress.Parse(address),
+            IPAddress.Parse(mask),
+            type,
+            OperationalStatus.Up,
+            [IPAddress.Parse(gateway)],
+            id,
+            description);
 
     private sealed class TokenCorpus : IDisposable
     {

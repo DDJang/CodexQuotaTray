@@ -49,6 +49,23 @@ Android Studio 当前自带的 `D:\Android\Android Studio\jbr` 是 JDK 25，不�
 Gradle 8.11.1 验证。不要为选择本机 JDK 修改 Gradle、AGP、SDK、`gradle.properties` 或提交
 机器专属项目配置。
 
+## Android 16 局域网兼容检查
+
+当前 target/compile SDK 以 [`app/build.gradle.kts`](app/build.gradle.kts) 为准；现阶段仍由
+`INTERNET` 隐式授予局域网访问，不提前声明未来平台的 `ACCESS_LOCAL_NETWORK` 运行时权限。
+在 Android 16 真机上可对 Debug 包执行以下 opt-in 回归，分别确认 Quota 与 Token 的前台请求、
+后台 Worker、DNS-SD 换址和受限时的有界 `OFFLINE` 分类：
+
+```powershell
+adb shell am compat enable RESTRICT_LOCAL_NETWORK com.codexquotatray.android.debug
+adb reboot
+# 完成受限场景后恢复，并再次验证正常 LAN 同步
+adb shell am compat disable RESTRICT_LOCAL_NETWORK com.codexquotatray.android.debug
+adb reboot
+```
+
+该检查需要 Android 16 真机；普通 unit test / `assembleDebug` 不替代它，也不因此增加权限 UI。
+
 Debug 使用 `com.codexquotatray.android.debug` 和名称 **CodexQuotaTray Dev**，采用默认 debug
 签名，可与正式版同时安装且数据隔离：
 

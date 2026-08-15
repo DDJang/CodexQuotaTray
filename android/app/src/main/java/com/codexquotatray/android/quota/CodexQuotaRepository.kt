@@ -17,6 +17,7 @@ import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.auth.ProcessCredentialRefreshCoordinator
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.usage.CodexUsageClient
+import com.codexquotatray.android.usage.AndroidLanDiagnosticLogger
 import com.codexquotatray.android.usage.QuotaNetworkTimeouts
 import com.codexquotatray.android.usage.TokenSyncPairingStore
 import com.codexquotatray.android.usage.TokenSyncStore
@@ -78,6 +79,7 @@ class CodexQuotaRepository(
             recordFailure = { failure ->
                 AppLogStore.record(appContext, "Windows 局域网额度 fallback 未成功：${failure.kind}", "WARN")
             },
+            diagnostics = AndroidLanDiagnosticLogger(appContext),
         )
     }
     private val successCommitter by lazy {

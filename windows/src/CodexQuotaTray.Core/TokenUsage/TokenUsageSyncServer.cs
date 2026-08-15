@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
@@ -68,26 +69,71 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
 
     public static IPAddress? FindPrivateLanAddress()
     {
-        try
+        var candidates = new List<LanAddressCandidate>();
+        foreach (var item in NetworkInterface.GetAllNetworkInterfaces())
         {
-            using var route = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            route.Connect(IPAddress.Parse("1.1.1.1"), 53);
-            if (route.LocalEndPoint is IPEndPoint endpoint && IsPrivateLanAddress(endpoint.Address))
+            try
             {
-                return endpoint.Address;
+                var properties = item.GetIPProperties();
+                var gateways = properties.GatewayAddresses
+                    .Select(value => value.Address)
+                    .Where(value => value.AddressFamily == AddressFamily.InterNetwork && !value.Equals(IPAddress.Any))
+                    .ToArray();
+                var interfaceIndex = properties.GetIPv4Properties()?.Index.ToString() ?? "unknown";
+                foreach (var unicast in properties.UnicastAddresses.Where(value => value.Address.AddressFamily == AddressFamily.InterNetwork))
+                {
+                    candidates.Add(new LanAddressCandidate(
+                        unicast.Address,
+                        unicast.IPv4Mask,
+                        item.NetworkInterfaceType,
+                        item.OperationalStatus,
+                        gateways,
+                        interfaceIndex,
+                        string.Concat(item.Name, " ", item.Description)));
+                }
+            }
+            catch (NetworkInformationException)
+            {
             }
         }
-        catch (SocketException)
+
+        return SelectPrivateLanAddress(candidates, message => Debug.WriteLine(message));
+    }
+
+    public static IPAddress? SelectPrivateLanAddress(
+        IEnumerable<LanAddressCandidate> candidates,
+        Action<string>? diagnostic = null)
+    {
+        var ranked = candidates.Select(candidate => new
         {
+            Candidate = candidate,
+            Physical = IsPhysicalLanType(candidate.InterfaceType),
+            Virtual = HasVirtualOrVpnHint(candidate.Description),
+            OnLinkGateway = candidate.Gateways.Any(gateway => SameSubnet(candidate.Address, gateway, candidate.SubnetMask)),
+            PrefixLength = PrefixLength(candidate.SubnetMask),
+        })
+            .ToArray();
+        foreach (var item in ranked)
+        {
+            diagnostic?.Invoke(
+                $"LAN candidate interface={item.Candidate.SafeInterfaceId} type={item.Candidate.InterfaceType} " +
+                $"address={item.Candidate.Address} private={IsPrivateLanAddress(item.Candidate.Address)} " +
+                $"physical={item.Physical} virtualOrVpn={item.Virtual} onLinkGateway={item.OnLinkGateway}");
         }
 
-        return NetworkInterface.GetAllNetworkInterfaces()
-            .Where(item => item.OperationalStatus == OperationalStatus.Up && item.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-            .Select(item => item.GetIPProperties())
-            .Where(properties => properties.GatewayAddresses.Any(gateway =>
-                gateway.Address.AddressFamily == AddressFamily.InterNetwork && !gateway.Address.Equals(IPAddress.Any)))
-            .SelectMany(properties => properties.UnicastAddresses.Select(address => address.Address))
-            .FirstOrDefault(IsPrivateLanAddress);
+        var selected = ranked
+            .Where(item => item.Candidate.Status == OperationalStatus.Up
+                && item.Physical
+                && !item.Virtual
+                && item.OnLinkGateway
+                && IsPrivateLanAddress(item.Candidate.Address))
+            .OrderByDescending(item => item.Candidate.InterfaceType == NetworkInterfaceType.Wireless80211)
+            .ThenByDescending(item => item.PrefixLength)
+            .ThenBy(item => item.Candidate.SafeInterfaceId, StringComparer.Ordinal)
+            .Select(item => item.Candidate.Address)
+            .FirstOrDefault();
+        diagnostic?.Invoke(selected is null ? "LAN address selection failed closed" : $"LAN address selected={selected}");
+        return selected;
     }
 
     public static bool IsPrivateLanAddress(IPAddress address)
@@ -98,6 +144,35 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                 || bytes[0] == 192 && bytes[1] == 168
                 || bytes[0] == 172 && bytes[1] is >= 16 and <= 31);
     }
+
+    private static bool IsPhysicalLanType(NetworkInterfaceType type) => type is
+        NetworkInterfaceType.Wireless80211 or
+        NetworkInterfaceType.Ethernet or
+        NetworkInterfaceType.GigabitEthernet or
+        NetworkInterfaceType.FastEthernetFx or
+        NetworkInterfaceType.FastEthernetT;
+
+    private static bool HasVirtualOrVpnHint(string value)
+    {
+        string[] hints = ["virtual", "hyper-v", "wsl", "vpn", "tunnel", "tap", "tun", "loopback"];
+        return hints.Any(hint => value.Contains(hint, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool SameSubnet(IPAddress address, IPAddress gateway, IPAddress? mask)
+    {
+        if (mask is null || address.AddressFamily != AddressFamily.InterNetwork || gateway.AddressFamily != AddressFamily.InterNetwork)
+        {
+            return false;
+        }
+
+        var addressBytes = address.GetAddressBytes();
+        var gatewayBytes = gateway.GetAddressBytes();
+        var maskBytes = mask.GetAddressBytes();
+        return Enumerable.Range(0, 4).All(index =>
+            (addressBytes[index] & maskBytes[index]) == (gatewayBytes[index] & maskBytes[index]));
+    }
+
+    private static int PrefixLength(IPAddress? mask) => mask?.GetAddressBytes().Sum(value => System.Numerics.BitOperations.PopCount(value)) ?? 0;
 
     public async ValueTask DisposeAsync()
     {
