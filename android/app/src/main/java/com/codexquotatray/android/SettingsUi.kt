@@ -316,6 +316,7 @@ internal fun SettingsActionButton(
     danger: Boolean = false,
     enabled: Boolean = true,
     primary: Boolean = false,
+    horizontalInset: Dp = SettingsUiTokens.actionHorizontalInset,
     topPadding: Dp = SettingsUiTokens.actionInnerInset,
     bottomPadding: Dp = SettingsUiTokens.actionInnerInset,
     onClick: () -> Unit,
@@ -337,9 +338,9 @@ internal fun SettingsActionButton(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
-                start = SettingsUiTokens.actionHorizontalInset,
+                start = horizontalInset,
                 top = topPadding,
-                end = SettingsUiTokens.actionHorizontalInset,
+                end = horizontalInset,
                 bottom = bottomPadding,
             )
             .height(SettingsUiTokens.actionHeight),

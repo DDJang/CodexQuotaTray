@@ -4,6 +4,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -110,20 +112,18 @@ internal fun UpdateAvailableDialog(
 
                         if (release.notes.isNotBlank()) {
                             Column(Modifier.padding(horizontal = 20.dp)) {
-                                SettingsSection("更新内容") {
-                                    SettingsGroup {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .heightIn(max = 260.dp)
-                                                .verticalScroll(rememberScrollState())
-                                                .padding(
-                                                    horizontal = SettingsUiTokens.rowHorizontalPadding,
-                                                    vertical = 16.dp,
-                                                ),
-                                        ) {
-                                            ReleaseNotesMarkdownView(release.notes)
-                                        }
+                                SettingsGroup {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 260.dp)
+                                            .verticalScroll(rememberScrollState())
+                                            .padding(
+                                                horizontal = SettingsUiTokens.rowHorizontalPadding,
+                                                vertical = 16.dp,
+                                            ),
+                                    ) {
+                                        ReleaseNotesMarkdownView(release.notes)
                                     }
                                 }
                             }
@@ -182,41 +182,71 @@ internal fun UpdateAvailableDialog(
                         }
 
                         Column(Modifier.padding(horizontal = 20.dp)) {
-                            SettingsSection("操作") {
-                                SettingsGroup {
-                                    if (!downloading) {
-                                        SettingsActionButton(
-                                            label = if (downloadError == null) "下载并安装" else "重试",
-                                            primary = true,
-                                            topPadding = SettingsUiTokens.actionEdgeInset,
-                                            onClick = onDownload,
+                            if (!downloading) {
+                                SettingsActionButton(
+                                    label = if (downloadError == null) "下载并安装" else "重试",
+                                    primary = true,
+                                    horizontalInset = 0.dp,
+                                    topPadding = 0.dp,
+                                    bottomPadding = 0.dp,
+                                    onClick = onDownload,
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    TextButton(
+                                        onClick = rememberSystemHapticClick(onBrowserDownload),
+                                        contentPadding = PaddingValues(horizontal = 0.dp),
+                                    ) {
+                                        Text(
+                                            text = "浏览器下载",
+                                            color = palette.color(palette.accent),
+                                            fontSize = 13.sp,
                                         )
                                     }
-                                    SettingsActionButton(
-                                        label = "使用浏览器下载",
-                                        onClick = onBrowserDownload,
-                                    )
-                                    if (downloading) {
-                                        SettingsActionButton(
-                                            label = "取消",
-                                            bottomPadding = SettingsUiTokens.actionEdgeInset,
-                                            onClick = onCancel,
+                                    TextButton(
+                                        onClick = rememberSystemHapticClick(onLater),
+                                        contentPadding = PaddingValues(horizontal = 0.dp),
+                                    ) {
+                                        Text(
+                                            text = "稍后",
+                                            color = palette.color(palette.muted),
+                                            fontSize = 13.sp,
+                                        )
+                                    }
+                                }
+                            } else {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    TextButton(
+                                        onClick = rememberSystemHapticClick(onBrowserDownload),
+                                        contentPadding = PaddingValues(horizontal = 0.dp),
+                                    ) {
+                                        Text(
+                                            text = "浏览器下载",
+                                            color = palette.color(palette.accent),
+                                            fontSize = 13.sp,
+                                        )
+                                    }
+                                    TextButton(
+                                        onClick = rememberSystemHapticClick(onCancel),
+                                        contentPadding = PaddingValues(horizontal = 0.dp),
+                                    ) {
+                                        Text(
+                                            text = "取消",
+                                            color = palette.color(palette.muted),
+                                            fontSize = 13.sp,
                                         )
                                     }
                                 }
                             }
-                        }
-
-                        TextButton(
-                            onClick = rememberSystemHapticClick(onLater),
-                            enabled = !downloading,
-                            modifier = Modifier.align(androidx.compose.ui.Alignment.CenterHorizontally),
-                        ) {
-                            Text(
-                                text = "稍后",
-                                color = palette.color(palette.muted),
-                                fontSize = 13.sp,
-                            )
                         }
                     }
                 }
