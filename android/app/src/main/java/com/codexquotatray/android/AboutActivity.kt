@@ -53,11 +53,11 @@ class AboutActivity : ComponentActivity() {
             var upwardOverscrollActive by remember { mutableStateOf(false) }
             CodexQuotaTheme(palette) {
                 Box(Modifier.fillMaxSize()) {
-                    AboutAmbientBackground(
-                        dark = effectiveTheme == ThemeMode.DARK,
-                        modifier = Modifier.fillMaxSize(),
-                    )
                     Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
+                        AboutAmbientBackground(
+                            dark = effectiveTheme == ThemeMode.DARK,
+                            modifier = Modifier.fillMaxSize(),
+                        )
                         Column(
                             Modifier
                                 .fillMaxSize()
