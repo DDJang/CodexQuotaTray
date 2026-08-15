@@ -13,15 +13,15 @@
     "publishedAt": "2026-08-14T18:05:13Z"
   },
   "android": {
-    "version": "0.8.0",
-    "tag": "android-v0.8.0",
+    "version": "0.8.1",
+    "tag": "android-v0.8.1",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.8.0.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.8.0/CodexQuotaTray-Android-v0.8.0.apk",
-      "sha256": "6bb428590931b726541d81b89b107f1325fc11b4a9d19f3bf0352f3f641b4b18",
-      "size": 26333902
+      "name": "CodexQuotaTray-Android-v0.8.1.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.8.1/CodexQuotaTray-Android-v0.8.1.apk",
+      "sha256": "444351fb6b6f7b67e352e45879a9b494cee4de55b4cb0379df4a94b3ebedcb40",
+      "size": 26350286
     },
-    "releaseNotes": "## What's Changed\n* fix: improve Windows update UX by @DDJang in https://github.com/DDJang/CodexQuotaTray/pull/16\n* feat: redesign Android quota cards by @DDJang in https://github.com/DDJang/CodexQuotaTray/pull/17\n\n\n**Full Changelog**: https://github.com/DDJang/CodexQuotaTray/compare/android-v0.7.5...android-v0.8.0",
-    "publishedAt": "2026-08-14T18:08:00Z"
+    "releaseNotes": "## Android\n\n- 新增带彩色 Aurora 背景的关于页面，提升深色与浅色主题下的视觉层次。\n- 更新弹窗改用设置页风格，支持 Markdown 更新说明、独立滚动和更清晰的下载进度、重试与取消操作。\n- 扩大 Token 热力图的可点击范围，滑动查看日期时更容易选中目标方格。\n- 优化小组件入口和额度页、统计页之间的使用体验。\n",
+    "publishedAt": "2026-08-15T11:52:12Z"
   }
 }
