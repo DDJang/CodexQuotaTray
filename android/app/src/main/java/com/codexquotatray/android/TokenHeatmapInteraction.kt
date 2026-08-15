@@ -43,15 +43,19 @@ internal data class HeatmapGeometry(
     fun hitTest(point: Offset): Int? {
         if (point.x.isNaN() || point.y.isNaN() || rowCount <= 0 || columnCount <= 0) return null
         val contentX = point.x - contentOffsetX
-        if (contentX < 0f || point.y < 0f) return null
+        val halfGap = gapPx / 2f
+        if (
+            contentX < -halfGap ||
+            point.y < -halfGap ||
+            contentX >= contentWidthPx + halfGap ||
+            point.y >= contentHeightPx + halfGap
+        ) return null
 
-        val column = (contentX / stridePx).toInt()
-        val row = (point.y / stridePx).toInt()
+        // Assign each gap to the nearest cell center, with the exact midpoint
+        // consistently belonging to the following column/row.
+        val column = ((contentX + halfGap) / stridePx).toInt()
+        val row = ((point.y + halfGap) / stridePx).toInt()
         if (column !in 0 until columnCount || row !in 0 until rowCount) return null
-
-        val cellX = contentX - column * stridePx
-        val cellY = point.y - row * stridePx
-        if (cellX >= cellSizePx || cellY >= cellSizePx) return null
 
         val index = column * rowCount + row
         return index.takeIf { it in 0 until dayCount }

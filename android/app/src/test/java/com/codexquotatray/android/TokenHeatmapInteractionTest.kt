@@ -29,12 +29,24 @@ class TokenHeatmapInteractionTest {
     }
 
     @Test
-    fun hitTestRejectsGapsAndOutOfRangeCells() {
+    fun hitTestAssignsGapHalvesToAdjacentCellsAndRejectsOuterBlank() {
         assertEquals(0, geometry.hitTest(Offset(11f, 11f)))
         assertEquals(7, geometry.hitTest(Offset(38f, 11f)))
-        assertNull(geometry.hitTest(Offset(24f, 11f)))
-        assertNull(geometry.hitTest(Offset(11f, 24f)))
+        assertEquals(0, geometry.hitTest(Offset(23f, 11f)))
+        assertEquals(7, geometry.hitTest(Offset(26f, 11f)))
+        assertEquals(0, geometry.hitTest(Offset(11f, 23f)))
+        assertEquals(1, geometry.hitTest(Offset(11f, 26f)))
+        assertEquals(7, geometry.hitTest(Offset(24.5f, 11f)))
+        assertEquals(0, geometry.hitTest(Offset(-2f, 11f)))
+        assertEquals(84, geometry.hitTest(Offset(347f, 11f)))
+        assertEquals(0, geometry.hitTest(Offset(11f, -2f)))
+        assertEquals(6, geometry.hitTest(Offset(11f, 186f)))
+        assertNull(geometry.hitTest(Offset(-3f, 11f)))
+        assertNull(geometry.hitTest(Offset(349f, 11f)))
+        assertNull(geometry.hitTest(Offset(11f, -3f)))
+        assertNull(geometry.hitTest(Offset(11f, 187f)))
         assertNull(geometry.hitTest(Offset(335f, 38f)))
+        assertNull(geometry.hitTest(Offset(347f, 38f)))
         assertNull(geometry.hitTest(Offset(400f, 11f)))
     }
 
