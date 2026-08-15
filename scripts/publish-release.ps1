@@ -783,9 +783,12 @@ Write-Step 'Creating or reusing the release PR.'
 $pr = Get-OpenReleasePr
 if ($null -eq $pr) {
     $body = "Prepare Android and Windows $Version. Release notes are platform-specific and the release process will wait for merged main CI before tagging."
-    $pr = Read-GhJson -Arguments @(
+    $prUrl = Read-ExternalText -FilePath $script:Gh -Arguments @(
         'pr', 'create', '--base', 'main', '--head', $script:Branch,
         '--title', "release: prepare $Version", '--body', $body
+    )
+    $pr = Read-GhJson -Arguments @(
+        'pr', 'view', $prUrl.Trim(), '--json', 'number,url,headRefName,baseRefName'
     )
 }
 $prNumber = [int]$pr.number
