@@ -287,17 +287,17 @@ function Update-VersionFiles {
     $androidText = [regex]::Replace(
         $AndroidInfo.Content,
         '(?m)^(\s*versionName\s*=\s*")[^"]+(")\s*$',
-        ('$1' + $Version + '$2'),
+        ('${1}' + $Version + '${2}'),
         1)
     $androidText = [regex]::Replace(
         $androidText,
         '(?m)^(\s*versionCode\s*=\s*)[0-9]+(\s*)$',
-        ('$1' + $VersionCode + '$2'),
+        ('${1}' + $VersionCode + '${2}'),
         1)
     $windowsText = [regex]::Replace(
         $WindowsInfo.Content,
         '(?m)^(\s*<Version>)[^<]+(</Version>\s*)$',
-        ('$1' + $Version + '$2'),
+        ('${1}' + $Version + '${2}'),
         1)
     [IO.File]::WriteAllText($AndroidInfo.Path, $androidText, [Text.UTF8Encoding]::new($false))
     [IO.File]::WriteAllText($WindowsInfo.Path, $windowsText, [Text.UTF8Encoding]::new($false))
