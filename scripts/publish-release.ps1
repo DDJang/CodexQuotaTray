@@ -306,7 +306,7 @@ function Update-VersionFiles {
 function Run-LocalValidation {
     Write-Step 'Running release validation.'
     Invoke-External -FilePath (Join-Path $script:RepoRoot 'android\gradlew.bat') -Arguments @(
-        ':app:testDebugUnitTest', ':app:lintDebug', ':app:assembleDebug'
+        '-p', 'android', ':app:testDebugUnitTest', ':app:lintDebug', ':app:assembleDebug'
     )
     Invoke-External -FilePath 'pwsh' -Arguments @(
         '-NoProfile', '-File', '.\windows\scripts\verify-winui.ps1', '-Mode', 'Release'
