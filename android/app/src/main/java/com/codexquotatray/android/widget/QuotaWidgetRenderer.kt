@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.view.View
 import android.widget.RemoteViews
+import com.codexquotatray.android.ACTION_OPEN_FROM_WIDGET
 import com.codexquotatray.android.MainActivity
 import com.codexquotatray.android.R
 import com.codexquotatray.android.quotaProgressArgb
@@ -31,7 +32,10 @@ internal object QuotaWidgetRenderer {
     }
 
     private fun render(context: Context, views: RemoteViews, projection: QuotaWidgetProjection?) {
-        val clickIntent = Intent(context, MainActivity::class.java)
+        val clickIntent = Intent(context, MainActivity::class.java).apply {
+            action = ACTION_OPEN_FROM_WIDGET
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
         val pendingIntent = android.app.PendingIntent.getActivity(
             context,
             0,

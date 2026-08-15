@@ -89,6 +89,20 @@ jobs:
           Write-Host "Tag $($env:TAG_NAME) matches project version $projectVersion."
           Write-Host "Tagged commit $tagCommit is contained in origin/main ($mainCommit)."
 
+      - name: Validate Windows release notes
+        id: notes
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $notesPath = Join-Path $env:GITHUB_WORKSPACE "windows\release-notes\$($env:RELEASE_VERSION).md"
+          if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf) -or [string]::IsNullOrWhiteSpace((Get-Content -LiteralPath $notesPath -Raw))) {
+            throw "Missing Windows release notes for version $($env:RELEASE_VERSION)"
+          }
+          "notes_path=$notesPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Using Windows release notes: $notesPath"
+
       - name: Verify SDK selected from global.json
         shell: pwsh
         run: |
@@ -225,6 +239,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          NOTES_PATH: ${{ steps.notes.outputs.notes_path }}
         run: |
           $ErrorActionPreference = 'Stop'
           $files = @(
@@ -235,7 +250,8 @@ jobs:
 
           $arguments = @('release', 'create', $env:GITHUB_REF_NAME) + $files + @(
             '--verify-tag',
-            '--generate-notes'
+            '--notes-file',
+            $env:NOTES_PATH
           )
           & gh @arguments
           if ($LASTEXITCODE -ne 0) {
