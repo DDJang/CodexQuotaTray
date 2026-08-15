@@ -104,6 +104,21 @@ jobs:
           echo "Android versionCode ${version_codes[0]} is greater than previous maximum $previous_max."
           echo "Tagged commit $tag_commit is contained in origin/main ($main_commit)."
 
+      - name: Validate Android release notes
+        id: notes
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          notes_path="android/release-notes/${RELEASE_VERSION}.md"
+          if [[ ! -s "$notes_path" ]] || [[ -z "$(tr -d '[:space:]' < "$notes_path")" ]]; then
+            echo "Missing Android release notes for version ${RELEASE_VERSION}" >&2
+            exit 1
+          fi
+          echo "notes_path=${notes_path}" >> "$GITHUB_OUTPUT"
+          echo "Using Android release notes: ${notes_path}"
+
       - name: Decode and validate release signing key
         shell: bash
         env:
@@ -175,13 +190,14 @@ jobs:
           RELEASE_DIR: ${{ steps.artifact.outputs.release_dir }}
           ARTIFACT_NAME: ${{ steps.artifact.outputs.artifact_name }}
           TAG_NAME: ${{ github.ref_name }}
+          NOTES_PATH: ${{ steps.notes.outputs.notes_path }}
         run: |
           set -euo pipefail
           gh release create "$TAG_NAME" \
             "$RELEASE_DIR/$ARTIFACT_NAME" \
             "$RELEASE_DIR/SHA256SUMS.txt" \
             --verify-tag \
-            --generate-notes
+            --notes-file "$NOTES_PATH"
 
       - name: Publish unified update manifest
         shell: pwsh

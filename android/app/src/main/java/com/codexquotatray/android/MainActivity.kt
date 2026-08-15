@@ -47,6 +47,8 @@ import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import java.util.concurrent.Executors
 
+internal const val ACTION_OPEN_FROM_WIDGET = "com.codexquotatray.android.action.OPEN_FROM_WIDGET"
+
 class MainActivity : ComponentActivity() {
     private lateinit var quota: QuotaPageController
     private lateinit var usage: TokenUsagePageController
@@ -164,6 +166,14 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == ACTION_OPEN_FROM_WIDGET) {
+            selectTab(0)
         }
     }
 
