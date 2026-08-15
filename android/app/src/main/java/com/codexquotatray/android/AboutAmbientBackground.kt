@@ -38,7 +38,7 @@ internal fun AboutAmbientBackground(
     dark: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val isResumed = rememberIsResumed()
+    val isVisible = rememberIsVisible()
     val transition = rememberInfiniteTransition(label = "aboutAurora")
     val progress by transition.animateFloat(
         initialValue = 0f,
@@ -66,7 +66,7 @@ internal fun AboutAmbientBackground(
 
         drawRect(color = if (dark) Color(0xFF0A0A0A) else Color(0xFFFAFAFA))
 
-        if (!isResumed) return@Canvas
+        if (!isVisible) return@Canvas
 
         val theta = progress * (2f * PI.toFloat())
         val breatheStrength = 0.85f + 0.15f * sin(breathe)
@@ -111,20 +111,20 @@ internal fun AboutAmbientBackground(
 }
 
 @Composable
-private fun rememberIsResumed(): Boolean {
+private fun rememberIsVisible(): Boolean {
     val lifecycleOwner = LocalLifecycleOwner.current
-    var isResumed by remember(lifecycleOwner) {
-        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+    var isVisible by remember(lifecycleOwner) {
+        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
     }
 
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, _ ->
-            isResumed = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+            isVisible = lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    return isResumed
+    return isVisible
 }
 
 internal fun interpolateLoopColor(
