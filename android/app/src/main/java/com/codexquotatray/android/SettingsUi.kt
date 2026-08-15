@@ -315,14 +315,23 @@ internal fun SettingsActionButton(
     label: String,
     danger: Boolean = false,
     enabled: Boolean = true,
+    primary: Boolean = false,
     topPadding: Dp = SettingsUiTokens.actionInnerInset,
     bottomPadding: Dp = SettingsUiTokens.actionInnerInset,
     onClick: () -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
     val hapticOnClick = rememberSystemHapticClick(onClick)
-    val container = palette.color(palette.secondaryButton)
-    val content = if (danger) CodexColors.danger else palette.color(palette.secondaryButtonText)
+    val container = if (primary) {
+        palette.color(palette.primaryButton)
+    } else {
+        palette.color(palette.secondaryButton)
+    }
+    val content = when {
+        danger -> CodexColors.danger
+        primary -> palette.color(palette.onPrimary)
+        else -> palette.color(palette.secondaryButtonText)
+    }
     Button(
         onClick = hapticOnClick,
         modifier = Modifier

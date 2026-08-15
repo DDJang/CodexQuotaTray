@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
@@ -665,7 +666,18 @@ private fun HeatmapBlurTooltip(
     hazeState: HazeState,
     modifier: Modifier = Modifier,
 ) {
-    val containerColor = Color(0xFF121212)
+    val palette = LocalQuotaPalette.current
+    val isDark = palette.color(palette.background).luminance() < 0.35f
+    val containerColor = if (isDark) {
+        Color(0xFF121212)
+    } else {
+        palette.color(palette.surface)
+    }
+    val borderColor = if (isDark) {
+        Color.White.copy(alpha = 0.18f)
+    } else {
+        palette.color(palette.border).copy(alpha = 0.9f)
+    }
     val shape = RoundedCornerShape(16.dp)
     val scale = remember { Animatable(0.96f) }
     LaunchedEffect(Unit) {
@@ -686,11 +698,11 @@ private fun HeatmapBlurTooltip(
                     blurRadius = 24.dp
                     backgroundColor = containerColor
                     colorEffects = listOf(
-                        HazeColorEffect.tint(containerColor.copy(alpha = 0.65f)),
+                        HazeColorEffect.tint(containerColor.copy(alpha = if (isDark) 0.65f else 0.72f)),
                     )
                 }
             }
-            .border(1.dp, Color.White.copy(alpha = 0.18f), shape)
+            .border(1.dp, borderColor, shape)
             .semantics {
                 contentDescription = "${formatHeatmapTooltipDate(day.date)}，${formatHeatmapTooltipTokenCount(day.totalTokens)}"
             },
@@ -701,14 +713,14 @@ private fun HeatmapBlurTooltip(
         ) {
             Text(
                 formatHeatmapTooltipTokenCount(day.totalTokens),
-                color = Color.White,
+                color = palette.color(palette.title),
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
             Text(
                 formatHeatmapTooltipDate(day.date),
-                color = Color.White.copy(alpha = 0.72f),
+                color = palette.color(palette.secondary),
                 fontSize = 14.sp,
                 maxLines = 1,
             )
