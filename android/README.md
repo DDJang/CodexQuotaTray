@@ -21,33 +21,42 @@ Windows-only 刷新。Direct 网络失败时，有 OAuth 的请求才允许使�
 
 ## 本地 Debug 开发
 
-使用 JDK 17、Android SDK 35 和仓库 Gradle Wrapper。按本机环境设置路径：
+使用仓库 Gradle Wrapper、Android SDK 35 和兼容的 Gradle JVM；项目 Java/Kotlin 编译 target 仍为
+Java 17。`JAVA_HOME`、`ANDROID_HOME` 和 `ANDROID_SDK_ROOT` 应按本机环境设置，并且只作用于当前
+shell 进程。运行前必须用 `java -version` 和 `.\gradlew.bat --version` 确认实际 JVM；不要只依赖 PATH。
+维护者开发机的机器专属环境事实和 fail-closed 约束见根目录 [AGENTS.md](../AGENTS.md)，不应当
+被当作普通开发者的安装路径。
 
 ```powershell
 Set-Location android
-$env:JAVA_HOME = '<jdk-17>'
-$env:ANDROID_HOME = '<android-sdk>'
+$env:JAVA_HOME = '<compatible-gradle-jvm>'
+$env:ANDROID_HOME = '<android-sdk-35>'
 $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 
 .\gradlew.bat :app:testDebugUnitTest :app:assembleDebug
 ```
 
-运行前必须先用 `java -version` 和 `.\gradlew.bat --version` 确认实际 JVM；不要只依赖 PATH。
-当前 Windows 开发机的 PATH 会命中 `C:\Windows\System32\java.exe`（Java 1.7），不能运行本项目。
-本机已验证可用的现有 Gradle JVM 是
-`C:\Users\18456\.jdks\jbr-21.0.11`，它运行 Gradle 8.11.1/AGP 8.9.1，同时项目仍按上面的
-Java/Kotlin 17 目标编译。验证时只在当前 PowerShell 进程设置：
+周期 WorkManager 是非精确定时；配置的 15/30/60 分钟表示周期调度策略，不保证对应分钟准点执行。
+Android Doze、电池优化及 OEM 后台策略可能延迟执行。Xiaomi / HyperOS 等设备可能冻结后台 UID，
+此时已经 eligible 的 Job 也可能直到 App 解冻后才执行。需要更可靠的后台刷新时，用户应允许 App
+后台运行并调整对应的系统电池优化设置；这不是 CodexQuotaTray 对 OEM 冻结的绕过承诺。
+
+## Android 16 局域网兼容检查
+
+当前 target/compile SDK 以 [`app/build.gradle.kts`](app/build.gradle.kts) 为准；现阶段仍由
+`INTERNET` 隐式授予局域网访问，不提前声明未来平台的 `ACCESS_LOCAL_NETWORK` 运行时权限。
+在 Android 16 真机上可对 Debug 包执行以下 opt-in 回归，分别确认 Quota 与 Token 的前台请求、
+后台 Worker、DNS-SD 换址和受限时的有界 `OFFLINE` 分类：
 
 ```powershell
-$env:JAVA_HOME = 'C:\Users\18456\.jdks\jbr-21.0.11'
-$env:Path = "$env:JAVA_HOME\bin;$env:Path"
-$env:ANDROID_HOME = 'D:\Android\Sdk'
-$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+adb shell am compat enable RESTRICT_LOCAL_NETWORK com.codexquotatray.android.debug
+adb reboot
+# 完成受限场景后恢复，并再次验证正常 LAN 同步
+adb shell am compat disable RESTRICT_LOCAL_NETWORK com.codexquotatray.android.debug
+adb reboot
 ```
 
-Android Studio 当前自带的 `D:\Android\Android Studio\jbr` 是 JDK 25，不用于本仓库的
-Gradle 8.11.1 验证。不要为选择本机 JDK 修改 Gradle、AGP、SDK、`gradle.properties` 或提交
-机器专属项目配置。
+该检查需要 Android 16 真机；普通 unit test / `assembleDebug` 不替代它，也不因此增加权限 UI。
 
 Debug 使用 `com.codexquotatray.android.debug` 和名称 **CodexQuotaTray Dev**，采用默认 debug
 签名，可与正式版同时安装且数据隔离：

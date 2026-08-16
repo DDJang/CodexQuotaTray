@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -10,6 +11,33 @@ namespace CodexQuotaTray.Tests;
 [TestClass]
 public sealed class TokenUsageTests
 {
+    [TestMethod]
+    public void LanAddressSelectionPrefersPhysicalWifiOverVpnTunnelAndVirtualAdapters()
+    {
+        var candidates = new[]
+        {
+            Candidate("10.8.0.2", "255.255.255.0", NetworkInterfaceType.Ppp, "10.8.0.1", "1", "VPN"),
+            Candidate("172.20.0.1", "255.255.240.0", NetworkInterfaceType.Ethernet, "172.20.0.254", "2", "Hyper-V Virtual Ethernet"),
+            Candidate("192.168.50.20", "255.255.255.0", NetworkInterfaceType.Wireless80211, "192.168.50.1", "3", "physical"),
+        };
+
+        var selected = TokenUsageSyncServer.SelectPrivateLanSelection(candidates);
+        Assert.AreEqual(IPAddress.Parse("192.168.50.20"), selected?.Address);
+        Assert.AreEqual(3u, selected?.InterfaceIndex);
+    }
+
+    [TestMethod]
+    public void LanAddressSelectionFailsClosedWithoutPhysicalOnLinkGateway()
+    {
+        var candidates = new[]
+        {
+            Candidate("10.8.0.2", "255.255.255.0", NetworkInterfaceType.Tunnel, "10.8.0.1", "1", "tunnel"),
+            Candidate("192.168.50.20", "255.255.255.0", NetworkInterfaceType.Wireless80211, "192.168.60.1", "2", "physical"),
+        };
+
+        Assert.IsNull(TokenUsageSyncServer.SelectPrivateLanAddress(candidates));
+    }
+
     [TestMethod]
     public async Task ScannerUsesLastUsageAndDoesNotSumCumulativeCounters()
     {
@@ -288,6 +316,58 @@ public sealed class TokenUsageTests
     }
 
     [TestMethod]
+    public async Task StaleNormalRequestsReturnImmediatelyAndShareOneBackgroundRefresh()
+    {
+        var scanCalls = 0;
+        var refresh = new TaskCompletionSource<TokenUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstSnapshot = Snapshot(100, new DateTimeOffset(2026, 8, 16, 1, 0, 0, TimeSpan.Zero));
+        var refreshedSnapshot = Snapshot(200, new DateTimeOffset(2026, 8, 16, 2, 0, 0, TimeSpan.Zero));
+        await using var server = new TokenUsageSyncServer(
+            _ => ++scanCalls == 1 ? Task.FromResult(firstSnapshot) : refresh.Task,
+            "test-secret",
+            TimeSpan.Zero);
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{server.Port}") };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-secret");
+
+        Assert.AreEqual(100L, await LifetimeTokensAsync(client));
+        var stale = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ => LifetimeTokensAsync(client)));
+
+        Assert.IsTrue(stale.All(value => value == 100L));
+        Assert.AreEqual(2, scanCalls);
+        refresh.SetResult(refreshedSnapshot);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        long afterRefresh = 0;
+        while (afterRefresh != 200 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+            afterRefresh = await LifetimeTokensAsync(client);
+        }
+        Assert.AreEqual(200L, afterRefresh);
+    }
+
+    [TestMethod]
+    public async Task ForceRequestWaitsForFreshScan()
+    {
+        var refresh = new TaskCompletionSource<TokenUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var scanCalls = 0;
+        await using var server = new TokenUsageSyncServer(
+            _ => ++scanCalls == 1 ? Task.FromResult(Snapshot(100, DateTimeOffset.UtcNow)) : refresh.Task,
+            "test-secret",
+            TimeSpan.FromHours(1));
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{server.Port}") };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-secret");
+        Assert.AreEqual(100L, await LifetimeTokensAsync(client));
+
+        var forced = LifetimeTokensAsync(client, "/v1/token-usage?refresh=force");
+        await Task.Delay(30);
+        Assert.IsFalse(forced.IsCompleted);
+        refresh.SetResult(Snapshot(300, DateTimeOffset.UtcNow.AddSeconds(1)));
+        Assert.AreEqual(300L, await forced);
+    }
+
+    [TestMethod]
     public async Task LanServerServesOnlyInjectedQuotaSnapshotAndKeepsTokenUsageContract()
     {
         var quota = new QuotaLanSnapshot(
@@ -334,6 +414,23 @@ public sealed class TokenUsageTests
         Assert.AreEqual(JsonValueKind.Null, window.GetProperty("resetsAt").ValueKind);
     }
 
+    private static async Task<long> LifetimeTokensAsync(HttpClient client, string path = "/v1/token-usage")
+    {
+        using var document = JsonDocument.Parse(await (await client.GetAsync(path)).Content.ReadAsStringAsync());
+        return document.RootElement.GetProperty("summary").GetProperty("lifetimeTokens").GetInt64();
+    }
+
+    private static TokenUsageSnapshot Snapshot(long lifetimeTokens, DateTimeOffset generatedAtUtc) => new(
+        1,
+        generatedAtUtc,
+        "UTC",
+        new TokenUsageSummary(0, 0, 0, lifetimeTokens, 0, null, 0, 0, 0),
+        [],
+        0,
+        0,
+        null,
+        null);
+
     private static async Task<bool> WaitForConnectionClosedAsync(NetworkStream stream, TimeSpan timeout)
     {
         var read = stream.ReadAsync(new byte[1]).AsTask();
@@ -372,6 +469,22 @@ public sealed class TokenUsageTests
 
     private static string Usage(long total) =>
         $"{{\"total_tokens\":{total},\"input_tokens\":{total},\"cached_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0}}";
+
+    private static LanAddressCandidate Candidate(
+        string address,
+        string mask,
+        NetworkInterfaceType type,
+        string gateway,
+        string id,
+        string description) => new(
+            IPAddress.Parse(address),
+            IPAddress.Parse(mask),
+            type,
+            OperationalStatus.Up,
+            [IPAddress.Parse(gateway)],
+            uint.Parse(id),
+            id,
+            description);
 
     private sealed class TokenCorpus : IDisposable
     {

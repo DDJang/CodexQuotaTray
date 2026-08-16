@@ -10,7 +10,7 @@ internal object QuotaNetworkTimeouts {
     const val WINDOWS_CONNECT_TIMEOUT_MILLIS = 2_000L
     const val WINDOWS_READ_TIMEOUT_MILLIS = 4_000L
     const val WINDOWS_CALL_TIMEOUT_MILLIS = 5_000L
-    const val WINDOWS_DNS_SD_TIMEOUT_MILLIS = 3_000L
+    const val WINDOWS_DNS_SD_TIMEOUT_MILLIS = 5_000L
 
     fun directCallTimeoutMillis(windowsPairingOnWifi: Boolean): Long =
         if (windowsPairingOnWifi) {

@@ -94,6 +94,23 @@ tray GUID 或 Installer AppId。
   elevated execution。这是规定的环境恢复步骤，不属于第三种绕过方式。elevated 后仍失败才停止并报告。
 - WinUI 的 NuGet 恢复、聚焦测试和权限处理遵循 [`windows/README.md`](windows/README.md) 的“NuGet 与环境恢复”小节；不要绕过仓库配置直接使用用户级 NuGet 配置。
 
+## Maintainer Android environment
+
+以下是当前 maintainer Windows 开发机的已验证事实，不是面向普通开发者的通用安装路径：
+
+- PATH 当前可能命中 `C:\Windows\System32\java.exe`（Java 1.7），不得用于 Android 构建。
+- 已验证可运行仓库 Gradle 8.11.1 / AGP 8.9.1 的 Gradle JVM：`C:\Users\18456\.jdks\jbr-21.0.11`。
+- 已验证 Android SDK：`D:\Android\Sdk`。
+- Android Studio 自带 `D:\Android\Android Studio\jbr` 当前为 JDK 25，不作为本仓库 Gradle 验证 JVM。
+
+Gradle 运行 JVM 可以使用已验证的 JBR 21，但项目 Java/Kotlin 编译 target 仍为 Java 17；不得因为
+Gradle JVM 是 21 而修改项目 Java target。
+
+使用上述路径前必须先用 `Test-Path`、`java -version` 和 `gradlew --version` 验证。若路径不存在或
+版本发生变化，必须停止并报告“maintainer 本机环境记录已过期”，不得安装 SDK/JDK、修改
+Gradle/AGP/SDK/`gradle.properties` 或猜测新的机器路径。`JAVA_HOME`、`ANDROID_HOME` 和
+`ANDROID_SDK_ROOT` 只应作用于当前 shell 进程。
+
 ## Validation
 
 WinUI 从仓库根目录运行 `windows/scripts/verify-winui.ps1`：
@@ -104,7 +121,8 @@ WinUI 从仓库根目录运行 `windows/scripts/verify-winui.ps1`：
 
 Core、协议、持久化和 runtime 改动至少运行 Full。真实账户和 Explorer 托盘 smoke 始终显式 opt-in。
 
-Android 使用仓库 Gradle Wrapper、JDK 17 和 Android SDK 35：
+Android 使用仓库 Gradle Wrapper、兼容的 Gradle JVM 和 Android SDK 35；项目 Java/Kotlin 编译 target
+仍为 Java 17：
 
 - Kotlin、协议、UI 或持久化：`:app:testDebugUnitTest` 与 `:app:assembleDebug`；
 - 文档：链接/引用检查与 `git diff --check`；

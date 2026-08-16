@@ -3,6 +3,7 @@ package com.codexquotatray.android.usage
 import com.codexquotatray.android.quota.LanAvailability
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import javax.net.SocketFactory
 
@@ -15,6 +16,15 @@ class LanBoundHttpClientTest {
             override fun socketFactoryOrNull(): SocketFactory = socketFactory
         }
 
-        assertSame(socketFactory, OkHttpClient().bindToWifiLan(provider).socketFactory)
+        assertSame(socketFactory, OkHttpClient().bindToWifiLan(provider, "192.168.1.10").socketFactory)
+    }
+
+    @Test fun missingHostRouteFailsClosedInsteadOfFallingBackToCellularOrVpn() {
+        val provider = object : LanAvailability {
+            override fun isAvailable(): Boolean = true
+        }
+        assertThrows(java.io.IOException::class.java) {
+            OkHttpClient().bindToWifiLan(provider, "192.168.1.10")
+        }
     }
 }

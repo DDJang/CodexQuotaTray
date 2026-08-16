@@ -114,9 +114,13 @@ days[]:
 只返回最近 365 天日聚合和全历史 summary；不得包含 session ID、路径、账号、prompt、response、
 工具内容或原始 JSONL。
 
-普通请求继续复用 Windows 端 60 秒扫描缓存；用户手动同步可在鉴权后使用
-`GET /v1/token-usage?refresh=force` 强制重新扫描。该参数只适用于 Token Usage，Android 的
-启动、回到前台和后台同步不携带该参数。
+Token Usage 普通请求采用 stale-while-revalidate：无缓存时等待首次真实扫描；有缓存且年龄小于
+`minimumScanInterval`（默认 60 秒）时立即返回缓存且不扫描；有缓存但已 stale 时仍立即返回当前
+缓存，同时触发 process-local single-flight 后台扫描刷新，多个 stale 普通请求不得并发启动多个
+扫描。缓存命中的 `generatedAtUtc` 必须来自实际扫描结果，不得伪造成当前时间。
+
+用户手动同步可在鉴权后使用 `GET /v1/token-usage?refresh=force`，等待真实扫描完成后返回；该参数
+只适用于 Token Usage。Android 启动、回到前台和后台同步不携带 `force` 参数。
 
 ### `GET /v1/quota`
 

@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 
@@ -13,19 +14,21 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
     public const int DefaultPort = 43821;
     private const int MaximumHeaderBytes = 16 * 1024;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private readonly TokenUsageScanner scanner;
+    private readonly Func<CancellationToken, Task<TokenUsageSnapshot>> scanAsync;
     private readonly string secret;
     private readonly Func<QuotaLanSnapshot?> quotaSnapshotProvider;
-    private readonly string? codexHome;
     private readonly TimeSpan minimumScanInterval;
     private readonly TimeSpan requestHeaderTimeout;
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim scanGate = new(1, 1);
+    private readonly object cacheLock = new();
+    private readonly Action<string> diagnostic;
     private TcpListener? listener;
     private Task? acceptTask;
     private TokenUsageSnapshot? cached;
     private DateTimeOffset cachedAtUtc;
     private long forcedScanGeneration;
+    private Task? backgroundRefreshTask;
 
     public TokenUsageSyncServer(
         TokenUsageScanner scanner,
@@ -33,19 +36,36 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         string? codexHome = null,
         TimeSpan? minimumScanInterval = null,
         Func<QuotaLanSnapshot?>? quotaSnapshotProvider = null,
-        TimeSpan? requestHeaderTimeout = null)
+        TimeSpan? requestHeaderTimeout = null,
+        Action<string>? diagnostic = null)
     {
-        this.scanner = scanner;
+        scanAsync = cancellationToken => scanner.ScanAsync(codexHome, cancellationToken: cancellationToken);
         this.secret = secret;
-        this.codexHome = codexHome;
         this.minimumScanInterval = minimumScanInterval ?? TimeSpan.FromSeconds(60);
         this.requestHeaderTimeout = requestHeaderTimeout ?? TimeSpan.FromSeconds(10);
         this.quotaSnapshotProvider = quotaSnapshotProvider ?? (() => null);
+        this.diagnostic = diagnostic ?? (_ => { });
+    }
+
+    internal TokenUsageSyncServer(
+        Func<CancellationToken, Task<TokenUsageSnapshot>> scanAsync,
+        string secret,
+        TimeSpan minimumScanInterval,
+        Action<string>? diagnostic = null)
+    {
+        this.scanAsync = scanAsync;
+        this.secret = secret;
+        this.minimumScanInterval = minimumScanInterval;
+        requestHeaderTimeout = TimeSpan.FromSeconds(10);
+        quotaSnapshotProvider = () => null;
+        this.diagnostic = diagnostic ?? (_ => { });
     }
 
     public IPAddress? Address { get; private set; }
 
     public int Port { get; private set; }
+    public bool IsHealthy => listener is not null && acceptTask is { IsCompleted: false };
+    public Exception? ListenerFault => acceptTask?.Exception?.GetBaseException();
 
     public void Start(IPAddress address, int port = DefaultPort)
     {
@@ -64,30 +84,84 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         Address = address;
         Port = ((IPEndPoint)listener.LocalEndpoint).Port;
         acceptTask = AcceptLoopAsync(listener, lifetime.Token);
+        diagnostic($"LAN listener started address={Address}:{Port}");
     }
 
-    public static IPAddress? FindPrivateLanAddress()
+    public static LanEndpointSelection? FindPrivateLanSelection(Action<string>? diagnostic = null)
     {
-        try
+        var candidates = new List<LanAddressCandidate>();
+        foreach (var item in NetworkInterface.GetAllNetworkInterfaces())
         {
-            using var route = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            route.Connect(IPAddress.Parse("1.1.1.1"), 53);
-            if (route.LocalEndPoint is IPEndPoint endpoint && IsPrivateLanAddress(endpoint.Address))
+            try
             {
-                return endpoint.Address;
+                var properties = item.GetIPProperties();
+                var gateways = properties.GatewayAddresses
+                    .Select(value => value.Address)
+                    .Where(value => value.AddressFamily == AddressFamily.InterNetwork && !value.Equals(IPAddress.Any))
+                    .ToArray();
+                var interfaceIndex = properties.GetIPv4Properties()?.Index;
+                if (interfaceIndex is null or < 0) continue;
+                foreach (var unicast in properties.UnicastAddresses.Where(value => value.Address.AddressFamily == AddressFamily.InterNetwork))
+                {
+                    candidates.Add(new LanAddressCandidate(
+                        unicast.Address,
+                        unicast.IPv4Mask,
+                        item.NetworkInterfaceType,
+                        item.OperationalStatus,
+                        gateways,
+                        checked((uint)interfaceIndex.Value),
+                        interfaceIndex.Value.ToString(),
+                        string.Concat(item.Name, " ", item.Description)));
+                }
+            }
+            catch (NetworkInformationException)
+            {
             }
         }
-        catch (SocketException)
+
+        return SelectPrivateLanSelection(candidates, diagnostic ?? (message => Debug.WriteLine(message)));
+    }
+
+    public static IPAddress? FindPrivateLanAddress() => FindPrivateLanSelection()?.Address;
+
+    public static IPAddress? SelectPrivateLanAddress(
+        IEnumerable<LanAddressCandidate> candidates,
+        Action<string>? diagnostic = null) => SelectPrivateLanSelection(candidates, diagnostic)?.Address;
+
+    public static LanEndpointSelection? SelectPrivateLanSelection(
+        IEnumerable<LanAddressCandidate> candidates,
+        Action<string>? diagnostic = null)
+    {
+        var ranked = candidates.Select(candidate => new
         {
+            Candidate = candidate,
+            Physical = IsPhysicalLanType(candidate.InterfaceType),
+            Virtual = HasVirtualOrVpnHint(candidate.Description),
+            OnLinkGateway = candidate.Gateways.Any(gateway => SameSubnet(candidate.Address, gateway, candidate.SubnetMask)),
+            PrefixLength = PrefixLength(candidate.SubnetMask),
+        })
+            .ToArray();
+        foreach (var item in ranked)
+        {
+            diagnostic?.Invoke(
+                $"LAN candidate interface={item.Candidate.SafeInterfaceId} type={item.Candidate.InterfaceType} " +
+                $"address={item.Candidate.Address} private={IsPrivateLanAddress(item.Candidate.Address)} " +
+                $"physical={item.Physical} virtualOrVpn={item.Virtual} onLinkGateway={item.OnLinkGateway}");
         }
 
-        return NetworkInterface.GetAllNetworkInterfaces()
-            .Where(item => item.OperationalStatus == OperationalStatus.Up && item.NetworkInterfaceType != NetworkInterfaceType.Loopback)
-            .Select(item => item.GetIPProperties())
-            .Where(properties => properties.GatewayAddresses.Any(gateway =>
-                gateway.Address.AddressFamily == AddressFamily.InterNetwork && !gateway.Address.Equals(IPAddress.Any)))
-            .SelectMany(properties => properties.UnicastAddresses.Select(address => address.Address))
-            .FirstOrDefault(IsPrivateLanAddress);
+        var selected = ranked
+            .Where(item => item.Candidate.Status == OperationalStatus.Up
+                && item.Physical
+                && !item.Virtual
+                && item.OnLinkGateway
+                && IsPrivateLanAddress(item.Candidate.Address))
+            .OrderByDescending(item => item.Candidate.InterfaceType == NetworkInterfaceType.Wireless80211)
+            .ThenByDescending(item => item.PrefixLength)
+            .ThenBy(item => item.Candidate.SafeInterfaceId, StringComparer.Ordinal)
+            .Select(item => new LanEndpointSelection(item.Candidate.Address, item.Candidate.InterfaceIndex))
+            .FirstOrDefault();
+        diagnostic?.Invoke(selected is null ? "LAN address selection failed closed" : $"LAN address selected={selected.Address} interface={selected.InterfaceIndex}");
+        return selected;
     }
 
     public static bool IsPrivateLanAddress(IPAddress address)
@@ -99,10 +173,40 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                 || bytes[0] == 172 && bytes[1] is >= 16 and <= 31);
     }
 
+    private static bool IsPhysicalLanType(NetworkInterfaceType type) => type is
+        NetworkInterfaceType.Wireless80211 or
+        NetworkInterfaceType.Ethernet or
+        NetworkInterfaceType.GigabitEthernet or
+        NetworkInterfaceType.FastEthernetFx or
+        NetworkInterfaceType.FastEthernetT;
+
+    private static bool HasVirtualOrVpnHint(string value)
+    {
+        string[] hints = ["virtual", "hyper-v", "wsl", "vpn", "tunnel", "tap", "tun", "loopback"];
+        return hints.Any(hint => value.Contains(hint, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool SameSubnet(IPAddress address, IPAddress gateway, IPAddress? mask)
+    {
+        if (mask is null || address.AddressFamily != AddressFamily.InterNetwork || gateway.AddressFamily != AddressFamily.InterNetwork)
+        {
+            return false;
+        }
+
+        var addressBytes = address.GetAddressBytes();
+        var gatewayBytes = gateway.GetAddressBytes();
+        var maskBytes = mask.GetAddressBytes();
+        return Enumerable.Range(0, 4).All(index =>
+            (addressBytes[index] & maskBytes[index]) == (gatewayBytes[index] & maskBytes[index]));
+    }
+
+    private static int PrefixLength(IPAddress? mask) => mask?.GetAddressBytes().Sum(value => System.Numerics.BitOperations.PopCount(value)) ?? 0;
+
     public async ValueTask DisposeAsync()
     {
         lifetime.Cancel();
         listener?.Stop();
+        diagnostic($"LAN listener stop requested address={Address}:{Port}");
         if (acceptTask is not null)
         {
             try
@@ -115,6 +219,10 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
             catch (SocketException) when (lifetime.IsCancellationRequested)
             {
             }
+            catch (Exception error)
+            {
+                diagnostic($"LAN listener completion fault={error.GetType().Name}");
+            }
         }
 
         lifetime.Dispose();
@@ -125,8 +233,15 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         while (!cancellationToken.IsCancellationRequested)
         {
             var client = await activeListener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-            _ = HandleClientAsync(client, cancellationToken);
+            diagnostic("LAN listener accepted connection");
+            _ = ObserveClientAsync(HandleClientAsync(client, cancellationToken));
         }
+    }
+
+    private async Task ObserveClientAsync(Task task)
+    {
+        try { await task.ConfigureAwait(false); }
+        catch (Exception error) { diagnostic($"LAN client handler fault={error.GetType().Name}"); }
     }
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
@@ -154,6 +269,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     await WriteResponseAsync(stream, 400, "Bad Request", null, cancellationToken).ConfigureAwait(false);
                     return;
                 }
+                diagnostic($"LAN request path={request.Path}");
 
                 if (!string.Equals(request.Method, "GET", StringComparison.Ordinal))
                 {
@@ -185,6 +301,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
 
                     var quotaBody = JsonSerializer.SerializeToUtf8Bytes(quota, JsonOptions);
                     await WriteResponseAsync(stream, 200, "OK", quotaBody, cancellationToken).ConfigureAwait(false);
+                    diagnostic("LAN response path=/v1/quota status=200");
                     return;
                 }
 
@@ -198,6 +315,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     snapshot.Days,
                 }, JsonOptions);
                 await WriteResponseAsync(stream, 200, "OK", body, cancellationToken).ConfigureAwait(false);
+                diagnostic("LAN response path=/v1/token-usage status=200");
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -207,36 +325,71 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
 
     private async Task<TokenUsageSnapshot> GetSnapshotAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
-        var forcedGenerationAtRequest = Volatile.Read(ref forcedScanGeneration);
-        var now = DateTimeOffset.UtcNow;
-        if (!forceRefresh && cached is not null && now - cachedAtUtc < minimumScanInterval)
+        TokenUsageSnapshot? available;
+        DateTimeOffset availableAt;
+        lock (cacheLock)
         {
-            return cached;
+            available = cached;
+            availableAt = cachedAtUtc;
         }
+        if (!forceRefresh && available is not null)
+        {
+            if (DateTimeOffset.UtcNow - availableAt >= minimumScanInterval) StartBackgroundRefresh();
+            return available;
+        }
+
+        return await RefreshSnapshotAsync(forceRefresh, cancellationToken).ConfigureAwait(false);
+    }
+
+    private void StartBackgroundRefresh()
+    {
+        lock (cacheLock)
+        {
+            if (backgroundRefreshTask is { IsCompleted: false }) return;
+            backgroundRefreshTask = RunBackgroundRefreshAsync();
+        }
+    }
+
+    private async Task RunBackgroundRefreshAsync()
+    {
+        try { _ = await RefreshSnapshotAsync(false, lifetime.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception error) { diagnostic($"Token background refresh fault={error.GetType().Name}"); }
+    }
+
+    private async Task<TokenUsageSnapshot> RefreshSnapshotAsync(bool forceRefresh, CancellationToken cancellationToken)
+    {
+        var forcedGenerationAtRequest = Volatile.Read(ref forcedScanGeneration);
 
         await scanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            now = DateTimeOffset.UtcNow;
-            if (forceRefresh && cached is not null && Volatile.Read(ref forcedScanGeneration) != forcedGenerationAtRequest)
+            TokenUsageSnapshot? current;
+            DateTimeOffset currentAt;
+            lock (cacheLock) { current = cached; currentAt = cachedAtUtc; }
+            if (forceRefresh && current is not null && Volatile.Read(ref forcedScanGeneration) != forcedGenerationAtRequest)
             {
                 // Another force request that was already in flight completed the
                 // required scan while this request waited for the gate.
-                return cached;
+                return current;
             }
 
-            if (!forceRefresh && cached is not null && now - cachedAtUtc < minimumScanInterval)
+            if (!forceRefresh && current is not null && DateTimeOffset.UtcNow - currentAt < minimumScanInterval)
             {
-                return cached;
+                return current;
             }
 
-            cached = await scanner.ScanAsync(codexHome, cancellationToken: cancellationToken).ConfigureAwait(false);
-            cachedAtUtc = DateTimeOffset.UtcNow;
+            var refreshed = await scanAsync(cancellationToken).ConfigureAwait(false);
+            lock (cacheLock)
+            {
+                cached = refreshed;
+                cachedAtUtc = DateTimeOffset.UtcNow;
+            }
             if (forceRefresh)
             {
                 Interlocked.Increment(ref forcedScanGeneration);
             }
-            return cached;
+            return refreshed;
         }
         finally
         {

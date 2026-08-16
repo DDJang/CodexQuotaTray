@@ -1,0 +1,77 @@
+package com.codexquotatray.android.usage
+
+import okhttp3.Call
+import okhttp3.Connection
+import okhttp3.EventListener
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.util.concurrent.TimeUnit
+
+internal class LanHttpCallDiagnostics(
+    private val label: String,
+    private val diagnostics: LanDiagnosticLogger,
+) {
+    private val startedAt = System.nanoTime()
+    private val phase = LanHttpCallPhase()
+
+    val connected: Boolean
+        get() = phase.connected
+
+    fun responseReceived() {
+        phase.responseHeadersStarted()
+    }
+
+    fun instrument(client: OkHttpClient): OkHttpClient = client.newBuilder()
+        .eventListener(object : EventListener() {
+            override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) {
+                phase.connecting()
+                diagnostics.record("$label LAN connectStart elapsedMs=${elapsedMillis()}")
+            }
+
+            override fun connectEnd(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy, protocol: Protocol?) {
+                phase.connectionAcquired()
+                diagnostics.record("$label LAN connectEnd elapsedMs=${elapsedMillis()}")
+            }
+
+            override fun connectionAcquired(call: Call, connection: Connection) {
+                phase.connectionAcquired()
+                diagnostics.record("$label LAN connectionAcquired elapsedMs=${elapsedMillis()}")
+            }
+
+            override fun connectFailed(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy, protocol: Protocol?, ioe: IOException) {
+                phase.connectFailed()
+                diagnostics.record("$label LAN connectFailed elapsedMs=${elapsedMillis()}")
+            }
+
+            override fun responseHeadersStart(call: Call) {
+                phase.responseHeadersStarted()
+                diagnostics.record("$label LAN responseHeadersStart elapsedMs=${elapsedMillis()}")
+            }
+        })
+        .build()
+
+    fun failure(kind: String) {
+        diagnostics.record("$label LAN direct failure=$kind phase=${phase.name} elapsedMs=${elapsedMillis()}")
+    }
+
+    fun elapsedMillis(): Long = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+}
+
+internal class LanHttpCallPhase {
+    private enum class Phase { CREATED, CONNECTING, CONNECTED, RESPONSE_HEADERS, CONNECT_FAILED }
+
+    @Volatile private var value = Phase.CREATED
+
+    val connected: Boolean
+        get() = value == Phase.CONNECTED || value == Phase.RESPONSE_HEADERS
+    val name: String
+        get() = value.name
+
+    fun connecting() { value = Phase.CONNECTING }
+    fun connectionAcquired() { value = Phase.CONNECTED }
+    fun responseHeadersStarted() { value = Phase.RESPONSE_HEADERS }
+    fun connectFailed() { value = Phase.CONNECT_FAILED }
+}
