@@ -63,11 +63,11 @@ class TokenUsageSyncClient(
             }
         } catch (_: SocketTimeoutException) {
             callDiagnostics.failure("TIMEOUT")
-            val kind = if (callDiagnostics.connected) TokenUsageFailureKind.HTTP_ERROR else TokenUsageFailureKind.OFFLINE
+            val kind = classifyTokenTransportFailure(callDiagnostics.connected)
             throw TokenUsageException(kind, "Windows 当前不可用")
         } catch (_: IOException) {
             callDiagnostics.failure("IO")
-            val kind = if (callDiagnostics.connected) TokenUsageFailureKind.HTTP_ERROR else TokenUsageFailureKind.OFFLINE
+            val kind = classifyTokenTransportFailure(callDiagnostics.connected)
             throw TokenUsageException(kind, "Windows 当前不可用")
         }
         diagnostics.record("Token LAN direct status=${response.first} elapsedMs=${callDiagnostics.elapsedMillis()}")
@@ -86,3 +86,6 @@ class TokenUsageSyncClient(
             .build()
     }
 }
+
+internal fun classifyTokenTransportFailure(connectionAcquired: Boolean): TokenUsageFailureKind =
+    if (connectionAcquired) TokenUsageFailureKind.HTTP_ERROR else TokenUsageFailureKind.OFFLINE

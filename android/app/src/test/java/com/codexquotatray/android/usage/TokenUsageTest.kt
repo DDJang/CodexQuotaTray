@@ -195,6 +195,18 @@ class TokenUsageTest {
         assertEquals(0, discoveryCalls)
     }
 
+    @Test fun timeoutAfterPooledConnectionAcquiredDoesNotStartDiscovery() {
+        val phase = LanHttpCallPhase()
+        var discoveryCalls = 0
+
+        phase.connectionAcquired()
+        val kind = classifyTokenTransportFailure(phase.connected)
+        if (TokenSyncEndpoint.shouldDiscover(kind, pairingWithId())) discoveryCalls++
+
+        assertEquals(TokenUsageFailureKind.HTTP_ERROR, kind)
+        assertEquals(0, discoveryCalls)
+    }
+
     @Test fun serialResolveQueueContinuesFromWrongDeviceToTarget() {
         val queue = SerialResolveQueue<String> { it.substringBefore(':') }
         assertEquals("wrong:1", queue.offer("wrong:1"))
