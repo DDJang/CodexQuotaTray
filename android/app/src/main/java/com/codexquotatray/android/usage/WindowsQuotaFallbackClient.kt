@@ -86,17 +86,20 @@ class WindowsQuotaFallbackClient(
             .header("Authorization", "Bearer ${safe.secret}")
             .header("Accept", "application/json")
             .build()
-        val startedAt = System.nanoTime()
+        val callDiagnostics = LanHttpCallDiagnostics("Quota", diagnostics)
         val response = try {
-            client.bindToWifiLan(lanAvailability, safe.host).newCall(request).execute().use { result -> result.code to result.body?.string().orEmpty() }
+            callDiagnostics.instrument(client.bindToWifiLan(lanAvailability, safe.host)).newCall(request).execute().use { result ->
+                callDiagnostics.responseReceived()
+                result.code to result.body?.string().orEmpty()
+            }
         } catch (_: SocketTimeoutException) {
-            diagnostics.record("Quota LAN direct failure=TIMEOUT elapsedMs=${elapsedMillis(startedAt)}")
+            callDiagnostics.failure("TIMEOUT")
             throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.OFFLINE, "Windows quota unavailable")
         } catch (_: IOException) {
-            diagnostics.record("Quota LAN direct failure=IO elapsedMs=${elapsedMillis(startedAt)}")
+            callDiagnostics.failure("IO")
             throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.OFFLINE, "Windows quota unavailable")
         }
-        diagnostics.record("Quota LAN direct status=${response.first} elapsedMs=${elapsedMillis(startedAt)}")
+        diagnostics.record("Quota LAN direct status=${response.first} elapsedMs=${callDiagnostics.elapsedMillis()}")
         if (response.first == 401) {
             throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.PAIRING_INVALID, "Windows pairing invalid")
         }
@@ -107,7 +110,6 @@ class WindowsQuotaFallbackClient(
     }
 
     companion object {
-        private fun elapsedMillis(startedAt: Long): Long = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
         internal fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(QuotaNetworkTimeouts.WINDOWS_CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
             .readTimeout(QuotaNetworkTimeouts.WINDOWS_READ_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)

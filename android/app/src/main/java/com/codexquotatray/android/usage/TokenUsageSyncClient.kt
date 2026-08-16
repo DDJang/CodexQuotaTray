@@ -55,24 +55,28 @@ class TokenUsageSyncClient(
             .header("Authorization", "Bearer ${safe.secret}")
             .header("Accept", "application/json")
             .build()
-        val startedAt = System.nanoTime()
+        val callDiagnostics = LanHttpCallDiagnostics("Token", diagnostics)
         val response = try {
-            client.bindToWifiLan(lanAvailability, safe.host).newCall(request).execute().use { result -> result.code to result.body?.string().orEmpty() }
+            callDiagnostics.instrument(client.bindToWifiLan(lanAvailability, safe.host)).newCall(request).execute().use { result ->
+                callDiagnostics.responseReceived()
+                result.code to result.body?.string().orEmpty()
+            }
         } catch (_: SocketTimeoutException) {
-            diagnostics.record("Token LAN direct failure=TIMEOUT elapsedMs=${elapsedMillis(startedAt)}")
-            throw TokenUsageException(TokenUsageFailureKind.OFFLINE, "Windows 当前不可用")
+            callDiagnostics.failure("TIMEOUT")
+            val kind = if (callDiagnostics.connected) TokenUsageFailureKind.HTTP_ERROR else TokenUsageFailureKind.OFFLINE
+            throw TokenUsageException(kind, "Windows 当前不可用")
         } catch (_: IOException) {
-            diagnostics.record("Token LAN direct failure=IO elapsedMs=${elapsedMillis(startedAt)}")
-            throw TokenUsageException(TokenUsageFailureKind.OFFLINE, "Windows 当前不可用")
+            callDiagnostics.failure("IO")
+            val kind = if (callDiagnostics.connected) TokenUsageFailureKind.HTTP_ERROR else TokenUsageFailureKind.OFFLINE
+            throw TokenUsageException(kind, "Windows 当前不可用")
         }
-        diagnostics.record("Token LAN direct status=${response.first} elapsedMs=${elapsedMillis(startedAt)}")
+        diagnostics.record("Token LAN direct status=${response.first} elapsedMs=${callDiagnostics.elapsedMillis()}")
         if (response.first == 401) throw TokenUsageException(TokenUsageFailureKind.PAIRING_INVALID, "Windows 配对已失效，请重新扫码")
         if (response.first !in 200..299) throw TokenUsageException(TokenUsageFailureKind.HTTP_ERROR, "Windows 当前不可用")
         return TokenUsageJson.parse(response.second)
     }
 
     companion object {
-        private fun elapsedMillis(startedAt: Long): Long = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
         private fun defaultClient() = OkHttpClient.Builder()
             .connectTimeout(4, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)

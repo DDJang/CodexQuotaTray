@@ -6,6 +6,11 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
+import okhttp3.ResponseBody
+import okio.Buffer
+import okio.BufferedSource
+import okio.ForwardingSource
+import okio.buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -163,6 +168,80 @@ class TokenUsageTest {
         val client = TokenUsageSyncClient(client { throw SocketTimeoutException("timeout") }, discovery)
 
         assertEquals(TokenUsageFailureKind.OFFLINE, failure { client.sync(pairingWithId()) }.kind)
+    }
+
+    @Test fun responseReadTimeoutDoesNotStartDiscovery() {
+        var discoveryCalls = 0
+        val discovery = object : TokenSyncDiscovery {
+            override fun find(deviceId: String, timeoutMs: Long): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? {
+                discoveryCalls++
+                return null
+            }
+        }
+        val throwingBody = object : ResponseBody() {
+            override fun contentType() = "application/json".toMediaType()
+            override fun contentLength() = -1L
+            override fun source(): BufferedSource = object : ForwardingSource(Buffer()) {
+                override fun read(sink: Buffer, byteCount: Long): Long = throw SocketTimeoutException("read timeout")
+            }.buffer()
+        }
+        val failure = failure {
+            TokenUsageSyncClient(client { chain ->
+                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(200)
+                    .message("test").body(throwingBody).build()
+            }, discovery).sync(pairingWithId())
+        }
+        assertEquals(TokenUsageFailureKind.HTTP_ERROR, failure.kind)
+        assertEquals(0, discoveryCalls)
+    }
+
+    @Test fun serialResolveQueueContinuesFromWrongDeviceToTarget() {
+        val queue = SerialResolveQueue<String> { it.substringBefore(':') }
+        assertEquals("wrong:1", queue.offer("wrong:1"))
+        assertNull(queue.offer("target:1"))
+        assertEquals("target:1", queue.complete(matched = false))
+        assertNull(queue.complete(matched = true))
+    }
+
+    @Test fun serialResolveQueueAdvancesAfterResolveFailure() {
+        val queue = SerialResolveQueue<String> { it }
+        assertEquals("failed", queue.offer("failed"))
+        assertNull(queue.offer("next"))
+        assertEquals("next", queue.complete(matched = false))
+    }
+
+    @Test fun invalidTxtCandidateIsRejectedAndQueueAdvances() {
+        val target = "123e4567-e89b-12d3-a456-426614174000"
+        val queue = SerialResolveQueue<String> { it }
+        assertEquals("invalid", queue.offer("invalid"))
+        assertNull(queue.offer("target"))
+        assertNull(validatedDiscoveryEndpoint(target, null, "192.168.1.20", 43821))
+        assertEquals("target", queue.complete(matched = false))
+        assertEquals(target, validatedDiscoveryEndpoint(target, target, "192.168.1.21", 43821)?.deviceId)
+    }
+
+    @Test fun duplicateFoundServiceIsNotResolvedTwice() {
+        val queue = SerialResolveQueue<String> { it.substringBefore(':') }
+        assertEquals("desk:first", queue.offer("desk:first"))
+        assertNull(queue.offer("desk:duplicate"))
+        assertNull(queue.complete(matched = false))
+    }
+
+    @Test fun allMismatchedCandidatesExhaustQueueWithoutResult() {
+        val queue = SerialResolveQueue<String> { it }
+        assertEquals("wrong-a", queue.offer("wrong-a"))
+        assertNull(queue.offer("wrong-b"))
+        assertEquals("wrong-b", queue.complete(matched = false))
+        assertNull(queue.complete(matched = false))
+    }
+
+    @Test fun serialResolveQueueStopsAfterMatchingCandidate() {
+        val queue = SerialResolveQueue<String> { it }
+        assertEquals("wrong", queue.offer("wrong"))
+        assertNull(queue.offer("target"))
+        assertEquals("target", queue.complete(matched = false))
+        assertNull(queue.complete(matched = true))
+        assertNull(queue.offer("late"))
     }
 
     @Test fun discoveryTimeoutOrFailureRemainsOffline() {

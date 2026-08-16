@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Net;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using CodexQuotaTray.Core.TokenUsage;
 
 namespace CodexQuotaTray.App.Interop;
@@ -28,6 +29,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     private IntPtr serviceInstance;
     private IntPtr queryContext;
     private RegistrationPhase phase;
+    private Stopwatch? registrationStopwatch;
 
     internal DnsSdServicePublisher(
         Guid deviceId,
@@ -48,7 +50,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     internal bool IsStarted => phase == RegistrationPhase.Registered && serviceInstance != IntPtr.Zero;
     internal static int ActivePublisherCount => ActivePublishers.Count;
 
-    internal async Task StartAsync(IPAddress address, int port, CancellationToken cancellationToken = default)
+    internal async Task StartAsync(IPAddress address, int port, uint interfaceIndex = 0, CancellationToken cancellationToken = default)
     {
         if (phase != RegistrationPhase.Stopped || serviceInstance != IntPtr.Zero)
         {
@@ -89,7 +91,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             request = new DnsSdRegisterRequest
             {
                 Version = DnsQueryRequestVersion1,
-                InterfaceIndex = 0,
+                InterfaceIndex = interfaceIndex,
                 ServiceInstance = serviceInstance,
                 RegisterCompletionCallback = Marshal.GetFunctionPointerForDelegate(RegisterCompleteCallback),
                 QueryContext = queryContext,
@@ -102,7 +104,9 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
                 registrationCompletion = completion;
             }
             registrationCancel = default;
+            registrationStopwatch = Stopwatch.StartNew();
             var result = native.Register(ref request, ref registrationCancel);
+            diagnostic($"DNS-SD register immediate status={result} pending={result == DnsRequestPending} interface={interfaceIndex}");
             var status = result == DnsRequestPending
                 ? await WaitForRegistrationAsync(completion, cancellationToken).ConfigureAwait(false)
                 : result;
@@ -133,8 +137,12 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             {
                 registrationCompletion = null;
             }
+            registrationStopwatch = null;
         }
     }
+
+    internal Task StartAsync(IPAddress address, int port, CancellationToken cancellationToken) =>
+        StartAsync(address, port, 0, cancellationToken);
 
     public async ValueTask DisposeAsync()
     {
@@ -206,8 +214,10 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
         }
         finally
         {
+            var elapsed = registrationStopwatch?.ElapsedMilliseconds;
             lock (callbackStateLock)
             {
+                diagnostic($"DNS-SD callback phase={phase} status={status} elapsedMs={elapsed?.ToString() ?? "n/a"}");
                 var completion = phase switch
                 {
                     RegistrationPhase.Registering or RegistrationPhase.CancellingRegistration => registrationCompletion,
@@ -241,14 +251,17 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
 
             if (!shouldCancel)
             {
+                diagnostic($"DNS-SD timeout-success race winner=callback elapsedMs={registrationStopwatch?.ElapsedMilliseconds ?? 0}");
                 return await completion.Task.ConfigureAwait(false);
             }
 
+            diagnostic($"DNS-SD registration {(error is TimeoutException ? "callback timeout" : "cancelled")} elapsedMs={registrationStopwatch?.ElapsedMilliseconds ?? 0}");
             var cancelStatus = native.CancelRegistration(ref registrationCancel);
             diagnostic($"DNS-SD registration cancel status={cancelStatus}");
             var terminalStatus = await completion.Task.ConfigureAwait(false);
             if (terminalStatus == 0)
             {
+                diagnostic("DNS-SD cancel race returned success; compensating deregistration");
                 await DeregisterAfterCancelledStartAsync().ConfigureAwait(false);
             }
 

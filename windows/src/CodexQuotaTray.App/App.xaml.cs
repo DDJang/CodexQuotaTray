@@ -69,6 +69,7 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         var startupLaunch = arguments.Any(value => string.Equals(value, "--startup", StringComparison.OrdinalIgnoreCase));
         var explicitCodex = ReadOption(arguments, "--codex-bin");
+        var lanDiagnostics = new LanDiagnosticBuffer();
 
         IUiStateProvider stateProvider;
         IDiagnosticTextProvider diagnostics;
@@ -110,7 +111,8 @@ public partial class App : Application
                 liveRuntime.GetLastSuccessfulLanQuotaSnapshot,
                 identity.TokenSyncPort,
                 identity.TokenSyncDisplayNameSuffix,
-                identity.TokenSyncDnsSdInstancePrefix);
+                identity.TokenSyncDnsSdInstancePrefix,
+                lanDiagnostics.Record);
             if (launchProfile.TrayIdentity == TrayIdentityMode.Production
                 && SemanticVersion.TryParse(ProductVersion.Current, out var currentVersion))
             {
@@ -192,6 +194,7 @@ public partial class App : Application
         var clipboard = new DiagnosticsClipboardService(new DelegateDiagnosticTextProvider(() => string.Join(
             Environment.NewLine,
             diagnostics.CreateDiagnosticText(),
+            lanDiagnostics.CreateDiagnosticText(),
             trayIcon?.CreateDiagnosticText() ?? "托盘注册状态: NotStarted")));
         settingsPageActions = new DelegateSettingsPageActions(
             cancellationToken => viewModel.RefreshCommand.ExecuteAsync(cancellationToken),

@@ -8,7 +8,6 @@ import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
 
 interface TokenSyncDiscovery {
     fun find(deviceId: String, timeoutMs: Long = DEFAULT_TIMEOUT_MS): TokenSyncEndpoint.TokenSyncDiscoveryCandidate?
@@ -70,31 +69,42 @@ class AndroidNsdDiscovery(
     ): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? {
         val completed = CountDownLatch(1)
         var candidate: TokenSyncEndpoint.TokenSyncDiscoveryCandidate? = null
-        val resolving = AtomicBoolean(false)
+        val resolveQueue = SerialResolveQueue<NsdServiceInfo> {
+            "${it.serviceName.trim().lowercase()}|${it.serviceType.trimEnd('.').lowercase()}"
+        }
         lateinit var listener: NsdManager.DiscoveryListener
-        val resolveListener = object : NsdManager.ResolveListener {
+        lateinit var resolveListener: NsdManager.ResolveListener
+        fun resolveNext(serviceInfo: NsdServiceInfo?) {
+            if (serviceInfo == null) return
+            runCatching { manager.resolveService(serviceInfo, resolveListener) }
+                .onFailure {
+                    diagnostics.record("Windows NSD resolve start failure=${it.javaClass.simpleName}")
+                    resolveNext(resolveQueue.complete(matched = false))
+                }
+        }
+        resolveListener = object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                resolving.set(false)
                 diagnostics.record("Windows NSD resolve failure errorCode=$errorCode")
+                resolveNext(resolveQueue.complete(matched = false))
             }
 
             override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
-                resolving.set(false)
-                val resolvedHost = serviceInfo.host?.hostAddress ?: return
+                val resolvedHost = serviceInfo.host?.hostAddress
                 val attributes = serviceInfo.attributes
                 val resolvedId = attributes.entries
                     .firstOrNull { it.key.equals("deviceId", ignoreCase = true) }
-                    ?.value?.toString(Charsets.UTF_8)?.trim() ?: return
-                if (!resolvedId.equals(deviceId, ignoreCase = true)) return
-                if (!TokenSyncEndpoint.isPrivateIpv4(resolvedHost)) return
-                val valid = runCatching {
-                    TokenSyncEndpoint.validated(resolvedId, resolvedHost, serviceInfo.port, "discovery")
-                }.getOrNull() ?: return
+                    ?.value?.toString(Charsets.UTF_8)?.trim()
+                val valid = validatedDiscoveryEndpoint(deviceId, resolvedId, resolvedHost, serviceInfo.port)
+                if (valid == null) {
+                    resolveNext(resolveQueue.complete(matched = false))
+                    return
+                }
                 val name = attributes.entries
                     .firstOrNull { it.key.equals("name", ignoreCase = true) }
                     ?.value?.toString(Charsets.UTF_8)?.trim()
                 candidate = TokenSyncEndpoint.TokenSyncDiscoveryCandidate(valid.deviceId, valid.host, valid.port, name)
                 diagnostics.record("Windows NSD discovered endpoint=${valid.host}:${valid.port}")
+                resolveQueue.complete(matched = true)
                 completed.countDown()
             }
         }
@@ -105,14 +115,8 @@ class AndroidNsdDiscovery(
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
                 diagnostics.record("Windows NSD service found")
-                if (!serviceInfo.serviceType.trimEnd('.').equals(TokenSyncEndpoint.ServiceType, ignoreCase = true)
-                    || !resolving.compareAndSet(false, true)
-                ) return
-                runCatching { manager.resolveService(serviceInfo, resolveListener) }
-                    .onFailure {
-                        resolving.set(false)
-                        diagnostics.record("Windows NSD resolve start failure=${it.javaClass.simpleName}")
-                    }
+                if (!serviceInfo.serviceType.trimEnd('.').equals(TokenSyncEndpoint.ServiceType, ignoreCase = true)) return
+                resolveNext(resolveQueue.offer(serviceInfo))
             }
 
             override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
@@ -157,5 +161,49 @@ class AndroidNsdDiscovery(
         }
         if (!completed.await(1, TimeUnit.SECONDS)) throw IllegalStateException("NSD main-thread dispatch timed out")
         failure?.let { throw it }
+    }
+}
+
+internal fun validatedDiscoveryEndpoint(
+    expectedDeviceId: String,
+    resolvedDeviceId: String?,
+    host: String?,
+    port: Int,
+): TokenSyncPairing? {
+    if (resolvedDeviceId == null || host == null
+        || !resolvedDeviceId.equals(expectedDeviceId, ignoreCase = true)
+        || !TokenSyncEndpoint.isPrivateIpv4(host)
+    ) return null
+    return runCatching { TokenSyncEndpoint.validated(resolvedDeviceId, host, port, "discovery") }.getOrNull()
+}
+
+internal class SerialResolveQueue<T>(private val keyOf: (T) -> String) {
+    private val seen = mutableSetOf<String>()
+    private val pending = ArrayDeque<T>()
+    private var resolving = false
+    private var completed = false
+
+    @Synchronized
+    fun offer(candidate: T): T? {
+        if (completed || !seen.add(keyOf(candidate))) return null
+        pending.addLast(candidate)
+        return takeNext()
+    }
+
+    @Synchronized
+    fun complete(matched: Boolean): T? {
+        resolving = false
+        if (matched) {
+            completed = true
+            pending.clear()
+            return null
+        }
+        return takeNext()
+    }
+
+    private fun takeNext(): T? {
+        if (completed || resolving || pending.isEmpty()) return null
+        resolving = true
+        return pending.removeFirst()
     }
 }

@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core.Persistence;
+using CodexQuotaTray.Core.TokenUsage;
 
 namespace CodexQuotaTray.Tests;
 
@@ -19,7 +20,7 @@ public sealed class LanReliabilityTests
         var logs = new List<string>();
         var publisher = Publisher(native, logs);
 
-        var start = publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821);
+        var start = publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821, interfaceIndex: 19);
         await WaitUntilAsync(() => native.RegisterCalls == 1);
         Assert.IsFalse(start.IsCompleted, "Register must return PENDING before its callback completes StartAsync.");
         native.ReleaseRegistrationCallback();
@@ -33,6 +34,7 @@ public sealed class LanReliabilityTests
         await native.WaitForCallbacksAsync();
 
         Assert.AreEqual(1, native.DeregisterCalls);
+        Assert.AreEqual(19u, native.RegisteredInterfaceIndex);
         Assert.AreEqual(0, native.RegisterCancelCalls);
         native.AssertEveryInstanceFreedOnce(includeDeregistrationCallback: true);
         Assert.AreEqual(activeBefore, DnsSdServicePublisher.ActivePublisherCount);
@@ -164,7 +166,7 @@ public sealed class LanReliabilityTests
         await using var controller = new TokenUsageSyncController(
             _ => Task.FromResult(settings),
             _ => Task.FromResult(settings),
-            () => currentAddress,
+            () => new LanEndpointSelection(currentAddress, 7),
             _ => new FakeLanServer(++created == 2, started),
             (_, _) => new FakePublisher(),
             43821,
@@ -191,7 +193,7 @@ public sealed class LanReliabilityTests
         await using var controller = new TokenUsageSyncController(
             _ => Task.FromResult(settings),
             _ => Task.FromResult(settings),
-            () => currentAddress,
+            () => currentAddress is null ? null : new LanEndpointSelection(currentAddress, 7),
             _ => { created++; return new FakeLanServer(false, []); },
             (_, _) => new FakePublisher(),
             43821,
@@ -213,7 +215,7 @@ public sealed class LanReliabilityTests
         await using var controller = new TokenUsageSyncController(
             _ => Task.FromResult(settings),
             _ => Task.FromResult(settings),
-            () => IPAddress.Parse("192.168.1.20"),
+            () => new LanEndpointSelection(IPAddress.Parse("192.168.1.20"), 7),
             _ => new FakeLanServer(false, []),
             (_, _) => new FakePublisher(failStart: ++publisherAttempts == 1),
             43821,
@@ -238,7 +240,7 @@ public sealed class LanReliabilityTests
                 ? Task.FromException<TokenUsageSettings>(new IOException("settings unavailable"))
                 : Task.FromResult(settings),
             _ => Task.FromResult(settings),
-            () => IPAddress.Parse("192.168.1.20"),
+            () => new LanEndpointSelection(IPAddress.Parse("192.168.1.20"), 7),
             _ => new FakeLanServer(false, [], () => serverStarts++),
             (_, _) => new FakePublisher(),
             43821,
@@ -254,6 +256,31 @@ public sealed class LanReliabilityTests
         Assert.AreEqual(2, loadAttempts);
         Assert.AreEqual(1, serverStarts);
         Assert.AreEqual("正在监听", controller.StatusText);
+    }
+
+    [TestMethod]
+    public async Task ControllerRestartsUnhealthyListenerAndPropagatesInterfaceIndex()
+    {
+        var created = new List<FakeLanServer>();
+        uint publishedInterface = 0;
+        var settings = new TokenUsageSettings(2, Guid.NewGuid(), new string('a', 64));
+        await using var controller = new TokenUsageSyncController(
+            _ => Task.FromResult(settings),
+            _ => Task.FromResult(settings),
+            () => new LanEndpointSelection(IPAddress.Parse("192.168.1.20"), 19),
+            _ => { var value = new FakeLanServer(false, []); created.Add(value); return value; },
+            (_, _) => new FakePublisher(onStart: index => publishedInterface = index),
+            43821,
+            "",
+            TimeSpan.FromMilliseconds(20));
+
+        await controller.SetEnabledAsync(true, CancellationToken.None);
+        Assert.AreEqual(19u, publishedInterface);
+        created[0].Healthy = false;
+        await WaitUntilAsync(() => created.Count == 2 && controller.StatusText == "正在监听");
+
+        Assert.IsTrue(created[0].Disposed);
+        Assert.AreEqual(19u, publishedInterface);
     }
 
     private static DnsSdServicePublisher Publisher(
@@ -287,11 +314,13 @@ public sealed class LanReliabilityTests
         public int RegisterCalls { get; private set; }
         public int RegisterCancelCalls { get; private set; }
         public int DeregisterCalls { get; private set; }
+        public uint RegisteredInterfaceIndex { get; private set; }
         public Exception? CallbackFailure { get; private set; }
         public IntPtr ConstructInstance(string serviceName, string hostName, IntPtr ip4Address, ushort port, uint propertyCount, IntPtr keys, IntPtr values) => OriginalInstance;
         public uint Register(ref DnsSdRegisterRequest request, ref DnsSdCancel cancel)
         {
             RegisterCalls++;
+            RegisteredInterfaceIndex = request.InterfaceIndex;
             cancel.Reserved = CancelHandle;
             ScheduleComplete(
                 request,
@@ -358,6 +387,10 @@ public sealed class LanReliabilityTests
     {
         public IPAddress? Address { get; private set; }
         public int Port { get; private set; }
+        public bool Healthy { get; set; } = true;
+        public bool IsHealthy => Healthy;
+        public Exception? ListenerFault => Healthy ? null : new IOException("accept failed");
+        public bool Disposed { get; private set; }
         public void Start(IPAddress address, int port)
         {
             if (failStart) throw new SocketException((int)SocketError.AddressAlreadyInUse);
@@ -366,13 +399,16 @@ public sealed class LanReliabilityTests
             started.Add(address);
             onStart?.Invoke();
         }
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
     }
 
-    private sealed class FakePublisher(bool failStart = false) : IDnsSdPublisher
+    private sealed class FakePublisher(bool failStart = false, Action<uint>? onStart = null) : IDnsSdPublisher
     {
-        public Task StartAsync(IPAddress address, int port, CancellationToken cancellationToken) =>
-            failStart ? Task.FromException(new Win32Exception(1234)) : Task.CompletedTask;
+        public Task StartAsync(IPAddress address, int port, uint interfaceIndex, CancellationToken cancellationToken)
+        {
+            onStart?.Invoke(interfaceIndex);
+            return failStart ? Task.FromException(new Win32Exception(1234)) : Task.CompletedTask;
+        }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

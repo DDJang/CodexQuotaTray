@@ -12,7 +12,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
     private static readonly TimeSpan DefaultAddressCheckInterval = TimeSpan.FromSeconds(15);
     private readonly Func<CancellationToken, Task<TokenUsageSettings>> loadSettings;
     private readonly Func<CancellationToken, Task<TokenUsageSettings>> regenerateSettings;
-    private readonly Func<IPAddress?> addressProvider;
+    private readonly Func<LanEndpointSelection?> addressProvider;
     private readonly Func<string, ILanSyncServer> serverFactory;
     private readonly Func<Guid, string, IDnsSdPublisher> publisherFactory;
     private readonly TimeSpan addressCheckInterval;
@@ -26,6 +26,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
     private CancellationTokenSource? monitorLifetime;
     private Task? monitorTask;
     private bool enabled;
+    private uint currentInterfaceIndex;
     private string displayName;
 
     internal TokenUsageSyncController(
@@ -33,24 +34,25 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         Func<QuotaLanSnapshot?> quotaSnapshotProvider,
         int port = TokenUsageSyncServer.DefaultPort,
         string displayNameSuffix = "",
-        string dnsSdInstancePrefix = "CodexQuotaTray")
+        string dnsSdInstancePrefix = "CodexQuotaTray",
+        Action<string>? diagnostic = null)
         : this(
             settingsService.LoadOrCreateAsync,
             settingsService.RegenerateAsync,
-            TokenUsageSyncServer.FindPrivateLanAddress,
-            secret => new LanSyncServerAdapter(new TokenUsageSyncServer(new TokenUsageScanner(), secret, quotaSnapshotProvider: quotaSnapshotProvider)),
-            (deviceId, name) => new DnsSdPublisherAdapter(new DnsSdServicePublisher(deviceId, name, dnsSdInstancePrefix)),
+            () => TokenUsageSyncServer.FindPrivateLanSelection(diagnostic),
+            secret => new LanSyncServerAdapter(new TokenUsageSyncServer(new TokenUsageScanner(), secret, quotaSnapshotProvider: quotaSnapshotProvider, diagnostic: diagnostic)),
+            (deviceId, name) => new DnsSdPublisherAdapter(new DnsSdServicePublisher(deviceId, name, dnsSdInstancePrefix, diagnostic: diagnostic)),
             port,
             displayNameSuffix,
             DefaultAddressCheckInterval,
-            message => System.Diagnostics.Debug.WriteLine(message))
+            diagnostic ?? (message => System.Diagnostics.Debug.WriteLine(message)))
     {
     }
 
     internal TokenUsageSyncController(
         Func<CancellationToken, Task<TokenUsageSettings>> loadSettings,
         Func<CancellationToken, Task<TokenUsageSettings>> regenerateSettings,
-        Func<IPAddress?> addressProvider,
+        Func<LanEndpointSelection?> addressProvider,
         Func<string, ILanSyncServer> serverFactory,
         Func<Guid, string, IDnsSdPublisher> publisherFactory,
         int port,
@@ -132,14 +134,15 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         stateGate.Dispose();
     }
 
-    private async Task<bool> TryStartServerAsync(IPAddress address, CancellationToken cancellationToken)
+    private async Task<bool> TryStartServerAsync(LanEndpointSelection selection, CancellationToken cancellationToken)
     {
         var nextServer = serverFactory(settings!.PairingSecret);
         try
         {
-            nextServer.Start(address, port);
+            nextServer.Start(selection.Address, port);
             server = nextServer;
-            diagnostic($"LAN listener started address={address}:{nextServer.Port}");
+            currentInterfaceIndex = selection.InterfaceIndex;
+            diagnostic($"LAN listener started address={selection.Address}:{nextServer.Port} interface={selection.InterfaceIndex}");
             await TryStartPublisherAsync(cancellationToken).ConfigureAwait(false);
             return true;
         }
@@ -160,7 +163,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         try
         {
             nextPublisher = publisherFactory(settings!.DeviceId, displayName);
-            await nextPublisher.StartAsync(server.Address!, server.Port, cancellationToken).ConfigureAwait(false);
+            await nextPublisher.StartAsync(server.Address!, server.Port, currentInterfaceIndex, cancellationToken).ConfigureAwait(false);
             publisher = nextPublisher;
             SetStatus("正在监听");
         }
@@ -194,15 +197,21 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
                     {
                         await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false);
                     }
-                    else if (!address.Equals(server.Address))
+                    else if (!address.Address.Equals(server.Address) || address.InterfaceIndex != currentInterfaceIndex)
                     {
                         var oldAddress = server.Address;
-                        diagnostic($"LAN address change {oldAddress} -> {address}");
+                        diagnostic($"LAN selection change {oldAddress}/interface={currentInterfaceIndex} -> {address.Address}/interface={address.InterfaceIndex}");
                         await StopListenerResourcesAsync().ConfigureAwait(false);
                         if (!await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false))
                         {
                             SetStatus("网络地址变化，等待重新监听");
                         }
+                    }
+                    else if (!server.IsHealthy)
+                    {
+                        diagnostic($"LAN listener unhealthy fault={server.ListenerFault?.GetType().Name ?? "Completed"}; retry in {addressCheckInterval.TotalSeconds:0.###}s");
+                        await StopListenerResourcesAsync().ConfigureAwait(false);
+                        await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false);
                     }
                     else if (publisher is null)
                     {
@@ -248,6 +257,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             diagnostic($"LAN listener stopped address={server.Address}:{server.Port}");
             await server.DisposeAsync().ConfigureAwait(false);
             server = null;
+            currentInterfaceIndex = 0;
         }
     }
 
@@ -264,6 +274,8 @@ internal interface ILanSyncServer : IAsyncDisposable
 {
     IPAddress? Address { get; }
     int Port { get; }
+    bool IsHealthy { get; }
+    Exception? ListenerFault { get; }
     void Start(IPAddress address, int port);
 }
 
@@ -271,17 +283,19 @@ internal sealed class LanSyncServerAdapter(TokenUsageSyncServer inner) : ILanSyn
 {
     public IPAddress? Address => inner.Address;
     public int Port => inner.Port;
+    public bool IsHealthy => inner.IsHealthy;
+    public Exception? ListenerFault => inner.ListenerFault;
     public void Start(IPAddress address, int port) => inner.Start(address, port);
     public ValueTask DisposeAsync() => inner.DisposeAsync();
 }
 
 internal interface IDnsSdPublisher : IAsyncDisposable
 {
-    Task StartAsync(IPAddress address, int port, CancellationToken cancellationToken);
+    Task StartAsync(IPAddress address, int port, uint interfaceIndex, CancellationToken cancellationToken);
 }
 
 internal sealed class DnsSdPublisherAdapter(DnsSdServicePublisher inner) : IDnsSdPublisher
 {
-    public Task StartAsync(IPAddress address, int port, CancellationToken cancellationToken) => inner.StartAsync(address, port, cancellationToken);
+    public Task StartAsync(IPAddress address, int port, uint interfaceIndex, CancellationToken cancellationToken) => inner.StartAsync(address, port, interfaceIndex, cancellationToken);
     public ValueTask DisposeAsync() => inner.DisposeAsync();
 }
