@@ -327,7 +327,7 @@ public sealed class LanReliabilityTests
                 () => unchecked((uint)Volatile.Read(ref currentRegistrationStatus)),
                 RegistrationCallbackInstance,
                 registrationCallback.Task);
-            return DnsSdServicePublisher.DnsRequestPending;
+            return 9506;
         }
         public uint CancelRegistration(ref DnsSdCancel cancel)
         {
@@ -340,7 +340,7 @@ public sealed class LanReliabilityTests
         {
             DeregisterCalls++;
             ScheduleComplete(request, () => deregisterStatus, DeregistrationCallbackInstance, deregistrationCallback.Task);
-            return DnsSdServicePublisher.DnsRequestPending;
+            return 9506;
         }
         public void FreeInstance(IntPtr instance)
         {

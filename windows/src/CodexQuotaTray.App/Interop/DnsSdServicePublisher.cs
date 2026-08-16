@@ -9,7 +9,7 @@ namespace CodexQuotaTray.App.Interop;
 
 internal sealed class DnsSdServicePublisher : IAsyncDisposable
 {
-    internal const uint DnsRequestPending = 9500;
+    internal const uint DnsRequestPending = 9506;
     private const uint DnsQueryRequestVersion1 = 1;
     private static readonly DnsServiceRegisterComplete RegisterCompleteCallback = OnNativeCompletion;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, DnsSdServicePublisher> ActivePublishers = new();
