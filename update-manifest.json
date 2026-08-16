@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.8.1",
-    "tag": "windows-v0.8.1",
+    "version": "0.8.5",
+    "tag": "windows-v0.8.5",
     "installer": {
-      "name": "CodexQuotaTray-0.8.1-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.8.1/CodexQuotaTray-0.8.1-setup.exe",
-      "sha256": "9bcae2390774ef6d56d043cb7529045f6fa8f2b0647936840a45135c3dcd3a82",
-      "size": 62527715
+      "name": "CodexQuotaTray-0.8.5-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.8.5/CodexQuotaTray-0.8.5-setup.exe",
+      "sha256": "dbb221160e39cfa7ee8ee83f1735a27063c5fd84d532b56f416fb31f9549aacd",
+      "size": 62506994
     },
-    "releaseNotes": "## Windows\r\n\r\n- 完善 Windows 更新发布与静态更新清单校验，确保安装包信息能够稳定同步到跨平台更新入口。\r\n",
-    "publishedAt": "2026-08-15T11:56:11Z"
+    "releaseNotes": "## Windows\r\n\r\n- 提升局域网 Token 服务在网卡地址变化、监听器异常及后台重启时的恢复能力。\r\n- 完善 DNS-SD 注册、取消和注销的超时与回调清理，降低网络变化或延迟回调导致服务失联的概率。\r\n- 优化 Token 使用量缓存：普通请求可立即复用缓存并由单次后台扫描刷新，手动强制刷新仍等待真实扫描结果。\r\n",
+    "publishedAt": "2026-08-16T12:16:51Z"
   },
   "android": {
     "version": "0.8.1",
