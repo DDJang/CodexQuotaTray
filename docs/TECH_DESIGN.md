@@ -59,8 +59,22 @@ Windows 在用户启用后以同一私人 IPv4 listener 提供：
 - `GET /v1/quota`：Runtime 已有的最后成功归一化额度快照。
 
 Bearer secret 使用固定时间比较。DNS-SD 只发布 `deviceId`、显示名和实际端口；secret 不广播。
-地址变化以同一 `deviceId` 重启 listener/registration。Android 只在 offline 类错误时发现相同
-`deviceId`，401 不触发发现。
+- LAN listener 与 DNS-SD publisher 使用同一个 `LanEndpointSelection`：private IPv4 与 interface
+  index。地址或 interface index 变化时，controller 重建 listener/publisher。
+- monitor 会检测 listener 是否 unhealthy；accept loop 异常或退出后自动重建。
+- DNS-SD registration、cancellation 和 deregistration 使用有界生命周期；pending registration
+  取消后不依赖 registration callback 作为 terminal signal，deregistration completion 作为 native
+  cleanup fence。
+
+Token 普通 LAN 请求使用 stale-while-revalidate；stale cache 立即返回并触发单飞后台刷新，force
+请求等待真实 scan。
+
+Android LAN HTTP 请求绑定能够到达 Windows host 的 Wi-Fi network。Token transport 区分
+connect-stage failure 与 connection-acquired 后的 read/response failure；只有真正 OFFLINE 的
+连接/路由失败才触发 DNS-SD，已建立连接后的 timeout 不进行无意义 discovery。DNS-SD 对候选串行
+resolve；错误 deviceId、malformed candidate 或 resolve failure 会继续下一个候选。
+
+Android 只在 offline 类错误时发现相同 `deviceId`，401 不触发发现。
 
 ## 身份边界
 
