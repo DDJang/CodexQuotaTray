@@ -13,15 +13,15 @@
     "publishedAt": "2026-08-16T12:16:51Z"
   },
   "android": {
-    "version": "0.8.1",
-    "tag": "android-v0.8.1",
+    "version": "0.8.5",
+    "tag": "android-v0.8.5",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.8.1.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.8.1/CodexQuotaTray-Android-v0.8.1.apk",
-      "sha256": "444351fb6b6f7b67e352e45879a9b494cee4de55b4cb0379df4a94b3ebedcb40",
-      "size": 26350286
+      "name": "CodexQuotaTray-Android-v0.8.5.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.8.5/CodexQuotaTray-Android-v0.8.5.apk",
+      "sha256": "1f1e4bf734b837cf601c6d383fcaf0aef0d882c9b28d2f75e217e37e990bf8ff",
+      "size": 26383134
     },
-    "releaseNotes": "## Android\n\n- 新增带彩色 Aurora 背景的关于页面，提升深色与浅色主题下的视觉层次。\n- 更新弹窗改用设置页风格，支持 Markdown 更新说明、独立滚动和更清晰的下载进度、重试与取消操作。\n- 扩大 Token 热力图的可点击范围，滑动查看日期时更容易选中目标方格。\n- 优化小组件入口和额度页、统计页之间的使用体验。\n",
-    "publishedAt": "2026-08-15T11:52:12Z"
+    "releaseNotes": "## Android\n\n- 提升通过局域网同步 Windows 额度与 Token 的后台可靠性，准确区分连接建立前失败和已建立连接后的读取超时，减少误报离线。\n- 改进 Windows LAN 路由选择与 DNS-SD 候选回退，在多网卡、候选无效或解析失败时继续尝试可用设备。\n",
+    "publishedAt": "2026-08-16T12:20:03Z"
   }
 }
