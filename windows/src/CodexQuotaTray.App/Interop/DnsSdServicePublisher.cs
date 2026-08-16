@@ -12,7 +12,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     internal const uint DnsRequestPending = 9506;
     private const uint DnsQueryRequestVersion1 = 1;
     private static readonly DnsServiceRegisterComplete RegisterCompleteCallback = OnNativeCompletion;
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, DnsSdServicePublisher> ActivePublishers = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, CallbackRegistration> ActivePublishers = new();
     private static long nextQueryContext;
     private readonly Guid deviceId;
     private readonly string displayName;
@@ -25,9 +25,11 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     private TaskCompletionSource<uint>? registrationCompletion;
     private TaskCompletionSource<uint>? deregistrationCompletion;
     private DnsSdRegisterRequest request;
+    private DnsSdRegisterRequest deregistrationRequest;
     private DnsSdCancel registrationCancel;
     private IntPtr serviceInstance;
     private IntPtr queryContext;
+    private IntPtr deregistrationQueryContext;
     private RegistrationPhase phase;
     private Stopwatch? registrationStopwatch;
 
@@ -48,7 +50,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     }
 
     internal bool IsStarted => phase == RegistrationPhase.Registered && serviceInstance != IntPtr.Zero;
-    internal static int ActivePublisherCount => ActivePublishers.Count;
+    internal static int ActivePublisherCount => ActivePublishers.Values.Select(value => value.Publisher).Distinct().Count();
 
     internal async Task StartAsync(IPAddress address, int port, uint interfaceIndex = 0, CancellationToken cancellationToken = default)
     {
@@ -83,7 +85,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             }
 
             queryContext = new IntPtr(Interlocked.Increment(ref nextQueryContext));
-            if (!ActivePublishers.TryAdd(queryContext, this))
+            if (!ActivePublishers.TryAdd(queryContext, new CallbackRegistration(this, CallbackKind.Registration)))
             {
                 throw new InvalidOperationException("Could not allocate a DNS-SD callback context.");
             }
@@ -154,16 +156,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
         {
             if (phase == RegistrationPhase.Registered)
             {
-                var completion = new TaskCompletionSource<uint>(TaskCreationOptions.RunContinuationsAsynchronously);
-                lock (callbackStateLock)
-                {
-                    phase = RegistrationPhase.Deregistering;
-                    deregistrationCompletion = completion;
-                }
-                var result = native.Deregister(ref request);
-                var status = result == DnsRequestPending
-                    ? await completion.Task.ConfigureAwait(false)
-                    : result;
+                var status = await DeregisterAsync().ConfigureAwait(false);
                 diagnostic($"DNS-SD deregistration status={status}");
             }
         }
@@ -185,9 +178,9 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
 
     private static void OnNativeCompletion(uint status, IntPtr queryContext, IntPtr instance)
     {
-        if (ActivePublishers.TryGetValue(queryContext, out var publisher))
+        if (ActivePublishers.TryGetValue(queryContext, out var callbackRegistration))
         {
-            publisher.HandleNativeCompletion(status, instance);
+            callbackRegistration.Publisher.HandleNativeCompletion(status, instance, callbackRegistration.Kind);
         }
         else if (instance != IntPtr.Zero)
         {
@@ -199,7 +192,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
         }
     }
 
-    private void HandleNativeCompletion(uint status, IntPtr instance)
+    private void HandleNativeCompletion(uint status, IntPtr instance, CallbackKind callbackKind)
     {
         try
         {
@@ -218,12 +211,9 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             lock (callbackStateLock)
             {
                 diagnostic($"DNS-SD callback phase={phase} status={status} elapsedMs={elapsed?.ToString() ?? "n/a"}");
-                var completion = phase switch
-                {
-                    RegistrationPhase.Registering or RegistrationPhase.CancellingRegistration => registrationCompletion,
-                    RegistrationPhase.Deregistering => deregistrationCompletion,
-                    _ => null,
-                };
+                var completion = callbackKind == CallbackKind.Registration
+                    ? registrationCompletion
+                    : deregistrationCompletion;
                 completion?.TrySetResult(status);
             }
         }
@@ -258,32 +248,25 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             diagnostic($"DNS-SD registration {(error is TimeoutException ? "callback timeout" : "cancelled")} elapsedMs={registrationStopwatch?.ElapsedMilliseconds ?? 0}");
             var cancelStatus = native.CancelRegistration(ref registrationCancel);
             diagnostic($"DNS-SD registration cancel status={cancelStatus}");
-            var terminalStatus = await completion.Task.ConfigureAwait(false);
-            if (terminalStatus == 0)
-            {
-                diagnostic("DNS-SD cancel race returned success; compensating deregistration");
-                await DeregisterAfterCancelledStartAsync().ConfigureAwait(false);
-            }
+            await DeregisterAfterCancelledStartAsync(completion).ConfigureAwait(false);
 
             ExceptionDispatchInfo.Capture(error).Throw();
             throw new InvalidOperationException("Unreachable registration cancellation path.");
         }
     }
 
-    private async Task DeregisterAfterCancelledStartAsync()
+    private async Task DeregisterAfterCancelledStartAsync(TaskCompletionSource<uint> registration)
     {
-        var completion = new TaskCompletionSource<uint>(TaskCreationOptions.RunContinuationsAsynchronously);
-        lock (callbackStateLock)
-        {
-            phase = RegistrationPhase.Deregistering;
-            deregistrationCompletion = completion;
-        }
         try
         {
-            var result = native.Deregister(ref request);
-            if (result == DnsRequestPending)
+            var status = await DeregisterAsync().ConfigureAwait(false);
+            if (registration.Task is { IsCompletedSuccessfully: true } && registration.Task.Result == 0)
             {
-                _ = await completion.Task.ConfigureAwait(false);
+                diagnostic("DNS-SD cancel race returned success; compensating deregistration");
+            }
+            else
+            {
+                diagnostic($"DNS-SD cancellation deregistration status={status}");
             }
         }
         finally
@@ -295,12 +278,48 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
         }
     }
 
+    private async Task<uint> DeregisterAsync()
+    {
+        var completion = new TaskCompletionSource<uint>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var context = new IntPtr(Interlocked.Increment(ref nextQueryContext));
+        lock (callbackStateLock)
+        {
+            phase = RegistrationPhase.Deregistering;
+            deregistrationCompletion = completion;
+            deregistrationQueryContext = context;
+            deregistrationRequest = request;
+            deregistrationRequest.RegisterCompletionCallback = Marshal.GetFunctionPointerForDelegate(RegisterCompleteCallback);
+            deregistrationRequest.QueryContext = context;
+        }
+        if (!ActivePublishers.TryAdd(context, new CallbackRegistration(this, CallbackKind.Deregistration)))
+        {
+            throw new InvalidOperationException("Could not allocate a DNS-SD deregistration callback context.");
+        }
+
+        var result = native.Deregister(ref deregistrationRequest);
+        return result == DnsRequestPending
+            ? await completion.Task.ConfigureAwait(false)
+            : result;
+    }
+
     private void ReleaseCallbackContext()
     {
-        var context = Interlocked.Exchange(ref queryContext, IntPtr.Zero);
-        if (context != IntPtr.Zero)
+        IntPtr registrationContext;
+        IntPtr deregistrationContext;
+        lock (callbackStateLock)
         {
-            _ = ActivePublishers.TryRemove(context, out _);
+            registrationContext = queryContext;
+            queryContext = IntPtr.Zero;
+            deregistrationContext = deregistrationQueryContext;
+            deregistrationQueryContext = IntPtr.Zero;
+        }
+        if (registrationContext != IntPtr.Zero)
+        {
+            _ = ActivePublishers.TryRemove(registrationContext, out _);
+        }
+        if (deregistrationContext != IntPtr.Zero)
+        {
+            _ = ActivePublishers.TryRemove(deregistrationContext, out _);
         }
     }
 
@@ -349,6 +368,8 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     }
 
     private enum RegistrationPhase { Stopped, Registering, CancellingRegistration, Registered, Deregistering }
+    private enum CallbackKind { Registration, Deregistration }
+    private readonly record struct CallbackRegistration(DnsSdServicePublisher Publisher, CallbackKind Kind);
 }
 
 [UnmanagedFunctionPointer(CallingConvention.Winapi)]
