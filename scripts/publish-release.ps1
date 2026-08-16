@@ -463,7 +463,7 @@ function Get-ChecksumFromRelease {
     )
     New-Item -ItemType Directory -Path $temp | Out-Null
     try {
-        Invoke-External -FilePath $script:Gh -Arguments @(
+        $null = Invoke-External -FilePath $script:Gh -Arguments @(
             'release', 'download', $Tag, '--pattern', 'SHA256SUMS.txt',
             '--dir', $temp, '--clobber'
         )
