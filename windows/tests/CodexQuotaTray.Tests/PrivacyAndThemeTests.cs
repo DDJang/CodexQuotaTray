@@ -79,6 +79,8 @@ public sealed class PrivacyAndThemeTests
         var mainWindow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml"));
         var mainWindowCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
         var settingsWindow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "SettingsWindow.xaml"));
+        var settingsWindowCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "SettingsWindow.xaml.cs"));
+        var controls = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Themes", "Controls.xaml"));
         var tokenUsage = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml"));
         var quota = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaView.xaml"));
 
@@ -106,8 +108,20 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsageCode, "cell.Shadow = new ThemeShadow()");
         StringAssert.Contains(quota, "Content=\"官方用量\"");
         Assert.IsFalse(quota.Contains("官方用量 ↗", StringComparison.Ordinal));
-        StringAssert.Contains(settingsWindow, "Text=\"保存 Token 用量缓存\"");
+        StringAssert.Contains(mainWindowCode, "var refreshName = showingTokenPage ? \"刷新统计\" : \"刷新额度\";");
+        StringAssert.Contains(tokenUsage, "Text=\"无法刷新统计\"");
+        StringAssert.Contains(settingsWindow, "Text=\"保存统计缓存\"");
         StringAssert.Contains(settingsWindow, "IsOn=\"{Binding PersistTokenUsageCache, Mode=TwoWay}\"");
+        StringAssert.Contains(controls, "x:Key=\"SettingsActionButtonStyle\" TargetType=\"Button\"");
+        StringAssert.Contains(controls, "Property=\"CornerRadius\" Value=\"{ThemeResource ControlCornerRadius}\"");
+        StringAssert.Contains(settingsWindow, "Click=\"OnRegenerateTokenSyncSecretRequested\"");
+        StringAssert.Contains(settingsWindowCode, "Title = \"重新生成配对密钥？\"");
+        StringAssert.Contains(settingsWindowCode, "Content = \"重新生成后，当前已配对的手机将无法继续连接，需要在手机端重新扫码配对。\"");
+        StringAssert.Contains(settingsWindowCode, "PrimaryButtonText = \"重新生成\"");
+        StringAssert.Contains(settingsWindowCode, "CloseButtonText = \"取消\"");
+        StringAssert.Contains(settingsWindowCode, "DefaultButton = ContentDialogButton.Close");
+        StringAssert.Contains(settingsWindowCode, "RequestedTheme = SettingsRoot.ActualTheme");
+        StringAssert.Contains(settingsWindowCode, "XamlRoot = SettingsRoot.XamlRoot");
 
         var showIncoming = mainWindowCode.IndexOf("incoming.Visibility = Visibility.Visible;", StringComparison.Ordinal);
         var collapseOutgoing = mainWindowCode.IndexOf(

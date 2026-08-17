@@ -176,7 +176,7 @@
             VerticalAlignment="Center"
             Spacing="4"
             Visibility="{Binding ShowError, Converter={StaticResource BooleanToVisibilityConverter}}">
-            <TextBlock HorizontalAlignment="Center" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource ErrorStatusBrush}" Text="无法刷新 Token 用量" />
+            <TextBlock HorizontalAlignment="Center" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource ErrorStatusBrush}" Text="无法刷新统计" />
             <TextBlock HorizontalAlignment="Center" FontSize="11" Foreground="{ThemeResource SecondaryTextBrush}" Text="请点击右上角刷新重试" />
         </StackPanel>
     </Grid>

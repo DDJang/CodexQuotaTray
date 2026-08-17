@@ -284,12 +284,12 @@ internal fun hasNewerTokenUsageSnapshot(
 internal fun TokenUsagePage(controller: TokenUsagePageController, onPairing: () -> Unit, modifier: Modifier = Modifier) {
     val palette = LocalQuotaPalette.current
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Token 用量", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.title))
+        Text("统计", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.title))
         TokenUsageStatusLine(controller.status)
         if (!controller.paired) {
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface))) {
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Token 用量", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                    Text("统计", fontSize = 19.sp, fontWeight = FontWeight.Bold)
                     Text("连接 Windows CodexQuotaTray 后，即可查看 Windows 端的 Codex Token 使用历史。", color = palette.color(palette.secondary))
                     Button(onClick = rememberSystemHapticClick(onPairing), modifier = Modifier.fillMaxWidth()) { Text("扫码配对") }
                 }

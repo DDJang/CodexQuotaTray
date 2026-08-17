@@ -364,7 +364,7 @@ class SettingsActivity : ComponentActivity() {
                 )
             }
         }
-        SettingsSection("Token 用量") {
+        SettingsSection("统计") {
             SettingsGroup {
                 SettingsToggleRow("回到前台时同步", tokenAutoSync, onChange = ::updateTokenAutoSync)
                 SettingsDivider()

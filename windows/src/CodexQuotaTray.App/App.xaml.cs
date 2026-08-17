@@ -127,7 +127,7 @@ public partial class App : Application
                     updateCoordinator,
                     new WindowsUpdateDownloader(Path.Combine(paths.Root, "updates")),
                     new WindowsUpdateInstaller(),
-                    ExitApplication,
+                    ExitForWindowsUpdate,
                     message => System.Diagnostics.Debug.WriteLine(message),
                     action =>
                     {
@@ -649,6 +649,9 @@ public partial class App : Application
             crashSessionLog?.Record(error, "AppDomain.UnhandledException");
         }
     }
+
+    private void ExitForWindowsUpdate() =>
+        SessionEndingPolicy.ExitForWindowsUpdate(crashSessionLog, ExitApplication);
 
     private async void ExitApplication()
     {

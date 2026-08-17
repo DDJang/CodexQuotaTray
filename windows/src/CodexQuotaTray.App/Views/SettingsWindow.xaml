@@ -112,7 +112,7 @@
                                 <FontIcon Glyph="&#xE895;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="刷新与同步" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="额度与 Token 用量刷新、与手机同步" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="额度与统计刷新、与手机同步" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             </Grid>
@@ -277,12 +277,12 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                    <TextBlock Text="保存 Token 用量缓存" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="保存统计缓存" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="保存非敏感 Token 统计，用于启动时快速展示。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <ToggleSwitch
                                     Grid.Column="1"
-                                    AutomationProperties.Name="保存 Token 用量缓存"
+                                    AutomationProperties.Name="保存统计缓存"
                                     IsOn="{Binding PersistTokenUsageCache, Mode=TwoWay}"
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
@@ -351,7 +351,7 @@
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
                         </Border>
-                        <TextBlock Text="Token 用量" Style="{StaticResource SettingsSectionHeaderStyle}" />
+                        <TextBlock Text="统计" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Border Style="{StaticResource SettingsItemCardStyle}">
                             <Grid Style="{StaticResource SettingsRowStyle}">
                                 <Grid.ColumnDefinitions>
@@ -360,7 +360,7 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="刷新频率" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="定时刷新本机 Codex Token 用量；关闭后仅在手动刷新时刷新。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="定时刷新本机 Codex Token 统计；关闭后仅在手动刷新时刷新。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <ComboBox
                                     Grid.Column="1"
@@ -385,11 +385,11 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="打开面板时刷新" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="打开主面板时刷新 Token 用量，短时间重复打开会自动去重。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="打开主面板时刷新统计，短时间重复打开会自动去重。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <ToggleSwitch
                                     Grid.Column="1"
-                                    AutomationProperties.Name="打开面板时刷新 Token 用量"
+                                    AutomationProperties.Name="打开面板时刷新统计"
                                     IsOn="{Binding TokenRefreshOnPanelOpen, Mode=TwoWay}"
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
@@ -439,7 +439,7 @@
                                         Style="{StaticResource SettingsActionButtonStyle}" />
                                     <Button
                                         Content="重新生成密钥"
-                                        Command="{Binding RegenerateTokenSyncSecretCommand}"
+                                        Click="OnRegenerateTokenSyncSecretRequested"
                                         Style="{StaticResource SettingsActionButtonStyle}" />
                                 </StackPanel>
                                 <TextBlock

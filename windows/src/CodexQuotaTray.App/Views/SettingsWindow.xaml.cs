@@ -352,6 +352,25 @@ public sealed partial class SettingsWindow : Window
         }
     }
 
+    private async void OnRegenerateTokenSyncSecretRequested(object sender, RoutedEventArgs args)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "重新生成配对密钥？",
+            Content = "重新生成后，当前已配对的手机将无法继续连接，需要在手机端重新扫码配对。",
+            PrimaryButtonText = "重新生成",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+            RequestedTheme = SettingsRoot.ActualTheme,
+            XamlRoot = SettingsRoot.XamlRoot,
+        };
+
+        if (await TryShowDialogAsync(dialog) == ContentDialogResult.Primary)
+        {
+            await viewModel.RegenerateTokenSyncSecretCommand.ExecuteAsync(null);
+        }
+    }
+
     private ContentDialog CreateUpdateDialog(
         string title,
         object content,
