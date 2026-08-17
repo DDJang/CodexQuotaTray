@@ -77,6 +77,41 @@ public sealed class PrivacyAndThemeTests
     }
 
     [TestMethod]
+    public void HeatmapTooltipUsesThemeAcrylicAndHighContrastFallback()
+    {
+        var file = Path.Combine(AppContext.BaseDirectory, "Themes", "Colors.xaml");
+        var document = XDocument.Load(file);
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var themes = document
+            .Descendants(presentation + "ResourceDictionary")
+            .Where(element => element.Attribute(xaml + "Key")?.Value is "Light" or "Dark" or "HighContrast")
+            .ToDictionary(
+                element => element.Attribute(xaml + "Key")!.Value,
+                StringComparer.Ordinal);
+
+        XElement Resource(string theme, string key) => themes[theme]
+            .Elements()
+            .Single(resource => resource.Attribute(xaml + "Key")?.Value == key);
+
+        var lightAcrylic = Resource("Light", "TokenHeatmapToolTipAcrylicBrush");
+        var darkAcrylic = Resource("Dark", "TokenHeatmapToolTipAcrylicBrush");
+        var highContrastFallback = Resource("HighContrast", "TokenHeatmapToolTipAcrylicBrush");
+
+        Assert.AreEqual("AcrylicBrush", lightAcrylic.Name.LocalName);
+        Assert.AreEqual("AcrylicBrush", darkAcrylic.Name.LocalName);
+        Assert.AreEqual("#FFF5F8FC", lightAcrylic.Attribute("TintColor")?.Value);
+        Assert.AreEqual("#FF20252B", darkAcrylic.Attribute("TintColor")?.Value);
+        Assert.AreEqual("SolidColorBrush", highContrastFallback.Name.LocalName);
+        Assert.AreEqual(
+            "{ThemeResource SystemColorWindowColor}",
+            highContrastFallback.Attribute("Color")?.Value);
+        Assert.AreEqual(
+            "{ThemeResource SystemColorWindowTextColor}",
+            Resource("HighContrast", "TokenHeatmapToolTipBorderBrush").Attribute("Color")?.Value);
+    }
+
+    [TestMethod]
     public void PanelChromeAndTokenLayoutUseTheRequestedPresentationResources()
     {
         var mainWindow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml"));
@@ -105,10 +140,20 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsage, "FontSize=\"16\"");
         StringAssert.Contains(tokenUsage, "FontSize=\"14\"");
         StringAssert.Contains(tokenUsage, "Vector3Transition Duration=\"0:0:0.12\"");
+        Assert.AreEqual(1, tokenUsage.Split("x:Name=\"SharedHeatmapTooltip\"", StringSplitOptions.None).Length - 1);
+        Assert.IsFalse(tokenUsage.Contains("ToolTipService.ToolTip", StringComparison.Ordinal));
         var tokenUsageCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml.cs"));
-        StringAssert.Contains(tokenUsageCode, "new Vector3(1.28f, 1.28f, 1f)");
-        StringAssert.Contains(tokenUsageCode, "new Thickness(2)");
+        StringAssert.Contains(tokenUsageCode, "TokenHeatmapInteraction.SelectedScale");
+        StringAssert.Contains(tokenUsageCode, "new Vector3(TokenHeatmapInteraction.SelectedScale");
+        StringAssert.Contains(tokenUsageCode, "CreateHeatmapHighlightBrush(cell.Background)");
+        StringAssert.Contains(tokenUsageCode, "new Thickness(1)");
         StringAssert.Contains(tokenUsageCode, "cell.Shadow = new ThemeShadow()");
+        StringAssert.Contains(tokenUsageCode, "TokenHeatmapInteraction.PlaceTooltip");
+        StringAssert.Contains(tokenUsageCode, "CreateSpringVector3Animation");
+        StringAssert.Contains(tokenUsageCode, "tooltipVisual.StopAnimation(\"Offset\")");
+        StringAssert.Contains(tokenUsageCode, "tooltipVisual.StartAnimation(\"Offset\", animation)");
+        Assert.IsFalse(tokenUsageCode.Contains("ToolTipService.GetToolTip", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("new Vector3(1.28f, 1.28f, 1f)", StringComparison.Ordinal));
         StringAssert.Contains(quota, "Content=\"官方用量\"");
         Assert.IsFalse(quota.Contains("官方用量 ↗", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowCode, "var refreshName = showingTokenPage ? \"刷新统计\" : \"刷新额度\";");

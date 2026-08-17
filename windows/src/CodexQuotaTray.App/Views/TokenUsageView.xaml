@@ -64,60 +64,79 @@
                 BorderBrush="{ThemeResource CardBorderBrush}"
                 BorderThickness="1"
                 CornerRadius="{StaticResource QuotaCornerRadius}">
-                <ItemsRepeater Width="353" HorizontalAlignment="Center" ItemsSource="{Binding HeatmapCells}">
-                    <ItemsRepeater.Layout>
-                        <UniformGridLayout
-                            MaximumRowsOrColumns="7"
-                            MinColumnSpacing="4"
-                            MinItemHeight="17"
-                            MinItemWidth="17"
-                            MinRowSpacing="4"
-                            Orientation="Vertical" />
-                    </ItemsRepeater.Layout>
-                    <ItemsRepeater.ItemTemplate>
-                        <DataTemplate x:DataType="presentation:TokenHeatmapCell">
-                            <Border
-                                Width="17"
-                                Height="17"
-                                Background="{Binding Bucket, Converter={StaticResource TokenHeatmapBrushConverter}}"
-                                BorderThickness="0"
-                                CenterPoint="8.5,8.5,0"
-                                CornerRadius="2"
-                                PointerEntered="OnHeatmapCellPointerEntered"
-                                PointerExited="OnHeatmapCellPointerExited"
-                                Scale="1,1,1"
-                                AutomationProperties.Name="{Binding AutomationText}">
-                                <ToolTipService.ToolTip>
-                                    <ToolTip
-                                        Padding="12,8"
-                                        Background="{ThemeResource TokenHeatmapToolTipSurfaceBrush}"
-                                        BorderBrush="{ThemeResource CardBorderBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="9"
-                                        Placement="Top">
-                                        <StackPanel Spacing="2">
-                                            <TextBlock
-                                                FontSize="16"
-                                                FontWeight="SemiBold"
-                                                Foreground="{ThemeResource PrimaryTextBrush}"
-                                                Text="{Binding TokenText}" />
-                                            <TextBlock
-                                                FontSize="14"
-                                                Foreground="{ThemeResource TertiaryTextBrush}"
-                                                Text="{Binding DateText}" />
-                                        </StackPanel>
-                                    </ToolTip>
-                                </ToolTipService.ToolTip>
-                                <Border.ScaleTransition>
-                                    <Vector3Transition Duration="0:0:0.12" />
-                                </Border.ScaleTransition>
-                                <Border.TranslationTransition>
-                                    <Vector3Transition Duration="0:0:0.12" />
-                                </Border.TranslationTransition>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsRepeater.ItemTemplate>
-                </ItemsRepeater>
+                <Grid x:Name="HeatmapInteractionHost">
+                    <ItemsRepeater
+                        x:Name="HeatmapItemsRepeater"
+                        Width="353"
+                        HorizontalAlignment="Center"
+                        ItemsSource="{Binding HeatmapCells}">
+                        <ItemsRepeater.Layout>
+                            <UniformGridLayout
+                                MaximumRowsOrColumns="7"
+                                MinColumnSpacing="4"
+                                MinItemHeight="17"
+                                MinItemWidth="17"
+                                MinRowSpacing="4"
+                                Orientation="Vertical" />
+                        </ItemsRepeater.Layout>
+                        <ItemsRepeater.ItemTemplate>
+                            <DataTemplate x:DataType="presentation:TokenHeatmapCell">
+                                <Border
+                                    Width="17"
+                                    Height="17"
+                                    Background="{Binding Bucket, Converter={StaticResource TokenHeatmapBrushConverter}}"
+                                    BorderThickness="0"
+                                    CenterPoint="8.5,8.5,0"
+                                    CornerRadius="2"
+                                    Scale="1,1,1"
+                                    AutomationProperties.Name="{Binding AutomationText}">
+                                    <Border.ScaleTransition>
+                                        <Vector3Transition Duration="0:0:0.12" />
+                                    </Border.ScaleTransition>
+                                    <Border.TranslationTransition>
+                                        <Vector3Transition Duration="0:0:0.12" />
+                                    </Border.TranslationTransition>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsRepeater.ItemTemplate>
+                    </ItemsRepeater>
+                    <Grid
+                        x:Name="HeatmapHitSurface"
+                        Margin="-2"
+                        Background="Transparent"
+                        PointerEntered="OnHeatmapPointerEntered"
+                        PointerExited="OnHeatmapPointerExited"
+                        PointerMoved="OnHeatmapPointerMoved"
+                        PointerPressed="OnHeatmapPointerPressed" />
+                    <Canvas
+                        x:Name="HeatmapTooltipOverlay"
+                        IsHitTestVisible="False"
+                        Canvas.ZIndex="10">
+                        <Border
+                            x:Name="SharedHeatmapTooltip"
+                            Padding="12,8"
+                            Background="{ThemeResource TokenHeatmapToolTipAcrylicBrush}"
+                            BorderBrush="{ThemeResource TokenHeatmapToolTipBorderBrush}"
+                            BorderThickness="1"
+                            Canvas.Left="0"
+                            Canvas.Top="0"
+                            CornerRadius="9"
+                            Opacity="0"
+                            Visibility="Collapsed">
+                            <StackPanel Spacing="2">
+                                <TextBlock
+                                    x:Name="HeatmapTooltipTokenText"
+                                    FontSize="16"
+                                    FontWeight="SemiBold"
+                                    Foreground="{ThemeResource PrimaryTextBrush}" />
+                                <TextBlock
+                                    x:Name="HeatmapTooltipDateText"
+                                    FontSize="14"
+                                    Foreground="{ThemeResource TertiaryTextBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </Canvas>
+                </Grid>
             </Border>
 
         </StackPanel>
