@@ -137,6 +137,7 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsage, "Padding=\"10,9\"");
         Assert.IsFalse(tokenUsage.Contains("Padding=\"10,9,10,16\"", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsage, "Padding=\"12,8\"");
+        StringAssert.Contains(tokenUsage, "Width=\"176\"");
         StringAssert.Contains(tokenUsage, "FontSize=\"16\"");
         StringAssert.Contains(tokenUsage, "FontSize=\"14\"");
         StringAssert.Contains(tokenUsage, "Vector3Transition Duration=\"0:0:0.12\"");
@@ -152,6 +153,8 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsageCode, "CreateSpringVector3Animation");
         StringAssert.Contains(tokenUsageCode, "tooltipVisual.StopAnimation(\"Offset\")");
         StringAssert.Contains(tokenUsageCode, "tooltipVisual.StartAnimation(\"Offset\", animation)");
+        StringAssert.Contains(tokenUsageCode, "MeasureSharedHeatmapTooltipIfNeeded()");
+        StringAssert.Contains(tokenUsageCode, "if (wasFadingOut)");
         Assert.IsFalse(tokenUsageCode.Contains("ToolTipService.GetToolTip", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsageCode.Contains("new Vector3(1.28f, 1.28f, 1f)", StringComparison.Ordinal));
         StringAssert.Contains(quota, "Content=\"官方用量\"");

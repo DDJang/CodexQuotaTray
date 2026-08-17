@@ -20,7 +20,9 @@ public sealed partial class TokenUsageView : UserControl
     private Border? activeHeatmapCell;
     private int? activeHeatmapIndex;
     private bool sharedTooltipHasPosition;
+    private bool sharedTooltipIsFadingOut;
     private int sharedTooltipRevision;
+    private Size? sharedTooltipSize;
 
     public TokenUsageView(TokenUsageViewModel viewModel)
     {
@@ -100,8 +102,10 @@ public sealed partial class TokenUsageView : UserControl
     {
         HeatmapTooltipTokenText.Text = heatmapCell.TokenText;
         HeatmapTooltipDateText.Text = heatmapCell.DateText;
+        var wasFadingOut = sharedTooltipIsFadingOut;
+        sharedTooltipIsFadingOut = false;
+        sharedTooltipRevision++;
         SharedHeatmapTooltip.Visibility = Visibility.Visible;
-        SharedHeatmapTooltip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
 
         var viewportWidth = (float)Math.Max(
             HeatmapInteractionHost.ActualWidth,
@@ -115,7 +119,7 @@ public sealed partial class TokenUsageView : UserControl
         var heatmapOriginY = MathF.Max(
             0f,
             ((float)HeatmapInteractionHost.ActualHeight - (float)HeatmapItemsRepeater.ActualHeight) / 2f);
-        var desiredSize = SharedHeatmapTooltip.DesiredSize;
+        var desiredSize = MeasureSharedHeatmapTooltipIfNeeded();
         var target = TokenHeatmapInteraction.PlaceTooltip(
             viewportWidth,
             viewportHeight,
@@ -126,7 +130,6 @@ public sealed partial class TokenUsageView : UserControl
             heatmapOriginX,
             heatmapOriginY);
 
-        sharedTooltipRevision++;
         var tooltipVisual = ElementCompositionPreview.GetElementVisual(SharedHeatmapTooltip);
         tooltipVisual.CenterPoint = new Vector3(
             (float)desiredSize.Width / 2f,
@@ -140,23 +143,39 @@ public sealed partial class TokenUsageView : UserControl
             tooltipVisual.Opacity = 0f;
             tooltipVisual.Scale = new Vector3(0.96f, 0.96f, 1f);
             sharedTooltipHasPosition = true;
+            AnimateTooltipVisual(tooltipVisual, 1f, Vector3.One);
         }
         else
         {
             StartTooltipSpring(tooltipVisual, target);
+            if (wasFadingOut)
+            {
+                AnimateTooltipVisual(tooltipVisual, 1f, Vector3.One);
+            }
+        }
+    }
+
+    private Size MeasureSharedHeatmapTooltipIfNeeded()
+    {
+        if (sharedTooltipSize is Size size)
+        {
+            return size;
         }
 
-        AnimateTooltipVisual(tooltipVisual, 1f, Vector3.One);
+        SharedHeatmapTooltip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        sharedTooltipSize = SharedHeatmapTooltip.DesiredSize;
+        return sharedTooltipSize.Value;
     }
 
     private void HideSharedHeatmapTooltip()
     {
-        if (SharedHeatmapTooltip.Visibility == Visibility.Collapsed)
+        if (SharedHeatmapTooltip.Visibility == Visibility.Collapsed || sharedTooltipIsFadingOut)
         {
             return;
         }
 
         var revision = ++sharedTooltipRevision;
+        sharedTooltipIsFadingOut = true;
         var tooltipVisual = ElementCompositionPreview.GetElementVisual(SharedHeatmapTooltip);
         AnimateTooltipVisual(
             tooltipVisual,
@@ -177,6 +196,7 @@ public sealed partial class TokenUsageView : UserControl
 
             SharedHeatmapTooltip.Visibility = Visibility.Collapsed;
             sharedTooltipHasPosition = false;
+            sharedTooltipIsFadingOut = false;
         });
     }
 

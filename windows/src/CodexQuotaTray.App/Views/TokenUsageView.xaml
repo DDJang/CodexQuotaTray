@@ -114,6 +114,7 @@
                         Canvas.ZIndex="10">
                         <Border
                             x:Name="SharedHeatmapTooltip"
+                            Width="176"
                             Padding="12,8"
                             Background="{ThemeResource TokenHeatmapToolTipAcrylicBrush}"
                             BorderBrush="{ThemeResource TokenHeatmapToolTipBorderBrush}"

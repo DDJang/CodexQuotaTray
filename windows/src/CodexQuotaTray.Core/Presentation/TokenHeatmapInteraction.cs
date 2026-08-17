@@ -6,8 +6,8 @@ public static class TokenHeatmapInteraction
     public const float CellSize = 17f;
     public const float Gap = 4f;
     public const float TooltipClearance = 8f;
-    public const float TooltipSpringDampingRatio = 0.65f;
-    public const int TooltipSpringPeriodMilliseconds = 180;
+    public static float TooltipSpringDampingRatio => 0.82f;
+    public static int TooltipSpringPeriodMilliseconds => 110;
     public const int TooltipFadeDurationMilliseconds = 160;
     public static float HitSurfaceInset => Gap / 2f;
     public static float SelectedScale => 1.5f;

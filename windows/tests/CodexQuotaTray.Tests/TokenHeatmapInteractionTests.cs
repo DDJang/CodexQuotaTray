@@ -37,6 +37,13 @@ public sealed class TokenHeatmapInteractionTests
     }
 
     [TestMethod]
+    public void TooltipSpringParametersFavorFastTrackingWithoutInstantMovement()
+    {
+        Assert.AreEqual(0.82f, TokenHeatmapInteraction.TooltipSpringDampingRatio, 0.001f);
+        Assert.AreEqual(110, TokenHeatmapInteraction.TooltipSpringPeriodMilliseconds);
+    }
+
+    [TestMethod]
     public void TooltipPlacementMovesWithCellsAndStaysInsideViewport()
     {
         var firstCell = TokenHeatmapInteraction.PlaceTooltip(353f, 143f, 0, 119, 120f, 48f);
