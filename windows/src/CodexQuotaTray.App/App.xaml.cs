@@ -103,7 +103,7 @@ public partial class App : Application
                 {
                     viewModelReference?.ApplySnapshot(state);
                     mainWindow?.ApplyTheme(liveRuntime.Settings.ThemeMode);
-                    trayIcon?.UpdateTooltip(TrayTooltipFormatter.Create(identity.TrayIcon.Tooltip, state));
+                    trayIcon?.UpdateTooltip(TrayTooltipFormatter.Create(state));
                 });
             };
             tokenUsageSync = new TokenUsageSyncController(
