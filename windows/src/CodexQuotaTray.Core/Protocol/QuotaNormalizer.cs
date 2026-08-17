@@ -240,7 +240,7 @@ public sealed class QuotaViewProjector(TimeProvider timeProvider, TimeZoneInfo t
             ? receivedLocal.Date == nowLocal.Date
                 ? $"更新于 {receivedLocal:HH:mm}"
                 : $"更新于 {receivedLocal:MM-dd HH:mm}"
-            : "⚠ 部分额度信息暂不可用";
+            : "部分额度信息暂不可用";
         var resetCredits = snapshot.ResetCredits.EarliestKnownExpiry is { } expiry
             ? snapshot.ResetCredits with { ExpiryLabel = TimeZoneInfo.ConvertTime(expiry, timeZone).ToString("M月d日") }
             : snapshot.ResetCredits;
@@ -270,33 +270,33 @@ public sealed class QuotaViewProjector(TimeProvider timeProvider, TimeZoneInfo t
     }
 
     private string FormatResetAt(DateTimeOffset? utc, bool use24HourTime) => utc is null
-        ? "重置时间未提供"
+        ? "重置时间未知"
         : TimeZoneInfo.ConvertTime(utc.Value, timeZone).ToString(use24HourTime ? "M月d日 HH:mm" : "M月d日 h:mm tt");
 
     public static string FormatRelative(DateTimeOffset? resetAt, DateTimeOffset now)
     {
         if (resetAt is null)
         {
-            return "等待额度数据更新";
+            return "剩余时间未知";
         }
 
         var remaining = resetAt.Value - now;
         if (remaining <= TimeSpan.Zero)
         {
-            return "等待额度数据更新";
+            return "剩余时间未知";
         }
 
         if (remaining.TotalDays >= 1)
         {
-            return $"{(int)remaining.TotalDays}天 {remaining.Hours}小时后重置";
+            return $"{(int)remaining.TotalDays} 天 {remaining.Hours} 小时后重置";
         }
 
         if (remaining.TotalHours >= 1)
         {
-            return $"{(int)remaining.TotalHours}小时 {remaining.Minutes}分钟后重置";
+            return $"{(int)remaining.TotalHours} 小时 {remaining.Minutes} 分钟后重置";
         }
 
-        return $"{Math.Max(1, remaining.Minutes)}分钟后重置";
+        return $"{Math.Max(1, remaining.Minutes)} 分钟后重置";
     }
 
     private static string DisplayName(string? limitName, long? minutes)

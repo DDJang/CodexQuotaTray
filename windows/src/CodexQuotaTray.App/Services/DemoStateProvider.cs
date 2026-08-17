@@ -33,12 +33,12 @@ internal sealed class DemoStateProvider : IUiStateProvider, IDiagnosticTextProvi
                 QuotaWindowView.Demo(
                     "5 小时额度",
                     firstRemaining,
-                    "4小时后重置",
+                    "4 小时后重置",
                     now.AddHours(4).ToString("HH:mm")),
                 QuotaWindowView.Demo(
                     "7 天额度",
                     59,
-                    "6天后重置",
+                    "6 天后重置",
                     now.AddDays(6).ToString("M月d日 HH:mm")),
             ],
             new ResetCreditViewState(

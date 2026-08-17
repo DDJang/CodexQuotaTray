@@ -63,7 +63,7 @@ public sealed class TokenUsageViewModelTests
         Assert.IsTrue(viewModel.ShowContent);
         Assert.IsFalse(viewModel.ShowLoading);
         Assert.IsFalse(viewModel.HasErrorWithoutData);
-        Assert.AreEqual("更新失败 · 显示上次统计", viewModel.StatusText);
+        Assert.AreEqual("刷新失败 · 显示上次数据", viewModel.StatusText);
         Assert.AreEqual(StatusTone.Warning, viewModel.StatusTone);
     }
 

@@ -112,7 +112,7 @@
                                 <FontIcon Glyph="&#xE895;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="刷新与同步" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="额度与统计刷新、与手机同步" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="额度与 Token 用量刷新、与手机同步" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             </Grid>
@@ -277,12 +277,12 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                    <TextBlock Text="保存统计缓存" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="保存 Token 用量缓存" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="保存非敏感 Token 统计，用于启动时快速展示。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <ToggleSwitch
                                     Grid.Column="1"
-                                    AutomationProperties.Name="保存统计缓存"
+                                    AutomationProperties.Name="保存 Token 用量缓存"
                                     IsOn="{Binding PersistTokenUsageCache, Mode=TwoWay}"
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
@@ -291,7 +291,7 @@
                     </StackPanel>
 
                     <StackPanel x:Name="SyncSettingsPanel" Spacing="8" Visibility="Collapsed">
-                        <TextBlock Text="额度刷新" Style="{StaticResource SettingsSectionHeaderStyle}" />
+                        <TextBlock Text="额度" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Border Style="{StaticResource SettingsItemCardStyle}">
                             <Grid Style="{StaticResource SettingsRowStyle}">
                                 <Grid.ColumnDefinitions>
@@ -299,8 +299,8 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                    <TextBlock Text="刷新间隔" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="选择后台定时获取额度的频率。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="刷新频率" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="选择后台自动刷新额度的频率。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <ComboBox
                                     Grid.Column="1"
@@ -324,12 +324,12 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                    <TextBlock Text="打开面板时自动刷新" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="打开额度面板时主动读取最新额度，短时间重复打开会自动去重。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="打开面板时刷新" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="打开额度面板时刷新最新数据，短时间重复打开会自动去重。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <ToggleSwitch
                                     Grid.Column="1"
-                                    AutomationProperties.Name="打开面板时自动刷新"
+                                    AutomationProperties.Name="打开面板时刷新"
                                     IsOn="{Binding RefreshOnPanelOpen, Mode=TwoWay}"
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
@@ -342,7 +342,7 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="网络恢复后刷新" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="网络恢复后主动重新读取一次额度。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="网络恢复后自动刷新一次额度。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <ToggleSwitch
                                     Grid.Column="1"
@@ -351,7 +351,7 @@
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
                         </Border>
-                        <TextBlock Text="统计刷新" Style="{StaticResource SettingsSectionHeaderStyle}" />
+                        <TextBlock Text="Token 用量" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Border Style="{StaticResource SettingsItemCardStyle}">
                             <Grid Style="{StaticResource SettingsRowStyle}">
                                 <Grid.ColumnDefinitions>
@@ -359,8 +359,8 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                    <TextBlock Text="后台刷新间隔" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="定时重新扫描本机 Codex Token 统计；关闭后仅在手动刷新时扫描。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="刷新频率" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="定时刷新本机 Codex Token 用量；关闭后仅在手动刷新时刷新。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <ComboBox
                                     Grid.Column="1"
@@ -384,12 +384,12 @@
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                    <TextBlock Text="打开面板时自动刷新" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="打开主面板时重新扫描统计；短时间重复打开会自动去重。" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="打开面板时刷新" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="打开主面板时刷新 Token 用量，短时间重复打开会自动去重。" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <ToggleSwitch
                                     Grid.Column="1"
-                                    AutomationProperties.Name="打开面板时自动刷新统计"
+                                    AutomationProperties.Name="打开面板时刷新 Token 用量"
                                     IsOn="{Binding TokenRefreshOnPanelOpen, Mode=TwoWay}"
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>

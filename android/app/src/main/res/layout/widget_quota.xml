@@ -42,7 +42,7 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:gravity="center"
-        android:text="暂无额度数据\n打开 CodexQuotaTray 同步"
+        android:text="暂无额度数据\n打开 CodexQuotaTray 刷新"
         android:textColor="@color/widget_secondary_text"
         android:textSize="12sp"
         android:visibility="gone" />
@@ -207,7 +207,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:includeFontPadding="false"
-                    android:text="7天 Token"
+                    android:text="7 天 Token"
                     android:textColor="@color/widget_secondary_text"
                     android:textSize="10sp" />
 
@@ -240,7 +240,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:includeFontPadding="false"
-                    android:text="30天 Token"
+                    android:text="30 天 Token"
                     android:textColor="@color/widget_secondary_text"
                     android:textSize="10sp" />
 

@@ -104,9 +104,9 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsageCode, "new Vector3(1.28f, 1.28f, 1f)");
         StringAssert.Contains(tokenUsageCode, "new Thickness(2)");
         StringAssert.Contains(tokenUsageCode, "cell.Shadow = new ThemeShadow()");
-        StringAssert.Contains(quota, "Content=\"官方网址\"");
-        Assert.IsFalse(quota.Contains("官方网址 ↗", StringComparison.Ordinal));
-        StringAssert.Contains(settingsWindow, "Text=\"保存统计缓存\"");
+        StringAssert.Contains(quota, "Content=\"官方用量\"");
+        Assert.IsFalse(quota.Contains("官方用量 ↗", StringComparison.Ordinal));
+        StringAssert.Contains(settingsWindow, "Text=\"保存 Token 用量缓存\"");
         StringAssert.Contains(settingsWindow, "IsOn=\"{Binding PersistTokenUsageCache, Mode=TwoWay}\"");
 
         var showIncoming = mainWindowCode.IndexOf("incoming.Visibility = Visibility.Visible;", StringComparison.Ordinal);

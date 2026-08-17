@@ -198,7 +198,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.TOKEN, reason, enabled)) return
         val snapshotAtStart = snapshot
         syncing = true
-        status = RefreshStatusFormatter.refreshing(snapshot != null)
+        status = RefreshStatusFormatter.tokenRefreshing(snapshot != null)
         worker.execute {
             val result = try {
                 runCatching {
@@ -224,7 +224,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
                         status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(latestSnapshot.generatedAtUtc))
                     } else {
                         val message = tokenUsageSyncErrorMessage(error)
-                        status = RefreshStatusFormatter.failure(
+                        status = RefreshStatusFormatter.tokenFailure(
                             reason = message,
                             updatedAt = snapshot?.let { formatSyncTime(it.generatedAtUtc) },
                         )
@@ -290,7 +290,7 @@ internal fun TokenUsagePage(controller: TokenUsagePageController, onPairing: () 
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface))) {
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Token 用量", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                    Text("连接 Windows CodexQuotaTray 后，即可查看本机 Codex Token 使用历史。", color = palette.color(palette.secondary))
+                    Text("连接 Windows CodexQuotaTray 后，即可查看 Windows 端的 Codex Token 使用历史。", color = palette.color(palette.secondary))
                     Button(onClick = rememberSystemHapticClick(onPairing), modifier = Modifier.fillMaxWidth()) { Text("扫码配对") }
                 }
             }
@@ -307,7 +307,7 @@ private fun TokenUsageStatusLine(status: String) {
 @Composable
 private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
     val first = listOf("今日 Token" to snapshot.summary.todayTokens, "7 天 Token" to snapshot.summary.last7DaysTokens, "30 天 Token" to snapshot.summary.last30DaysTokens, "累计 Token" to snapshot.summary.lifetimeTokens)
-    val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续天数" to snapshot.summary.currentStreak.toLong(), "最长连续天数" to snapshot.summary.longestStreak.toLong())
+    val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续" to snapshot.summary.currentStreak.toLong(), "最长连续" to snapshot.summary.longestStreak.toLong())
     val tokenContentHazeState = rememberHazeState()
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
     var tooltipPresentation by remember { mutableStateOf<HeatmapTooltipPresentation?>(null) }

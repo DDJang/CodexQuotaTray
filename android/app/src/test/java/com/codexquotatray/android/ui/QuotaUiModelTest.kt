@@ -65,7 +65,7 @@ class QuotaUiModelTest {
         val model = direct(windows = emptyList(), quotaState = "zero_windows").toQuotaUiModel()
 
         assertEquals(QuotaUiStatus.LOADED, model.status)
-        assertEquals("当前没有可用额度窗口", model.message)
+        assertEquals("暂无可用额度", model.message)
         assertTrue(model.windows.isEmpty())
     }
 

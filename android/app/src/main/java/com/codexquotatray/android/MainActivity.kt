@@ -148,6 +148,7 @@ class MainActivity : ComponentActivity() {
                         backdrop = pageBackdrop,
                         actionEnabled = if (selectedIndex == 0) quota.canRefresh else usage.canSync,
                         actionBusy = if (selectedIndex == 0) quota.busy else usage.syncing,
+                        actionDescription = if (selectedIndex == 0) "刷新额度" else "同步 Token 用量",
                         onAction = { if (selectedIndex == 0) quota.refresh() else usage.requestSync() },
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp).fillMaxWidth(),
                     )

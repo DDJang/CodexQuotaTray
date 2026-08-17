@@ -1,4 +1,5 @@
 using CodexQuotaTray.Core.Models;
+using CodexQuotaTray.Core.Protocol;
 
 namespace CodexQuotaTray.Tests;
 
@@ -42,5 +43,16 @@ public sealed class QuotaPresentationTests
         StringAssert.Contains(summaries[2], "2 张");
         StringAssert.Contains(summaries[3], "最近已知");
         StringAssert.Contains(summaries[4], "最早");
+    }
+
+    [TestMethod]
+    public void RelativeResetTextUsesConsistentSpacingAndUnknownCopy()
+    {
+        var now = new DateTimeOffset(2026, 8, 17, 12, 0, 0, TimeSpan.Zero);
+
+        Assert.AreEqual("2 天 3 小时后重置", QuotaViewProjector.FormatRelative(now.AddDays(2).AddHours(3), now));
+        Assert.AreEqual("3 小时 20 分钟后重置", QuotaViewProjector.FormatRelative(now.AddHours(3).AddMinutes(20), now));
+        Assert.AreEqual("5 分钟后重置", QuotaViewProjector.FormatRelative(now.AddMinutes(5), now));
+        Assert.AreEqual("剩余时间未知", QuotaViewProjector.FormatRelative(null, now));
     }
 }

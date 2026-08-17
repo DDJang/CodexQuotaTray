@@ -416,7 +416,7 @@ public sealed partial class MainWindow : Window
     {
         HeaderStatusText.DataContext = showingTokenPage ? tokenUsageViewModel : viewModel;
         RefreshButton.DataContext = showingTokenPage ? tokenUsageViewModel : viewModel;
-        var refreshName = showingTokenPage ? "重新扫描 Token 统计" : "刷新额度";
+        var refreshName = showingTokenPage ? "刷新 Token 用量" : "刷新额度";
         ToolTipService.SetToolTip(RefreshButton, refreshName);
         AutomationProperties.SetName(RefreshButton, refreshName);
     }

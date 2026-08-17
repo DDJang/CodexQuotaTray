@@ -20,7 +20,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
     private bool isRefreshing;
 
     [ObservableProperty]
-    private string statusText = "尚未扫描 Token";
+    private string statusText = "尚未刷新";
 
     [ObservableProperty]
     private StatusTone statusTone = StatusTone.Neutral;
@@ -94,7 +94,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         LastAttemptUtc = DateTimeOffset.UtcNow;
         IsRefreshing = true;
         ShowLoading = snapshot is null;
-        StatusText = "正在扫描 Token…";
+        StatusText = "正在刷新…";
         StatusTone = StatusTone.Refreshing;
         HasErrorWithoutData = false;
         try
@@ -106,7 +106,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
-            StatusText = snapshot is null ? "Token 统计读取失败" : "更新失败 · 显示上次统计";
+            StatusText = snapshot is null ? "刷新失败" : "刷新失败 · 显示上次数据";
             StatusTone = snapshot is null ? StatusTone.Error : StatusTone.Warning;
             HasErrorWithoutData = snapshot is null;
         }
@@ -142,7 +142,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         HasData = summary.LifetimeTokens > 0;
         HasNoData = !HasData;
         HasErrorWithoutData = false;
-        StatusText = HasData ? $"更新于 {value.GeneratedAtUtc.ToLocalTime():HH:mm}" : "尚无 Token 数据";
+        StatusText = HasData ? $"更新于 {value.GeneratedAtUtc.ToLocalTime():HH:mm}" : "暂无 Token 数据";
         StatusTone = HasData ? StatusTone.Success : StatusTone.Neutral;
 
         OnPropertyChanged(nameof(HasLoaded));

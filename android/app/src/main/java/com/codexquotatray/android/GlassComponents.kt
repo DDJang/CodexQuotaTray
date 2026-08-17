@@ -302,6 +302,7 @@ internal fun LiquidMainDock(
     backdrop: Backdrop,
     actionEnabled: Boolean,
     actionBusy: Boolean,
+    actionDescription: String,
     onAction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -320,7 +321,7 @@ internal fun LiquidMainDock(
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             GlassIconButton(
                 iconRes = R.drawable.ic_refresh,
-                description = "刷新当前页面",
+                description = actionDescription,
                 backdrop = backdrop,
                 enabled = actionEnabled && !actionBusy,
                 busy = actionBusy,
