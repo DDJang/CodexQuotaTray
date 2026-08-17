@@ -28,6 +28,10 @@ public sealed partial class TokenUsageView : UserControl
     {
         uiDispatcher = DispatcherQueue.GetForCurrentThread();
         InitializeComponent();
+        if (new AccessibilitySettings().HighContrast)
+        {
+            HeatmapTooltipBackdrop.SystemBackdrop = null;
+        }
         DataContext = viewModel;
     }
 

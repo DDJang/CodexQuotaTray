@@ -77,7 +77,7 @@ public sealed class PrivacyAndThemeTests
     }
 
     [TestMethod]
-    public void HeatmapTooltipUsesThemeAcrylicAndHighContrastFallback()
+    public void HeatmapTooltipUsesSystemBackdropTintAndHighContrastFallback()
     {
         var file = Path.Combine(AppContext.BaseDirectory, "Themes", "Colors.xaml");
         var document = XDocument.Load(file);
@@ -94,14 +94,14 @@ public sealed class PrivacyAndThemeTests
             .Elements()
             .Single(resource => resource.Attribute(xaml + "Key")?.Value == key);
 
-        var lightAcrylic = Resource("Light", "TokenHeatmapToolTipAcrylicBrush");
-        var darkAcrylic = Resource("Dark", "TokenHeatmapToolTipAcrylicBrush");
-        var highContrastFallback = Resource("HighContrast", "TokenHeatmapToolTipAcrylicBrush");
+        var lightTint = Resource("Light", "TokenHeatmapToolTipTintBrush");
+        var darkTint = Resource("Dark", "TokenHeatmapToolTipTintBrush");
+        var highContrastFallback = Resource("HighContrast", "TokenHeatmapToolTipTintBrush");
 
-        Assert.AreEqual("AcrylicBrush", lightAcrylic.Name.LocalName);
-        Assert.AreEqual("AcrylicBrush", darkAcrylic.Name.LocalName);
-        Assert.AreEqual("#FFF5F8FC", lightAcrylic.Attribute("TintColor")?.Value);
-        Assert.AreEqual("#FF20252B", darkAcrylic.Attribute("TintColor")?.Value);
+        Assert.AreEqual("SolidColorBrush", lightTint.Name.LocalName);
+        Assert.AreEqual("SolidColorBrush", darkTint.Name.LocalName);
+        Assert.AreEqual("#B8F5F8FC", lightTint.Attribute("Color")?.Value);
+        Assert.AreEqual("#C420252B", darkTint.Attribute("Color")?.Value);
         Assert.AreEqual("SolidColorBrush", highContrastFallback.Name.LocalName);
         Assert.AreEqual(
             "{ThemeResource SystemColorWindowColor}",
@@ -138,6 +138,9 @@ public sealed class PrivacyAndThemeTests
         Assert.IsFalse(tokenUsage.Contains("Padding=\"10,9,10,16\"", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsage, "Padding=\"12,8\"");
         StringAssert.Contains(tokenUsage, "Width=\"176\"");
+        StringAssert.Contains(tokenUsage, "SystemBackdropElement");
+        StringAssert.Contains(tokenUsage, "DesktopAcrylicBackdrop");
+        Assert.IsFalse(tokenUsage.Contains("TokenHeatmapToolTipAcrylicBrush", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsage, "FontSize=\"16\"");
         StringAssert.Contains(tokenUsage, "FontSize=\"14\"");
         StringAssert.Contains(tokenUsage, "Vector3Transition Duration=\"0:0:0.12\"");
@@ -154,6 +157,8 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsageCode, "tooltipVisual.StopAnimation(\"Offset\")");
         StringAssert.Contains(tokenUsageCode, "tooltipVisual.StartAnimation(\"Offset\", animation)");
         StringAssert.Contains(tokenUsageCode, "MeasureSharedHeatmapTooltipIfNeeded()");
+        StringAssert.Contains(tokenUsageCode, "new AccessibilitySettings().HighContrast");
+        StringAssert.Contains(tokenUsageCode, "HeatmapTooltipBackdrop.SystemBackdrop = null");
         StringAssert.Contains(tokenUsageCode, "if (wasFadingOut)");
         Assert.IsFalse(tokenUsageCode.Contains("ToolTipService.GetToolTip", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsageCode.Contains("new Vector3(1.28f, 1.28f, 1f)", StringComparison.Ordinal));
