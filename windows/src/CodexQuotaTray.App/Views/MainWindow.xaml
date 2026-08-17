@@ -106,11 +106,18 @@
                         BorderThickness="1"
                         CornerRadius="10"
                         Visibility="Collapsed">
-                        <TextBlock
-                            FontSize="12"
-                            Foreground="{ThemeResource WarningStatusBrush}"
-                            Text="⚠ 托盘图标初始化失败，请重新启动应用或从窗口退出。"
-                            TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="6">
+                            <FontIcon
+                                FontSize="14"
+                                Foreground="{ThemeResource WarningStatusBrush}"
+                                Glyph="&#xE7BA;"
+                                VerticalAlignment="Center" />
+                            <TextBlock
+                                FontSize="12"
+                                Foreground="{ThemeResource WarningStatusBrush}"
+                                Text="托盘图标初始化失败，请重新启动应用或从窗口退出。"
+                                TextWrapping="Wrap" />
+                        </StackPanel>
                     </Border>
 
                     <Border

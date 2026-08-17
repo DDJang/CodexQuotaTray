@@ -66,7 +66,10 @@ public sealed class PrivacyAndThemeTests
         Assert.AreEqual("#FF155A91", themes["Light"]["TokenHeatmap4Brush"]);
         Assert.AreEqual("#24303438", themes["Dark"]["MainWindowSurfaceBrush"]);
         Assert.AreEqual("#08FFFFFF", themes["Dark"]["TokenHeatmap0Brush"]);
-        Assert.AreEqual("#FFB4E6FF", themes["Dark"]["TokenHeatmap4Brush"]);
+        Assert.AreEqual("#3DB4E6FF", themes["Dark"]["TokenHeatmap1Brush"]);
+        Assert.AreEqual("#7A96D2FF", themes["Dark"]["TokenHeatmap2Brush"]);
+        Assert.AreEqual("#CC78BEFF", themes["Dark"]["TokenHeatmap3Brush"]);
+        Assert.AreEqual("#FF5AAEFF", themes["Dark"]["TokenHeatmap4Brush"]);
         Assert.AreEqual("#FFF3F3F3", themes["Light"]["MainWindowOpaqueSurfaceBrush"]);
         Assert.AreEqual("#FF202020", themes["Dark"]["MainWindowOpaqueSurfaceBrush"]);
         Assert.AreEqual("#FFFFFFFF", themes["Light"]["PanelChromeForegroundBrush"]);
@@ -114,6 +117,45 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(settingsWindow, "IsOn=\"{Binding PersistTokenUsageCache, Mode=TwoWay}\"");
         StringAssert.Contains(controls, "x:Key=\"SettingsActionButtonStyle\" TargetType=\"Button\"");
         StringAssert.Contains(controls, "Property=\"CornerRadius\" Value=\"{ThemeResource ControlCornerRadius}\"");
+        StringAssert.Contains(controls, "Property=\"HorizontalContentAlignment\" Value=\"Center\"");
+        StringAssert.Contains(mainWindow, "Glyph=\"&#xE7BA;\"");
+        StringAssert.Contains(mainWindow, "Text=\"托盘图标初始化失败，请重新启动应用或从窗口退出。\"");
+        Assert.IsFalse(mainWindow.Contains("⚠", StringComparison.Ordinal));
+        var updateSettingsStart = settingsWindow.IndexOf(
+            "<StackPanel x:Name=\"UpdateSettingsPanel\"",
+            StringComparison.Ordinal);
+        var advancedSettingsStart = settingsWindow.IndexOf(
+            "<StackPanel x:Name=\"AdvancedSettingsPanel\"",
+            updateSettingsStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(updateSettingsStart >= 0);
+        Assert.IsTrue(advancedSettingsStart > updateSettingsStart);
+        var updateSettings = settingsWindow[updateSettingsStart..advancedSettingsStart];
+        Assert.AreEqual(
+            2,
+            updateSettings.Split("Style=\"{StaticResource SettingsItemCardStyle}\"", StringSplitOptions.None).Length - 1);
+        var normalizedSettingsWindow = settingsWindow.Replace("\r\n", "\n");
+        var normalizedUpdateSettings = updateSettings.Replace("\r\n", "\n");
+        var updateStatusHeaderStart = normalizedUpdateSettings.IndexOf(
+            "Text=\"更新状态\" Style=\"{StaticResource SettingsSectionHeaderStyle}\"",
+            StringComparison.Ordinal);
+        var updateStatusCardStart = normalizedUpdateSettings.IndexOf(
+            "<Border Style=\"{StaticResource SettingsItemCardStyle}\">",
+            updateStatusHeaderStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(updateStatusHeaderStart >= 0);
+        Assert.IsTrue(updateStatusCardStart > updateStatusHeaderStart);
+        var checkButtonStart = normalizedUpdateSettings.IndexOf(
+            "Content=\"检查更新\"",
+            updateStatusCardStart,
+            StringComparison.Ordinal);
+        var checkButtonEnd = normalizedUpdateSettings.IndexOf("/>", checkButtonStart, StringComparison.Ordinal);
+        Assert.IsTrue(checkButtonStart >= 0);
+        Assert.IsTrue(checkButtonEnd > checkButtonStart);
+        StringAssert.Contains(
+            normalizedUpdateSettings[checkButtonStart..(checkButtonEnd + 2)],
+            "HorizontalAlignment=\"Left\"");
+        StringAssert.Contains(normalizedSettingsWindow, "<StackPanel Spacing=\"4\">\n                                <HyperlinkButton Content=\"GitHub 项目主页\"");
         StringAssert.Contains(settingsWindow, "Click=\"OnRegenerateTokenSyncSecretRequested\"");
         StringAssert.Contains(settingsWindowCode, "Title = \"重新生成配对密钥？\"");
         StringAssert.Contains(settingsWindowCode, "Content = \"重新生成后，当前已配对的手机将无法继续连接，需要在手机端重新扫码配对。\"");

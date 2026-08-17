@@ -89,10 +89,10 @@
             <SolidColorBrush x:Key="TokenHeatmapCellBorderBrush" Color="#E6E8EEF4" />
             <SolidColorBrush x:Key="TokenHeatmapToolTipSurfaceBrush" Color="#F2141A23" />
             <SolidColorBrush x:Key="TokenHeatmap0Brush" Color="#08FFFFFF" />
-            <SolidColorBrush x:Key="TokenHeatmap1Brush" Color="#2E5AAAFF" />
-            <SolidColorBrush x:Key="TokenHeatmap2Brush" Color="#7378BEFF" />
-            <SolidColorBrush x:Key="TokenHeatmap3Brush" Color="#CC96D2FF" />
-            <SolidColorBrush x:Key="TokenHeatmap4Brush" Color="#FFB4E6FF" />
+            <SolidColorBrush x:Key="TokenHeatmap1Brush" Color="#3DB4E6FF" />
+            <SolidColorBrush x:Key="TokenHeatmap2Brush" Color="#7A96D2FF" />
+            <SolidColorBrush x:Key="TokenHeatmap3Brush" Color="#CC78BEFF" />
+            <SolidColorBrush x:Key="TokenHeatmap4Brush" Color="#FF5AAEFF" />
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
             <SolidColorBrush x:Key="WindowSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}" />
