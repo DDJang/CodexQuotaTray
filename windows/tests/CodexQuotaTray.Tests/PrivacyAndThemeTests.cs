@@ -138,6 +138,7 @@ public sealed class PrivacyAndThemeTests
         Assert.IsFalse(tokenUsage.Contains("Padding=\"10,9,10,16\"", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsage, "Padding=\"12,8\"");
         StringAssert.Contains(tokenUsage, "Width=\"176\"");
+        StringAssert.Contains(tokenUsage, "Height=\"64\"");
         StringAssert.Contains(tokenUsage, "SystemBackdropElement");
         StringAssert.Contains(tokenUsage, "DesktopAcrylicBackdrop");
         StringAssert.Contains(tokenUsage, "Visibility=\"Visible\"");
@@ -159,7 +160,12 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsageCode, "CreateSpringVector3Animation");
         StringAssert.Contains(tokenUsageCode, "tooltipVisual.StopAnimation(\"Offset\")");
         StringAssert.Contains(tokenUsageCode, "tooltipVisual.StartAnimation(\"Offset\", animation)");
-        StringAssert.Contains(tokenUsageCode, "MeasureSharedHeatmapTooltipIfNeeded()");
+        Assert.IsFalse(tokenUsageCode.Contains("MeasureSharedHeatmapTooltipIfNeeded", StringComparison.Ordinal));
+        Assert.AreEqual(
+            1,
+            tokenUsageCode.Split("ElementCompositionPreview.GetElementVisual", StringSplitOptions.None).Length - 1);
+        StringAssert.Contains(tokenUsageCode, "PrepareSharedHeatmapTooltipVisual()");
+        StringAssert.Contains(tokenUsageCode, "measureMs=0");
         StringAssert.Contains(tokenUsageCode, "new AccessibilitySettings().HighContrast");
         StringAssert.Contains(tokenUsageCode, "HeatmapTooltipBackdrop.SystemBackdrop = null");
         StringAssert.Contains(tokenUsageCode, "if (wasFadingOut)");

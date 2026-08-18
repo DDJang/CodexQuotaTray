@@ -17,6 +17,8 @@ namespace CodexQuotaTray.App.Views;
 
 public sealed partial class TokenUsageView : UserControl
 {
+    private const float TooltipWidth = 176f;
+    private const float TooltipHeight = 64f;
     private readonly DispatcherQueue uiDispatcher;
     private readonly TokenUsageViewModel tokenUsageViewModel;
     private Border? activeHeatmapCell;
@@ -24,7 +26,9 @@ public sealed partial class TokenUsageView : UserControl
     private bool sharedTooltipHasPosition;
     private bool sharedTooltipIsFadingOut;
     private int sharedTooltipRevision;
-    private Size? sharedTooltipSize;
+    private Visual? sharedTooltipVisual;
+    private double sharedTooltipVisualPreparationMilliseconds;
+    private bool firstTooltipDiagnosticsReported;
     private bool applyLayoutMeasurementPending;
     private long applyCompletedTimestamp;
 
@@ -37,6 +41,7 @@ public sealed partial class TokenUsageView : UserControl
         {
             HeatmapTooltipBackdrop.SystemBackdrop = null;
         }
+        PrepareSharedHeatmapTooltipVisual();
         tokenUsageViewModel.ApplyCompleted += OnTokenUsageApplyCompleted;
         LayoutUpdated += OnTokenUsageLayoutUpdated;
         DataContext = viewModel;
@@ -54,6 +59,13 @@ public sealed partial class TokenUsageView : UserControl
 
     private void OnTokenUsageLayoutUpdated(object? sender, object args)
     {
+        if (sharedTooltipVisual is null
+            && HeatmapInteractionHost.ActualWidth > 0
+            && HeatmapItemsRepeater.ActualWidth > 0)
+        {
+            PrepareSharedHeatmapTooltipVisual();
+        }
+
         if (!applyLayoutMeasurementPending
             || !IsLoaded
             || Visibility != Visibility.Visible
@@ -70,6 +82,23 @@ public sealed partial class TokenUsageView : UserControl
             + $"elapsedMs={Stopwatch.GetElapsedTime(applyCompletedTimestamp).TotalMilliseconds:F1}");
     }
 
+    private void PrepareSharedHeatmapTooltipVisual()
+    {
+        if (sharedTooltipVisual is not null)
+        {
+            return;
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        sharedTooltipVisual = ElementCompositionPreview.GetElementVisual(SharedHeatmapTooltip);
+        sharedTooltipVisual.CenterPoint = new Vector3(TooltipWidth / 2f, TooltipHeight / 2f, 0f);
+        sharedTooltipVisual.Offset = Vector3.Zero;
+        sharedTooltipVisual.Scale = Vector3.One;
+        sharedTooltipVisual.Opacity = 0f;
+        stopwatch.Stop();
+        sharedTooltipVisualPreparationMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
+    }
+
     private void OnHeatmapPointerEntered(object sender, PointerRoutedEventArgs args) =>
         UpdateHeatmapSelection(args);
 
@@ -84,21 +113,39 @@ public sealed partial class TokenUsageView : UserControl
 
     private void UpdateHeatmapSelection(PointerRoutedEventArgs args)
     {
+        var collectFirstTooltipDiagnostics = !firstTooltipDiagnosticsReported;
+        var interactionStarted = collectFirstTooltipDiagnostics
+            ? Stopwatch.GetTimestamp()
+            : 0L;
         var point = args.GetCurrentPoint(HeatmapHitSurface).Position;
+        var hitTestStarted = collectFirstTooltipDiagnostics
+            ? Stopwatch.GetTimestamp()
+            : 0L;
         var index = TokenHeatmapInteraction.HitTest(
             (float)point.X - TokenHeatmapInteraction.HitSurfaceInset,
             (float)point.Y - TokenHeatmapInteraction.HitSurfaceInset,
             (DataContext as TokenUsageViewModel)?.HeatmapCells.Count ?? 0);
+        var hitTestMilliseconds = collectFirstTooltipDiagnostics
+            ? Stopwatch.GetElapsedTime(hitTestStarted).TotalMilliseconds
+            : 0d;
 
         if (index == activeHeatmapIndex)
         {
             return;
         }
 
+        var tryGetElementStarted = collectFirstTooltipDiagnostics
+            ? Stopwatch.GetTimestamp()
+            : 0L;
+        var cell = index is int indexValue
+            ? HeatmapItemsRepeater.TryGetElement(indexValue) as Border
+            : null;
+        var tryGetElementMilliseconds = collectFirstTooltipDiagnostics
+            ? Stopwatch.GetElapsedTime(tryGetElementStarted).TotalMilliseconds
+            : 0d;
+        var heatmapCell = cell?.DataContext as TokenHeatmapCell;
         ClearHeatmapCell();
-        if (index is not int validIndex
-            || HeatmapItemsRepeater.TryGetElement(validIndex) is not Border cell
-            || cell.DataContext is not TokenHeatmapCell heatmapCell)
+        if (index is not int validIndex || cell is null || heatmapCell is null)
         {
             HideSharedHeatmapTooltip();
             return;
@@ -112,7 +159,13 @@ public sealed partial class TokenUsageView : UserControl
         cell.BorderBrush = CreateHeatmapHighlightBrush(cell.Background);
         cell.BorderThickness = new Thickness(1);
         Canvas.SetZIndex(cell, 1);
-        UpdateSharedHeatmapTooltip(validIndex, heatmapCell);
+        UpdateSharedHeatmapTooltip(
+            validIndex,
+            heatmapCell,
+            collectFirstTooltipDiagnostics,
+            interactionStarted,
+            hitTestMilliseconds,
+            tryGetElementMilliseconds);
     }
 
     private void ClearHeatmapSelection()
@@ -137,7 +190,13 @@ public sealed partial class TokenUsageView : UserControl
         activeHeatmapIndex = null;
     }
 
-    private void UpdateSharedHeatmapTooltip(int index, TokenHeatmapCell heatmapCell)
+    private void UpdateSharedHeatmapTooltip(
+        int index,
+        TokenHeatmapCell heatmapCell,
+        bool collectFirstTooltipDiagnostics,
+        long interactionStarted,
+        double hitTestMilliseconds,
+        double tryGetElementMilliseconds)
     {
         HeatmapTooltipTokenText.Text = heatmapCell.TokenText;
         HeatmapTooltipDateText.Text = heatmapCell.DateText;
@@ -157,17 +216,22 @@ public sealed partial class TokenUsageView : UserControl
         var heatmapOriginY = MathF.Max(
             0f,
             ((float)HeatmapInteractionHost.ActualHeight - (float)HeatmapItemsRepeater.ActualHeight) / 2f);
+        var transformStarted = collectFirstTooltipDiagnostics
+            ? Stopwatch.GetTimestamp()
+            : 0L;
         var heatmapHostOrigin = HeatmapInteractionHost
             .TransformToVisual(HeatmapTooltipOverlay)
             .TransformPoint(new Point(0, 0));
-        var desiredSize = MeasureSharedHeatmapTooltipIfNeeded();
+        var transformMilliseconds = collectFirstTooltipDiagnostics
+            ? Stopwatch.GetElapsedTime(transformStarted).TotalMilliseconds
+            : 0d;
         var target = TokenHeatmapInteraction.PlaceTooltip(
             viewportWidth,
             viewportHeight,
             index,
             (DataContext as TokenUsageViewModel)?.HeatmapCells.Count ?? 0,
-            (float)desiredSize.Width,
-            (float)desiredSize.Height,
+            TooltipWidth,
+            TooltipHeight,
             heatmapOriginX,
             heatmapOriginY);
         target = target with
@@ -176,20 +240,29 @@ public sealed partial class TokenUsageView : UserControl
             Y = target.Y + (float)heatmapHostOrigin.Y,
         };
 
-        var tooltipVisual = ElementCompositionPreview.GetElementVisual(SharedHeatmapTooltip);
-        tooltipVisual.CenterPoint = new Vector3(
-            (float)desiredSize.Width / 2f,
-            (float)desiredSize.Height / 2f,
-            0f);
+        var tooltipVisual = sharedTooltipVisual;
+        if (tooltipVisual is null)
+        {
+            return;
+        }
 
         if (!sharedTooltipHasPosition)
         {
             tooltipVisual.StopAnimation("Offset");
             tooltipVisual.Offset = new Vector3(target.X, target.Y, 0f);
-            tooltipVisual.Opacity = 0f;
-            tooltipVisual.Scale = new Vector3(0.96f, 0.96f, 1f);
+            tooltipVisual.Opacity = 1f;
+            tooltipVisual.Scale = Vector3.One;
             sharedTooltipHasPosition = true;
-            AnimateTooltipVisual(tooltipVisual, 1f, Vector3.One);
+            if (collectFirstTooltipDiagnostics)
+            {
+                firstTooltipDiagnosticsReported = true;
+                Debug.WriteLine(
+                    $"TokenUsage tooltip diagnostics: hitTestMs={hitTestMilliseconds:F2} "
+                    + $"tryGetElementMs={tryGetElementMilliseconds:F2} "
+                    + $"transformToVisualMs={transformMilliseconds:F2} measureMs=0 "
+                    + $"getElementVisualMs={sharedTooltipVisualPreparationMilliseconds:F2} "
+                    + $"firstShowTotalMs={Stopwatch.GetElapsedTime(interactionStarted).TotalMilliseconds:F2}");
+            }
         }
         else
         {
@@ -201,18 +274,6 @@ public sealed partial class TokenUsageView : UserControl
         }
     }
 
-    private Size MeasureSharedHeatmapTooltipIfNeeded()
-    {
-        if (sharedTooltipSize is Size size)
-        {
-            return size;
-        }
-
-        SharedHeatmapTooltip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        sharedTooltipSize = SharedHeatmapTooltip.DesiredSize;
-        return sharedTooltipSize.Value;
-    }
-
     private void HideSharedHeatmapTooltip()
     {
         if (!sharedTooltipHasPosition || sharedTooltipIsFadingOut)
@@ -222,7 +283,11 @@ public sealed partial class TokenUsageView : UserControl
 
         var revision = ++sharedTooltipRevision;
         sharedTooltipIsFadingOut = true;
-        var tooltipVisual = ElementCompositionPreview.GetElementVisual(SharedHeatmapTooltip);
+        var tooltipVisual = sharedTooltipVisual;
+        if (tooltipVisual is null)
+        {
+            return;
+        }
         AnimateTooltipVisual(
             tooltipVisual,
             0f,

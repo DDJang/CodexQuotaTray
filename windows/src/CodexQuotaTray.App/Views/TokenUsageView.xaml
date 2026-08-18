@@ -182,6 +182,7 @@
             <Grid
                 x:Name="SharedHeatmapTooltip"
                 Width="176"
+                Height="64"
                 Canvas.Left="0"
                 Canvas.Top="0"
                 Opacity="0"
