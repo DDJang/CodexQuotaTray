@@ -21,6 +21,7 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan PageResizeDuration = TimeSpan.FromMilliseconds(180);
     private readonly MainViewModel viewModel;
     private readonly TokenUsageViewModel tokenUsageViewModel;
+    private readonly TokenUsageView tokenUsageView;
     private readonly WindowPlacementService placement = new();
     private readonly BackdropService backdrop = new();
     private readonly WindowVisibilityController visibility = new();
@@ -43,11 +44,12 @@ public sealed partial class MainWindow : Window
         this.tokenUsageViewModel = tokenUsageViewModel;
         InitializeComponent();
         Title = displayName;
+        hwnd = WindowNative.GetWindowHandle(this);
         ContentRoot.DataContext = viewModel;
         QuotaPageHost.Children.Add(new QuotaView());
-        TokenPageHost.Children.Add(new TokenUsageView(tokenUsageViewModel));
+        tokenUsageView = new TokenUsageView(tokenUsageViewModel, hwnd);
+        TokenPageHost.Children.Add(tokenUsageView);
 
-        hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         appWindow = AppWindow.GetFromWindowId(windowId);
 
@@ -335,6 +337,11 @@ public sealed partial class MainWindow : Window
 
         var incoming = showToken ? TokenPageHost : QuotaPageHost;
         var outgoing = showToken ? QuotaPageHost : TokenPageHost;
+        if (!showToken)
+        {
+            tokenUsageView.ResetHeatmapInteraction();
+        }
+
         var startHeight = PageHost.ActualHeight > 0
             ? PageHost.ActualHeight
             : Math.Max(1, outgoing.ActualHeight);
@@ -344,6 +351,11 @@ public sealed partial class MainWindow : Window
         incoming.IsHitTestVisible = true;
         outgoing.Visibility = Visibility.Collapsed;
         outgoing.IsHitTestVisible = false;
+        if (showToken)
+        {
+            tokenUsageView.PrepareHeatmapInteraction();
+        }
+
         var availableWidth = PageHost.ActualWidth > 0
             ? PageHost.ActualWidth
             : PanelWidthDips - 36;

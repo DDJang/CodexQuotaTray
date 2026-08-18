@@ -2,16 +2,15 @@
     x:Class="CodexQuotaTray.App.Views.TokenUsageView"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:controls="using:Microsoft.UI.Xaml.Controls"
     xmlns:local="using:CodexQuotaTray.App"
-    xmlns:media="using:Microsoft.UI.Xaml.Media"
+    xmlns:primitives="using:Microsoft.UI.Xaml.Controls.Primitives"
     xmlns:presentation="using:CodexQuotaTray.Core.Presentation">
     <UserControl.Resources>
         <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
         <local:TokenHeatmapBrushConverter x:Key="TokenHeatmapBrushConverter" />
     </UserControl.Resources>
 
-    <Grid Margin="0,0,0,14">
+    <Grid x:Name="TokenUsageRoot" Margin="0,0,0,14">
         <StackPanel
             Spacing="9"
             Visibility="{Binding ShowContent, Converter={StaticResource BooleanToVisibilityConverter}}">
@@ -93,10 +92,10 @@
                                     Scale="1,1,1"
                                     AutomationProperties.Name="{Binding AutomationText}">
                                     <Border.ScaleTransition>
-                                        <Vector3Transition Duration="0:0:0.12" />
+                                        <Vector3Transition Duration="0:0:0.08" />
                                     </Border.ScaleTransition>
                                     <Border.TranslationTransition>
-                                        <Vector3Transition Duration="0:0:0.12" />
+                                        <Vector3Transition Duration="0:0:0.08" />
                                     </Border.TranslationTransition>
                                 </Border>
                             </DataTemplate>
@@ -173,50 +172,54 @@
             <TextBlock HorizontalAlignment="Center" FontSize="11" Foreground="{ThemeResource SecondaryTextBrush}" Text="请点击右上角刷新重试" />
         </StackPanel>
 
-        <Canvas
-            x:Name="HeatmapTooltipOverlay"
-            HorizontalAlignment="Stretch"
-            VerticalAlignment="Stretch"
+        <primitives:Popup
+            x:Name="SharedHeatmapTooltipPopup"
+            HorizontalOffset="0"
             IsHitTestVisible="False"
-            Canvas.ZIndex="10">
+            Opacity="0"
+            ShouldConstrainToRootBounds="False"
+            VerticalOffset="0">
             <Grid
-                x:Name="SharedHeatmapTooltip"
-                Width="176"
-                Height="64"
-                Canvas.Left="0"
-                Canvas.Top="0"
-                Opacity="0"
-                Visibility="Visible"
+                x:Name="SharedHeatmapTooltipMotionHost"
+                Width="576"
+                Height="238"
                 IsHitTestVisible="False">
-                <controls:SystemBackdropElement
-                    x:Name="HeatmapTooltipBackdrop"
-                    HorizontalAlignment="Stretch"
-                    VerticalAlignment="Stretch"
-                    CornerRadius="9">
-                    <controls:SystemBackdropElement.SystemBackdrop>
-                        <media:DesktopAcrylicBackdrop />
-                    </controls:SystemBackdropElement.SystemBackdrop>
-                </controls:SystemBackdropElement>
-                <Border
-                    Padding="12,8"
-                    Background="{ThemeResource TokenHeatmapToolTipTintBrush}"
-                    BorderBrush="{ThemeResource TokenHeatmapToolTipBorderBrush}"
-                    BorderThickness="1"
-                    CornerRadius="9"
+                <Grid
+                    x:Name="SharedHeatmapTooltipMotionLayer"
+                    Width="176"
+                    Height="64"
+                    HorizontalAlignment="Left"
+                    VerticalAlignment="Top"
                     IsHitTestVisible="False">
-                    <StackPanel Spacing="2">
-                        <TextBlock
-                            x:Name="HeatmapTooltipTokenText"
-                            FontSize="16"
-                            FontWeight="SemiBold"
-                            Foreground="{ThemeResource PrimaryTextBrush}" />
-                        <TextBlock
-                            x:Name="HeatmapTooltipDateText"
-                            FontSize="14"
-                            Foreground="{ThemeResource TertiaryTextBrush}" />
-                    </StackPanel>
-                </Border>
+                    <Grid.TranslationTransition>
+                        <Vector3Transition Duration="0:0:0.11" />
+                    </Grid.TranslationTransition>
+                    <Grid
+                        x:Name="SharedHeatmapTooltip"
+                        Opacity="0"
+                        IsHitTestVisible="False">
+                        <Border
+                            Padding="12,8"
+                            Background="{ThemeResource TokenHeatmapToolTipTintBrush}"
+                            BorderBrush="{ThemeResource TokenHeatmapToolTipBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="9"
+                            IsHitTestVisible="False">
+                            <StackPanel Spacing="2">
+                                <TextBlock
+                                    x:Name="HeatmapTooltipTokenText"
+                                    FontSize="16"
+                                    FontWeight="SemiBold"
+                                    Foreground="{ThemeResource PrimaryTextBrush}" />
+                                <TextBlock
+                                    x:Name="HeatmapTooltipDateText"
+                                    FontSize="14"
+                                    Foreground="{ThemeResource TertiaryTextBrush}" />
+                            </StackPanel>
+                        </Border>
+                    </Grid>
+                </Grid>
             </Grid>
-        </Canvas>
+        </primitives:Popup>
     </Grid>
 </UserControl>

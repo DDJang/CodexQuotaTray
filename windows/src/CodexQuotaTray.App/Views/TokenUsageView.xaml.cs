@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Numerics;
 using System.Threading.Tasks;
+using CodexQuotaTray.App.Interop;
+using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core.Presentation;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Dispatching;
@@ -19,29 +21,37 @@ public sealed partial class TokenUsageView : UserControl
 {
     private const float TooltipWidth = 176f;
     private const float TooltipHeight = 64f;
+    private const float TooltipHostPaddingX = 32f;
+    private const float TooltipHostPaddingY = 24f;
+    private const int PointerExitDebounceMilliseconds = 40;
     private readonly DispatcherQueue uiDispatcher;
     private readonly TokenUsageViewModel tokenUsageViewModel;
+    private readonly IntPtr hostWindowHandle;
     private Border? activeHeatmapCell;
     private int? activeHeatmapIndex;
     private bool sharedTooltipHasPosition;
     private bool sharedTooltipIsFadingOut;
     private int sharedTooltipRevision;
     private Visual? sharedTooltipVisual;
+    private bool sharedTooltipHostHasPosition;
+    private float sharedTooltipHostOriginX;
+    private float sharedTooltipHostOriginY;
     private double sharedTooltipVisualPreparationMilliseconds;
     private bool firstTooltipDiagnosticsReported;
+    private int heatmapPointerRevision;
     private bool applyLayoutMeasurementPending;
     private long applyCompletedTimestamp;
 
-    public TokenUsageView(TokenUsageViewModel viewModel)
+    public TokenUsageView(TokenUsageViewModel viewModel, IntPtr hostWindowHandle)
     {
         tokenUsageViewModel = viewModel;
+        this.hostWindowHandle = hostWindowHandle;
         uiDispatcher = DispatcherQueue.GetForCurrentThread();
         InitializeComponent();
-        if (new AccessibilitySettings().HighContrast)
-        {
-            HeatmapTooltipBackdrop.SystemBackdrop = null;
-        }
-        PrepareSharedHeatmapTooltipVisual();
+        // The system backdrop path on an unconstrained Popup crashes inside
+        // the WinUI compositor on the current Windows App SDK runtime. Keep
+        // the shared Popup on its stable theme-aware tint surface instead.
+        SharedHeatmapTooltipPopup.SystemBackdrop = null;
         tokenUsageViewModel.ApplyCompleted += OnTokenUsageApplyCompleted;
         LayoutUpdated += OnTokenUsageLayoutUpdated;
         DataContext = viewModel;
@@ -60,6 +70,7 @@ public sealed partial class TokenUsageView : UserControl
     private void OnTokenUsageLayoutUpdated(object? sender, object args)
     {
         if (sharedTooltipVisual is null
+            && XamlRoot is not null
             && HeatmapInteractionHost.ActualWidth > 0
             && HeatmapItemsRepeater.ActualWidth > 0)
         {
@@ -90,26 +101,63 @@ public sealed partial class TokenUsageView : UserControl
         }
 
         var stopwatch = Stopwatch.StartNew();
+        if (XamlRoot is null)
+        {
+            return;
+        }
+
+        SharedHeatmapTooltipPopup.XamlRoot = XamlRoot;
+        SharedHeatmapTooltipPopup.Opacity = 0f;
+        SharedHeatmapTooltipPopup.IsOpen = true;
         sharedTooltipVisual = ElementCompositionPreview.GetElementVisual(SharedHeatmapTooltip);
         sharedTooltipVisual.CenterPoint = new Vector3(TooltipWidth / 2f, TooltipHeight / 2f, 0f);
-        sharedTooltipVisual.Offset = Vector3.Zero;
         sharedTooltipVisual.Scale = Vector3.One;
         sharedTooltipVisual.Opacity = 0f;
+        SharedHeatmapTooltipPopup.Opacity = 1f;
         stopwatch.Stop();
         sharedTooltipVisualPreparationMilliseconds = stopwatch.Elapsed.TotalMilliseconds;
     }
 
-    private void OnHeatmapPointerEntered(object sender, PointerRoutedEventArgs args) =>
-        UpdateHeatmapSelection(args);
+    internal void PrepareHeatmapInteraction()
+    {
+        PrepareSharedHeatmapTooltipVisual();
+    }
 
-    private void OnHeatmapPointerMoved(object sender, PointerRoutedEventArgs args) =>
+    private void OnHeatmapPointerEntered(object sender, PointerRoutedEventArgs args)
+    {
+        heatmapPointerRevision++;
         UpdateHeatmapSelection(args);
+    }
 
-    private void OnHeatmapPointerPressed(object sender, PointerRoutedEventArgs args) =>
+    private void OnHeatmapPointerMoved(object sender, PointerRoutedEventArgs args)
+    {
+        heatmapPointerRevision++;
         UpdateHeatmapSelection(args);
+    }
 
-    private void OnHeatmapPointerExited(object sender, PointerRoutedEventArgs args) =>
-        ClearHeatmapSelection();
+    private void OnHeatmapPointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        heatmapPointerRevision++;
+        UpdateHeatmapSelection(args);
+    }
+
+    private void OnHeatmapPointerExited(object sender, PointerRoutedEventArgs args)
+    {
+        var revision = ++heatmapPointerRevision;
+        _ = ClearHeatmapSelectionAfterExitAsync(revision);
+    }
+
+    private async Task ClearHeatmapSelectionAfterExitAsync(int revision)
+    {
+        await Task.Delay(PointerExitDebounceMilliseconds).ConfigureAwait(false);
+        _ = uiDispatcher.TryEnqueue(() =>
+        {
+            if (revision == heatmapPointerRevision)
+            {
+                ClearHeatmapSelection();
+            }
+        });
+    }
 
     private void UpdateHeatmapSelection(PointerRoutedEventArgs args)
     {
@@ -156,8 +204,9 @@ public sealed partial class TokenUsageView : UserControl
         cell.Scale = new Vector3(TokenHeatmapInteraction.SelectedScale, TokenHeatmapInteraction.SelectedScale, 1f);
         cell.Translation = new Vector3(0f, 0f, 16f);
         cell.Shadow = new ThemeShadow();
-        cell.BorderBrush = CreateHeatmapHighlightBrush(cell.Background);
-        cell.BorderThickness = new Thickness(1);
+        var isEmptyCell = heatmapCell.Bucket == 0;
+        cell.BorderBrush = CreateHeatmapHighlightBrush(cell.Background, isEmptyCell);
+        cell.BorderThickness = new Thickness(isEmptyCell ? 1.5 : 1);
         Canvas.SetZIndex(cell, 1);
         UpdateSharedHeatmapTooltip(
             validIndex,
@@ -172,6 +221,28 @@ public sealed partial class TokenUsageView : UserControl
     {
         ClearHeatmapCell();
         HideSharedHeatmapTooltip();
+    }
+
+    internal void ResetHeatmapInteraction()
+    {
+        heatmapPointerRevision++;
+        ClearHeatmapCell();
+        sharedTooltipRevision++;
+        sharedTooltipHasPosition = false;
+        sharedTooltipIsFadingOut = false;
+
+        if (sharedTooltipVisual is Visual tooltipVisual)
+        {
+            tooltipVisual.StopAnimation("Opacity");
+            tooltipVisual.StopAnimation("Scale");
+            tooltipVisual.Opacity = 0f;
+            tooltipVisual.Scale = Vector3.One;
+        }
+
+        SharedHeatmapTooltipPopup.Opacity = 0f;
+        SharedHeatmapTooltipPopup.IsOpen = false;
+        sharedTooltipVisual = null;
+        sharedTooltipHostHasPosition = false;
     }
 
     private void ClearHeatmapCell()
@@ -204,41 +275,27 @@ public sealed partial class TokenUsageView : UserControl
         sharedTooltipIsFadingOut = false;
         sharedTooltipRevision++;
 
-        var viewportWidth = (float)Math.Max(
-            HeatmapInteractionHost.ActualWidth,
-            HeatmapItemsRepeater.ActualWidth);
-        var viewportHeight = (float)Math.Max(
-            HeatmapInteractionHost.ActualHeight,
-            HeatmapItemsRepeater.ActualHeight);
-        var heatmapOriginX = MathF.Max(
-            0f,
-            ((float)HeatmapInteractionHost.ActualWidth - (float)HeatmapItemsRepeater.ActualWidth) / 2f);
-        var heatmapOriginY = MathF.Max(
-            0f,
-            ((float)HeatmapInteractionHost.ActualHeight - (float)HeatmapItemsRepeater.ActualHeight) / 2f);
         var transformStarted = collectFirstTooltipDiagnostics
             ? Stopwatch.GetTimestamp()
             : 0L;
-        var heatmapHostOrigin = HeatmapInteractionHost
-            .TransformToVisual(HeatmapTooltipOverlay)
+        var heatmapOrigin = HeatmapItemsRepeater
+            .TransformToVisual(TokenUsageRoot)
             .TransformPoint(new Point(0, 0));
         var transformMilliseconds = collectFirstTooltipDiagnostics
             ? Stopwatch.GetElapsedTime(transformStarted).TotalMilliseconds
             : 0d;
-        var target = TokenHeatmapInteraction.PlaceTooltip(
-            viewportWidth,
-            viewportHeight,
+        var target = TokenHeatmapInteraction.PlaceTooltipAboveCell(
             index,
             (DataContext as TokenUsageViewModel)?.HeatmapCells.Count ?? 0,
             TooltipWidth,
             TooltipHeight,
-            heatmapOriginX,
-            heatmapOriginY);
-        target = target with
-        {
-            X = target.X + (float)heatmapHostOrigin.X,
-            Y = target.Y + (float)heatmapHostOrigin.Y,
-        };
+            (float)heatmapOrigin.X,
+            (float)heatmapOrigin.Y);
+        target = ClampTooltipToWorkArea(target);
+        EnsureTooltipHostPosition(
+            (DataContext as TokenUsageViewModel)?.HeatmapCells.Count ?? 0,
+            (float)heatmapOrigin.X,
+            (float)heatmapOrigin.Y);
 
         var tooltipVisual = sharedTooltipVisual;
         if (tooltipVisual is null)
@@ -248,8 +305,10 @@ public sealed partial class TokenUsageView : UserControl
 
         if (!sharedTooltipHasPosition)
         {
-            tooltipVisual.StopAnimation("Offset");
-            tooltipVisual.Offset = new Vector3(target.X, target.Y, 0f);
+            var translationTransition = SharedHeatmapTooltipMotionLayer.TranslationTransition;
+            SharedHeatmapTooltipMotionLayer.TranslationTransition = null;
+            SetTooltipTranslation(target);
+            SharedHeatmapTooltipMotionLayer.TranslationTransition = translationTransition;
             tooltipVisual.Opacity = 1f;
             tooltipVisual.Scale = Vector3.One;
             sharedTooltipHasPosition = true;
@@ -266,7 +325,7 @@ public sealed partial class TokenUsageView : UserControl
         }
         else
         {
-            StartTooltipSpring(tooltipVisual, target);
+            SetTooltipTranslation(target);
             if (wasFadingOut)
             {
                 AnimateTooltipVisual(tooltipVisual, 1f, Vector3.One);
@@ -309,14 +368,69 @@ public sealed partial class TokenUsageView : UserControl
         });
     }
 
-    private static void StartTooltipSpring(Visual tooltipVisual, TokenHeatmapTooltipPlacement target)
+    private void EnsureTooltipHostPosition(
+        int cellCount,
+        float heatmapOriginX,
+        float heatmapOriginY)
     {
-        tooltipVisual.StopAnimation("Offset");
-        var animation = tooltipVisual.Compositor.CreateSpringVector3Animation();
-        animation.DampingRatio = TokenHeatmapInteraction.TooltipSpringDampingRatio;
-        animation.Period = TimeSpan.FromMilliseconds(TokenHeatmapInteraction.TooltipSpringPeriodMilliseconds);
-        animation.FinalValue = new Vector3(target.X, target.Y, 0f);
-        tooltipVisual.StartAnimation("Offset", animation);
+        if (sharedTooltipHostHasPosition)
+        {
+            return;
+        }
+
+        var firstTarget = TokenHeatmapInteraction.PlaceTooltipAboveCell(
+            0,
+            cellCount,
+            TooltipWidth,
+            TooltipHeight,
+            heatmapOriginX,
+            heatmapOriginY);
+        sharedTooltipHostOriginX = firstTarget.X - TooltipHostPaddingX;
+        sharedTooltipHostOriginY = firstTarget.Y - TooltipHostPaddingY;
+        SharedHeatmapTooltipPopup.HorizontalOffset = sharedTooltipHostOriginX;
+        SharedHeatmapTooltipPopup.VerticalOffset = sharedTooltipHostOriginY;
+        sharedTooltipHostHasPosition = true;
+    }
+
+    private void SetTooltipTranslation(TokenHeatmapTooltipPlacement target)
+    {
+        SharedHeatmapTooltipMotionLayer.Translation = new Vector3(
+            target.X - sharedTooltipHostOriginX,
+            target.Y - sharedTooltipHostOriginY,
+            0f);
+    }
+
+    private TokenHeatmapTooltipPlacement ClampTooltipToWorkArea(TokenHeatmapTooltipPlacement target)
+    {
+        var scale = Math.Max(1.0, HeatmapInteractionHost.XamlRoot?.RasterizationScale ?? 1.0);
+        var rootOrigin = GetRootScreenOrigin();
+        var screenX = rootOrigin.X + (target.X * (float)scale);
+        var screenY = rootOrigin.Y + (target.Y * (float)scale);
+        var monitorAnchor = new NativeMethods.NativePoint
+        {
+            X = (int)Math.Round(screenX + (TooltipWidth * scale / 2.0), MidpointRounding.AwayFromZero),
+            Y = (int)Math.Round(screenY, MidpointRounding.AwayFromZero),
+        };
+        var workArea = WindowPlacementService.GetWorkArea(
+            new System.Drawing.Rectangle(monitorAnchor.X, monitorAnchor.Y, 1, 1));
+        var tooltipWidthPixels = TooltipWidth * scale;
+        var maxScreenX = workArea.Right - tooltipWidthPixels;
+        var clampedScreenX = maxScreenX < workArea.Left
+            ? workArea.Left
+            : Math.Clamp(screenX, workArea.Left, maxScreenX);
+
+        return target with
+        {
+            X = (float)((clampedScreenX - rootOrigin.X) / scale),
+        };
+    }
+
+    private (int X, int Y) GetRootScreenOrigin()
+    {
+        var point = new NativeMethods.NativePoint();
+        return NativeMethods.ClientToScreen(hostWindowHandle, ref point)
+            ? (point.X, point.Y)
+            : (0, 0);
     }
 
     private static void AnimateTooltipVisual(Visual tooltipVisual, float opacity, Vector3 scale)
@@ -333,8 +447,13 @@ public sealed partial class TokenUsageView : UserControl
         tooltipVisual.StartAnimation("Scale", scaleAnimation);
     }
 
-    private static Brush CreateHeatmapHighlightBrush(Brush background)
+    private static Brush CreateHeatmapHighlightBrush(Brush background, bool isEmptyCell)
     {
+        if (isEmptyCell)
+        {
+            return (Brush)Application.Current.Resources["TokenHeatmapEmptyCellHighlightBrush"];
+        }
+
         if (new AccessibilitySettings().HighContrast)
         {
             return (Brush)Application.Current.Resources["TokenHeatmapCellBorderBrush"];

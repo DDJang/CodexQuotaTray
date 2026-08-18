@@ -41,9 +41,7 @@ public static class TokenHeatmapInteraction
         return index < cellCount ? index : null;
     }
 
-    public static TokenHeatmapTooltipPlacement PlaceTooltip(
-        float viewportWidth,
-        float viewportHeight,
+    public static TokenHeatmapTooltipPlacement PlaceTooltipAboveCell(
         int cellIndex,
         int cellCount,
         float tooltipWidth,
@@ -64,21 +62,13 @@ public static class TokenHeatmapInteraction
         var scaledCellSize = CellSize * SelectedScale;
         var scaleInset = (scaledCellSize - CellSize) / 2f;
         var selectedTop = cellTop - scaleInset;
-        var selectedBottom = selectedTop + scaledCellSize;
         var cellCenter = cellLeft + (CellSize / 2f);
         var x = cellCenter - (tooltipWidth / 2f);
         var y = selectedTop - tooltipHeight - TooltipClearance;
 
-        if (y < 0f)
-        {
-            y = selectedBottom + TooltipClearance;
-        }
-
-        var maxX = MathF.Max(0f, viewportWidth - tooltipWidth);
-        var maxY = MathF.Max(0f, viewportHeight - tooltipHeight);
         return new TokenHeatmapTooltipPlacement(
-            Math.Clamp(x, 0f, maxX),
-            Math.Clamp(y, 0f, maxY));
+            x,
+            y);
     }
 }
 

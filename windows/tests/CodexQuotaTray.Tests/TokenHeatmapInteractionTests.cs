@@ -44,16 +44,16 @@ public sealed class TokenHeatmapInteractionTests
     }
 
     [TestMethod]
-    public void TooltipPlacementMovesWithCellsAndStaysInsideViewport()
+    public void TooltipPlacementStaysAboveScaledCellWithoutViewportClamp()
     {
-        var firstCell = TokenHeatmapInteraction.PlaceTooltip(353f, 143f, 0, 119, 120f, 48f);
-        var adjacentCell = TokenHeatmapInteraction.PlaceTooltip(353f, 143f, 1, 119, 120f, 48f);
-        var lastCell = TokenHeatmapInteraction.PlaceTooltip(353f, 143f, 118, 119, 120f, 48f);
+        var firstCell = TokenHeatmapInteraction.PlaceTooltipAboveCell(0, 119, 120f, 48f);
+        var adjacentCell = TokenHeatmapInteraction.PlaceTooltipAboveCell(1, 119, 120f, 48f);
+        var lastCell = TokenHeatmapInteraction.PlaceTooltipAboveCell(118, 119, 120f, 48f);
 
         Assert.AreNotEqual(firstCell, adjacentCell);
-        Assert.AreEqual(0f, firstCell.X, 0.001f);
-        Assert.AreEqual(29.25f, firstCell.Y, 0.001f);
-        Assert.AreEqual(233f, lastCell.X, 0.001f);
+        Assert.AreEqual(-51.5f, firstCell.X, 0.001f);
+        Assert.AreEqual(-60.25f, firstCell.Y, 0.001f);
+        Assert.AreEqual(284.5f, lastCell.X, 0.001f);
         Assert.AreEqual(65.75f, lastCell.Y, 0.001f);
     }
 
