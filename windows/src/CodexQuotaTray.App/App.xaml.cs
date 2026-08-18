@@ -24,6 +24,7 @@ public partial class App : Application
     private IAsyncDisposable? providerLifetime;
     private Task? initializationTask;
     private Task<AppSettings>? tokenUsageSettingsTask;
+    private Task<TokenUsageCacheSettingsState>? tokenUsageCacheSettingsStateTask;
     private Task? tokenUsageInitializationTask;
     private Task? tokenUsageRefreshTask;
     private IQuotaRuntimeControl? runtime;
@@ -90,13 +91,14 @@ public partial class App : Application
             persistence = new PreviewPersistence(jsonStore, paths);
             var settingsService = new SettingsService(jsonStore, paths);
             tokenUsageSettingsTask = settingsService.LoadAsync(lifetime.Token);
+            tokenUsageCacheSettingsStateTask = TokenUsageCacheSettingsState.CreateAsync(tokenUsageSettingsTask);
             var notificationSink = new TrayNotificationSink(uiDispatcher);
             var liveRuntime = new QuotaRuntimeService(
                 new CodexAppServerClientFactory(new CodexClientOptions(ExplicitCodexBinary: explicitCodex)),
                 settingsService,
                 persistence,
                 notificationSink);
-            runtime = liveRuntime;
+            runtime = new TokenUsageCacheRuntimeControl(liveRuntime, tokenUsageCacheSettingsStateTask);
             stateProvider = liveRuntime;
             diagnostics = liveRuntime;
             providerLifetime = liveRuntime;
@@ -551,19 +553,20 @@ public partial class App : Application
             $"TokenUsage diagnostics: stage=scan files={snapshot.FilesScanned} "
             + $"scannerMs={snapshot.ScanElapsedMilliseconds} elapsedMs={scanStopwatch.ElapsedMilliseconds}");
 
-        var persistTokenUsageCache = tokenUsageSettingsTask is not null
-            ? (await tokenUsageSettingsTask).PersistTokenUsageCache
-            : runtime?.Settings.PersistTokenUsageCache == true;
-        if (persistence is not null && persistTokenUsageCache)
+        if (persistence is not null && tokenUsageCacheSettingsStateTask is not null)
         {
+            var settingsState = await tokenUsageCacheSettingsStateTask.WaitAsync(cancellationToken);
             var cacheStopwatch = Stopwatch.StartNew();
+            var saveAttempted = false;
             try
             {
-                await persistence.SaveTokenUsageCacheAsync(snapshot, cancellationToken);
-                if (runtime?.Settings.PersistTokenUsageCache != true)
-                {
-                    await persistence.ClearTokenUsageCacheAsync();
-                }
+                _ = await settingsState.PersistIfEnabledAsync(
+                    async token =>
+                    {
+                        saveAttempted = true;
+                        await persistence.SaveTokenUsageCacheAsync(snapshot, token);
+                    },
+                    cancellationToken);
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
@@ -572,8 +575,11 @@ public partial class App : Application
             finally
             {
                 cacheStopwatch.Stop();
-                Debug.WriteLine(
-                    $"TokenUsage diagnostics: stage=cache-save elapsedMs={cacheStopwatch.ElapsedMilliseconds}");
+                if (saveAttempted)
+                {
+                    Debug.WriteLine(
+                        $"TokenUsage diagnostics: stage=cache-save elapsedMs={cacheStopwatch.ElapsedMilliseconds}");
+                }
             }
         }
 
