@@ -13,15 +13,15 @@
     "publishedAt": "2026-08-18T09:06:04Z"
   },
   "android": {
-    "version": "0.8.6",
-    "tag": "android-v0.8.6",
+    "version": "0.8.7",
+    "tag": "android-v0.8.7",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.8.6.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.8.6/CodexQuotaTray-Android-v0.8.6.apk",
-      "sha256": "d107a58ae091835c7b7f6bb9890e526488d71e3bddda65db362d03f23cd2a1a2",
+      "name": "CodexQuotaTray-Android-v0.8.7.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.8.7/CodexQuotaTray-Android-v0.8.7.apk",
+      "sha256": "9913bc7c0546ada9c9c2e60c7d1b52a74ed55403955edf711c25e513855a1b3e",
       "size": 26383134
     },
-    "releaseNotes": "## Android\n\n- 统一额度、统计、同步与设置页面的中文文案，让刷新状态、同步状态和错误提示更清晰。\n- 优化额度与统计页面的信息层级和无数据提示，明确区分额度刷新与 Token 统计同步。\n",
-    "publishedAt": "2026-08-18T09:02:02Z"
+    "releaseNotes": "## Android\n\n- 本版本没有 Android 客户端用户可见功能变更；同步发布 0.8.7 版本构建。\n",
+    "publishedAt": "2026-08-18T11:28:14Z"
   }
 }
