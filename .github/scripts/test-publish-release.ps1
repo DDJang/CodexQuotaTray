@@ -113,4 +113,202 @@ Assert-Matches -Text $manifest `
     -Pattern "(?s)if \(Test-PlatformSelected -Name 'Windows'\).*?Assert-ManifestNode.*?-Platform 'windows'" `
     -Message 'Windows manifest verification is not selection-gated.'
 
+$stageStart = $source.IndexOf('$pathsToStage = @()', [StringComparison]::Ordinal)
+$stageEnd = $source.IndexOf('$staged = @(', $stageStart, [StringComparison]::Ordinal)
+if ($stageStart -lt 0 -or $stageEnd -le $stageStart) {
+    throw 'Could not isolate release preparation staging for contract checks.'
+}
+$staging = $source.Substring($stageStart, $stageEnd - $stageStart)
+if ($staging.Contains('$androidNotesPath', [StringComparison]::Ordinal) -or
+    $staging.Contains('$windowsNotesPath', [StringComparison]::Ordinal)) {
+    throw 'Release preparation staging must not stage release notes.'
+}
+Assert-Contains -Text $source -Needle 'Test-ExistingReleasePreparationState' `
+    -Message 'Release preparation reruns must validate an existing preparation commit before resuming.'
+Assert-Contains -Text $source -Needle 'without creating an empty commit' `
+    -Message 'Release preparation reruns must not bypass the resume check with an empty commit.'
+
+function Invoke-ResumeTestGit {
+    param(
+        [Parameter(Mandatory = $true)][string]$WorkingDirectory,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+    $output = @(& $testGitCommand -C $WorkingDirectory @Arguments 2>&1)
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        $text = (($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine).Trim()
+        throw "Test git command failed with exit code ${exitCode}: git -C $WorkingDirectory $($Arguments -join ' '): $text"
+    }
+    return (($output | ForEach-Object { [string]$_ }) -join [Environment]::NewLine).Trim()
+}
+
+function Write-ResumeTestFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string]$RelativePath,
+        [Parameter(Mandatory = $true)][string]$Content
+    )
+    $path = Join-Path $Root $RelativePath
+    $parent = Split-Path -Parent $path
+    New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    [IO.File]::WriteAllText($path, $Content, [Text.UTF8Encoding]::new($false))
+    return $path
+}
+
+$isWindowsHost = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
+if (-not $isWindowsHost) {
+    Write-Host 'Skipping release-preparation resume integration test on a non-Windows host; the publish script uses Windows paths.'
+} else {
+Write-Host 'Running release-preparation resume regression test.'
+$testGitCommand = (Get-Command git -ErrorAction Stop).Source
+$testPwshCommand = (Get-Command pwsh -ErrorAction Stop).Source
+$resumeRoot = Join-Path ([IO.Path]::GetTempPath()) ('codex-release-resume-' + [Guid]::NewGuid().ToString('N'))
+$resumeRepo = Join-Path $resumeRoot 'repo'
+$resumeRemote = Join-Path $resumeRoot 'remote.git'
+$resumeShim = Join-Path $resumeRoot 'bin'
+$targetVersion = '0.8.8'
+$originalPath = $env:PATH
+try {
+    New-Item -ItemType Directory -Force -Path $resumeRoot, $resumeShim | Out-Null
+    & $testGitCommand init --bare $resumeRemote *> $null
+    & $testGitCommand init --initial-branch=main $resumeRepo *> $null
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Could not initialize the resume regression repository.'
+    }
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('config', 'user.name', 'Release Resume Test')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('config', 'user.email', 'release-resume@example.invalid')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('remote', 'add', 'origin', $resumeRemote)
+
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/workflows/windows-release.yml' -Content @'
+name: Windows Release
+on:
+  push:
+    tags:
+      - windows-v*
+concurrency:
+  group: update-manifest-publish
+  cancel-in-progress: false
+jobs:
+  release:
+    steps:
+      - run: echo --notes-file
+'@
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/workflows/windows-ci.yml' -Content 'name: Windows CI'
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/scripts/update-release-manifest.ps1' -Content '# fixture'
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/scripts/test-update-release-manifest.ps1' -Content '# fixture'
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/scripts/test-publish-release.ps1' -Content '# fixture'
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/scripts/verify-winui.ps1' -Content '# fixture'
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath 'scripts/publish-release.ps1' -Content ([IO.File]::ReadAllText((Join-Path $repoRoot 'scripts/publish-release.ps1')))
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj' -Content @'
+<Project>
+  <PropertyGroup>
+    <Version>0.8.7</Version>
+  </PropertyGroup>
+</Project>
+'@
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/release-notes/0.8.8.md' -Content '# Windows 0.8.8'
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', '.')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'test: seed release fixtures')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('tag', '-a', 'windows-v0.8.7', '-m', 'windows-v0.8.7')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('push', '--set-upstream', 'origin', 'main', '--tags')
+
+    $versionPath = Join-Path $resumeRepo 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj'
+    $versionText = [IO.File]::ReadAllText($versionPath).Replace('<Version>0.8.7</Version>', '<Version>0.8.8</Version>')
+    [IO.File]::WriteAllText($versionPath, $versionText, [Text.UTF8Encoding]::new($false))
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', '-c', 'codex/resume-test')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'release: prepare Windows 0.8.8')
+    $preparationHead = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('push', '--set-upstream', 'origin', 'codex/resume-test')
+
+    $windowsGhShim = @'
+@echo off
+if "%1"=="auth" exit /b 0
+if "%1"=="repo" (
+  echo example/test
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="list" (
+  echo [{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","baseRefName":"main"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="checks" (
+  echo RESUME_REACHED_PR_CHECKS
+  exit /b 42
+)
+exit /b 99
+'@
+    $unixGhShim = @'
+#!/bin/sh
+if [ "$1" = "auth" ]; then exit 0; fi
+if [ "$1" = "repo" ]; then
+  printf '%s\n' 'example/test'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  printf '%s\n' '[{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","baseRefName":"main"}]'
+  exit 0
+fi
+if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
+  printf '%s\n' 'RESUME_REACHED_PR_CHECKS'
+  exit 42
+fi
+exit 99
+'@
+    $ghShimPath = if ($isWindowsHost) {
+        Write-ResumeTestFile -Root $resumeShim -RelativePath 'gh.cmd' -Content $windowsGhShim
+    } else {
+        $path = Write-ResumeTestFile -Root $resumeShim -RelativePath 'gh' -Content $unixGhShim
+        & chmod +x $path
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Could not make the Unix gh regression stub executable.'
+        }
+        $path
+    }
+    $gitDirectory = Split-Path -Parent $testGitCommand
+    $pwshDirectory = Split-Path -Parent $testPwshCommand
+    $systemDirectories = if ($isWindowsHost) {
+        @(
+            (Join-Path $env:SystemRoot 'System32'),
+            $env:SystemRoot,
+            (Join-Path $env:SystemRoot 'System32\Wbem')
+        )
+    } else {
+        @('/usr/local/bin', '/usr/bin', '/bin')
+    }
+    $env:PATH = (($resumeShim, $gitDirectory, $pwshDirectory) + $systemDirectories | Where-Object {
+        -not [string]::IsNullOrWhiteSpace($_)
+    }) -join ';'
+
+    $resumeOutput = @(& $testPwshCommand -NoProfile -File (Join-Path $resumeRepo 'scripts/publish-release.ps1') `
+        -Platform Windows -Version $targetVersion -TimeoutMinutes 5 2>&1 | ForEach-Object {
+            [string]$_
+        })
+    $resumeExitCode = $LASTEXITCODE
+    $resumeText = ($resumeOutput -join [Environment]::NewLine)
+    if ($resumeExitCode -eq 0) {
+        throw 'Resume regression fixture unexpectedly completed without reaching the PR checks sentinel.'
+    }
+    if ($resumeText -notmatch 'RESUME_REACHED_PR_CHECKS') {
+        throw "Resume regression did not reach the reused PR checks. Output: $resumeText"
+    }
+    if ($resumeText -match 'No release preparation changes were staged') {
+        throw 'Resume regression still failed with the old staged-change error.'
+    }
+    if ($resumeText -notmatch 'Existing release preparation commit is valid' -or
+        $resumeText -notmatch 'Release PR: #42') {
+        throw 'Resume regression did not validate the preparation commit and reuse the existing PR.'
+    }
+    $headAfterResume = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+    if ($headAfterResume -cne $preparationHead) {
+        throw 'Resume regression changed HEAD instead of avoiding an empty commit.'
+    }
+} finally {
+    $env:PATH = $originalPath
+    if (Test-Path -LiteralPath $resumeRoot) {
+        Remove-Item -LiteralPath $resumeRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+}
+
 Write-Host 'Platform-independent release script contract tests passed.'

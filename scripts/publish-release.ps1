@@ -277,6 +277,91 @@ function Read-Notes {
     return $content
 }
 
+function Get-RepoRelativePath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    return $Path.Substring($script:RepoRoot.Length + 1).Replace('\', '/')
+}
+
+function Test-FileInHead {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $relativePath = Get-RepoRelativePath -Path $Path
+    $tracked = Invoke-Captured -FilePath $script:Git -Arguments @(
+        'ls-files', '--error-unmatch', '--', $relativePath
+    )
+    if ($tracked.ExitCode -ne 0) {
+        return $false
+    }
+    $headFile = Invoke-Captured -FilePath $script:Git -Arguments @(
+        'cat-file', '-e', "HEAD:$relativePath"
+    )
+    return $headFile.ExitCode -eq 0
+}
+
+function Get-CommitChangedPaths {
+    param([Parameter(Mandatory = $true)][string]$Commit)
+    $text = Read-ExternalText -FilePath $script:Git -Arguments @(
+        'diff-tree', '--no-commit-id', '--name-only', '-r', $Commit
+    )
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return @()
+    }
+    return @($text -split [Environment]::NewLine | ForEach-Object {
+        ([string]$_).Trim()
+    } | Where-Object { $_ })
+}
+
+function Test-ExistingReleasePreparationState {
+    param(
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo,
+        [Parameter(Mandatory = $true)][string[]]$NotesPaths,
+        [Parameter(Mandatory = $true)][string]$CommitMessage
+    )
+    $worktreeStatus = (Read-ExternalText -FilePath $script:Git -Arguments @(
+        'status', '--short'
+    )).Trim()
+    if (-not [string]::IsNullOrWhiteSpace($worktreeStatus)) {
+        return $false
+    }
+
+    $expectedVersionPaths = @()
+    if (Test-PlatformSelected -Name 'Android') {
+        if ($null -eq $AndroidInfo -or [string]$AndroidInfo.Version -cne $Version) {
+            return $false
+        }
+        $expectedVersionPaths += Get-RepoRelativePath -Path $AndroidInfo.Path
+    }
+    if (Test-PlatformSelected -Name 'Windows') {
+        if ($null -eq $WindowsInfo -or [string]$WindowsInfo.Version -cne $Version) {
+            return $false
+        }
+        $expectedVersionPaths += Get-RepoRelativePath -Path $WindowsInfo.Path
+    }
+    foreach ($notesPath in $NotesPaths) {
+        if (-not (Test-FileInHead -Path $notesPath)) {
+            return $false
+        }
+    }
+
+    $subject = (Read-ExternalText -FilePath $script:Git -Arguments @(
+        'log', '-1', '--format=%s', 'HEAD'
+    )).Trim()
+    if ($subject -cne $CommitMessage) {
+        return $false
+    }
+
+    $changedPaths = @(Get-CommitChangedPaths -Commit 'HEAD')
+    if ($changedPaths.Count -ne $expectedVersionPaths.Count) {
+        return $false
+    }
+    foreach ($path in $expectedVersionPaths) {
+        if ($path -notin $changedPaths) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Assert-WorkflowContracts {
     Write-Step 'Checking release workflow contracts.'
     $workflowContracts = @()
@@ -874,14 +959,13 @@ Update-VersionFiles -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -Version
 Run-LocalValidation
 
 Write-Step 'Creating the release preparation commit.'
+$releaseSubject = "release: prepare $script:ReleaseScope $Version"
 $pathsToStage = @()
 if (Test-PlatformSelected -Name 'Android') {
     $pathsToStage += $androidInfo.Path
-    $pathsToStage += $androidNotesPath
 }
 if (Test-PlatformSelected -Name 'Windows') {
     $pathsToStage += $windowsInfo.Path
-    $pathsToStage += $windowsNotesPath
 }
 Invoke-External -FilePath $script:Git -Arguments (@('add', '--') + $pathsToStage)
 $staged = @(& $script:Git diff --cached --name-only | ForEach-Object {
@@ -896,10 +980,20 @@ foreach ($path in $staged) {
     }
 }
 if ($staged.Count -eq 0) {
-    throw 'No release preparation changes were staged.'
+    $resumeNotesPaths = @()
+    if (Test-PlatformSelected -Name 'Android') {
+        $resumeNotesPaths += $androidNotesPath
+    }
+    if (Test-PlatformSelected -Name 'Windows') {
+        $resumeNotesPaths += $windowsNotesPath
+    }
+    if (-not (Test-ExistingReleasePreparationState -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject)) {
+        throw 'No release preparation changes were staged and no matching release preparation commit is ready to resume.'
+    }
+    Write-Host 'Existing release preparation commit is valid; resuming without creating an empty commit.'
+} else {
+    Invoke-External -FilePath $script:Git -Arguments @('commit', '-m', $releaseSubject)
 }
-$releaseSubject = "release: prepare $script:ReleaseScope $Version"
-Invoke-External -FilePath $script:Git -Arguments @('commit', '-m', $releaseSubject)
 Invoke-External -FilePath $script:Git -Arguments @('push', 'origin', $script:Branch)
 
 Write-Step 'Creating or reusing the release PR.'

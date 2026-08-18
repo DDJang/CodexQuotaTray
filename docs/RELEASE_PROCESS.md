@@ -93,6 +93,8 @@ Common:  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps
 
 验证成功后检查差异和敏感文件，只 stage 选定平台的版本文件；notes 已属于 clean HEAD，不在本次脚本工作区中新增或修改。脚本使用带平台范围的 `release: prepare ...` 提交，然后只 push 当前分支到 `origin`，不 force push。
 
+如果脚本在 release preparation commit 已经存在后重跑，只有在当前 HEAD 的提交 subject、选定平台版本文件、选定平台 notes、提交改动范围和 clean worktree 都与本次目标一致时，才会跳过 commit（不创建空 commit），push 当前分支并继续查询/复用已有 PR；状态不完整时仍会停止。
+
 ### 7. 创建或复用 PR
 
 脚本按当前分支和 `main` 查找 open PR；找到就复用，否则创建一个 PR，不创建重复 PR。PR 标题和正文标明本次平台范围。脚本读取近期已合并 PR 和 merge commit 的父节点确认 merge convention；无法可靠识别时停止而不是猜测。
