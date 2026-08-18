@@ -166,6 +166,34 @@ public sealed class TokenUsageViewModelTests
     }
 
     [TestMethod]
+    public async Task RestoredCacheClearsLoadingWhenRefreshAlreadyStarted()
+    {
+        var scanStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseScan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var snapshot = CreateSnapshot(128_392);
+        var viewModel = new TokenUsageViewModel(async _ =>
+        {
+            scanStarted.SetResult();
+            await releaseScan.Task;
+            return snapshot;
+        });
+
+        var refresh = viewModel.RefreshNowAsync(CancellationToken.None);
+        await scanStarted.Task;
+
+        Assert.IsTrue(viewModel.ShowLoading);
+        viewModel.RestoreSnapshot(snapshot);
+
+        Assert.IsFalse(viewModel.ShowLoading);
+        Assert.IsTrue(viewModel.ShowContent);
+        Assert.AreEqual("正在刷新… · 显示上次数据", viewModel.StatusText);
+        Assert.AreEqual(StatusTone.Refreshing, viewModel.StatusTone);
+
+        releaseScan.SetResult();
+        await refresh;
+    }
+
+    [TestMethod]
     public void BackgroundRefreshPolicyUsesConfiguredFixedIntervals()
     {
         var now = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);

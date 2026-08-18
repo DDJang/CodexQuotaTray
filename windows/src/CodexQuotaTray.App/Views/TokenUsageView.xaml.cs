@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics;
 using System.Threading.Tasks;
 using CodexQuotaTray.Core.Presentation;
@@ -17,22 +18,56 @@ namespace CodexQuotaTray.App.Views;
 public sealed partial class TokenUsageView : UserControl
 {
     private readonly DispatcherQueue uiDispatcher;
+    private readonly TokenUsageViewModel tokenUsageViewModel;
     private Border? activeHeatmapCell;
     private int? activeHeatmapIndex;
     private bool sharedTooltipHasPosition;
     private bool sharedTooltipIsFadingOut;
     private int sharedTooltipRevision;
     private Size? sharedTooltipSize;
+    private bool applyLayoutMeasurementPending;
+    private long applyCompletedTimestamp;
 
     public TokenUsageView(TokenUsageViewModel viewModel)
     {
+        tokenUsageViewModel = viewModel;
         uiDispatcher = DispatcherQueue.GetForCurrentThread();
         InitializeComponent();
         if (new AccessibilitySettings().HighContrast)
         {
             HeatmapTooltipBackdrop.SystemBackdrop = null;
         }
+        tokenUsageViewModel.ApplyCompleted += OnTokenUsageApplyCompleted;
+        LayoutUpdated += OnTokenUsageLayoutUpdated;
         DataContext = viewModel;
+    }
+
+    private void OnTokenUsageApplyCompleted(object? sender, EventArgs args)
+    {
+        var completedTimestamp = Stopwatch.GetTimestamp();
+        _ = uiDispatcher.TryEnqueue(() =>
+        {
+            applyCompletedTimestamp = completedTimestamp;
+            applyLayoutMeasurementPending = true;
+        });
+    }
+
+    private void OnTokenUsageLayoutUpdated(object? sender, object args)
+    {
+        if (!applyLayoutMeasurementPending
+            || !IsLoaded
+            || Visibility != Visibility.Visible
+            || ActualWidth <= 0
+            || ActualHeight <= 0
+            || !tokenUsageViewModel.ShowContent)
+        {
+            return;
+        }
+
+        applyLayoutMeasurementPending = false;
+        Debug.WriteLine(
+            $"TokenUsage diagnostics: stage=ui-layout-visible "
+            + $"elapsedMs={Stopwatch.GetElapsedTime(applyCompletedTimestamp).TotalMilliseconds:F1}");
     }
 
     private void OnHeatmapPointerEntered(object sender, PointerRoutedEventArgs args) =>
@@ -109,7 +144,6 @@ public sealed partial class TokenUsageView : UserControl
         var wasFadingOut = sharedTooltipIsFadingOut;
         sharedTooltipIsFadingOut = false;
         sharedTooltipRevision++;
-        SharedHeatmapTooltip.Visibility = Visibility.Visible;
 
         var viewportWidth = (float)Math.Max(
             HeatmapInteractionHost.ActualWidth,
@@ -123,6 +157,9 @@ public sealed partial class TokenUsageView : UserControl
         var heatmapOriginY = MathF.Max(
             0f,
             ((float)HeatmapInteractionHost.ActualHeight - (float)HeatmapItemsRepeater.ActualHeight) / 2f);
+        var heatmapHostOrigin = HeatmapInteractionHost
+            .TransformToVisual(HeatmapTooltipOverlay)
+            .TransformPoint(new Point(0, 0));
         var desiredSize = MeasureSharedHeatmapTooltipIfNeeded();
         var target = TokenHeatmapInteraction.PlaceTooltip(
             viewportWidth,
@@ -133,6 +170,11 @@ public sealed partial class TokenUsageView : UserControl
             (float)desiredSize.Height,
             heatmapOriginX,
             heatmapOriginY);
+        target = target with
+        {
+            X = target.X + (float)heatmapHostOrigin.X,
+            Y = target.Y + (float)heatmapHostOrigin.Y,
+        };
 
         var tooltipVisual = ElementCompositionPreview.GetElementVisual(SharedHeatmapTooltip);
         tooltipVisual.CenterPoint = new Vector3(
@@ -173,7 +215,7 @@ public sealed partial class TokenUsageView : UserControl
 
     private void HideSharedHeatmapTooltip()
     {
-        if (SharedHeatmapTooltip.Visibility == Visibility.Collapsed || sharedTooltipIsFadingOut)
+        if (!sharedTooltipHasPosition || sharedTooltipIsFadingOut)
         {
             return;
         }
@@ -185,10 +227,10 @@ public sealed partial class TokenUsageView : UserControl
             tooltipVisual,
             0f,
             new Vector3(0.96f, 0.96f, 1f));
-        _ = CollapseSharedHeatmapTooltipAsync(revision);
+        _ = CompleteSharedHeatmapTooltipFadeAsync(revision);
     }
 
-    private async Task CollapseSharedHeatmapTooltipAsync(int revision)
+    private async Task CompleteSharedHeatmapTooltipFadeAsync(int revision)
     {
         await Task.Delay(TokenHeatmapInteraction.TooltipFadeDurationMilliseconds).ConfigureAwait(false);
         _ = uiDispatcher.TryEnqueue(() =>
@@ -198,9 +240,7 @@ public sealed partial class TokenUsageView : UserControl
                 return;
             }
 
-            SharedHeatmapTooltip.Visibility = Visibility.Collapsed;
-            sharedTooltipHasPosition = false;
-            sharedTooltipIsFadingOut = false;
+            sharedTooltipIsFadingOut = true;
         });
     }
 

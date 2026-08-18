@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.App.Views;
 using CodexQuotaTray.Core;
@@ -22,6 +23,7 @@ public partial class App : Application
     private DispatcherQueue? uiDispatcher;
     private IAsyncDisposable? providerLifetime;
     private Task? initializationTask;
+    private Task<AppSettings>? tokenUsageSettingsTask;
     private Task? tokenUsageInitializationTask;
     private Task? tokenUsageRefreshTask;
     private IQuotaRuntimeControl? runtime;
@@ -86,10 +88,12 @@ public partial class App : Application
         {
             var jsonStore = new JsonFileStore();
             persistence = new PreviewPersistence(jsonStore, paths);
+            var settingsService = new SettingsService(jsonStore, paths);
+            tokenUsageSettingsTask = settingsService.LoadAsync(lifetime.Token);
             var notificationSink = new TrayNotificationSink(uiDispatcher);
             var liveRuntime = new QuotaRuntimeService(
                 new CodexAppServerClientFactory(new CodexClientOptions(ExplicitCodexBinary: explicitCodex)),
-                new SettingsService(jsonStore, paths),
+                settingsService,
                 persistence,
                 notificationSink);
             runtime = liveRuntime;
@@ -183,6 +187,7 @@ public partial class App : Application
             tokenUsageInitializationTask = InitializeTokenUsageAsync(
                 tokenUsageViewModel,
                 persistence!,
+                tokenUsageSettingsTask!,
                 lifetime.Token);
             tokenUsageRefreshTask = RunTokenUsageRefreshLoopAsync(tokenUsageViewModel, lifetime.Token);
         }
@@ -537,11 +542,21 @@ public partial class App : Application
         PreviewPersistence? persistence,
         CancellationToken cancellationToken)
     {
+        var scanStopwatch = Stopwatch.StartNew();
         var snapshot = await Task.Run(
             () => scanner.ScanAsync(cancellationToken: cancellationToken),
             cancellationToken);
-        if (persistence is not null && runtime?.Settings.PersistTokenUsageCache == true)
+        scanStopwatch.Stop();
+        Debug.WriteLine(
+            $"TokenUsage diagnostics: stage=scan files={snapshot.FilesScanned} "
+            + $"scannerMs={snapshot.ScanElapsedMilliseconds} elapsedMs={scanStopwatch.ElapsedMilliseconds}");
+
+        var persistTokenUsageCache = tokenUsageSettingsTask is not null
+            ? (await tokenUsageSettingsTask).PersistTokenUsageCache
+            : runtime?.Settings.PersistTokenUsageCache == true;
+        if (persistence is not null && persistTokenUsageCache)
         {
+            var cacheStopwatch = Stopwatch.StartNew();
             try
             {
                 await persistence.SaveTokenUsageCacheAsync(snapshot, cancellationToken);
@@ -552,7 +567,13 @@ public partial class App : Application
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
-                System.Diagnostics.Debug.WriteLine($"Token usage cache save failed: {error.GetType().Name}");
+                Debug.WriteLine($"Token usage cache save failed: {error.GetType().Name}");
+            }
+            finally
+            {
+                cacheStopwatch.Stop();
+                Debug.WriteLine(
+                    $"TokenUsage diagnostics: stage=cache-save elapsedMs={cacheStopwatch.ElapsedMilliseconds}");
             }
         }
 
@@ -562,14 +583,11 @@ public partial class App : Application
     private async Task InitializeTokenUsageAsync(
         TokenUsageViewModel tokenUsageViewModel,
         PreviewPersistence persistence,
+        Task<AppSettings> settingsTask,
         CancellationToken cancellationToken)
     {
-        if (initializationTask is not null)
-        {
-            await initializationTask;
-        }
-
-        if (runtime?.Settings.PersistTokenUsageCache != true)
+        var settings = await settingsTask;
+        if (!settings.PersistTokenUsageCache)
         {
             return;
         }

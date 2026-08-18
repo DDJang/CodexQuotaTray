@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Runtime;
@@ -71,6 +72,8 @@ public sealed partial class TokenUsageViewModel : ObservableObject
 
     public ObservableCollection<TokenHeatmapCell> HeatmapCells { get; } = [];
 
+    public event EventHandler? ApplyCompleted;
+
     public bool HasLoaded => snapshot is not null;
 
     public DateTimeOffset? LastAttemptUtc { get; private set; }
@@ -81,6 +84,12 @@ public sealed partial class TokenUsageViewModel : ObservableObject
     {
         LastAttemptUtc = value.GeneratedAtUtc;
         Apply(value);
+        ShowLoading = false;
+        if (IsRefreshing)
+        {
+            StatusText = "正在刷新… · 显示上次数据";
+            StatusTone = StatusTone.Refreshing;
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanRefresh))]
@@ -120,6 +129,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
 
     internal void Apply(TokenUsageSnapshot value, DateOnly? today = null)
     {
+        var applyStopwatch = Stopwatch.StartNew();
         var summary = value.Summary;
         var localToday = today ?? DateOnly.FromDateTime(DateTime.Now);
         var cells = TokenHeatmap.Build(value.Days, localToday, HeatmapWeeks);
@@ -146,6 +156,11 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         StatusTone = HasData ? StatusTone.Success : StatusTone.Neutral;
 
         OnPropertyChanged(nameof(HasLoaded));
+        applyStopwatch.Stop();
+        Debug.WriteLine(
+            $"TokenUsage diagnostics: stage=apply cells={cells.Count} "
+            + $"elapsedMs={applyStopwatch.ElapsedMilliseconds}");
+        ApplyCompleted?.Invoke(this, EventArgs.Empty);
     }
 
     private bool CanRefresh() => !IsRefreshing;

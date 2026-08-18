@@ -140,6 +140,8 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsage, "Width=\"176\"");
         StringAssert.Contains(tokenUsage, "SystemBackdropElement");
         StringAssert.Contains(tokenUsage, "DesktopAcrylicBackdrop");
+        StringAssert.Contains(tokenUsage, "Visibility=\"Visible\"");
+        StringAssert.Contains(tokenUsage, "IsHitTestVisible=\"False\"");
         Assert.IsFalse(tokenUsage.Contains("TokenHeatmapToolTipAcrylicBrush", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsage, "FontSize=\"16\"");
         StringAssert.Contains(tokenUsage, "FontSize=\"14\"");
@@ -153,6 +155,7 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsageCode, "new Thickness(1)");
         StringAssert.Contains(tokenUsageCode, "cell.Shadow = new ThemeShadow()");
         StringAssert.Contains(tokenUsageCode, "TokenHeatmapInteraction.PlaceTooltip");
+        StringAssert.Contains(tokenUsageCode, "TransformToVisual(HeatmapTooltipOverlay)");
         StringAssert.Contains(tokenUsageCode, "CreateSpringVector3Animation");
         StringAssert.Contains(tokenUsageCode, "tooltipVisual.StopAnimation(\"Offset\")");
         StringAssert.Contains(tokenUsageCode, "tooltipVisual.StartAnimation(\"Offset\", animation)");
