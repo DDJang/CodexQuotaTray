@@ -258,6 +258,24 @@ public sealed class TokenUsageTests
     }
 
     [TestMethod]
+    public async Task ScannerRetriesIncompleteFinalRecordWhenTemporaryEofPrecedesTokenMarker()
+    {
+        using var corpus = new TokenCorpus();
+        var complete = Event("2026-08-08T01:00:00Z", 123, 123);
+        var markerIndex = complete.IndexOf("\"token_count\"", StringComparison.Ordinal);
+        Assert.IsGreaterThan(0, markerIndex);
+        var path = corpus.LiveRaw("partial-before-marker.jsonl", complete[..markerIndex]);
+        var scanner = new TokenUsageScanner();
+
+        var incomplete = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow());
+        File.AppendAllText(path, complete[markerIndex..] + Environment.NewLine, Encoding.UTF8);
+        var completed = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow().AddMinutes(1));
+
+        Assert.AreEqual(0L, incomplete.Summary.LifetimeTokens);
+        Assert.AreEqual(123L, completed.Summary.LifetimeTokens);
+    }
+
+    [TestMethod]
     public async Task ScannerRebuildsStateWhenAFileIsTruncatedAndRewritten()
     {
         using var corpus = new TokenCorpus();

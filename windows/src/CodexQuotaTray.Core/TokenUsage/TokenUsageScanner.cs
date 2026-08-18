@@ -332,7 +332,7 @@ public sealed class TokenUsageScanner
                     lineStartOffset == 0,
                     ref previousTotal,
                     events);
-                if (disposition is LineDisposition.NonCandidate or LineDisposition.ParsedCandidate)
+                if (disposition is LineDisposition.ParsedCandidate)
                 {
                     processedLength = absoluteOffset;
                 }
