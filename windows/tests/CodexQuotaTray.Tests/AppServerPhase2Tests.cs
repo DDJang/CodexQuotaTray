@@ -693,7 +693,10 @@ public sealed class AppServerPhase2Tests
 
         await service.RefreshAsync(CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(1));
         factory.First.ReleaseLateRead.TrySetResult();
-        await oldRefresh.WaitAsync(TimeSpan.FromSeconds(1));
+        // The stale read is released only after generation two is active. The
+        // single snapshot worker may still be draining generation-two persistence
+        // before it can complete this intentionally discarded generation-one work.
+        await oldRefresh.WaitAsync(TimeSpan.FromSeconds(5));
         await factory.Second.ReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
         Assert.AreEqual(2, factory.CreateCount);
