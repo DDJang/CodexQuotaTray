@@ -416,3 +416,4 @@ exit /b 99
 }
 
 Write-Host 'Platform-independent release script contract tests passed.'
+exit 0
