@@ -63,7 +63,7 @@ public sealed class TokenUsageViewModelTests
         Assert.IsTrue(viewModel.ShowContent);
         Assert.IsFalse(viewModel.ShowLoading);
         Assert.IsFalse(viewModel.HasErrorWithoutData);
-        Assert.AreEqual("更新失败 · 显示上次统计", viewModel.StatusText);
+        Assert.AreEqual("刷新失败 · 显示上次数据", viewModel.StatusText);
         Assert.AreEqual(StatusTone.Warning, viewModel.StatusTone);
     }
 
@@ -160,6 +160,34 @@ public sealed class TokenUsageViewModelTests
         Assert.IsTrue(viewModel.ShowContent);
         Assert.IsFalse(viewModel.ShowEmpty);
         Assert.IsFalse(viewModel.ShowError);
+
+        releaseScan.SetResult();
+        await refresh;
+    }
+
+    [TestMethod]
+    public async Task RestoredCacheClearsLoadingWhenRefreshAlreadyStarted()
+    {
+        var scanStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseScan = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var snapshot = CreateSnapshot(128_392);
+        var viewModel = new TokenUsageViewModel(async _ =>
+        {
+            scanStarted.SetResult();
+            await releaseScan.Task;
+            return snapshot;
+        });
+
+        var refresh = viewModel.RefreshNowAsync(CancellationToken.None);
+        await scanStarted.Task;
+
+        Assert.IsTrue(viewModel.ShowLoading);
+        viewModel.RestoreSnapshot(snapshot);
+
+        Assert.IsFalse(viewModel.ShowLoading);
+        Assert.IsTrue(viewModel.ShowContent);
+        Assert.AreEqual("正在刷新… · 显示上次数据", viewModel.StatusText);
+        Assert.AreEqual(StatusTone.Refreshing, viewModel.StatusTone);
 
         releaseScan.SetResult();
         await refresh;

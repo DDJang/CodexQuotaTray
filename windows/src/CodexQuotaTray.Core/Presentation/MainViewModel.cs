@@ -65,7 +65,7 @@ public sealed partial class MainViewModel : ObservableObject
     private async Task RefreshAsync(CancellationToken cancellationToken)
     {
         IsRefreshing = true;
-        StatusText = "正在获取额度…";
+        StatusText = "正在刷新…";
         StatusTone = StatusTone.Refreshing;
         try
         {
@@ -86,7 +86,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     public void ReportStartupFailure()
     {
-        StatusText = "! 无法启动 Codex 连接 · 点击刷新重试";
+        StatusText = "刷新失败：无法启动 Codex 连接 · 点击刷新重试";
         StatusTone = StatusTone.Error;
         IsRefreshing = false;
         IsPrototype = false;

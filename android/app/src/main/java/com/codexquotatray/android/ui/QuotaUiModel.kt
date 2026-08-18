@@ -93,7 +93,7 @@ private fun loadedQuota(
         windows = cards,
         updatedAtMillis = updatedAtMillis,
         source = source,
-        message = if (quotaState == "zero_windows") "当前没有可用额度窗口" else null,
+        message = if (quotaState == "zero_windows") "暂无可用额度" else null,
     )
 }
 

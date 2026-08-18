@@ -142,6 +142,14 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern uint GetDpiForWindow(IntPtr hwnd);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetClientRect(IntPtr hwnd, out NativeRect rect);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ClientToScreen(IntPtr hwnd, ref NativePoint point);
+
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
     internal static extern IntPtr GetWindowLongPtr(IntPtr hwnd, int index);
 

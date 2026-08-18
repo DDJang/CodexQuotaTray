@@ -7,8 +7,10 @@ import androidx.compose.ui.unit.sp
 
 /** Presentation-only wording shared by the quota and Token pages. */
 internal object RefreshStatusFormatter {
-    fun loaded(source: String, updatedAt: String?): String =
-        "$source · ${updatedAt?.takeIf { it.isNotBlank() }?.let { "更新于 $it" } ?: "尚未更新"}"
+    fun loaded(source: String, updatedAt: String?): String {
+        val time = updatedAt?.takeIf { it.isNotBlank() }?.let { "更新于 $it" } ?: "尚未更新"
+        return "$time · $source"
+    }
 
     fun refreshing(hasCachedData: Boolean): String =
         if (hasCachedData) "正在刷新… · 显示上次数据" else "正在刷新…"
@@ -22,12 +24,27 @@ internal object RefreshStatusFormatter {
         }
     }
 
+    fun tokenRefreshing(hasCachedData: Boolean): String =
+        if (hasCachedData) "正在同步… · 显示上次数据" else "正在同步…"
+
+    fun tokenFailure(reason: String?, updatedAt: String? = null): String {
+        val message = reason?.trim()?.takeIf { it.isNotEmpty() } ?: "暂不可用"
+        return if (updatedAt?.isNotBlank() == true) {
+            "更新于 $updatedAt · 同步失败：$message"
+        } else {
+            "同步失败：$message"
+        }
+    }
+
     fun quotaNoSource(): String = "尚未连接额度来源"
 
     fun tokenUnpaired(): String = "尚未配对 Windows"
 
-    fun tokenPairedWithoutData(): String = "已配对 Windows · 尚无统计数据"
+    fun tokenPairedWithoutData(): String = "已配对 Windows · 暂无 Token 数据"
 }
+
+internal fun refreshStatusErrorMarker(status: String): String? =
+    listOf("刷新失败：", "同步失败：").firstOrNull { status.contains(it) }
 
 internal fun shortQuotaRefreshFailure(message: String?): String =
     if (message?.contains("无法连接") == true) "网络连接异常"
@@ -36,8 +53,8 @@ internal fun shortQuotaRefreshFailure(message: String?): String =
 @Composable
 internal fun RefreshStatusLine(status: String) {
     val palette = LocalQuotaPalette.current
-    val errorMarker = "刷新失败："
-    val errorStart = status.indexOf(errorMarker)
+    val errorMarker = refreshStatusErrorMarker(status)
+    val errorStart = errorMarker?.let { status.indexOf(it) } ?: -1
     if (errorStart >= 0) {
         val prefix = status.substring(0, errorStart).removeSuffix(" · ")
         Row {

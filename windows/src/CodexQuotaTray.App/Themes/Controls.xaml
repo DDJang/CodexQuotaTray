@@ -182,8 +182,9 @@
     <Style x:Key="SettingsActionButtonStyle" TargetType="Button">
         <Setter Property="MinHeight" Value="40" />
         <Setter Property="Padding" Value="12,0" />
+        <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
         <Setter Property="HorizontalAlignment" Value="Stretch" />
-        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
     </Style>

@@ -71,9 +71,9 @@ import java.util.concurrent.Executors
 private enum class SettingsDestination(val title: String) {
     ROOT("设置"),
     NOTIFICATIONS("通知"),
-    SYNC("同步"),
+    SYNC("数据更新"),
     THEME("显示与主题"),
-    TOKEN_PAIRING("Token 用量账号"),
+    TOKEN_PAIRING("Windows 配对"),
     UPDATE("更新设置"),
 }
 
@@ -183,7 +183,7 @@ class SettingsActivity : ComponentActivity() {
                 if (showClearPairingDialog) {
                     CodexConfirmDialog(
                         title = "解除配对",
-                        message = "确定解除当前 Windows Token Usage 配对吗？",
+                        message = "确定解除当前 Windows 配对吗？",
                         confirmText = "解除",
                         onConfirm = ::clearPairing,
                         onDismiss = { showClearPairingDialog = false },
@@ -266,28 +266,28 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun ColumnScope.SettingsHome() {
-        SettingsSection("账号") {
+        SettingsSection("账号与配对") {
             SettingsGroup {
                 SettingsNavigationRow("Codex 额度账号") {
                     startActivity(Intent(this@SettingsActivity, AccountActivity::class.java))
                 }
                 SettingsDivider()
                 SettingsNavigationRow(
-                    title = "Token 用量账号",
+                    title = "Windows 配对",
                     trailing = pairing?.displayName ?: "未配对",
                 ) { openDestination(SettingsDestination.TOKEN_PAIRING) }
             }
         }
-        SettingsSection("通知与同步") {
+        SettingsSection("通知与数据更新") {
             SettingsGroup {
                 if (!backgroundRefresh) {
-                    SettingsWarningCaption("未开启同步时，通知可能会延迟")
+                    SettingsWarningCaption("未开启额度后台刷新时，通知可能会延迟")
                 }
                 SettingsNavigationRow("通知", if (notificationEnabled) "已开启" else "未开启") {
                     openDestination(SettingsDestination.NOTIFICATIONS)
                 }
                 SettingsDivider()
-                SettingsNavigationRow("同步", if (backgroundRefresh || tokenBackgroundSync) "已开启" else "已关闭") {
+                SettingsNavigationRow("数据更新", if (backgroundRefresh || tokenBackgroundSync) "已开启" else "已关闭") {
                     openDestination(SettingsDestination.SYNC)
                 }
             }
@@ -344,7 +344,7 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun ColumnScope.SyncSettings() {
-        SettingsSection("剩余额度") {
+        SettingsSection("额度") {
             SettingsGroup {
                 SettingsToggleRow("回到前台时刷新", quotaAutoRefresh, onChange = ::updateQuotaAutoRefresh)
                 SettingsDivider()
@@ -364,7 +364,7 @@ class SettingsActivity : ComponentActivity() {
                 )
             }
         }
-        SettingsSection("Token 使用量") {
+        SettingsSection("统计") {
             SettingsGroup {
                 SettingsToggleRow("回到前台时同步", tokenAutoSync, onChange = ::updateTokenAutoSync)
                 SettingsDivider()

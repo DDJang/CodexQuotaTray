@@ -319,14 +319,14 @@ internal fun QuotaPage(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text(
-            "额度卡片",
+            "额度",
             fontSize = 21.sp,
             fontWeight = FontWeight.Bold,
             color = palette.color(palette.title),
         )
         QuotaStatusLine(model)
         if (model.status != QuotaUiStatus.UNAUTHENTICATED) {
-            if (model.status == QuotaUiStatus.LOADED && model.windows.isEmpty()) Text("当前没有可用额度窗口")
+            if (model.status == QuotaUiStatus.LOADED && model.windows.isEmpty()) Text("暂无可用额度")
             model.windows.forEach { QuotaWindowCard(it) }
         } else {
             Button(onClick = rememberSystemHapticClick(controller::openLogin), enabled = !controller.busy, modifier = Modifier.fillMaxWidth()) { Text("登录 Codex") }

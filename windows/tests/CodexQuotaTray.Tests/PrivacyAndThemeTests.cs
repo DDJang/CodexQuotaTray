@@ -66,11 +66,58 @@ public sealed class PrivacyAndThemeTests
         Assert.AreEqual("#FF155A91", themes["Light"]["TokenHeatmap4Brush"]);
         Assert.AreEqual("#24303438", themes["Dark"]["MainWindowSurfaceBrush"]);
         Assert.AreEqual("#08FFFFFF", themes["Dark"]["TokenHeatmap0Brush"]);
-        Assert.AreEqual("#FFB4E6FF", themes["Dark"]["TokenHeatmap4Brush"]);
+        Assert.AreEqual("#3DB4E6FF", themes["Dark"]["TokenHeatmap1Brush"]);
+        Assert.AreEqual("#7A96D2FF", themes["Dark"]["TokenHeatmap2Brush"]);
+        Assert.AreEqual("#CC78BEFF", themes["Dark"]["TokenHeatmap3Brush"]);
+        Assert.AreEqual("#FF5AAEFF", themes["Dark"]["TokenHeatmap4Brush"]);
         Assert.AreEqual("#FFF3F3F3", themes["Light"]["MainWindowOpaqueSurfaceBrush"]);
         Assert.AreEqual("#FF202020", themes["Dark"]["MainWindowOpaqueSurfaceBrush"]);
         Assert.AreEqual("#FFFFFFFF", themes["Light"]["PanelChromeForegroundBrush"]);
         Assert.AreEqual("#FFFFFFFF", themes["Dark"]["PanelChromeForegroundBrush"]);
+    }
+
+    [TestMethod]
+    public void HeatmapTooltipUsesPopupTintAndHighContrastFallback()
+    {
+        var file = Path.Combine(AppContext.BaseDirectory, "Themes", "Colors.xaml");
+        var document = XDocument.Load(file);
+        XNamespace presentation = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var themes = document
+            .Descendants(presentation + "ResourceDictionary")
+            .Where(element => element.Attribute(xaml + "Key")?.Value is "Light" or "Dark" or "HighContrast")
+            .ToDictionary(
+                element => element.Attribute(xaml + "Key")!.Value,
+                StringComparer.Ordinal);
+
+        XElement Resource(string theme, string key) => themes[theme]
+            .Elements()
+            .Single(resource => resource.Attribute(xaml + "Key")?.Value == key);
+
+        var lightTint = Resource("Light", "TokenHeatmapToolTipTintBrush");
+        var darkTint = Resource("Dark", "TokenHeatmapToolTipTintBrush");
+        var highContrastFallback = Resource("HighContrast", "TokenHeatmapToolTipTintBrush");
+
+        Assert.AreEqual("SolidColorBrush", lightTint.Name.LocalName);
+        Assert.AreEqual("SolidColorBrush", darkTint.Name.LocalName);
+        Assert.AreEqual("#FFF5F8FC", lightTint.Attribute("Color")?.Value);
+        Assert.AreEqual("#FF20252B", darkTint.Attribute("Color")?.Value);
+        Assert.AreEqual(
+            "#996B7A89",
+            Resource("Light", "TokenHeatmapEmptyCellHighlightBrush").Attribute("Color")?.Value);
+        Assert.AreEqual(
+            "#B8C8D2DC",
+            Resource("Dark", "TokenHeatmapEmptyCellHighlightBrush").Attribute("Color")?.Value);
+        Assert.AreEqual("SolidColorBrush", highContrastFallback.Name.LocalName);
+        Assert.AreEqual(
+            "{ThemeResource SystemColorWindowColor}",
+            highContrastFallback.Attribute("Color")?.Value);
+        Assert.AreEqual(
+            "{ThemeResource SystemColorWindowTextColor}",
+            Resource("HighContrast", "TokenHeatmapToolTipBorderBrush").Attribute("Color")?.Value);
+        Assert.AreEqual(
+            "{ThemeResource SystemColorHighlightColor}",
+            Resource("HighContrast", "TokenHeatmapEmptyCellHighlightBrush").Attribute("Color")?.Value);
     }
 
     [TestMethod]
@@ -79,6 +126,8 @@ public sealed class PrivacyAndThemeTests
         var mainWindow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml"));
         var mainWindowCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
         var settingsWindow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "SettingsWindow.xaml"));
+        var settingsWindowCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "SettingsWindow.xaml.cs"));
+        var controls = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Themes", "Controls.xaml"));
         var tokenUsage = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml"));
         var quota = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaView.xaml"));
 
@@ -93,21 +142,121 @@ public sealed class PrivacyAndThemeTests
         Assert.IsFalse(mainWindowCode.Contains("TokenTabButton.Foreground", StringComparison.Ordinal));
         Assert.IsFalse(mainWindowCode.Contains(".Opacity =", StringComparison.Ordinal));
         Assert.IsFalse(mainWindowCode.Contains("incoming.Translation", StringComparison.Ordinal));
-        StringAssert.Contains(tokenUsage, "<Grid Margin=\"0,0,0,14\">");
+        StringAssert.Contains(tokenUsage, "<Grid x:Name=\"TokenUsageRoot\" Margin=\"0,0,0,14\">");
         StringAssert.Contains(tokenUsage, "Padding=\"10,9\"");
         Assert.IsFalse(tokenUsage.Contains("Padding=\"10,9,10,16\"", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsage, "Padding=\"12,8\"");
+        StringAssert.Contains(tokenUsage, "Width=\"176\"");
+        StringAssert.Contains(tokenUsage, "Height=\"64\"");
+        StringAssert.Contains(tokenUsage, "Width=\"576\"");
+        StringAssert.Contains(tokenUsage, "Height=\"238\"");
+        StringAssert.Contains(tokenUsage, "<primitives:Popup");
+        StringAssert.Contains(tokenUsage, "ShouldConstrainToRootBounds=\"False\"");
+        StringAssert.Contains(tokenUsage, "IsHitTestVisible=\"False\"");
+        Assert.IsFalse(tokenUsage.Contains("SystemBackdropElement", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsage.Contains("TokenHeatmapToolTipAcrylicBrush", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsage, "FontSize=\"16\"");
         StringAssert.Contains(tokenUsage, "FontSize=\"14\"");
-        StringAssert.Contains(tokenUsage, "Vector3Transition Duration=\"0:0:0.12\"");
+        StringAssert.Contains(tokenUsage, "Vector3Transition Duration=\"0:0:0.08\"");
+        StringAssert.Contains(tokenUsage, "Vector3Transition Duration=\"0:0:0.11\"");
+        Assert.AreEqual(1, tokenUsage.Split("x:Name=\"SharedHeatmapTooltip\"", StringSplitOptions.None).Length - 1);
+        Assert.IsFalse(tokenUsage.Contains("ToolTipService.ToolTip", StringComparison.Ordinal));
         var tokenUsageCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml.cs"));
-        StringAssert.Contains(tokenUsageCode, "new Vector3(1.28f, 1.28f, 1f)");
-        StringAssert.Contains(tokenUsageCode, "new Thickness(2)");
+        StringAssert.Contains(tokenUsageCode, "TokenHeatmapInteraction.SelectedScale");
+        StringAssert.Contains(tokenUsageCode, "new Vector3(TokenHeatmapInteraction.SelectedScale");
+        StringAssert.Contains(tokenUsageCode, "CreateHeatmapHighlightBrush(cell.Background, isEmptyCell)");
+        StringAssert.Contains(tokenUsageCode, "new Thickness(isEmptyCell ? 1.5 : 1)");
         StringAssert.Contains(tokenUsageCode, "cell.Shadow = new ThemeShadow()");
-        StringAssert.Contains(quota, "Content=\"官方网址\"");
-        Assert.IsFalse(quota.Contains("官方网址 ↗", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowCode, "tokenUsageView.ResetHeatmapInteraction()");
+        StringAssert.Contains(mainWindowCode, "tokenUsageView.PrepareHeatmapInteraction()");
+        StringAssert.Contains(tokenUsageCode, "sharedTooltipHasPosition = false");
+        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.IsOpen = false");
+        StringAssert.Contains(tokenUsageCode, "TokenHeatmapInteraction.PlaceTooltipAboveCell");
+        StringAssert.Contains(tokenUsageCode, "TransformToVisual(TokenUsageRoot)");
+        Assert.IsFalse(tokenUsageCode.Contains("DispatcherQueueTimer", StringComparison.Ordinal));
+        StringAssert.Contains(tokenUsageCode, "EnsureTooltipHostPosition(");
+        StringAssert.Contains(tokenUsageCode, "SetTooltipTranslation(target)");
+        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.HorizontalOffset");
+        StringAssert.Contains(tokenUsageCode, "WindowPlacementService.GetWorkArea");
+        StringAssert.Contains(tokenUsageCode, "ClientToScreen");
+        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipMotionLayer.Translation = new Vector3(");
+        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipMotionLayer.TranslationTransition = null");
+        StringAssert.Contains(tokenUsageCode, "PointerExitDebounceMilliseconds");
+        Assert.IsFalse(tokenUsageCode.Contains("CreateSpringVector3Animation", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("tooltipVisual.StopAnimation(\"Offset\")", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("sharedTooltipRestingOffset", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("tooltipVisual.Offset", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("TransformToVisual(HeatmapTooltipOverlay)", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("MeasureSharedHeatmapTooltipIfNeeded", StringComparison.Ordinal));
+        Assert.AreEqual(
+            1,
+            tokenUsageCode.Split("ElementCompositionPreview.GetElementVisual", StringSplitOptions.None).Length - 1);
+        StringAssert.Contains(tokenUsageCode, "PrepareSharedHeatmapTooltipVisual()");
+        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.Opacity = 1f");
+        StringAssert.Contains(tokenUsageCode, "measureMs=0");
+        StringAssert.Contains(tokenUsageCode, "new AccessibilitySettings().HighContrast");
+        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.SystemBackdrop = null");
+        Assert.IsFalse(tokenUsageCode.Contains("DesktopAcrylicBackdrop", StringComparison.Ordinal));
+        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.IsOpen = true");
+        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.XamlRoot = XamlRoot");
+        StringAssert.Contains(tokenUsageCode, "if (wasFadingOut)");
+        Assert.IsFalse(tokenUsageCode.Contains("ToolTipService.GetToolTip", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("new Vector3(1.28f, 1.28f, 1f)", StringComparison.Ordinal));
+        StringAssert.Contains(quota, "Content=\"官方用量\"");
+        Assert.IsFalse(quota.Contains("官方用量 ↗", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowCode, "var refreshName = showingTokenPage ? \"刷新统计\" : \"刷新额度\";");
+        StringAssert.Contains(tokenUsage, "Text=\"无法刷新统计\"");
         StringAssert.Contains(settingsWindow, "Text=\"保存统计缓存\"");
         StringAssert.Contains(settingsWindow, "IsOn=\"{Binding PersistTokenUsageCache, Mode=TwoWay}\"");
+        StringAssert.Contains(controls, "x:Key=\"SettingsActionButtonStyle\" TargetType=\"Button\"");
+        StringAssert.Contains(controls, "Property=\"CornerRadius\" Value=\"{ThemeResource ControlCornerRadius}\"");
+        StringAssert.Contains(controls, "Property=\"HorizontalContentAlignment\" Value=\"Center\"");
+        StringAssert.Contains(mainWindow, "Glyph=\"&#xE7BA;\"");
+        StringAssert.Contains(mainWindow, "Text=\"托盘图标初始化失败，请重新启动应用或从窗口退出。\"");
+        Assert.IsFalse(mainWindow.Contains("⚠", StringComparison.Ordinal));
+        var updateSettingsStart = settingsWindow.IndexOf(
+            "<StackPanel x:Name=\"UpdateSettingsPanel\"",
+            StringComparison.Ordinal);
+        var advancedSettingsStart = settingsWindow.IndexOf(
+            "<StackPanel x:Name=\"AdvancedSettingsPanel\"",
+            updateSettingsStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(updateSettingsStart >= 0);
+        Assert.IsTrue(advancedSettingsStart > updateSettingsStart);
+        var updateSettings = settingsWindow[updateSettingsStart..advancedSettingsStart];
+        Assert.AreEqual(
+            2,
+            updateSettings.Split("Style=\"{StaticResource SettingsItemCardStyle}\"", StringSplitOptions.None).Length - 1);
+        var normalizedSettingsWindow = settingsWindow.Replace("\r\n", "\n");
+        var normalizedUpdateSettings = updateSettings.Replace("\r\n", "\n");
+        var updateStatusHeaderStart = normalizedUpdateSettings.IndexOf(
+            "Text=\"更新状态\" Style=\"{StaticResource SettingsSectionHeaderStyle}\"",
+            StringComparison.Ordinal);
+        var updateStatusCardStart = normalizedUpdateSettings.IndexOf(
+            "<Border Style=\"{StaticResource SettingsItemCardStyle}\">",
+            updateStatusHeaderStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(updateStatusHeaderStart >= 0);
+        Assert.IsTrue(updateStatusCardStart > updateStatusHeaderStart);
+        var checkButtonStart = normalizedUpdateSettings.IndexOf(
+            "Content=\"检查更新\"",
+            updateStatusCardStart,
+            StringComparison.Ordinal);
+        var checkButtonEnd = normalizedUpdateSettings.IndexOf("/>", checkButtonStart, StringComparison.Ordinal);
+        Assert.IsTrue(checkButtonStart >= 0);
+        Assert.IsTrue(checkButtonEnd > checkButtonStart);
+        StringAssert.Contains(
+            normalizedUpdateSettings[checkButtonStart..(checkButtonEnd + 2)],
+            "HorizontalAlignment=\"Left\"");
+        StringAssert.Contains(normalizedSettingsWindow, "<StackPanel Spacing=\"4\">\n                                <HyperlinkButton Content=\"GitHub 项目主页\"");
+        StringAssert.Contains(settingsWindow, "Click=\"OnRegenerateTokenSyncSecretRequested\"");
+        StringAssert.Contains(settingsWindowCode, "Title = \"重新生成配对密钥？\"");
+        StringAssert.Contains(settingsWindowCode, "Content = \"重新生成后，当前已配对的手机将无法继续连接，需要在手机端重新扫码配对。\"");
+        StringAssert.Contains(settingsWindowCode, "PrimaryButtonText = \"重新生成\"");
+        StringAssert.Contains(settingsWindowCode, "CloseButtonText = \"取消\"");
+        StringAssert.Contains(settingsWindowCode, "DefaultButton = ContentDialogButton.Close");
+        StringAssert.Contains(settingsWindowCode, "RequestedTheme = SettingsRoot.ActualTheme");
+        StringAssert.Contains(settingsWindowCode, "XamlRoot = SettingsRoot.XamlRoot");
 
         var showIncoming = mainWindowCode.IndexOf("incoming.Visibility = Visibility.Visible;", StringComparison.Ordinal);
         var collapseOutgoing = mainWindowCode.IndexOf(

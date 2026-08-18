@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Globalization;
 using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Runtime;
@@ -20,7 +21,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
     private bool isRefreshing;
 
     [ObservableProperty]
-    private string statusText = "尚未扫描 Token";
+    private string statusText = "尚未刷新";
 
     [ObservableProperty]
     private StatusTone statusTone = StatusTone.Neutral;
@@ -71,6 +72,8 @@ public sealed partial class TokenUsageViewModel : ObservableObject
 
     public ObservableCollection<TokenHeatmapCell> HeatmapCells { get; } = [];
 
+    public event EventHandler? ApplyCompleted;
+
     public bool HasLoaded => snapshot is not null;
 
     public DateTimeOffset? LastAttemptUtc { get; private set; }
@@ -81,6 +84,12 @@ public sealed partial class TokenUsageViewModel : ObservableObject
     {
         LastAttemptUtc = value.GeneratedAtUtc;
         Apply(value);
+        ShowLoading = false;
+        if (IsRefreshing)
+        {
+            StatusText = "正在刷新… · 显示上次数据";
+            StatusTone = StatusTone.Refreshing;
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanRefresh))]
@@ -94,7 +103,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         LastAttemptUtc = DateTimeOffset.UtcNow;
         IsRefreshing = true;
         ShowLoading = snapshot is null;
-        StatusText = "正在扫描 Token…";
+        StatusText = "正在刷新…";
         StatusTone = StatusTone.Refreshing;
         HasErrorWithoutData = false;
         try
@@ -106,7 +115,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
-            StatusText = snapshot is null ? "Token 统计读取失败" : "更新失败 · 显示上次统计";
+            StatusText = snapshot is null ? "刷新失败" : "刷新失败 · 显示上次数据";
             StatusTone = snapshot is null ? StatusTone.Error : StatusTone.Warning;
             HasErrorWithoutData = snapshot is null;
         }
@@ -120,6 +129,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
 
     internal void Apply(TokenUsageSnapshot value, DateOnly? today = null)
     {
+        var applyStopwatch = Stopwatch.StartNew();
         var summary = value.Summary;
         var localToday = today ?? DateOnly.FromDateTime(DateTime.Now);
         var cells = TokenHeatmap.Build(value.Days, localToday, HeatmapWeeks);
@@ -142,10 +152,15 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         HasData = summary.LifetimeTokens > 0;
         HasNoData = !HasData;
         HasErrorWithoutData = false;
-        StatusText = HasData ? $"更新于 {value.GeneratedAtUtc.ToLocalTime():HH:mm}" : "尚无 Token 数据";
+        StatusText = HasData ? $"更新于 {value.GeneratedAtUtc.ToLocalTime():HH:mm}" : "暂无 Token 数据";
         StatusTone = HasData ? StatusTone.Success : StatusTone.Neutral;
 
         OnPropertyChanged(nameof(HasLoaded));
+        applyStopwatch.Stop();
+        Debug.WriteLine(
+            $"TokenUsage diagnostics: stage=apply cells={cells.Count} "
+            + $"elapsedMs={applyStopwatch.ElapsedMilliseconds}");
+        ApplyCompleted?.Invoke(this, EventArgs.Empty);
     }
 
     private bool CanRefresh() => !IsRefreshing;

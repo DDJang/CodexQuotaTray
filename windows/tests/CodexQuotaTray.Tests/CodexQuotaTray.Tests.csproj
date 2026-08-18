@@ -10,15 +10,19 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\src\CodexQuotaTray.App\Themes\Colors.xaml" Link="Themes\Colors.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Themes\Controls.xaml" Link="Themes\Controls.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\MainWindow.xaml" Link="Views\MainWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\MainWindow.xaml.cs" Link="Views\MainWindow.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\QuotaView.xaml" Link="Views\QuotaView.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\SettingsWindow.xaml" Link="Views\SettingsWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Views\SettingsWindow.xaml.cs" Link="Views\SettingsWindow.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\TokenUsageView.xaml" Link="Views\TokenUsageView.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\TokenUsageView.xaml.cs" Link="Views\TokenUsageView.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\App.xaml.cs" Link="App.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\TrayNotificationSink.cs" Link="Services\TrayNotificationSink.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\TrayIconService.cs" Link="Services\TrayIconService.cs" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\SessionEndingPolicy.cs" Link="Services\SessionEndingPolicy.cs" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Services\TokenUsageCacheSettingsState.cs" Link="Services\TokenUsageCacheSettingsState.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Interop\NativeMethods.cs" Link="Interop\NativeMethods.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Interop\DnsSdServicePublisher.cs" Link="Interop\DnsSdServicePublisher.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TokenUsageSyncController.cs" Link="Services\TokenUsageSyncController.cs" />

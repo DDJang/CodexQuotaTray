@@ -91,7 +91,7 @@ public sealed class ViewModelTests
         var refreshing = new AppUiState(
             "Codex",
             "Plus",
-            "正在获取额度…",
+            "正在刷新…",
             StatusTone.Refreshing,
             [],
             new ResetCreditViewState(ResetCreditKind.Unavailable),
@@ -102,7 +102,7 @@ public sealed class ViewModelTests
 
         Assert.IsTrue(viewModel.IsRefreshing);
         Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
-        Assert.AreEqual("正在获取额度…", viewModel.StatusText);
+        Assert.AreEqual("正在刷新…", viewModel.StatusText);
 
         viewModel.ApplySnapshot(refreshing with
         {

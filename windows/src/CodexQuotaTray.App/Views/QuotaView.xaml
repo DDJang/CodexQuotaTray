@@ -105,9 +105,9 @@
                 MinHeight="24"
                 Padding="4,1"
                 Command="{Binding OpenUsageCommand}"
-                Content="官方网址"
+                Content="官方用量"
                 FontSize="12"
-                AutomationProperties.Name="打开 Codex 官方网址" />
+                AutomationProperties.Name="打开 Codex 官方用量页面" />
         </Grid>
     </Grid>
 </UserControl>

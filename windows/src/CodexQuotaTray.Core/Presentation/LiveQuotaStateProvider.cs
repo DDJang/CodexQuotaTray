@@ -42,7 +42,7 @@ public sealed class LiveQuotaStateProvider : IUiStateProvider, IDiagnosticTextPr
         {
             current = current with
             {
-                StatusText = client is null ? "正在连接 Codex…" : "正在获取额度…",
+                StatusText = client is null ? "正在连接 Codex…" : "正在刷新…",
                 StatusTone = StatusTone.Refreshing,
                 IsRefreshing = true,
             };
@@ -143,8 +143,8 @@ public sealed class LiveQuotaStateProvider : IUiStateProvider, IDiagnosticTextPr
         return previous with
         {
             StatusText = previous.Windows.Count == 0
-                ? $"! {reason} · 点击刷新重试"
-                : $"! 获取失败，显示上次数据 · {reason}",
+                ? $"刷新失败：{reason} · 点击刷新重试"
+                : $"刷新失败：{reason} · 显示上次数据",
             StatusTone = StatusTone.Error,
             IsRefreshing = false,
             IsPrototype = false,

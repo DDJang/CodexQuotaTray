@@ -37,6 +37,27 @@ public sealed class CrashSessionLogTests
     }
 
     [TestMethod]
+    public void WindowsUpdateTerminationMarksSessionBeforeExitCallback()
+    {
+        using var directory = new TemporaryDirectory();
+        var first = new CrashSessionLog(directory.Path);
+        _ = first.StartSession();
+        var exitCalled = false;
+        var nextSessionWasClean = false;
+
+        SessionEndingPolicy.ExitForWindowsUpdate(first, () =>
+        {
+            exitCalled = true;
+            var next = new CrashSessionLog(directory.Path);
+            nextSessionWasClean = next.StartSession() is null;
+            next.CompleteSession();
+        });
+
+        Assert.IsTrue(exitCalled);
+        Assert.IsTrue(nextSessionWasClean);
+    }
+
+    [TestMethod]
     public void CancelledWindowsSessionEndStillReportsUncleanTermination()
     {
         using var directory = new TemporaryDirectory();

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.App.Views;
 using CodexQuotaTray.Core;
@@ -22,6 +23,8 @@ public partial class App : Application
     private DispatcherQueue? uiDispatcher;
     private IAsyncDisposable? providerLifetime;
     private Task? initializationTask;
+    private Task<AppSettings>? tokenUsageSettingsTask;
+    private Task<TokenUsageCacheSettingsState>? tokenUsageCacheSettingsStateTask;
     private Task? tokenUsageInitializationTask;
     private Task? tokenUsageRefreshTask;
     private IQuotaRuntimeControl? runtime;
@@ -86,13 +89,16 @@ public partial class App : Application
         {
             var jsonStore = new JsonFileStore();
             persistence = new PreviewPersistence(jsonStore, paths);
+            var settingsService = new SettingsService(jsonStore, paths);
+            tokenUsageSettingsTask = settingsService.LoadAsync(lifetime.Token);
+            tokenUsageCacheSettingsStateTask = TokenUsageCacheSettingsState.CreateAsync(tokenUsageSettingsTask);
             var notificationSink = new TrayNotificationSink(uiDispatcher);
             var liveRuntime = new QuotaRuntimeService(
                 new CodexAppServerClientFactory(new CodexClientOptions(ExplicitCodexBinary: explicitCodex)),
-                new SettingsService(jsonStore, paths),
+                settingsService,
                 persistence,
                 notificationSink);
-            runtime = liveRuntime;
+            runtime = new TokenUsageCacheRuntimeControl(liveRuntime, tokenUsageCacheSettingsStateTask);
             stateProvider = liveRuntime;
             diagnostics = liveRuntime;
             providerLifetime = liveRuntime;
@@ -103,7 +109,7 @@ public partial class App : Application
                 {
                     viewModelReference?.ApplySnapshot(state);
                     mainWindow?.ApplyTheme(liveRuntime.Settings.ThemeMode);
-                    trayIcon?.UpdateTooltip(TrayTooltipFormatter.Create(identity.TrayIcon.Tooltip, state));
+                    trayIcon?.UpdateTooltip(TrayTooltipFormatter.Create(state));
                 });
             };
             tokenUsageSync = new TokenUsageSyncController(
@@ -127,7 +133,7 @@ public partial class App : Application
                     updateCoordinator,
                     new WindowsUpdateDownloader(Path.Combine(paths.Root, "updates")),
                     new WindowsUpdateInstaller(),
-                    ExitApplication,
+                    ExitForWindowsUpdate,
                     message => System.Diagnostics.Debug.WriteLine(message),
                     action =>
                     {
@@ -183,6 +189,7 @@ public partial class App : Application
             tokenUsageInitializationTask = InitializeTokenUsageAsync(
                 tokenUsageViewModel,
                 persistence!,
+                tokenUsageSettingsTask!,
                 lifetime.Token);
             tokenUsageRefreshTask = RunTokenUsageRefreshLoopAsync(tokenUsageViewModel, lifetime.Token);
         }
@@ -537,22 +544,42 @@ public partial class App : Application
         PreviewPersistence? persistence,
         CancellationToken cancellationToken)
     {
+        var scanStopwatch = Stopwatch.StartNew();
         var snapshot = await Task.Run(
             () => scanner.ScanAsync(cancellationToken: cancellationToken),
             cancellationToken);
-        if (persistence is not null && runtime?.Settings.PersistTokenUsageCache == true)
+        scanStopwatch.Stop();
+        Debug.WriteLine(
+            $"TokenUsage diagnostics: stage=scan files={snapshot.FilesScanned} "
+            + $"scannerMs={snapshot.ScanElapsedMilliseconds} elapsedMs={scanStopwatch.ElapsedMilliseconds}");
+
+        if (persistence is not null && tokenUsageCacheSettingsStateTask is not null)
         {
+            var settingsState = await tokenUsageCacheSettingsStateTask.WaitAsync(cancellationToken);
+            var cacheStopwatch = Stopwatch.StartNew();
+            var saveAttempted = false;
             try
             {
-                await persistence.SaveTokenUsageCacheAsync(snapshot, cancellationToken);
-                if (runtime?.Settings.PersistTokenUsageCache != true)
-                {
-                    await persistence.ClearTokenUsageCacheAsync();
-                }
+                _ = await settingsState.PersistIfEnabledAsync(
+                    async token =>
+                    {
+                        saveAttempted = true;
+                        await persistence.SaveTokenUsageCacheAsync(snapshot, token);
+                    },
+                    cancellationToken);
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
-                System.Diagnostics.Debug.WriteLine($"Token usage cache save failed: {error.GetType().Name}");
+                Debug.WriteLine($"Token usage cache save failed: {error.GetType().Name}");
+            }
+            finally
+            {
+                cacheStopwatch.Stop();
+                if (saveAttempted)
+                {
+                    Debug.WriteLine(
+                        $"TokenUsage diagnostics: stage=cache-save elapsedMs={cacheStopwatch.ElapsedMilliseconds}");
+                }
             }
         }
 
@@ -562,14 +589,11 @@ public partial class App : Application
     private async Task InitializeTokenUsageAsync(
         TokenUsageViewModel tokenUsageViewModel,
         PreviewPersistence persistence,
+        Task<AppSettings> settingsTask,
         CancellationToken cancellationToken)
     {
-        if (initializationTask is not null)
-        {
-            await initializationTask;
-        }
-
-        if (runtime?.Settings.PersistTokenUsageCache != true)
+        var settings = await settingsTask;
+        if (!settings.PersistTokenUsageCache)
         {
             return;
         }
@@ -649,6 +673,9 @@ public partial class App : Application
             crashSessionLog?.Record(error, "AppDomain.UnhandledException");
         }
     }
+
+    private void ExitForWindowsUpdate() =>
+        SessionEndingPolicy.ExitForWindowsUpdate(crashSessionLog, ExitApplication);
 
     private async void ExitApplication()
     {

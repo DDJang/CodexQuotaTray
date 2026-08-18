@@ -69,22 +69,20 @@ public sealed class LaunchAndVersionTests
         Assert.IsFalse(profile.CanConfigureStartup);
     }
 
-    [DataRow("CodexQuotaTray")]
-    [DataRow("CodexQuotaTray Preview")]
     [TestMethod]
-    public void DynamicTooltipUsesInjectedIdentityPrefix(string baseName)
+    public void DynamicTooltipShowsQuotaAndStatusWithoutIdentityPrefix()
     {
         var state = new AppUiState(
             "Codex",
             null,
-            "已更新",
+            "更新于 15:37",
             StatusTone.Success,
-            [],
+            [QuotaWindowView.Demo("7 天额度", 41, "6天后重置", "08-23 15:37")],
             new ResetCreditViewState(ResetCreditKind.Unavailable));
 
-        var tooltip = TrayTooltipFormatter.Create(baseName, state);
+        var tooltip = TrayTooltipFormatter.Create(state);
 
-        StringAssert.StartsWith(tooltip, $"{baseName} · ");
+        Assert.AreEqual("7 天额度 41% · 更新于 15:37", tooltip);
     }
 
     [TestMethod]
