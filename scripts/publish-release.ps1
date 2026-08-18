@@ -28,6 +28,8 @@ $script:RepoName = $null
 $script:Branch = $null
 $script:HeadSha = $null
 $script:MainSha = $null
+$script:PostMergeResume = $false
+$script:ReleaseMainSha = $null
 $script:SelectedPlatforms = @(
     if ($Platform -eq 'All') {
         'Android'
@@ -41,6 +43,7 @@ $script:ReleaseScope = if ($Platform -eq 'All') {
 } else {
     $Platform
 }
+$releaseSubject = "release: prepare $script:ReleaseScope $Version"
 
 Set-Location -LiteralPath $script:RepoRoot
 
@@ -360,6 +363,192 @@ function Test-ExistingReleasePreparationState {
         }
     }
     return $true
+}
+
+function Get-SelectedVersionPaths {
+    param(
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo
+    )
+    $paths = [System.Collections.Generic.List[string]]::new()
+    if (Test-PlatformSelected -Name 'Android') {
+        if ($null -eq $AndroidInfo) {
+            return @()
+        }
+        $paths.Add((Get-RepoRelativePath -Path $AndroidInfo.Path))
+    }
+    if (Test-PlatformSelected -Name 'Windows') {
+        if ($null -eq $WindowsInfo) {
+            return @()
+        }
+        $paths.Add((Get-RepoRelativePath -Path $WindowsInfo.Path))
+    }
+    return @($paths)
+}
+
+function Get-SelectedReleasePaths {
+    param(
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo,
+        [Parameter(Mandatory = $true)][string[]]$NotesPaths
+    )
+    $paths = [System.Collections.Generic.List[string]]::new()
+    foreach ($path in @(Get-SelectedVersionPaths -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo)) {
+        $paths.Add($path)
+    }
+    foreach ($notesPath in $NotesPaths) {
+        $paths.Add((Get-RepoRelativePath -Path $notesPath))
+    }
+    return @($paths)
+}
+
+function Get-CommitBlobId {
+    param(
+        [Parameter(Mandatory = $true)][string]$Commit,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+    $relativePath = Get-RepoRelativePath -Path $Path
+    $capture = Invoke-Captured -FilePath $script:Git -Arguments @(
+        'rev-parse', ('{0}:{1}' -f $Commit, $relativePath)
+    )
+    if ($capture.ExitCode -ne 0) {
+        return $null
+    }
+    return $capture.Text.Trim()
+}
+
+function Test-CommitFilesMatchHead {
+    param(
+        [Parameter(Mandatory = $true)][string]$Commit,
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo,
+        [Parameter(Mandatory = $true)][string[]]$NotesPaths
+    )
+    $paths = @(Get-SelectedReleasePaths -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo -NotesPaths $NotesPaths)
+    foreach ($relativePath in $paths) {
+        $path = Join-Path $script:RepoRoot ($relativePath -replace '/', '\')
+        $headBlob = Get-CommitBlobId -Commit 'HEAD' -Path $path
+        $commitBlob = Get-CommitBlobId -Commit $Commit -Path $path
+        if ([string]::IsNullOrWhiteSpace($headBlob) -or
+            [string]::IsNullOrWhiteSpace($commitBlob) -or
+            $headBlob -cne $commitBlob) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Test-SquashReleaseCommit {
+    param(
+        [Parameter(Mandatory = $true)][string]$Commit,
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo,
+        [Parameter(Mandatory = $true)][string[]]$NotesPaths
+    )
+    $changedPaths = @(Get-CommitChangedPaths -Commit $Commit)
+    $allowedPaths = @(Get-SelectedReleasePaths -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo -NotesPaths $NotesPaths)
+    foreach ($path in $changedPaths) {
+        if ($path -notin $allowedPaths) {
+            return $false
+        }
+    }
+    foreach ($path in @(Get-SelectedVersionPaths -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo)) {
+        if ($path -notin $changedPaths) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Get-PostMergeReleaseResumeState {
+    param(
+        [Parameter(Mandatory = $true)][string]$MainCommit,
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo,
+        [Parameter(Mandatory = $true)][string[]]$NotesPaths,
+        [Parameter(Mandatory = $true)][string]$CommitMessage
+    )
+    $candidates = [System.Collections.Generic.List[object]]::new()
+    $mergeCommits = Read-ExternalText -FilePath $script:Git -Arguments @(
+        'rev-list', '--first-parent', '--merges', $MainCommit
+    )
+    foreach ($mergeCommit in @($mergeCommits -split [Environment]::NewLine | ForEach-Object {
+        ([string]$_).Trim()
+    } | Where-Object { $_ })) {
+        $parentsText = Read-ExternalText -FilePath $script:Git -Arguments @(
+            'show', '-s', '--format=%P', $mergeCommit
+        )
+        $parents = @($parentsText -split '\s+' | Where-Object { $_ })
+        if ($parents.Count -gt 1 -and (Test-Ancestor -Ancestor $script:HeadSha -Descendant $parents[1])) {
+            $candidates.Add([pscustomobject]@{
+                Commit = $mergeCommit
+                Kind = 'merge'
+            })
+        }
+    }
+
+    $history = Read-ExternalText -FilePath $script:Git -Arguments @(
+        'log', '--first-parent', '--format=%H%x09%s', $MainCommit
+    )
+    foreach ($line in @($history -split [Environment]::NewLine | ForEach-Object {
+        ([string]$_).Trim()
+    } | Where-Object { $_ })) {
+        $parts = $line -split "`t", 2
+        if ($parts.Count -ne 2 -or $parts[1] -cne $CommitMessage) {
+            continue
+        }
+        if (-not @($candidates | Where-Object { $_.Commit -ceq $parts[0] }).Count) {
+            $candidates.Add([pscustomobject]@{
+                Commit = $parts[0]
+                Kind = 'squash'
+            })
+        }
+    }
+
+    if ($candidates.Count -eq 0) {
+        return [pscustomobject]@{
+            Status = 'None'
+            Commit = $null
+            Reason = $null
+        }
+    }
+
+    if (-not (Test-ExistingReleasePreparationState -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo -NotesPaths $NotesPaths -CommitMessage $CommitMessage)) {
+        return [pscustomobject]@{
+            Status = 'Invalid'
+            Commit = $null
+            Reason = 'The current branch does not contain the expected release preparation state.'
+        }
+    }
+
+    $valid = [System.Collections.Generic.List[object]]::new()
+    foreach ($candidate in $candidates) {
+        if (-not (Test-CommitFilesMatchHead -Commit $candidate.Commit -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo -NotesPaths $NotesPaths)) {
+            continue
+        }
+        if ($candidate.Kind -ceq 'squash' -and
+            -not (Test-SquashReleaseCommit -Commit $candidate.Commit -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo -NotesPaths $NotesPaths)) {
+            continue
+        }
+        $valid.Add($candidate)
+    }
+    if ($valid.Count -eq 1) {
+        return [pscustomobject]@{
+            Status = 'Valid'
+            Commit = $valid[0].Commit
+            Reason = $null
+        }
+    }
+    $reason = if ($valid.Count -gt 1) {
+        'More than one main commit could represent this release preparation.'
+    } else {
+        'No main commit matched the release preparation files and target version.'
+    }
+    return [pscustomobject]@{
+        Status = 'Invalid'
+        Commit = $null
+        Reason = $reason
+    }
 }
 
 function Assert-WorkflowContracts {
@@ -801,7 +990,11 @@ if ($DryRun) {
     )
 } else {
     Invoke-External -FilePath $script:Git -Arguments @('fetch', '--tags', 'origin')
+    Invoke-External -FilePath $script:Git -Arguments @(
+        'fetch', 'origin', 'refs/heads/main:refs/remotes/origin/main'
+    )
 }
+$mainContainsHead = $false
 $mainCapture = Invoke-Captured -FilePath $script:Git -Arguments @(
     'rev-parse', 'refs/remotes/origin/main'
 )
@@ -810,8 +1003,9 @@ if ($mainCapture.ExitCode -ne 0) {
 } else {
     $script:MainSha = $mainCapture.Text.Trim()
     Write-Host "origin/main: $($script:MainSha)"
-    if (-not (Test-Ancestor -Ancestor $script:MainSha -Descendant $script:HeadSha)) {
-        Add-Blocker "Current HEAD does not contain origin/main ($($script:MainSha))."
+    $mainContainsHead = Test-Ancestor -Ancestor $script:MainSha -Descendant $script:HeadSha
+    if (-not $mainContainsHead) {
+        Write-Host "origin/main is ahead of current HEAD ($($script:HeadSha)); checking for a verified post-merge resume state."
     }
 }
 
@@ -890,6 +1084,27 @@ if ((Test-PlatformSelected -Name 'Windows') -and $null -ne $windowsInfo) {
     Write-Host "Windows version: $($windowsInfo.Version) -> $Version."
 }
 
+$resumeNotesPaths = @()
+if (Test-PlatformSelected -Name 'Android') {
+    $resumeNotesPaths += $androidNotesPath
+}
+if (Test-PlatformSelected -Name 'Windows') {
+    $resumeNotesPaths += $windowsNotesPath
+}
+if ($mainCapture.ExitCode -eq 0) {
+    $postMergeState = Get-PostMergeReleaseResumeState -MainCommit $script:MainSha -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject
+    if ($postMergeState.Status -ceq 'Valid') {
+        $script:PostMergeResume = $true
+        $script:ReleaseMainSha = $postMergeState.Commit
+        $script:MainSha = $postMergeState.Commit
+        Write-Host "Verified post-merge release resume at main commit $($postMergeState.Commit)."
+    } elseif ($postMergeState.Status -ceq 'Invalid') {
+        Add-Blocker "Post-merge release resume could not be verified: $($postMergeState.Reason)"
+    } elseif (-not $mainContainsHead) {
+        Add-Blocker "Current HEAD does not contain origin/main ($($mainCapture.Text.Trim()))."
+    }
+}
+
 $androidTag = "android-v$Version"
 $windowsTag = "windows-v$Version"
 $targetTags = @()
@@ -939,7 +1154,11 @@ if (Test-PlatformSelected -Name 'Windows') {
     Write-Host "Windows notes: $windowsNotesPath"
 }
 Write-Host "Tags: $($targetTags -join ', ')"
-Write-Host "Formal run will validate $script:ReleaseScope, commit only selected platform files, push, create or reuse a PR, wait for selected CI, push selected annotated tag(s), then verify selected Release(s) and manifest node(s)."
+if ($script:PostMergeResume) {
+    Write-Host "Post-merge resume will continue with selected main CI, tag, Release workflow, and update-manifest verification at $($script:MainSha); preparation and PR stages are already complete."
+} else {
+    Write-Host "Formal run will validate $script:ReleaseScope, commit only selected platform files, push, create or reuse a PR, wait for selected CI, push selected annotated tag(s), then verify selected Release(s) and manifest node(s)."
+}
 
 if ($DryRun) {
     Write-Host 'DRY RUN: no version files, refs, commits, PRs, Releases, or manifest files will be written.'
@@ -955,11 +1174,11 @@ if ($script:Blockers.Count -gt 0) {
     throw ("Release preflight failed with {0} blocker(s)." -f $script:Blockers.Count)
 }
 
+if (-not $script:PostMergeResume) {
 Update-VersionFiles -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -VersionCode $plannedCode
 Run-LocalValidation
 
 Write-Step 'Creating the release preparation commit.'
-$releaseSubject = "release: prepare $script:ReleaseScope $Version"
 $pathsToStage = @()
 if (Test-PlatformSelected -Name 'Android') {
     $pathsToStage += $androidInfo.Path
@@ -980,13 +1199,6 @@ foreach ($path in $staged) {
     }
 }
 if ($staged.Count -eq 0) {
-    $resumeNotesPaths = @()
-    if (Test-PlatformSelected -Name 'Android') {
-        $resumeNotesPaths += $androidNotesPath
-    }
-    if (Test-PlatformSelected -Name 'Windows') {
-        $resumeNotesPaths += $windowsNotesPath
-    }
     if (-not (Test-ExistingReleasePreparationState -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject)) {
         throw 'No release preparation changes were staged and no matching release preparation commit is ready to resume.'
     }
@@ -1029,6 +1241,7 @@ if ($mergeMethod -ceq 'squash') {
         '--body', "Release preparation for $script:ReleaseScope $Version."
     )
 }
+}
 
 Write-Step 'Resolving the merged main commit and waiting for main CI.'
 Invoke-External -FilePath $script:Git -Arguments @(
@@ -1037,6 +1250,14 @@ Invoke-External -FilePath $script:Git -Arguments @(
 $script:MainSha = (Read-ExternalText -FilePath $script:Git -Arguments @(
     'rev-parse', 'refs/remotes/origin/main'
 )).Trim()
+if ($script:PostMergeResume) {
+    $refreshedPostMergeState = Get-PostMergeReleaseResumeState -MainCommit $script:MainSha -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject
+    if ($refreshedPostMergeState.Status -ne 'Valid' -or
+        $refreshedPostMergeState.Commit -cne $script:ReleaseMainSha) {
+        throw 'Post-merge release resume state changed before main CI; refusing to continue.'
+    }
+    $script:MainSha = $refreshedPostMergeState.Commit
+}
 $mainCiWorkflows = @()
 if (Test-PlatformSelected -Name 'Android') {
     $mainCiWorkflows += 'android-ci.yml'

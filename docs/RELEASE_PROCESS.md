@@ -46,7 +46,7 @@ Codex 在调用脚本前只为选定平台准备对应 notes，并将 notes 写�
 
 ### 1. Preflight
 
-脚本首先严格验证 `MAJOR.MINOR.PATCH` 版本和 `Windows|Android|All` 平台，确认当前是 Git 仓库中的非 detached、非 `main` 分支，要求工作区 clean 并检查明显敏感文件，检查 `gh` 可用且已认证，确认 `origin/main` 存在并检查当前 HEAD 已包含它，同时只检查选定平台的 notes、版本文件和目标 tag 冲突。正式运行会 fetch；DryRun 只使用不会更新 refs 的检查。
+脚本首先严格验证 `MAJOR.MINOR.PATCH` 版本和 `Windows|Android|All` 平台，确认当前是 Git 仓库中的非 detached、非 `main` 分支，要求工作区 clean 并检查明显敏感文件，检查 `gh` 可用且已认证，确认 `origin/main` 存在并检查当前 HEAD 已包含它；如果发现当前 release preparation 已经安全地 squash/merge 到 main，则改为验证该 post-merge resume 状态。两种模式都只检查选定平台的 notes、版本文件和目标 tag 冲突。正式运行会 fetch；DryRun 只使用不会更新 refs 的检查。
 
 ### 2. 选择上一平台 Release tag
 
@@ -95,9 +95,11 @@ Common:  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps
 
 如果脚本在 release preparation commit 已经存在后重跑，只有在当前 HEAD 的提交 subject、选定平台版本文件、选定平台 notes、提交改动范围和 clean worktree 都与本次目标一致时，才会跳过 commit（不创建空 commit），push 当前分支并继续查询/复用已有 PR；状态不完整时仍会停止。
 
+如果 release preparation PR 已经 squash/merge 到 `main`，脚本必须同时验证 main 历史中的对应 squash commit，或包含当前 release branch tip 的 merge commit，并确认选定平台版本和 notes 与当前准备状态一致。验证通过后跳过 preparation、PR 和 PR CI，使用已确认的 release main commit 继续 main CI、tag、Release workflow 和 `update-manifest`；无法唯一确认时停止，不因 `origin/main` 前进而放宽 ancestry 或 SHA 校验。
+
 ### 7. 创建或复用 PR
 
-脚本按当前分支和 `main` 查找 open PR；找到就复用，否则创建一个 PR，不创建重复 PR。PR 标题和正文标明本次平台范围。脚本读取近期已合并 PR 和 merge commit 的父节点确认 merge convention；无法可靠识别时停止而不是猜测。
+普通 release preparation 模式下，脚本按当前分支和 `main` 查找 open PR；找到就复用，否则创建一个 PR，不创建重复 PR。PR 标题和正文标明本次平台范围。脚本读取近期已合并 PR 和 merge commit 的父节点确认 merge convention；无法可靠识别时停止而不是猜测。post-merge resume 模式跳过本节。
 
 ### 8. 等待 PR CI 与 merge
 
@@ -105,7 +107,7 @@ Common:  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps
 
 ### 9. 等待选定平台的 main CI
 
-merge 后 fetch `origin/main`，取得 merge 后实际的 `origin/main` HEAD SHA。Windows-only 只等待 Windows CI，Android-only 只等待 Android CI，All 等待两者；找不到对应 run、run 失败、取消或超时，都不进入 tag 阶段。PR CI 成功不能替代 merge 后的 main CI。
+普通模式在 merge 后 fetch `origin/main`，取得 merge 后实际的 `origin/main` HEAD SHA；post-merge resume 模式则重新确认已验证的 release main commit 仍属于 `origin/main`，并使用该 SHA。Windows-only 只等待 Windows CI，Android-only 只等待 Android CI，All 等待两者；找不到对应 run、run 失败、取消或超时，都不进入 tag 阶段。PR CI 成功不能替代 merge 后的 main CI。
 
 ### 10. 创建并 push 选定平台 tag
 

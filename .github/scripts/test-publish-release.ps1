@@ -303,6 +303,63 @@ exit 99
     if ($headAfterResume -cne $preparationHead) {
         throw 'Resume regression changed HEAD instead of avoiding an empty commit.'
     }
+
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', 'main')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('merge', '--squash', 'codex/resume-test')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'release: prepare Windows 0.8.8')
+    $squashMainHead = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('push', 'origin', 'main')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', 'codex/resume-test')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @(
+        'fetch', 'origin', 'refs/heads/main:refs/remotes/origin/main'
+    )
+
+    $postMergeGhShim = @'
+@echo off
+if "%1"=="auth" exit /b 0
+if "%1"=="repo" (
+  echo example/test
+  exit /b 0
+)
+if "%1"=="run" if "%2"=="list" (
+  echo POST_MERGE_MAIN_CI_SENTINEL
+  exit /b 42
+)
+if "%1"=="pr" (
+  echo POST_MERGE_PR_LOOKUP
+  exit /b 42
+)
+exit /b 99
+'@
+    Write-ResumeTestFile -Root $resumeShim -RelativePath 'gh.cmd' -Content $postMergeGhShim | Out-Null
+    $postMergeOutput = @(& $testPwshCommand -NoProfile -File (Join-Path $resumeRepo 'scripts/publish-release.ps1') `
+        -Platform Windows -Version $targetVersion -TimeoutMinutes 5 2>&1 | ForEach-Object {
+            [string]$_
+        })
+    $postMergeExitCode = $LASTEXITCODE
+    $postMergeText = ($postMergeOutput -join [Environment]::NewLine)
+    if ($postMergeExitCode -eq 0) {
+        throw 'Post-merge resume fixture unexpectedly completed without reaching the main CI sentinel.'
+    }
+    if ($postMergeText -notmatch 'POST_MERGE_MAIN_CI_SENTINEL') {
+        throw "Post-merge resume did not reach main CI. Output: $postMergeText"
+    }
+    if ($postMergeText -match 'Current HEAD does not contain origin/main') {
+        throw 'Post-merge resume still failed the origin/main ancestry preflight.'
+    }
+    if ($postMergeText -match 'POST_MERGE_PR_LOOKUP') {
+        throw 'Post-merge resume incorrectly re-entered the PR stage.'
+    }
+    if ($postMergeText -notmatch 'Verified post-merge release resume') {
+        throw 'Post-merge resume did not verify the merged release preparation state.'
+    }
+    if ($postMergeText -notmatch [regex]::Escape($squashMainHead)) {
+        throw 'Post-merge resume did not retain the verified squash merge commit as the release main SHA.'
+    }
+    $headAfterPostMergeResume = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+    if ($headAfterPostMergeResume -cne $preparationHead) {
+        throw 'Post-merge resume changed the original release branch HEAD.'
+    }
 } finally {
     $env:PATH = $originalPath
     if (Test-Path -LiteralPath $resumeRoot) {
