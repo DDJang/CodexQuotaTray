@@ -135,19 +135,21 @@ Android 使用仓库 Gradle Wrapper、兼容的 Gradle JVM 和 Android SDK 35；
 
 ## GitHub 发布流程
 
-当用户明确说：
+只有用户明确指定平台和版本时，才视为进入 GitHub 发布流程，例如：
 
-“进入 GitHub 发布流程，版本号 X.Y.Z”
+“进入 GitHub 发布流程，平台 Windows，版本号 X.Y.Z”
+“进入 GitHub 发布流程，平台 Android，版本号 X.Y.Z”
+“进入 GitHub 发布流程，平台 All，版本号 X.Y.Z”
 
-视为已授权本次发布所需的版本修改、release notes 生成、commit、push、PR 创建或复用、等待 CI、
-merge 到 `main`、创建并 push Android/Windows tags、监控 Release workflow，以及验证 GitHub Release
-和 `update-manifest`。执行细节以 [RELEASE_PROCESS](docs/RELEASE_PROCESS.md) 为准。
+Windows/Android 单平台发布只授权对应平台的 version、release notes、commit、push、PR、CI、tag、
+Release workflow、Release 和 `update-manifest` manifest 节点；只有 `All` 才授权两套平台同步发布。
+执行细节以 [RELEASE_PROCESS](docs/RELEASE_PROCESS.md) 为准。
 
 发布流程仍必须遵守：
 
 - 发布前先阅读 `docs/RELEASE_PROCESS.md`；
-- 任一 PR 或 `main` CI 失败立即停止，`main` CI 全部通过前不得 push release tag；
+- 选定平台的任一 PR 或 `main` CI 失败立即停止，选定平台的 `main` CI 全部通过前不得 push release tag；
 - 不 force push、不移动或删除已有 tag、不跳过 CI、不修改测试来绕过失败；
-- Android 与 Windows 的 release notes 分别比较上一平台 Release tag 到待发布 HEAD 的用户可感知变化；
-- 只有两个 Release workflow 和 `update-manifest` 都成功后，才能报告发布成功；
+- 选定平台的 release notes 比较该平台上一 Release tag 到待发布 HEAD 的用户可感知变化，并在调用脚本前提交到当前 HEAD；调用脚本时工作区必须 clean；
+- Windows/Android 单平台只要求对应 Release workflow 和 manifest 节点成功；只有 `All` 才要求两套 Release workflow 和两个 manifest 节点都成功；
 - 若出现需要 Owner 决策的真实冲突或不可安全自动化的情况，停止并明确报告。

@@ -3,6 +3,9 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$')]
     [string]$Version,
+    [Parameter(Mandatory = $true)]
+    [ValidateSet('Windows', 'Android', 'All')]
+    [string]$Platform,
     [switch]$DryRun,
     [ValidateRange(5, 240)]
     [int]$TimeoutMinutes = 60
@@ -10,6 +13,11 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$Platform = switch ($Platform.ToLowerInvariant()) {
+    'windows' { 'Windows' }
+    'android' { 'Android' }
+    'all' { 'All' }
+}
 
 $script:RepoRoot = Split-Path -Parent $PSScriptRoot
 $script:Blockers = [System.Collections.Generic.List[string]]::new()
@@ -20,6 +28,22 @@ $script:RepoName = $null
 $script:Branch = $null
 $script:HeadSha = $null
 $script:MainSha = $null
+$script:PostMergeResume = $false
+$script:ReleaseMainSha = $null
+$script:SelectedPlatforms = @(
+    if ($Platform -eq 'All') {
+        'Android'
+        'Windows'
+    } else {
+        $Platform
+    }
+)
+$script:ReleaseScope = if ($Platform -eq 'All') {
+    'Android and Windows'
+} else {
+    $Platform
+}
+$releaseSubject = "release: prepare $script:ReleaseScope $Version"
 
 Set-Location -LiteralPath $script:RepoRoot
 
@@ -115,6 +139,11 @@ function Require-Text {
     if ($Text.IndexOf($Needle, [StringComparison]::Ordinal) -lt 0) {
         Add-Blocker "$Label is missing required text '$Needle'."
     }
+}
+
+function Test-PlatformSelected {
+    param([Parameter(Mandatory = $true)][ValidateSet('Windows', 'Android')][string]$Name)
+    return $script:SelectedPlatforms -contains $Name
 }
 
 function Get-PlatformTagRecords {
@@ -251,27 +280,350 @@ function Read-Notes {
     return $content
 }
 
+function Get-RepoRelativePath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    return $Path.Substring($script:RepoRoot.Length + 1).Replace('\', '/')
+}
+
+function Test-FileInHead {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $relativePath = Get-RepoRelativePath -Path $Path
+    $tracked = Invoke-Captured -FilePath $script:Git -Arguments @(
+        'ls-files', '--error-unmatch', '--', $relativePath
+    )
+    if ($tracked.ExitCode -ne 0) {
+        return $false
+    }
+    $headFile = Invoke-Captured -FilePath $script:Git -Arguments @(
+        'cat-file', '-e', "HEAD:$relativePath"
+    )
+    return $headFile.ExitCode -eq 0
+}
+
+function Get-CommitChangedPaths {
+    param([Parameter(Mandatory = $true)][string]$Commit)
+    $text = Read-ExternalText -FilePath $script:Git -Arguments @(
+        'diff-tree', '--no-commit-id', '--name-only', '-r', $Commit
+    )
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return @()
+    }
+    return @($text -split [Environment]::NewLine | ForEach-Object {
+        ([string]$_).Trim()
+    } | Where-Object { $_ })
+}
+
+function Test-ExistingReleasePreparationState {
+    param(
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo,
+        [Parameter(Mandatory = $true)][string[]]$NotesPaths,
+        [Parameter(Mandatory = $true)][string]$CommitMessage
+    )
+    $worktreeStatus = (Read-ExternalText -FilePath $script:Git -Arguments @(
+        'status', '--short'
+    )).Trim()
+    if (-not [string]::IsNullOrWhiteSpace($worktreeStatus)) {
+        return $false
+    }
+
+    $expectedVersionPaths = @()
+    if (Test-PlatformSelected -Name 'Android') {
+        if ($null -eq $AndroidInfo -or [string]$AndroidInfo.Version -cne $Version) {
+            return $false
+        }
+        $expectedVersionPaths += Get-RepoRelativePath -Path $AndroidInfo.Path
+    }
+    if (Test-PlatformSelected -Name 'Windows') {
+        if ($null -eq $WindowsInfo -or [string]$WindowsInfo.Version -cne $Version) {
+            return $false
+        }
+        $expectedVersionPaths += Get-RepoRelativePath -Path $WindowsInfo.Path
+    }
+    foreach ($notesPath in $NotesPaths) {
+        if (-not (Test-FileInHead -Path $notesPath)) {
+            return $false
+        }
+    }
+
+    $subject = (Read-ExternalText -FilePath $script:Git -Arguments @(
+        'log', '-1', '--format=%s', 'HEAD'
+    )).Trim()
+    if ($subject -cne $CommitMessage) {
+        return $false
+    }
+
+    $changedPaths = @(Get-CommitChangedPaths -Commit 'HEAD')
+    if ($changedPaths.Count -ne $expectedVersionPaths.Count) {
+        return $false
+    }
+    foreach ($path in $expectedVersionPaths) {
+        if ($path -notin $changedPaths) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Get-SelectedVersionPaths {
+    param(
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo
+    )
+    $paths = [System.Collections.Generic.List[string]]::new()
+    if (Test-PlatformSelected -Name 'Android') {
+        if ($null -eq $AndroidInfo) {
+            return @()
+        }
+        $paths.Add((Get-RepoRelativePath -Path $AndroidInfo.Path))
+    }
+    if (Test-PlatformSelected -Name 'Windows') {
+        if ($null -eq $WindowsInfo) {
+            return @()
+        }
+        $paths.Add((Get-RepoRelativePath -Path $WindowsInfo.Path))
+    }
+    return @($paths)
+}
+
+function Get-SelectedReleasePaths {
+    param(
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo,
+        [Parameter(Mandatory = $true)][string[]]$NotesPaths
+    )
+    $paths = [System.Collections.Generic.List[string]]::new()
+    foreach ($path in @(Get-SelectedVersionPaths -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo)) {
+        $paths.Add($path)
+    }
+    foreach ($notesPath in $NotesPaths) {
+        $paths.Add((Get-RepoRelativePath -Path $notesPath))
+    }
+    return @($paths)
+}
+
+function Get-CommitBlobId {
+    param(
+        [Parameter(Mandatory = $true)][string]$Commit,
+        [Parameter(Mandatory = $true)][string]$Path
+    )
+    $relativePath = Get-RepoRelativePath -Path $Path
+    $capture = Invoke-Captured -FilePath $script:Git -Arguments @(
+        'rev-parse', ('{0}:{1}' -f $Commit, $relativePath)
+    )
+    if ($capture.ExitCode -ne 0) {
+        return $null
+    }
+    return $capture.Text.Trim()
+}
+
+function Test-CommitFilesMatchHead {
+    param(
+        [Parameter(Mandatory = $true)][string]$Commit,
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo,
+        [Parameter(Mandatory = $true)][string[]]$NotesPaths
+    )
+    $paths = @(Get-SelectedReleasePaths -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo -NotesPaths $NotesPaths)
+    foreach ($relativePath in $paths) {
+        $path = Join-Path $script:RepoRoot ($relativePath -replace '/', '\')
+        $headBlob = Get-CommitBlobId -Commit 'HEAD' -Path $path
+        $commitBlob = Get-CommitBlobId -Commit $Commit -Path $path
+        if ([string]::IsNullOrWhiteSpace($headBlob) -or
+            [string]::IsNullOrWhiteSpace($commitBlob) -or
+            $headBlob -cne $commitBlob) {
+            return $false
+        }
+    }
+    return $true
+}
+
+function Get-MergedReleasePrCandidates {
+    param([Parameter(Mandatory = $true)][string]$MainCommit)
+    $candidates = [System.Collections.Generic.List[object]]::new()
+    $mergedPrOnBranch = $false
+    $headMatchedPr = $false
+    if ($DryRun -or $null -eq $script:Gh) {
+        return [pscustomobject]@{
+            Candidates = @()
+            MergedPrOnBranch = $false
+            HeadMatchedPr = $false
+        }
+    }
+
+    $prs = @(Read-GhJson @(
+        'pr', 'list', '--head', $script:Branch, '--base', 'main', '--state', 'merged',
+        '--limit', '100', '--json', 'number,url,headRefName,headRefOid,baseRefName,mergeCommit'
+    ))
+    foreach ($pr in $prs) {
+        if ([string]$pr.headRefName -cne $script:Branch -or
+            [string]$pr.baseRefName -cne 'main') {
+            continue
+        }
+        $mergedPrOnBranch = $true
+        $headRefOidProperty = $pr.PSObject.Properties['headRefOid']
+        $headRefOid = if ($null -ne $headRefOidProperty) {
+            [string]$headRefOidProperty.Value
+        } else {
+            ''
+        }
+        if ($headRefOid -cne $script:HeadSha) {
+            continue
+        }
+        $headMatchedPr = $true
+        $mergeCommitProperty = $pr.PSObject.Properties['mergeCommit']
+        if ($null -eq $mergeCommitProperty -or $null -eq $mergeCommitProperty.Value) {
+            continue
+        }
+        $mergeCommitOidProperty = $mergeCommitProperty.Value.PSObject.Properties['oid']
+        if ($null -eq $mergeCommitOidProperty) {
+            continue
+        }
+        $mergeCommit = [string]$mergeCommitOidProperty.Value
+        if ([string]::IsNullOrWhiteSpace($mergeCommit) -or
+            -not (Test-Ancestor -Ancestor $mergeCommit -Descendant $MainCommit)) {
+            continue
+        }
+        if (-not @($candidates | Where-Object { $_.Commit -ceq $mergeCommit }).Count) {
+            $candidates.Add([pscustomobject]@{
+                Commit = $mergeCommit
+                Kind = 'squash'
+                PrNumber = [int]$pr.number
+                PrUrl = [string]$pr.url
+            })
+        }
+    }
+    return [pscustomobject]@{
+        Candidates = @($candidates)
+        MergedPrOnBranch = $mergedPrOnBranch
+        HeadMatchedPr = $headMatchedPr
+    }
+}
+
+function Get-PostMergeReleaseResumeState {
+    param(
+        [Parameter(Mandatory = $true)][string]$MainCommit,
+        [Parameter(Mandatory = $true)][bool]$MainContainsHead,
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo,
+        [Parameter(Mandatory = $true)][string[]]$NotesPaths,
+        [Parameter(Mandatory = $true)][string]$CommitMessage
+    )
+    $candidates = [System.Collections.Generic.List[object]]::new()
+    $mergeCommits = Read-ExternalText -FilePath $script:Git -Arguments @(
+        'rev-list', '--first-parent', '--merges', $MainCommit
+    )
+    foreach ($mergeCommit in @($mergeCommits -split [Environment]::NewLine | ForEach-Object {
+        ([string]$_).Trim()
+    } | Where-Object { $_ })) {
+        $parentsText = Read-ExternalText -FilePath $script:Git -Arguments @(
+            'show', '-s', '--format=%P', $mergeCommit
+        )
+        $parents = @($parentsText -split '\s+' | Where-Object { $_ })
+        if ($parents.Count -gt 1 -and (Test-Ancestor -Ancestor $script:HeadSha -Descendant $parents[1])) {
+            $candidates.Add([pscustomobject]@{
+                Commit = $mergeCommit
+                Kind = 'merge'
+            })
+        }
+    }
+
+    $mergedPrState = Get-MergedReleasePrCandidates -MainCommit $MainCommit
+    foreach ($candidate in $mergedPrState.Candidates) {
+        if (-not @($candidates | Where-Object { $_.Commit -ceq $candidate.Commit }).Count) {
+            $candidates.Add($candidate)
+        }
+    }
+
+    if ($candidates.Count -eq 0) {
+        if ($mergedPrState.MergedPrOnBranch -and -not $MainContainsHead) {
+            return [pscustomobject]@{
+                Status = 'Invalid'
+                Commit = $null
+                Reason = 'No merged PR for this release branch has the current branch HEAD and a merge commit in origin/main.'
+            }
+        }
+        return [pscustomobject]@{
+            Status = 'None'
+            Commit = $null
+            Reason = $null
+        }
+    }
+
+    if (-not (Test-ExistingReleasePreparationState -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo -NotesPaths $NotesPaths -CommitMessage $CommitMessage)) {
+        return [pscustomobject]@{
+            Status = 'Invalid'
+            Commit = $null
+            Reason = 'The current branch does not contain the expected release preparation state.'
+        }
+    }
+
+    $valid = [System.Collections.Generic.List[object]]::new()
+    foreach ($candidate in $candidates) {
+        if (-not (Test-CommitFilesMatchHead -Commit $candidate.Commit -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo -NotesPaths $NotesPaths)) {
+            continue
+        }
+        $valid.Add($candidate)
+    }
+    if ($valid.Count -eq 1) {
+        return [pscustomobject]@{
+            Status = 'Valid'
+            Commit = $valid[0].Commit
+            Reason = $null
+        }
+    }
+    $reason = if ($valid.Count -gt 1) {
+        'More than one main commit could represent this release preparation.'
+    } else {
+        'No main commit matched the release preparation files and target version.'
+    }
+    return [pscustomobject]@{
+        Status = 'Invalid'
+        Commit = $null
+        Reason = $reason
+    }
+}
+
 function Assert-WorkflowContracts {
     Write-Step 'Checking release workflow contracts.'
-    $android = [IO.File]::ReadAllText((Join-Path $script:RepoRoot '.github\workflows\android-release.yml'))
-    $windows = [IO.File]::ReadAllText((Join-Path $script:RepoRoot '.github\workflows\windows-release.yml'))
-    Require-Text -Text $android -Needle 'group: update-manifest-publish' -Label 'Android Release concurrency'
-    Require-Text -Text $windows -Needle 'group: update-manifest-publish' -Label 'Windows Release concurrency'
-    Require-Text -Text $android -Needle 'cancel-in-progress: false' -Label 'Android Release concurrency'
-    Require-Text -Text $windows -Needle 'cancel-in-progress: false' -Label 'Windows Release concurrency'
-    Require-Text -Text $android -Needle 'android-v*' -Label 'Android Release tag trigger'
-    Require-Text -Text $windows -Needle 'windows-v*' -Label 'Windows Release tag trigger'
-    Require-Text -Text $android -Needle '--notes-file' -Label 'Android Release notes'
-    Require-Text -Text $windows -Needle '--notes-file' -Label 'Windows Release notes'
-    if ($android.Contains('--generate-notes') -or $windows.Contains('--generate-notes')) {
-        Add-Blocker 'Release workflows must not use --generate-notes.'
+    $workflowContracts = @()
+    if (Test-PlatformSelected -Name 'Android') {
+        $workflowContracts += [pscustomobject]@{
+            Path = '.github\workflows\android-release.yml'
+            Platform = 'Android'
+            TagPrefix = 'android-v*'
+        }
     }
-    foreach ($path in @(
-        '.github\workflows\android-ci.yml',
-        '.github\workflows\windows-ci.yml',
+    if (Test-PlatformSelected -Name 'Windows') {
+        $workflowContracts += [pscustomobject]@{
+            Path = '.github\workflows\windows-release.yml'
+            Platform = 'Windows'
+            TagPrefix = 'windows-v*'
+        }
+    }
+    foreach ($contract in $workflowContracts) {
+        $workflow = [IO.File]::ReadAllText((Join-Path $script:RepoRoot $contract.Path))
+        Require-Text -Text $workflow -Needle 'group: update-manifest-publish' -Label "$($contract.Platform) Release concurrency"
+        Require-Text -Text $workflow -Needle 'cancel-in-progress: false' -Label "$($contract.Platform) Release concurrency"
+        Require-Text -Text $workflow -Needle $contract.TagPrefix -Label "$($contract.Platform) Release tag trigger"
+        Require-Text -Text $workflow -Needle '--notes-file' -Label "$($contract.Platform) Release notes"
+        if ($workflow.Contains('--generate-notes')) {
+            Add-Blocker "$($contract.Platform) Release workflow must not use --generate-notes."
+        }
+    }
+    $requiredPaths = @()
+    if (Test-PlatformSelected -Name 'Android') {
+        $requiredPaths += '.github\workflows\android-ci.yml'
+    }
+    if (Test-PlatformSelected -Name 'Windows') {
+        $requiredPaths += '.github\workflows\windows-ci.yml'
+    }
+    $requiredPaths += @(
         '.github\scripts\update-release-manifest.ps1',
-        '.github\scripts\test-update-release-manifest.ps1'
-    )) {
+        '.github\scripts\test-update-release-manifest.ps1',
+        '.github\scripts\test-publish-release.ps1'
+    )
+    foreach ($path in $requiredPaths) {
         if (-not (Test-Path -LiteralPath (Join-Path $script:RepoRoot $path) -PathType Leaf)) {
             Add-Blocker "Required release contract file is missing: $path"
         }
@@ -280,39 +632,56 @@ function Assert-WorkflowContracts {
 
 function Update-VersionFiles {
     param(
-        [Parameter(Mandatory = $true)]$AndroidInfo,
-        [Parameter(Mandatory = $true)]$WindowsInfo,
-        [Parameter(Mandatory = $true)][int]$VersionCode
+        [AllowNull()]$AndroidInfo,
+        [AllowNull()]$WindowsInfo,
+        [AllowNull()][int]$VersionCode
     )
-    $androidText = [regex]::Replace(
-        $AndroidInfo.Content,
-        '(?m)^(\s*versionName\s*=\s*")[^"]+(")\s*$',
-        ('${1}' + $Version + '${2}'),
-        1)
-    $androidText = [regex]::Replace(
-        $androidText,
-        '(?m)^(\s*versionCode\s*=\s*)[0-9]+(\s*)$',
-        ('${1}' + $VersionCode + '${2}'),
-        1)
-    $windowsText = [regex]::Replace(
-        $WindowsInfo.Content,
-        '(?m)^(\s*<Version>)[^<]+(</Version>\s*)$',
-        ('${1}' + $Version + '${2}'),
-        1)
-    [IO.File]::WriteAllText($AndroidInfo.Path, $androidText, [Text.UTF8Encoding]::new($false))
-    [IO.File]::WriteAllText($WindowsInfo.Path, $windowsText, [Text.UTF8Encoding]::new($false))
+    if (Test-PlatformSelected -Name 'Android') {
+        if ($null -eq $AndroidInfo) {
+            throw 'Android version information was not loaded.'
+        }
+        $androidText = [regex]::Replace(
+            $AndroidInfo.Content,
+            '(?m)^(\s*versionName\s*=\s*")[^"]+(")\s*$',
+            ('${1}' + $Version + '${2}'),
+            1)
+        $androidText = [regex]::Replace(
+            $androidText,
+            '(?m)^(\s*versionCode\s*=\s*)[0-9]+(\s*)$',
+            ('${1}' + $VersionCode + '${2}'),
+            1)
+        [IO.File]::WriteAllText($AndroidInfo.Path, $androidText, [Text.UTF8Encoding]::new($false))
+    }
+    if (Test-PlatformSelected -Name 'Windows') {
+        if ($null -eq $WindowsInfo) {
+            throw 'Windows version information was not loaded.'
+        }
+        $windowsText = [regex]::Replace(
+            $WindowsInfo.Content,
+            '(?m)^(\s*<Version>)[^<]+(</Version>\s*)$',
+            ('${1}' + $Version + '${2}'),
+            1)
+        [IO.File]::WriteAllText($WindowsInfo.Path, $windowsText, [Text.UTF8Encoding]::new($false))
+    }
 }
 
 function Run-LocalValidation {
     Write-Step 'Running release validation.'
-    Invoke-External -FilePath (Join-Path $script:RepoRoot 'android\gradlew.bat') -Arguments @(
-        '-p', 'android', ':app:testDebugUnitTest', ':app:lintDebug', ':app:assembleDebug'
-    )
-    Invoke-External -FilePath 'pwsh' -Arguments @(
-        '-NoProfile', '-File', '.\windows\scripts\verify-winui.ps1', '-Mode', 'Release'
-    )
+    if (Test-PlatformSelected -Name 'Android') {
+        Invoke-External -FilePath (Join-Path $script:RepoRoot 'android\gradlew.bat') -Arguments @(
+            '-p', 'android', ':app:testDebugUnitTest', ':app:lintDebug', ':app:assembleDebug'
+        )
+    }
+    if (Test-PlatformSelected -Name 'Windows') {
+        Invoke-External -FilePath 'pwsh' -Arguments @(
+            '-NoProfile', '-File', '.\windows\scripts\verify-winui.ps1', '-Mode', 'Release'
+        )
+    }
     Invoke-External -FilePath 'pwsh' -Arguments @(
         '-NoProfile', '-File', '.\.github\scripts\test-update-release-manifest.ps1'
+    )
+    Invoke-External -FilePath 'pwsh' -Arguments @(
+        '-NoProfile', '-File', '.\.github\scripts\test-publish-release.ps1'
     )
     Invoke-External -FilePath $script:Git -Arguments @('diff', '--check')
 }
@@ -525,12 +894,12 @@ function Assert-ManifestNode {
 
 function Verify-Manifest {
     param(
-        [Parameter(Mandatory = $true)][string]$AndroidNotes,
-        [Parameter(Mandatory = $true)][string]$WindowsNotes,
-        [Parameter(Mandatory = $true)][string]$AndroidSha256,
-        [Parameter(Mandatory = $true)][long]$AndroidSize,
-        [Parameter(Mandatory = $true)][string]$WindowsSha256,
-        [Parameter(Mandatory = $true)][long]$WindowsSize
+        [AllowNull()][string]$AndroidNotes,
+        [AllowNull()][string]$WindowsNotes,
+        [AllowNull()][string]$AndroidSha256,
+        [AllowNull()][long]$AndroidSize,
+        [AllowNull()][string]$WindowsSha256,
+        [AllowNull()][long]$WindowsSize
     )
     $response = Read-GhJson -Arguments @(
         'api', "repos/$($script:RepoName)/contents/update-manifest.json?ref=update-manifest"
@@ -538,49 +907,73 @@ function Verify-Manifest {
     $base64 = ([string]$response.content) -replace '\r?\n', ''
     $jsonText = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($base64))
     $manifest = $jsonText | ConvertFrom-Json
-    Assert-ManifestNode -Manifest $manifest -Platform 'android' -AssetProperty 'apk' -AssetName "CodexQuotaTray-Android-v$Version.apk" -Tag "android-v$Version" -Notes $AndroidNotes -ExpectedSha256 $AndroidSha256 -ExpectedSize $AndroidSize
-    Assert-ManifestNode -Manifest $manifest -Platform 'windows' -AssetProperty 'installer' -AssetName "CodexQuotaTray-$Version-setup.exe" -Tag "windows-v$Version" -Notes $WindowsNotes -ExpectedSha256 $WindowsSha256 -ExpectedSize $WindowsSize
-    Write-Host 'Published update-manifest contains both verified platform nodes.'
+    $verifiedPlatforms = [System.Collections.Generic.List[string]]::new()
+    if (Test-PlatformSelected -Name 'Android') {
+        Assert-ManifestNode -Manifest $manifest -Platform 'android' -AssetProperty 'apk' -AssetName "CodexQuotaTray-Android-v$Version.apk" -Tag "android-v$Version" -Notes $AndroidNotes -ExpectedSha256 $AndroidSha256 -ExpectedSize $AndroidSize
+        $verifiedPlatforms.Add('Android')
+    }
+    if (Test-PlatformSelected -Name 'Windows') {
+        Assert-ManifestNode -Manifest $manifest -Platform 'windows' -AssetProperty 'installer' -AssetName "CodexQuotaTray-$Version-setup.exe" -Tag "windows-v$Version" -Notes $WindowsNotes -ExpectedSha256 $WindowsSha256 -ExpectedSize $WindowsSize
+        $verifiedPlatforms.Add('Windows')
+    }
+    Write-Host "Published update-manifest contains the verified platform node(s): $($verifiedPlatforms -join ', ')."
 }
 
 function Verify-Releases {
     param(
-        [Parameter(Mandatory = $true)][string]$AndroidNotes,
-        [Parameter(Mandatory = $true)][string]$WindowsNotes
+        [AllowNull()][string]$AndroidNotes,
+        [AllowNull()][string]$WindowsNotes
     )
     $androidTag = "android-v$Version"
     $windowsTag = "windows-v$Version"
-    $android = Get-Release -Tag $androidTag
-    $windows = Get-Release -Tag $windowsTag
-    foreach ($release in @($android, $windows)) {
-        if ($release.isDraft -or $release.isPrerelease -or
-            [string]::IsNullOrWhiteSpace([string]$release.publishedAt)) {
-            throw "Release $($release.tagName) is not a published stable release."
+    $android = $null
+    $windows = $null
+    $androidAsset = $null
+    $windowsAsset = $null
+    $androidSha = ''
+    $windowsSha = ''
+    $androidSize = 0L
+    $windowsSize = 0L
+
+    if (Test-PlatformSelected -Name 'Android') {
+        $android = Get-Release -Tag $androidTag
+        if ($android.isDraft -or $android.isPrerelease -or
+            [string]::IsNullOrWhiteSpace([string]$android.publishedAt)) {
+            throw "Release $($android.tagName) is not a published stable release."
         }
+        Assert-ReleaseAssets -Release $android -ExpectedNames @(
+            "CodexQuotaTray-Android-v$Version.apk", 'SHA256SUMS.txt'
+        )
+        if ((Normalize-Text ([string]$android.body)) -cne (Normalize-Text $AndroidNotes)) {
+            throw 'Android Release body does not match the Android notes file.'
+        }
+        $androidAsset = @($android.assets | Where-Object {
+            $_.name -ceq "CodexQuotaTray-Android-v$Version.apk"
+        })[0]
+        $androidSha = Get-ChecksumFromRelease -Tag $androidTag -AssetName $androidAsset.name
+        $androidSize = [long]$androidAsset.size
+        Write-Host "Android APK: $($androidAsset.size) bytes, SHA256 $androidSha"
     }
-    Assert-ReleaseAssets -Release $android -ExpectedNames @(
-        "CodexQuotaTray-Android-v$Version.apk", 'SHA256SUMS.txt'
-    )
-    Assert-ReleaseAssets -Release $windows -ExpectedNames @(
-        "CodexQuotaTray-$Version-win-x64.zip", "CodexQuotaTray-$Version-setup.exe", 'SHA256SUMS.txt'
-    )
-    if ((Normalize-Text ([string]$android.body)) -cne (Normalize-Text $AndroidNotes)) {
-        throw 'Android Release body does not match the Android notes file.'
+    if (Test-PlatformSelected -Name 'Windows') {
+        $windows = Get-Release -Tag $windowsTag
+        if ($windows.isDraft -or $windows.isPrerelease -or
+            [string]::IsNullOrWhiteSpace([string]$windows.publishedAt)) {
+            throw "Release $($windows.tagName) is not a published stable release."
+        }
+        Assert-ReleaseAssets -Release $windows -ExpectedNames @(
+            "CodexQuotaTray-$Version-win-x64.zip", "CodexQuotaTray-$Version-setup.exe", 'SHA256SUMS.txt'
+        )
+        if ((Normalize-Text ([string]$windows.body)) -cne (Normalize-Text $WindowsNotes)) {
+            throw 'Windows Release body does not match the Windows notes file.'
+        }
+        $windowsAsset = @($windows.assets | Where-Object {
+            $_.name -ceq "CodexQuotaTray-$Version-setup.exe"
+        })[0]
+        $windowsSha = Get-ChecksumFromRelease -Tag $windowsTag -AssetName $windowsAsset.name
+        $windowsSize = [long]$windowsAsset.size
+        Write-Host "Windows installer: $($windowsAsset.size) bytes, SHA256 $windowsSha"
     }
-    if ((Normalize-Text ([string]$windows.body)) -cne (Normalize-Text $WindowsNotes)) {
-        throw 'Windows Release body does not match the Windows notes file.'
-    }
-    $androidAsset = @($android.assets | Where-Object {
-        $_.name -ceq "CodexQuotaTray-Android-v$Version.apk"
-    })[0]
-    $windowsAsset = @($windows.assets | Where-Object {
-        $_.name -ceq "CodexQuotaTray-$Version-setup.exe"
-    })[0]
-    $androidSha = Get-ChecksumFromRelease -Tag $androidTag -AssetName $androidAsset.name
-    $windowsSha = Get-ChecksumFromRelease -Tag $windowsTag -AssetName $windowsAsset.name
-    Write-Host "Android APK: $($androidAsset.size) bytes, SHA256 $androidSha"
-    Write-Host "Windows installer: $($windowsAsset.size) bytes, SHA256 $windowsSha"
-    Verify-Manifest -AndroidNotes $AndroidNotes -WindowsNotes $WindowsNotes -AndroidSha256 $androidSha -AndroidSize ([long]$androidAsset.size) -WindowsSha256 $windowsSha -WindowsSize ([long]$windowsAsset.size)
+    Verify-Manifest -AndroidNotes $AndroidNotes -WindowsNotes $WindowsNotes -AndroidSha256 $androidSha -AndroidSize $androidSize -WindowsSha256 $windowsSha -WindowsSize $windowsSize
 }
 
 Write-Step 'Checking tools and repository identity.'
@@ -630,7 +1023,11 @@ if ($DryRun) {
     )
 } else {
     Invoke-External -FilePath $script:Git -Arguments @('fetch', '--tags', 'origin')
+    Invoke-External -FilePath $script:Git -Arguments @(
+        'fetch', 'origin', 'refs/heads/main:refs/remotes/origin/main'
+    )
 }
+$mainContainsHead = $false
 $mainCapture = Invoke-Captured -FilePath $script:Git -Arguments @(
     'rev-parse', 'refs/remotes/origin/main'
 )
@@ -639,8 +1036,9 @@ if ($mainCapture.ExitCode -ne 0) {
 } else {
     $script:MainSha = $mainCapture.Text.Trim()
     Write-Host "origin/main: $($script:MainSha)"
-    if (-not (Test-Ancestor -Ancestor $script:MainSha -Descendant $script:HeadSha)) {
-        Add-Blocker "Current HEAD does not contain origin/main ($($script:MainSha))."
+    $mainContainsHead = Test-Ancestor -Ancestor $script:MainSha -Descendant $script:HeadSha
+    if (-not $mainContainsHead) {
+        Write-Host "origin/main is ahead of current HEAD ($($script:HeadSha)); checking for a verified post-merge resume state."
     }
 }
 
@@ -657,33 +1055,53 @@ if ($null -ne $script:Gh) {
 }
 
 Write-Step 'Checking previous platform tags and release notes.'
-$androidPrevious = Get-PreviousTag -Prefix 'android-v' -Head $script:HeadSha
-$windowsPrevious = Get-PreviousTag -Prefix 'windows-v' -Head $script:HeadSha
-if ($null -ne $androidPrevious) {
-    Write-Host "Previous Android tag: $($androidPrevious.Tag) at $($androidPrevious.Commit)"
-    if ([Version]$Version -le $androidPrevious.Version) {
-        Add-Blocker "Target Android version $Version is not newer than $($androidPrevious.VersionText)."
+$androidPrevious = $null
+$windowsPrevious = $null
+if (Test-PlatformSelected -Name 'Android') {
+    $androidPrevious = Get-PreviousTag -Prefix 'android-v' -Head $script:HeadSha
+    if ($null -ne $androidPrevious) {
+        Write-Host "Previous Android tag: $($androidPrevious.Tag) at $($androidPrevious.Commit)"
+        if ([Version]$Version -le $androidPrevious.Version) {
+            Add-Blocker "Target Android version $Version is not newer than $($androidPrevious.VersionText)."
+        }
     }
 }
-if ($null -ne $windowsPrevious) {
-    Write-Host "Previous Windows tag: $($windowsPrevious.Tag) at $($windowsPrevious.Commit)"
-    if ([Version]$Version -le $windowsPrevious.Version) {
-        Add-Blocker "Target Windows version $Version is not newer than $($windowsPrevious.VersionText)."
+if (Test-PlatformSelected -Name 'Windows') {
+    $windowsPrevious = Get-PreviousTag -Prefix 'windows-v' -Head $script:HeadSha
+    if ($null -ne $windowsPrevious) {
+        Write-Host "Previous Windows tag: $($windowsPrevious.Tag) at $($windowsPrevious.Commit)"
+        if ([Version]$Version -le $windowsPrevious.Version) {
+            Add-Blocker "Target Windows version $Version is not newer than $($windowsPrevious.VersionText)."
+        }
     }
 }
 
-$androidNotesPath = Join-Path $script:RepoRoot "android\release-notes\$Version.md"
-$windowsNotesPath = Join-Path $script:RepoRoot "windows\release-notes\$Version.md"
-$androidNotes = Read-Notes -Path $androidNotesPath
-$windowsNotes = Read-Notes -Path $windowsNotesPath
+$androidNotesPath = $null
+$windowsNotesPath = $null
+$androidNotes = ''
+$windowsNotes = ''
+if (Test-PlatformSelected -Name 'Android') {
+    $androidNotesPath = Join-Path $script:RepoRoot "android\release-notes\$Version.md"
+    $androidNotes = Read-Notes -Path $androidNotesPath
+}
+if (Test-PlatformSelected -Name 'Windows') {
+    $windowsNotesPath = Join-Path $script:RepoRoot "windows\release-notes\$Version.md"
+    $windowsNotes = Read-Notes -Path $windowsNotesPath
+}
 Assert-WorkflowContracts
 
-Write-Step 'Checking version files and Android versionCode plan.'
-$androidInfo = Read-AndroidVersionInfo
-$windowsInfo = Read-WindowsVersionInfo
+Write-Step 'Checking selected platform version files and Android versionCode plan.'
+$androidInfo = $null
+$windowsInfo = $null
+if (Test-PlatformSelected -Name 'Android') {
+    $androidInfo = Read-AndroidVersionInfo
+}
+if (Test-PlatformSelected -Name 'Windows') {
+    $windowsInfo = Read-WindowsVersionInfo
+}
 $androidHistoryMax = 0
 $plannedCode = $null
-if ($null -ne $androidInfo) {
+if ((Test-PlatformSelected -Name 'Android') -and $null -ne $androidInfo) {
     foreach ($record in @(Get-PlatformTagRecords -Prefix 'android-v' | Where-Object {
         Test-Ancestor -Ancestor $_.Commit -Descendant $script:HeadSha
     })) {
@@ -695,13 +1113,41 @@ if ($null -ne $androidInfo) {
     $plannedCode = [Math]::Max($androidInfo.VersionCode, $androidHistoryMax + 1)
     Write-Host "Android version: $($androidInfo.Version) -> $Version; versionCode: $($androidInfo.VersionCode) -> $plannedCode."
 }
-if ($null -ne $windowsInfo) {
+if ((Test-PlatformSelected -Name 'Windows') -and $null -ne $windowsInfo) {
     Write-Host "Windows version: $($windowsInfo.Version) -> $Version."
+}
+
+$resumeNotesPaths = @()
+if (Test-PlatformSelected -Name 'Android') {
+    $resumeNotesPaths += $androidNotesPath
+}
+if (Test-PlatformSelected -Name 'Windows') {
+    $resumeNotesPaths += $windowsNotesPath
+}
+if ($mainCapture.ExitCode -eq 0) {
+    $postMergeState = Get-PostMergeReleaseResumeState -MainCommit $script:MainSha -MainContainsHead $mainContainsHead -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject
+    if ($postMergeState.Status -ceq 'Valid') {
+        $script:PostMergeResume = $true
+        $script:ReleaseMainSha = $postMergeState.Commit
+        $script:MainSha = $postMergeState.Commit
+        Write-Host "Verified post-merge release resume at main commit $($postMergeState.Commit)."
+    } elseif ($postMergeState.Status -ceq 'Invalid') {
+        Add-Blocker "Post-merge release resume could not be verified: $($postMergeState.Reason)"
+    } elseif (-not $mainContainsHead) {
+        Add-Blocker "Current HEAD does not contain origin/main ($($mainCapture.Text.Trim()))."
+    }
 }
 
 $androidTag = "android-v$Version"
 $windowsTag = "windows-v$Version"
-foreach ($tag in @($androidTag, $windowsTag)) {
+$targetTags = @()
+if (Test-PlatformSelected -Name 'Android') {
+    $targetTags += $androidTag
+}
+if (Test-PlatformSelected -Name 'Windows') {
+    $targetTags += $windowsTag
+}
+foreach ($tag in $targetTags) {
     $localState = [pscustomobject]@{ Exists = $false; Commit = $null }
     $localCommitCapture = Invoke-Captured -FilePath $script:Git -Arguments @(
         'rev-parse',
@@ -733,10 +1179,19 @@ foreach ($tag in @($androidTag, $windowsTag)) {
 }
 
 Write-Step 'Preparing release plan.'
-Write-Host "Android notes: $androidNotesPath"
-Write-Host "Windows notes: $windowsNotesPath"
-Write-Host "Tags: $androidTag, $windowsTag"
-Write-Host 'Formal run will validate, commit, push, create or reuse a PR, wait for PR and main CI, push annotated tags atomically, then verify both Releases and update-manifest.'
+Write-Host "Platform: $Platform"
+if (Test-PlatformSelected -Name 'Android') {
+    Write-Host "Android notes: $androidNotesPath"
+}
+if (Test-PlatformSelected -Name 'Windows') {
+    Write-Host "Windows notes: $windowsNotesPath"
+}
+Write-Host "Tags: $($targetTags -join ', ')"
+if ($script:PostMergeResume) {
+    Write-Host "Post-merge resume will continue with selected main CI, tag, Release workflow, and update-manifest verification at $($script:MainSha); preparation and PR stages are already complete."
+} else {
+    Write-Host "Formal run will validate $script:ReleaseScope, commit only selected platform files, push, create or reuse a PR, wait for selected CI, push selected annotated tag(s), then verify selected Release(s) and manifest node(s)."
+}
 
 if ($DryRun) {
     Write-Host 'DRY RUN: no version files, refs, commits, PRs, Releases, or manifest files will be written.'
@@ -752,40 +1207,47 @@ if ($script:Blockers.Count -gt 0) {
     throw ("Release preflight failed with {0} blocker(s)." -f $script:Blockers.Count)
 }
 
+if (-not $script:PostMergeResume) {
 Update-VersionFiles -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -VersionCode $plannedCode
 Run-LocalValidation
 
 Write-Step 'Creating the release preparation commit.'
-Invoke-External -FilePath $script:Git -Arguments @(
-    'add', '--', $androidInfo.Path, $windowsInfo.Path, $androidNotesPath, $windowsNotesPath
-)
+$pathsToStage = @()
+if (Test-PlatformSelected -Name 'Android') {
+    $pathsToStage += $androidInfo.Path
+}
+if (Test-PlatformSelected -Name 'Windows') {
+    $pathsToStage += $windowsInfo.Path
+}
+Invoke-External -FilePath $script:Git -Arguments (@('add', '--') + $pathsToStage)
 $staged = @(& $script:Git diff --cached --name-only | ForEach-Object {
     ([string]$_).Trim()
 } | Where-Object { $_ })
-$allowedStaged = @(
-    $androidInfo.Path.Substring($script:RepoRoot.Length + 1).Replace('\', '/'),
-    $windowsInfo.Path.Substring($script:RepoRoot.Length + 1).Replace('\', '/'),
-    $androidNotesPath.Substring($script:RepoRoot.Length + 1).Replace('\', '/'),
-    $windowsNotesPath.Substring($script:RepoRoot.Length + 1).Replace('\', '/')
-)
+$allowedStaged = @($pathsToStage | ForEach-Object {
+    $_.Substring($script:RepoRoot.Length + 1).Replace('\', '/')
+})
 foreach ($path in $staged) {
     if ($path -notin $allowedStaged) {
         throw "Unexpected staged release file: $path"
     }
 }
 if ($staged.Count -eq 0) {
-    throw 'No release preparation changes were staged.'
+    if (-not (Test-ExistingReleasePreparationState -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject)) {
+        throw 'No release preparation changes were staged and no matching release preparation commit is ready to resume.'
+    }
+    Write-Host 'Existing release preparation commit is valid; resuming without creating an empty commit.'
+} else {
+    Invoke-External -FilePath $script:Git -Arguments @('commit', '-m', $releaseSubject)
 }
-Invoke-External -FilePath $script:Git -Arguments @('commit', '-m', "release: prepare $Version")
 Invoke-External -FilePath $script:Git -Arguments @('push', 'origin', $script:Branch)
 
 Write-Step 'Creating or reusing the release PR.'
 $pr = Get-OpenReleasePr
 if ($null -eq $pr) {
-    $body = "Prepare Android and Windows $Version. Release notes are platform-specific and the release process will wait for merged main CI before tagging."
+    $body = "Prepare $script:ReleaseScope $Version. Release notes, validation, tags, Releases, and update-manifest verification are limited to the selected platform(s); the release process will wait for merged main CI before tagging."
     $prUrl = Read-ExternalText -FilePath $script:Gh -Arguments @(
         'pr', 'create', '--base', 'main', '--head', $script:Branch,
-        '--title', "release: prepare $Version", '--body', $body
+        '--title', $releaseSubject, '--body', $body
     )
     $pr = Read-GhJson -Arguments @(
         'pr', 'view', $prUrl.Trim(), '--json', 'number,url,headRefName,baseRefName'
@@ -802,15 +1264,16 @@ if ($null -eq $mergeMethod) {
 if ($mergeMethod -ceq 'squash') {
     Invoke-External -FilePath $script:Gh -Arguments @(
         'pr', 'merge', ([string]$prNumber), '--squash',
-        '--subject', "release: prepare $Version",
-        '--body', "Release preparation for $Version."
+        '--subject', $releaseSubject,
+        '--body', "Release preparation for $script:ReleaseScope $Version."
     )
 } else {
     Invoke-External -FilePath $script:Gh -Arguments @(
         'pr', 'merge', ([string]$prNumber), '--merge',
-        '--subject', "release: prepare $Version",
-        '--body', "Release preparation for $Version."
+        '--subject', $releaseSubject,
+        '--body', "Release preparation for $script:ReleaseScope $Version."
     )
+}
 }
 
 Write-Step 'Resolving the merged main commit and waiting for main CI.'
@@ -820,12 +1283,29 @@ Invoke-External -FilePath $script:Git -Arguments @(
 $script:MainSha = (Read-ExternalText -FilePath $script:Git -Arguments @(
     'rev-parse', 'refs/remotes/origin/main'
 )).Trim()
-Wait-WorkflowSuccess -Workflow 'android-ci.yml' -Commit $script:MainSha | Out-Null
-Wait-WorkflowSuccess -Workflow 'windows-ci.yml' -Commit $script:MainSha | Out-Null
+if ($script:PostMergeResume) {
+    $refreshedMainContainsHead = Test-Ancestor -Ancestor $script:MainSha -Descendant $script:HeadSha
+    $refreshedPostMergeState = Get-PostMergeReleaseResumeState -MainCommit $script:MainSha -MainContainsHead $refreshedMainContainsHead -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject
+    if ($refreshedPostMergeState.Status -ne 'Valid' -or
+        $refreshedPostMergeState.Commit -cne $script:ReleaseMainSha) {
+        throw 'Post-merge release resume state changed before main CI; refusing to continue.'
+    }
+    $script:MainSha = $refreshedPostMergeState.Commit
+}
+$mainCiWorkflows = @()
+if (Test-PlatformSelected -Name 'Android') {
+    $mainCiWorkflows += 'android-ci.yml'
+}
+if (Test-PlatformSelected -Name 'Windows') {
+    $mainCiWorkflows += 'windows-ci.yml'
+}
+foreach ($workflow in $mainCiWorkflows) {
+    Wait-WorkflowSuccess -Workflow $workflow -Commit $script:MainSha | Out-Null
+}
 
-Write-Step 'Creating and atomically pushing annotated platform tags.'
+Write-Step 'Creating and pushing annotated selected platform tag(s).'
 $tagsToPush = [System.Collections.Generic.List[string]]::new()
-foreach ($tag in @($androidTag, $windowsTag)) {
+foreach ($tag in $targetTags) {
     $state = Get-RemoteTagState -Tag $tag
     if ($state.Exists) {
         if ($state.Commit -cne $script:MainSha) {
@@ -851,9 +1331,13 @@ if ($tagsToPush.Count -gt 0) {
     Invoke-External -FilePath $script:Git -Arguments (@('push', '--atomic', 'origin') + $tagsToPush)
 }
 
-Write-Step 'Waiting for both platform Release workflows.'
-Wait-WorkflowSuccess -Workflow 'android-release.yml' -Commit $script:MainSha -Tag $androidTag | Out-Null
-Wait-WorkflowSuccess -Workflow 'windows-release.yml' -Commit $script:MainSha -Tag $windowsTag | Out-Null
+Write-Step "Waiting for $script:ReleaseScope Release workflow(s)."
+if (Test-PlatformSelected -Name 'Android') {
+    Wait-WorkflowSuccess -Workflow 'android-release.yml' -Commit $script:MainSha -Tag $androidTag | Out-Null
+}
+if (Test-PlatformSelected -Name 'Windows') {
+    Wait-WorkflowSuccess -Workflow 'windows-release.yml' -Commit $script:MainSha -Tag $windowsTag | Out-Null
+}
 
 Write-Step 'Verifying Releases and update-manifest.'
 Verify-Releases -AndroidNotes $androidNotes -WindowsNotes $windowsNotes
