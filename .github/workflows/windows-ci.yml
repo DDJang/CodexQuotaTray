@@ -15,6 +15,8 @@ on:
       - '.github/workflows/windows-release.yml'
       - '.github/scripts/update-release-manifest.ps1'
       - '.github/scripts/test-update-release-manifest.ps1'
+      - 'scripts/publish-release.ps1'
+      - '.github/scripts/test-publish-release.ps1'
       - '.github/update-manifest.seed.json'
   push:
     branches:
@@ -26,6 +28,8 @@ on:
       - '.github/workflows/windows-release.yml'
       - '.github/scripts/update-release-manifest.ps1'
       - '.github/scripts/test-update-release-manifest.ps1'
+      - 'scripts/publish-release.ps1'
+      - '.github/scripts/test-publish-release.ps1'
       - '.github/update-manifest.seed.json'
   workflow_dispatch:
     inputs:
@@ -143,6 +147,10 @@ jobs:
       - name: Test unified update manifest writer
         shell: pwsh
         run: ./.github/scripts/test-update-release-manifest.ps1
+
+      - name: Test platform-independent release planner
+        shell: pwsh
+        run: ./.github/scripts/test-publish-release.ps1
 
   packaging-smoke:
     if: github.event_name != 'workflow_dispatch'
