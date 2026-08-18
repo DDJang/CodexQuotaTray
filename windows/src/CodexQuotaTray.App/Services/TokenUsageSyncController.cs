@@ -31,6 +31,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
 
     internal TokenUsageSyncController(
         TokenUsageSettingsService settingsService,
+        TokenUsageScanner scanner,
         Func<QuotaLanSnapshot?> quotaSnapshotProvider,
         int port = TokenUsageSyncServer.DefaultPort,
         string displayNameSuffix = "",
@@ -40,7 +41,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             settingsService.LoadOrCreateAsync,
             settingsService.RegenerateAsync,
             () => TokenUsageSyncServer.FindPrivateLanSelection(diagnostic),
-            secret => new LanSyncServerAdapter(new TokenUsageSyncServer(new TokenUsageScanner(), secret, quotaSnapshotProvider: quotaSnapshotProvider, diagnostic: diagnostic)),
+            secret => new LanSyncServerAdapter(new TokenUsageSyncServer(scanner, secret, quotaSnapshotProvider: quotaSnapshotProvider, diagnostic: diagnostic)),
             (deviceId, name) => new DnsSdPublisherAdapter(new DnsSdServicePublisher(deviceId, name, dnsSdInstancePrefix, diagnostic: diagnostic)),
             port,
             displayNameSuffix,

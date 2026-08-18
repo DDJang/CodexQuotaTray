@@ -61,4 +61,17 @@ public sealed class AppIntegrationSourceTests
         Assert.IsFalse(method.Contains("tokenUsageSettingsTask", StringComparison.Ordinal));
         Assert.IsFalse(method.Contains("ClearTokenUsageCacheAsync", StringComparison.Ordinal));
     }
+
+    [TestMethod]
+    public void UiAndLanTokenUsagePathsShareOneScannerInstance()
+    {
+        var appSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+
+        Assert.AreEqual(1, appSource.Split("new TokenUsageScanner()", StringSplitOptions.None).Length - 1);
+        var controllerStart = appSource.IndexOf("new TokenUsageSyncController(", StringComparison.Ordinal);
+        Assert.IsGreaterThanOrEqualTo(0, controllerStart);
+        var controllerEnd = appSource.IndexOf(");", controllerStart, StringComparison.Ordinal);
+        Assert.IsGreaterThan(controllerStart, controllerEnd);
+        StringAssert.Contains(appSource[controllerStart..controllerEnd], "tokenUsageScanner,");
+    }
 }

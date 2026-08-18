@@ -167,6 +167,116 @@ public sealed class TokenUsageTests
     }
 
     [TestMethod]
+    public async Task ScannerBoundsLargeNonTokenLinesAndContinuesWithLaterEvents()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live(
+            "large-record.jsonl",
+            new string('x', 128 * 1024),
+            Event("2026-08-08T01:00:00Z", 42, 42));
+        var scanner = new TokenUsageScanner(512);
+
+        var result = await scanner.ScanAsync(
+            corpus.Root,
+            TestTimeZone(),
+            TestNow());
+
+        Assert.AreEqual(42L, result.Summary.LifetimeTokens);
+        Assert.IsGreaterThan(128 * 1024, scanner.LastBytesRead);
+    }
+
+    [TestMethod]
+    public async Task ScannerSkipsOversizedTokenCandidateAndContinuesAtNextRecord()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live(
+            "oversized-token.jsonl",
+            "{\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"padding\":\"" + new string('x', 1024) + "\"}}",
+            Event("2026-08-08T01:00:00Z", 7, 7));
+        var scanner = new TokenUsageScanner(512);
+
+        var result = await scanner.ScanAsync(
+            corpus.Root,
+            TestTimeZone(),
+            TestNow());
+
+        Assert.AreEqual(7L, result.Summary.LifetimeTokens);
+    }
+
+    [TestMethod]
+    public async Task ScannerReadsOnlyAppendedBytesAndReusesUnchangedFiles()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live("incremental.jsonl", Event("2026-08-08T01:00:00Z", 100, 100));
+        var scanner = new TokenUsageScanner();
+
+        var first = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow());
+        var firstBytes = scanner.TotalBytesRead;
+        corpus.AppendLive("incremental.jsonl", Event("2026-08-08T02:00:00Z", 150, 50));
+        var second = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow().AddMinutes(1));
+        var appendBytes = scanner.LastBytesRead;
+        var third = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow().AddMinutes(2));
+
+        Assert.AreEqual(100L, first.Summary.LifetimeTokens);
+        Assert.AreEqual(150L, second.Summary.LifetimeTokens);
+        Assert.AreEqual(150L, third.Summary.LifetimeTokens);
+        Assert.IsGreaterThan(appendBytes, firstBytes);
+        Assert.IsGreaterThan(0L, appendBytes);
+        Assert.AreEqual(0L, scanner.LastBytesRead);
+    }
+
+    [TestMethod]
+    public async Task ConcurrentScannerCallersShareOnePhysicalRead()
+    {
+        using var corpus = new TokenCorpus();
+        var path = corpus.Live("shared.jsonl", Event("2026-08-08T01:00:00Z", 123, 123));
+        var scanner = new TokenUsageScanner();
+
+        var results = await Task.WhenAll(
+            scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow()),
+            scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow()));
+
+        Assert.IsTrue(results.All(result => result.Summary.LifetimeTokens == 123L));
+        Assert.AreEqual(new FileInfo(path).Length, scanner.TotalBytesRead);
+    }
+
+    [TestMethod]
+    public async Task ScannerRetriesIncompleteFinalRecordAfterItIsAppended()
+    {
+        using var corpus = new TokenCorpus();
+        var complete = Event("2026-08-08T01:00:00Z", 123, 123);
+        var split = complete.Length / 2;
+        var path = corpus.LiveRaw("partial.jsonl", complete[..split]);
+        var scanner = new TokenUsageScanner();
+
+        var incomplete = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow());
+        File.AppendAllText(path, complete[split..] + Environment.NewLine, Encoding.UTF8);
+        var completed = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow().AddMinutes(1));
+
+        Assert.AreEqual(0L, incomplete.Summary.LifetimeTokens);
+        Assert.AreEqual(123L, completed.Summary.LifetimeTokens);
+    }
+
+    [TestMethod]
+    public async Task ScannerRebuildsStateWhenAFileIsTruncatedAndRewritten()
+    {
+        using var corpus = new TokenCorpus();
+        var path = corpus.Live(
+            "rewritten.jsonl",
+            Event("2026-08-08T01:00:00Z", 100, 100),
+            Event("2026-08-08T02:00:00Z", 200, 100));
+        var scanner = new TokenUsageScanner();
+        var first = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow());
+
+        File.WriteAllLines(path, [Event("2026-08-08T03:00:00Z", 7, 7)], Encoding.UTF8);
+        var rewritten = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow().AddMinutes(1));
+
+        Assert.AreEqual(200L, first.Summary.LifetimeTokens);
+        Assert.AreEqual(7L, rewritten.Summary.LifetimeTokens);
+        Assert.AreEqual(new FileInfo(path).Length, scanner.LastBytesRead);
+    }
+
+    [TestMethod]
     public async Task LanServerEnforcesContractAndBearerAuthentication()
     {
         using var corpus = new TokenCorpus();
@@ -455,8 +565,14 @@ public sealed class TokenUsageTests
 
     private static Task<TokenUsageSnapshot> Scan(TokenCorpus corpus) => new TokenUsageScanner().ScanAsync(
         corpus.Root,
-        TimeZoneInfo.CreateCustomTimeZone("Test/+08", TimeSpan.FromHours(8), "Test/+08", "Test/+08"),
-        new DateTimeOffset(2026, 8, 8, 12, 0, 0, TimeSpan.Zero));
+        TestTimeZone(),
+        TestNow());
+
+    private static TimeZoneInfo TestTimeZone() =>
+        TimeZoneInfo.CreateCustomTimeZone("Test/+08", TimeSpan.FromHours(8), "Test/+08", "Test/+08");
+
+    private static DateTimeOffset TestNow() =>
+        new(2026, 8, 8, 12, 0, 0, TimeSpan.Zero);
 
     private static string Event(string timestamp, long total, long? last = null)
     {
@@ -496,19 +612,31 @@ public sealed class TokenUsageTests
 
         internal string Root { get; }
 
-        internal void Live(string name, params string[] lines) => Write(Path.Combine(Root, "sessions", "2026", "08", "08", name), lines);
+        internal string Live(string name, params string[] lines) => Write(Path.Combine(Root, "sessions", "2026", "08", "08", name), lines);
 
-        internal void Archived(string name, params string[] lines) => Write(Path.Combine(Root, "archived_sessions", name), lines);
+        internal void AppendLive(string name, params string[] lines) =>
+            File.AppendAllLines(Path.Combine(Root, "sessions", "2026", "08", "08", name), lines, Encoding.UTF8);
+
+        internal string LiveRaw(string name, string content)
+        {
+            var path = Path.Combine(Root, "sessions", "2026", "08", "08", name);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, content, Encoding.UTF8);
+            return path;
+        }
+
+        internal string Archived(string name, params string[] lines) => Write(Path.Combine(Root, "archived_sessions", name), lines);
 
         public void Dispose()
         {
             if (Directory.Exists(Root)) Directory.Delete(Root, recursive: true);
         }
 
-        private static void Write(string path, string[] lines)
+        private static string Write(string path, string[] lines)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             File.WriteAllLines(path, lines, Encoding.UTF8);
+            return path;
         }
     }
 }

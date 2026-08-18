@@ -73,6 +73,7 @@ public partial class App : Application
         var startupLaunch = arguments.Any(value => string.Equals(value, "--startup", StringComparison.OrdinalIgnoreCase));
         var explicitCodex = ReadOption(arguments, "--codex-bin");
         var lanDiagnostics = new LanDiagnosticBuffer();
+        var tokenUsageScanner = new TokenUsageScanner();
 
         IUiStateProvider stateProvider;
         IDiagnosticTextProvider diagnostics;
@@ -114,6 +115,7 @@ public partial class App : Application
             };
             tokenUsageSync = new TokenUsageSyncController(
                 new TokenUsageSettingsService(jsonStore, paths),
+                tokenUsageScanner,
                 liveRuntime.GetLastSuccessfulLanQuotaSnapshot,
                 identity.TokenSyncPort,
                 identity.TokenSyncDisplayNameSuffix,
@@ -155,7 +157,6 @@ public partial class App : Application
             stateProvider,
             new ExternalNavigation(),
             runtimeStateEventsAuthoritative);
-        var tokenUsageScanner = new TokenUsageScanner();
         var tokenUsageViewModel = new TokenUsageViewModel(
             cancellationToken => ScanTokenUsageAsync(tokenUsageScanner, persistence, cancellationToken));
         viewModelReference = viewModel;

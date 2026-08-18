@@ -22,7 +22,8 @@ WinUI Views / Services / Interop / Themes
   单 in-flight、有界退避和失败时保留最后有效状态。
 - `Core/Persistence` 只保存设置、最小归一化额度缓存、按日聚合 Token 统计缓存和提醒状态。
 - `Core/Presentation` 是 UI 的唯一产品状态入口；UI 不解析 RPC。
-- `Core/TokenUsage` 流式扫描 session 文件中的 Token 计数事件并生成聚合，不进入额度协议层。
+- `Core/TokenUsage` 使用有界 UTF-8 缓冲流式扫描 session 文件中的 Token 计数事件，复用未变化文件并从
+  安全偏移增量读取追加内容；主面板与 LAN 服务共享同一个扫描 single-flight 和文件状态，不进入额度协议层。
 
 完整读取形成通知合并基线。`account/rateLimits/updated` 只覆盖实际出现的字段；无安全基线、通知
 溢出或 generation 变化时触发完整补读。
