@@ -26,7 +26,7 @@ merge、tag、Release workflow 监控和发布结果验证。没有明确授权�
 ```
 
 `Windows` 和 `Android` 只处理选定平台；`All` 才是确实需要双平台同步准备和发布时的入口。脚本没有隐式的双平台默认值。
-Codex 在调用脚本前只为选定平台生成对应 notes：
+Codex 在调用脚本前只为选定平台准备对应 notes，并将 notes 写入当前 branch 的提交；脚本启动时工作区必须 clean，因此不能把未提交的 notes 留在工作区等待脚本创建提交：
 
 - Windows：`windows/release-notes/X.Y.Z.md`
 - Android：`android/release-notes/X.Y.Z.md`
@@ -46,7 +46,7 @@ Codex 在调用脚本前只为选定平台生成对应 notes：
 
 ### 1. Preflight
 
-脚本首先严格验证 `MAJOR.MINOR.PATCH` 版本和 `Windows|Android|All` 平台，确认当前是 Git 仓库中的非 detached、非 `main` 分支，检查工作区和明显敏感文件，检查 `gh` 可用且已认证，确认 `origin/main` 存在并检查当前 HEAD 已包含它，同时只检查选定平台的 notes、版本文件和目标 tag 冲突。正式运行会 fetch；DryRun 只使用不会更新 refs 的检查。
+脚本首先严格验证 `MAJOR.MINOR.PATCH` 版本和 `Windows|Android|All` 平台，确认当前是 Git 仓库中的非 detached、非 `main` 分支，要求工作区 clean 并检查明显敏感文件，检查 `gh` 可用且已认证，确认 `origin/main` 存在并检查当前 HEAD 已包含它，同时只检查选定平台的 notes、版本文件和目标 tag 冲突。正式运行会 fetch；DryRun 只使用不会更新 refs 的检查。
 
 ### 2. 选择上一平台 Release tag
 
@@ -62,7 +62,7 @@ All     -> 两者都选择
 
 ### 3. Release notes
 
-Codex 以选定平台的上一 tag → 当前 HEAD 为边界，筛选该平台用户可感知的变化，生成对应 Markdown。只保留新增、优化、修复等用户能理解的内容，不写 commit hash、作者、PR 编号、完整 changelog 或普通测试/重构细节。
+Codex 以选定平台的上一 tag → 当前 HEAD 为边界，筛选该平台用户可感知的变化，生成对应 Markdown，并在调用脚本前提交 notes。只保留新增、优化、修复等用户能理解的内容，不写 commit hash、作者、PR 编号、完整 changelog 或普通测试/重构细节。
 
 脚本在版本修改和构建前只检查选定平台的文件存在且非空。Windows-only 不要求 Android notes；Android-only 不要求 Windows notes；All 两者都要求。
 
@@ -91,7 +91,7 @@ Common:  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps
 
 ### 6. Commit + push
 
-验证成功后检查差异和敏感文件，只 stage 选定平台的版本文件与 notes，使用带平台范围的 `release: prepare ...` 提交，然后只 push 当前分支到 `origin`，不 force push。
+验证成功后检查差异和敏感文件，只 stage 选定平台的版本文件；notes 已属于 clean HEAD，不在本次脚本工作区中新增或修改。脚本使用带平台范围的 `release: prepare ...` 提交，然后只 push 当前分支到 `origin`，不 force push。
 
 ### 7. 创建或复用 PR
 
@@ -141,9 +141,9 @@ Release workflow 仍共用 `update-manifest-publish` concurrency group，且 `ca
 .\scripts\publish-release.ps1 -Platform All -Version 0.8.8 -DryRun
 ```
 
-DryRun 会真实读取并报告当前 branch、HEAD、`main` 关系、工作区、`gh` 认证状态、远端仓库、选定平台的 ancestor tag、目标版本、notes 路径、目标 tag 冲突、预期版本和 Android `versionCode`（如适用）、将运行的本地验证、将复用/创建的 PR、等待的 CI、待创建的 tag、Release 和 manifest 验证目标。
+DryRun 会真实读取并报告当前 branch、HEAD、`main` 关系、工作区、`gh` 认证状态、远端仓库、选定平台的 ancestor tag、目标版本、notes 路径、目标 tag 冲突、预期版本和 Android `versionCode`（如适用）、将运行的本地验证、后续 PR/CI、tag、Release 和 manifest 阶段的计划。DryRun 在查询或创建 PR 前退出，不会报告具体 PR 的复用或创建结果。
 
-DryRun 不执行版本写入、fetch 写 refs、构建、commit、push、PR create、merge、tag、Release 或 manifest 写入。选定平台的 release notes 缺失会明确显示为正式运行的阻塞项，但不会为了展示计划而修改工作区。
+DryRun 不执行版本写入、fetch 写 refs、构建、commit、push、PR 查询或 create、merge、tag、Release 或 manifest 写入。选定平台的 release notes 缺失会明确显示为正式运行的阻塞项，但不会为了展示计划而修改工作区。
 
 ## 失败与重跑
 
