@@ -438,31 +438,72 @@ function Test-CommitFilesMatchHead {
     return $true
 }
 
-function Test-SquashReleaseCommit {
-    param(
-        [Parameter(Mandatory = $true)][string]$Commit,
-        [AllowNull()]$AndroidInfo,
-        [AllowNull()]$WindowsInfo,
-        [Parameter(Mandatory = $true)][string[]]$NotesPaths
-    )
-    $changedPaths = @(Get-CommitChangedPaths -Commit $Commit)
-    $allowedPaths = @(Get-SelectedReleasePaths -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo -NotesPaths $NotesPaths)
-    foreach ($path in $changedPaths) {
-        if ($path -notin $allowedPaths) {
-            return $false
+function Get-MergedReleasePrCandidates {
+    param([Parameter(Mandatory = $true)][string]$MainCommit)
+    $candidates = [System.Collections.Generic.List[object]]::new()
+    $mergedPrOnBranch = $false
+    $headMatchedPr = $false
+    if ($DryRun -or $null -eq $script:Gh) {
+        return [pscustomobject]@{
+            Candidates = @()
+            MergedPrOnBranch = $false
+            HeadMatchedPr = $false
         }
     }
-    foreach ($path in @(Get-SelectedVersionPaths -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo)) {
-        if ($path -notin $changedPaths) {
-            return $false
+
+    $prs = @(Read-GhJson @(
+        'pr', 'list', '--head', $script:Branch, '--base', 'main', '--state', 'merged',
+        '--limit', '100', '--json', 'number,url,headRefName,headRefOid,baseRefName,mergeCommit'
+    ))
+    foreach ($pr in $prs) {
+        if ([string]$pr.headRefName -cne $script:Branch -or
+            [string]$pr.baseRefName -cne 'main') {
+            continue
+        }
+        $mergedPrOnBranch = $true
+        $headRefOidProperty = $pr.PSObject.Properties['headRefOid']
+        $headRefOid = if ($null -ne $headRefOidProperty) {
+            [string]$headRefOidProperty.Value
+        } else {
+            ''
+        }
+        if ($headRefOid -cne $script:HeadSha) {
+            continue
+        }
+        $headMatchedPr = $true
+        $mergeCommitProperty = $pr.PSObject.Properties['mergeCommit']
+        if ($null -eq $mergeCommitProperty -or $null -eq $mergeCommitProperty.Value) {
+            continue
+        }
+        $mergeCommitOidProperty = $mergeCommitProperty.Value.PSObject.Properties['oid']
+        if ($null -eq $mergeCommitOidProperty) {
+            continue
+        }
+        $mergeCommit = [string]$mergeCommitOidProperty.Value
+        if ([string]::IsNullOrWhiteSpace($mergeCommit) -or
+            -not (Test-Ancestor -Ancestor $mergeCommit -Descendant $MainCommit)) {
+            continue
+        }
+        if (-not @($candidates | Where-Object { $_.Commit -ceq $mergeCommit }).Count) {
+            $candidates.Add([pscustomobject]@{
+                Commit = $mergeCommit
+                Kind = 'squash'
+                PrNumber = [int]$pr.number
+                PrUrl = [string]$pr.url
+            })
         }
     }
-    return $true
+    return [pscustomobject]@{
+        Candidates = @($candidates)
+        MergedPrOnBranch = $mergedPrOnBranch
+        HeadMatchedPr = $headMatchedPr
+    }
 }
 
 function Get-PostMergeReleaseResumeState {
     param(
         [Parameter(Mandatory = $true)][string]$MainCommit,
+        [Parameter(Mandatory = $true)][bool]$MainContainsHead,
         [AllowNull()]$AndroidInfo,
         [AllowNull()]$WindowsInfo,
         [Parameter(Mandatory = $true)][string[]]$NotesPaths,
@@ -487,25 +528,21 @@ function Get-PostMergeReleaseResumeState {
         }
     }
 
-    $history = Read-ExternalText -FilePath $script:Git -Arguments @(
-        'log', '--first-parent', '--format=%H%x09%s', $MainCommit
-    )
-    foreach ($line in @($history -split [Environment]::NewLine | ForEach-Object {
-        ([string]$_).Trim()
-    } | Where-Object { $_ })) {
-        $parts = $line -split "`t", 2
-        if ($parts.Count -ne 2 -or $parts[1] -cne $CommitMessage) {
-            continue
-        }
-        if (-not @($candidates | Where-Object { $_.Commit -ceq $parts[0] }).Count) {
-            $candidates.Add([pscustomobject]@{
-                Commit = $parts[0]
-                Kind = 'squash'
-            })
+    $mergedPrState = Get-MergedReleasePrCandidates -MainCommit $MainCommit
+    foreach ($candidate in $mergedPrState.Candidates) {
+        if (-not @($candidates | Where-Object { $_.Commit -ceq $candidate.Commit }).Count) {
+            $candidates.Add($candidate)
         }
     }
 
     if ($candidates.Count -eq 0) {
+        if ($mergedPrState.MergedPrOnBranch -and -not $MainContainsHead) {
+            return [pscustomobject]@{
+                Status = 'Invalid'
+                Commit = $null
+                Reason = 'No merged PR for this release branch has the current branch HEAD and a merge commit in origin/main.'
+            }
+        }
         return [pscustomobject]@{
             Status = 'None'
             Commit = $null
@@ -524,10 +561,6 @@ function Get-PostMergeReleaseResumeState {
     $valid = [System.Collections.Generic.List[object]]::new()
     foreach ($candidate in $candidates) {
         if (-not (Test-CommitFilesMatchHead -Commit $candidate.Commit -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo -NotesPaths $NotesPaths)) {
-            continue
-        }
-        if ($candidate.Kind -ceq 'squash' -and
-            -not (Test-SquashReleaseCommit -Commit $candidate.Commit -AndroidInfo $AndroidInfo -WindowsInfo $WindowsInfo -NotesPaths $NotesPaths)) {
             continue
         }
         $valid.Add($candidate)
@@ -1092,7 +1125,7 @@ if (Test-PlatformSelected -Name 'Windows') {
     $resumeNotesPaths += $windowsNotesPath
 }
 if ($mainCapture.ExitCode -eq 0) {
-    $postMergeState = Get-PostMergeReleaseResumeState -MainCommit $script:MainSha -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject
+    $postMergeState = Get-PostMergeReleaseResumeState -MainCommit $script:MainSha -MainContainsHead $mainContainsHead -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject
     if ($postMergeState.Status -ceq 'Valid') {
         $script:PostMergeResume = $true
         $script:ReleaseMainSha = $postMergeState.Commit
@@ -1251,7 +1284,8 @@ $script:MainSha = (Read-ExternalText -FilePath $script:Git -Arguments @(
     'rev-parse', 'refs/remotes/origin/main'
 )).Trim()
 if ($script:PostMergeResume) {
-    $refreshedPostMergeState = Get-PostMergeReleaseResumeState -MainCommit $script:MainSha -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject
+    $refreshedMainContainsHead = Test-Ancestor -Ancestor $script:MainSha -Descendant $script:HeadSha
+    $refreshedPostMergeState = Get-PostMergeReleaseResumeState -MainCommit $script:MainSha -MainContainsHead $refreshedMainContainsHead -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject
     if ($refreshedPostMergeState.Status -ne 'Valid' -or
         $refreshedPostMergeState.Commit -cne $script:ReleaseMainSha) {
         throw 'Post-merge release resume state changed before main CI; refusing to continue.'

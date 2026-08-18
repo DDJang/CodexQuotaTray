@@ -95,7 +95,7 @@ Common:  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps
 
 如果脚本在 release preparation commit 已经存在后重跑，只有在当前 HEAD 的提交 subject、选定平台版本文件、选定平台 notes、提交改动范围和 clean worktree 都与本次目标一致时，才会跳过 commit（不创建空 commit），push 当前分支并继续查询/复用已有 PR；状态不完整时仍会停止。
 
-如果 release preparation PR 已经 squash/merge 到 `main`，脚本必须同时验证 main 历史中的对应 squash commit，或包含当前 release branch tip 的 merge commit，并确认选定平台版本和 notes 与当前准备状态一致。验证通过后跳过 preparation、PR 和 PR CI，使用已确认的 release main commit 继续 main CI、tag、Release workflow 和 `update-manifest`；无法唯一确认时停止，不因 `origin/main` 前进而放宽 ancestry 或 SHA 校验。
+如果 release preparation PR 已经 squash/merge 到 `main`，脚本必须同时验证 main 历史中的对应 squash commit，或包含当前 release branch tip 的 merge commit，并确认选定平台版本和 notes 与当前准备状态一致。squash 的身份优先由 GitHub merged PR 元数据确认：merged PR 的 `headRefOid` 必须精确等于当前 release branch HEAD，`mergeCommit` 必须属于 `origin/main` 历史；squash commit 可以同时包含本次产品代码和测试改动，不要求 changed paths 只包含 release metadata。普通 merge 继续使用 parent/ancestry 校验。验证通过后跳过 preparation、PR 和 PR CI，使用已确认的 release main commit 继续 main CI、tag、Release workflow 和 `update-manifest`；无法唯一确认时停止，不因 `origin/main` 前进而放宽 ancestry 或 SHA 校验。
 
 ### 7. 创建或复用 PR
 

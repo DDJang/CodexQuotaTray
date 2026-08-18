@@ -199,6 +199,7 @@ jobs:
     Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/scripts/test-publish-release.ps1' -Content '# fixture'
     Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/scripts/verify-winui.ps1' -Content '# fixture'
     Write-ResumeTestFile -Root $resumeRepo -RelativePath 'scripts/publish-release.ps1' -Content ([IO.File]::ReadAllText((Join-Path $repoRoot 'scripts/publish-release.ps1')))
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/src/CodexQuotaTray.App/Business.cs' -Content 'class BusinessBaseline {}'
     Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj' -Content @'
 <Project>
   <PropertyGroup>
@@ -206,16 +207,24 @@ jobs:
   </PropertyGroup>
 </Project>
 '@
-    Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/release-notes/0.8.8.md' -Content '# Windows 0.8.8'
     Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', '.')
     Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'test: seed release fixtures')
     Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('tag', '-a', 'windows-v0.8.7', '-m', 'windows-v0.8.7')
     Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('push', '--set-upstream', 'origin', 'main', '--tags')
+    $seedHead = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'main')
+
+    $businessPath = Join-Path $resumeRepo 'windows/src/CodexQuotaTray.App/Business.cs'
+    [IO.File]::WriteAllText($businessPath, 'class BusinessBaseline { public const string ReleaseBehavior = "updated"; }', [Text.UTF8Encoding]::new($false))
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', '-c', 'codex/resume-test')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'windows/src/CodexQuotaTray.App/Business.cs')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'feat: update Windows business behavior')
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/release-notes/0.8.8.md' -Content '# Windows 0.8.8' | Out-Null
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'windows/release-notes/0.8.8.md')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'docs: add Windows 0.8.8 notes')
 
     $versionPath = Join-Path $resumeRepo 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj'
     $versionText = [IO.File]::ReadAllText($versionPath).Replace('<Version>0.8.7</Version>', '<Version>0.8.8</Version>')
     [IO.File]::WriteAllText($versionPath, $versionText, [Text.UTF8Encoding]::new($false))
-    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', '-c', 'codex/resume-test')
     Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj')
     Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'release: prepare Windows 0.8.8')
     $preparationHead = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
@@ -314,11 +323,15 @@ exit 99
         'fetch', 'origin', 'refs/heads/main:refs/remotes/origin/main'
     )
 
-    $postMergeGhShim = @'
+    $postMergeGhShim = @"
 @echo off
 if "%1"=="auth" exit /b 0
 if "%1"=="repo" (
   echo example/test
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="list" (
+  echo [{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","headRefOid":"$preparationHead","baseRefName":"main","mergeCommit":{"oid":"$squashMainHead"}}]
   exit /b 0
 )
 if "%1"=="run" if "%2"=="list" (
@@ -330,7 +343,7 @@ if "%1"=="pr" (
   exit /b 42
 )
 exit /b 99
-'@
+"@
     Write-ResumeTestFile -Root $resumeShim -RelativePath 'gh.cmd' -Content $postMergeGhShim | Out-Null
     $postMergeOutput = @(& $testPwshCommand -NoProfile -File (Join-Path $resumeRepo 'scripts/publish-release.ps1') `
         -Platform Windows -Version $targetVersion -TimeoutMinutes 5 2>&1 | ForEach-Object {
@@ -359,6 +372,40 @@ exit /b 99
     $headAfterPostMergeResume = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
     if ($headAfterPostMergeResume -cne $preparationHead) {
         throw 'Post-merge resume changed the original release branch HEAD.'
+    }
+
+    $wrongHeadGhShim = @"
+@echo off
+if "%1"=="auth" exit /b 0
+if "%1"=="repo" (
+  echo example/test
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="list" (
+  echo [{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","headRefOid":"$seedHead","baseRefName":"main","mergeCommit":{"oid":"$squashMainHead"}}]
+  exit /b 0
+)
+if "%1"=="run" if "%2"=="list" (
+  echo POST_MERGE_NEGATIVE_MAIN_CI_SENTINEL
+  exit /b 42
+)
+exit /b 99
+"@
+    Write-ResumeTestFile -Root $resumeShim -RelativePath 'gh.cmd' -Content $wrongHeadGhShim | Out-Null
+    $negativeOutput = @(& $testPwshCommand -NoProfile -File (Join-Path $resumeRepo 'scripts/publish-release.ps1') `
+        -Platform Windows -Version $targetVersion -TimeoutMinutes 5 2>&1 | ForEach-Object {
+            [string]$_
+        })
+    $negativeExitCode = $LASTEXITCODE
+    $negativeText = ($negativeOutput -join [Environment]::NewLine)
+    if ($negativeExitCode -eq 0) {
+        throw 'Post-merge identity counterexample unexpectedly passed.'
+    }
+    if ($negativeText -notmatch 'Post-merge release resume could not be verified') {
+        throw "Post-merge identity counterexample did not fail closed. Output: $negativeText"
+    }
+    if ($negativeText -match 'POST_MERGE_NEGATIVE_MAIN_CI_SENTINEL') {
+        throw 'Post-merge identity counterexample incorrectly reached main CI.'
     }
 } finally {
     $env:PATH = $originalPath
