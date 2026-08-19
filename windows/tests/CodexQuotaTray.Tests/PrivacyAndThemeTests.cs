@@ -205,6 +205,9 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tooltipWindowCode, "backdrop.Apply(this)");
         StringAssert.Contains(tooltipWindowCode, "BackdropKind.DesktopAcrylic");
         StringAssert.Contains(tooltipWindowCode, "NativeMethods.SetWindowPos");
+        StringAssert.Contains(tooltipWindowCode, "LogGeometryDiagnostics(\"after-first-show-frame\")");
+        StringAssert.Contains(tooltipWindowCode, "NativeMethods.GetWindowRect");
+        Assert.IsFalse(tooltipWindowCode.Contains("ExtendsContentIntoTitleBar = true", StringComparison.Ordinal));
         StringAssert.Contains(tooltipWindowCode, "NativeMethods.SwpNoActivate");
         StringAssert.Contains(tooltipWindowCode, "NativeMethods.SwShownoactivate");
         StringAssert.Contains(tooltipWindowCode, "NativeMethods.ConfigureTooltipWindow");
@@ -240,6 +243,7 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(nativeMethods, "DwmwaBorderColor = 34");
         StringAssert.Contains(nativeMethods, "DwmColorNone = unchecked((int)0xFFFFFFFE)");
         StringAssert.Contains(nativeMethods, "DwmGetWindowAttribute");
+        StringAssert.Contains(nativeMethods, "GetWindowRect");
         StringAssert.Contains(nativeMethods, "SwpNoMove");
         StringAssert.Contains(nativeMethods, "SwpNoSize");
         StringAssert.Contains(nativeMethods, "SwpNoZOrder");

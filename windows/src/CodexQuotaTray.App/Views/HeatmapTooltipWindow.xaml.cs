@@ -24,6 +24,7 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
     private bool allowingClose;
     private bool disposed;
     private bool firstShowDwmDiagnosticsReported;
+    private bool firstShowGeometryDiagnosticsReported;
     private bool enforceBorderlessNormalStyle;
     private bool normalStyleConfigured;
     private bool visible;
@@ -37,7 +38,6 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
         var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         appWindow = AppWindow.GetFromWindowId(windowId);
 
-        ExtendsContentIntoTitleBar = true;
         presenter = OverlappedPresenter.CreateForToolWindow();
         appWindow.SetPresenter(presenter);
         presenter.IsAlwaysOnTop = false;
@@ -118,6 +118,12 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
             // non-client frame to be recalculated.
             RemoveResidualDialogFrame();
             normalStyleConfigured = true;
+        }
+
+        if (!firstShowGeometryDiagnosticsReported)
+        {
+            firstShowGeometryDiagnosticsReported = true;
+            LogGeometryDiagnostics("after-first-show-frame");
         }
 
         visible = true;
@@ -229,6 +235,29 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
             + $"readHResult={FormatHResult(readHResult)} "
             + $"readValue=0x{unchecked((uint)borderColor):X8} "
             + $"expected=0x{unchecked((uint)NativeMethods.DwmColorNone):X8}");
+    }
+
+    private void LogGeometryDiagnostics(string stage)
+    {
+        var windowOk = NativeMethods.GetWindowRect(hwnd, out var windowRect);
+        var clientOk = NativeMethods.GetClientRect(hwnd, out var clientRect);
+        var clientOrigin = new NativeMethods.NativePoint();
+        var clientOriginOk = NativeMethods.ClientToScreen(hwnd, ref clientOrigin);
+        var dpi = NativeMethods.GetDpiForWindow(hwnd);
+        var windowWidth = windowRect.Right - windowRect.Left;
+        var windowHeight = windowRect.Bottom - windowRect.Top;
+        var clientWidth = clientRect.Right - clientRect.Left;
+        var clientHeight = clientRect.Bottom - clientRect.Top;
+        var deltaX = clientOrigin.X - windowRect.Left;
+        var deltaY = clientOrigin.Y - windowRect.Top;
+        Debug.WriteLine(
+            $"TokenUsage tooltip geometry: stage={stage} dpi={dpi} "
+            + $"windowOk={windowOk} window=({windowRect.Left},{windowRect.Top}) "
+            + $"{windowWidth}x{windowHeight} "
+            + $"clientOk={clientOk} client=({clientRect.Left},{clientRect.Top}) "
+            + $"{clientWidth}x{clientHeight} "
+            + $"clientOriginOk={clientOriginOk} clientOrigin=({clientOrigin.X},{clientOrigin.Y}) "
+            + $"delta=({deltaX},{deltaY})");
     }
 
     private static string DescribeNormalStyle(long style)
