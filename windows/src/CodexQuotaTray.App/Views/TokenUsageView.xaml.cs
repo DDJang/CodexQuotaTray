@@ -236,8 +236,12 @@ public sealed partial class TokenUsageView : UserControl
         var transformStarted = collectFirstTooltipDiagnostics
             ? Stopwatch.GetTimestamp()
             : 0L;
+        // PlaceTooltipAboveCell returns coordinates relative to the XAML
+        // visual root. Convert the repeater origin to that same root instead
+        // of mixing TokenUsageRoot-relative coordinates with the HWND client
+        // origin used by GetRootScreenOrigin below.
         var heatmapOrigin = HeatmapItemsRepeater
-            .TransformToVisual(TokenUsageRoot)
+            .TransformToVisual(null)
             .TransformPoint(new Point(0, 0));
         var transformMilliseconds = collectFirstTooltipDiagnostics
             ? Stopwatch.GetElapsedTime(transformStarted).TotalMilliseconds

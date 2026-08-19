@@ -3,6 +3,7 @@ using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core.Models;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using System.Runtime.InteropServices;
 using Windows.Graphics;
 using WinRT.Interop;
 
@@ -16,6 +17,8 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
     private readonly AppWindow appWindow;
     private readonly BackdropService backdrop = new();
     private readonly OverlappedPresenter presenter;
+    private readonly NativeMethods.WindowProcedure windowProcedure;
+    private IntPtr originalWindowProcedure;
     private bool allowingClose;
     private bool disposed;
     private bool visible;
@@ -42,11 +45,25 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
         // controller targets an HWND, while the rejected XAML Popup path did
         // not produce a blurred surface on this runtime.
         NativeMethods.ConfigureTooltipWindow(hwnd, owner);
+        // WS_EX_TRANSPARENT only affects paint ordering. The tooltip must also
+        // return HTTRANSPARENT so pointer input reaches the owned main window
+        // while the shared HWND is covering a heatmap cell.
+        windowProcedure = HandleWindowMessage;
+        originalWindowProcedure = NativeMethods.SetWindowLongPtr(
+            hwnd,
+            NativeMethods.GwlWndProc,
+            Marshal.GetFunctionPointerForDelegate(windowProcedure));
         var cornerPreference = NativeMethods.DwmWindowCornerPreferenceRound;
         _ = NativeMethods.DwmSetWindowAttribute(
             hwnd,
             NativeMethods.DwmwaWindowCornerPreference,
             ref cornerPreference,
+            sizeof(int));
+        var borderColor = NativeMethods.DwmColorNone;
+        _ = NativeMethods.DwmSetWindowAttribute(
+            hwnd,
+            NativeMethods.DwmwaBorderColor,
+            ref borderColor,
             sizeof(int));
 
         appWindow.Closing += OnClosing;
@@ -128,8 +145,38 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
         disposed = true;
         Hide();
         backdrop.Dispose();
+        if (originalWindowProcedure != IntPtr.Zero)
+        {
+            _ = NativeMethods.SetWindowLongPtr(
+                hwnd,
+                NativeMethods.GwlWndProc,
+                originalWindowProcedure);
+            originalWindowProcedure = IntPtr.Zero;
+        }
+
         allowingClose = true;
         Close();
+    }
+
+    private IntPtr HandleWindowMessage(
+        IntPtr window,
+        uint message,
+        UIntPtr wParam,
+        IntPtr lParam)
+    {
+        if (message == NativeMethods.WmNcHitTest)
+        {
+            return new IntPtr(NativeMethods.HtTransparent);
+        }
+
+        return originalWindowProcedure == IntPtr.Zero
+            ? NativeMethods.DefWindowProc(window, message, wParam, lParam)
+            : NativeMethods.CallWindowProc(
+                originalWindowProcedure,
+                window,
+                message,
+                wParam,
+                lParam);
     }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)

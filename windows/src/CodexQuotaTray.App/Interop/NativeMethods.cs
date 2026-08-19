@@ -33,10 +33,15 @@ internal static class NativeMethods
     internal const uint WsPopup = 0x80000000;
     internal const int GwlExStyle = -20;
     internal const int GwlHwndParent = -8;
+    internal const int GwlWndProc = -4;
     internal const int DwmwaWindowCornerPreference = 33;
+    internal const int DwmwaBorderColor = 34;
+    internal const int DwmColorNone = unchecked((int)0xFFFFFFFE);
     internal const int DwmWindowCornerPreferenceRound = 2;
     internal const int SwHide = 0;
     internal const int SwShownoactivate = 4;
+    internal const uint WmNcHitTest = 0x0084;
+    internal const int HtTransparent = -1;
     internal const uint SwpNoActivate = 0x0010;
     internal const uint SwpShowWindow = 0x0040;
     internal static readonly IntPtr HwndMessage = new(-3);
@@ -161,6 +166,14 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     internal static extern IntPtr DefWindowProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr CallWindowProc(
+        IntPtr previousWindowProcedure,
+        IntPtr hwnd,
+        uint message,
+        UIntPtr wParam,
+        IntPtr lParam);
 
     [DllImport("user32.dll")]
     internal static extern uint GetDpiForWindow(IntPtr hwnd);
