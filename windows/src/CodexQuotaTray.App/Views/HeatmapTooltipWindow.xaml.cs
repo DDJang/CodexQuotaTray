@@ -3,6 +3,7 @@ using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core.Models;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Windows.Graphics;
 using WinRT.Interop;
@@ -18,9 +19,13 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
     private readonly BackdropService backdrop = new();
     private readonly OverlappedPresenter presenter;
     private readonly NativeMethods.WindowProcedure windowProcedure;
+    private readonly int borderColorSetHResult;
     private IntPtr originalWindowProcedure;
     private bool allowingClose;
     private bool disposed;
+    private bool firstShowDwmDiagnosticsReported;
+    private bool enforceBorderlessNormalStyle;
+    private bool normalStyleConfigured;
     private bool visible;
     private ElementTheme? appliedTheme;
 
@@ -60,11 +65,12 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
             ref cornerPreference,
             sizeof(int));
         var borderColor = NativeMethods.DwmColorNone;
-        _ = NativeMethods.DwmSetWindowAttribute(
+        borderColorSetHResult = NativeMethods.DwmSetWindowAttribute(
             hwnd,
             NativeMethods.DwmwaBorderColor,
             ref borderColor,
             sizeof(int));
+        LogDwmBorderDiagnostics("before-first-show");
 
         appWindow.Closing += OnClosing;
         NativeMethods.ShowWindow(hwnd, NativeMethods.SwHide);
@@ -105,7 +111,22 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
         }
 
         _ = NativeMethods.ShowWindow(hwnd, NativeMethods.SwShownoactivate);
+        if (!normalStyleConfigured)
+        {
+            // The presenter applies its final non-client style as the HWND is
+            // shown. Apply this one-bit A/B after that update, then force the
+            // non-client frame to be recalculated.
+            RemoveResidualDialogFrame();
+            normalStyleConfigured = true;
+        }
+
         visible = true;
+        if (!firstShowDwmDiagnosticsReported)
+        {
+            firstShowDwmDiagnosticsReported = true;
+            LogDwmBorderDiagnostics("after-first-show");
+        }
+
         return true;
     }
 
@@ -145,6 +166,7 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
         disposed = true;
         Hide();
         backdrop.Dispose();
+        enforceBorderlessNormalStyle = false;
         if (originalWindowProcedure != IntPtr.Zero)
         {
             _ = NativeMethods.SetWindowLongPtr(
@@ -158,18 +180,93 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
         Close();
     }
 
+    private void RemoveResidualDialogFrame()
+    {
+        var style = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GwlStyle).ToInt64();
+        Debug.WriteLine(
+            $"TokenUsage tooltip normal style before WS_DLGFRAME A/B: {DescribeNormalStyle(style)}");
+        var updated = style & ~((long)NativeMethods.WsDlgFrame);
+        if (updated == style)
+        {
+            Debug.WriteLine("TokenUsage tooltip WS_DLGFRAME was not present; no style change applied.");
+            return;
+        }
+
+        enforceBorderlessNormalStyle = true;
+        _ = NativeMethods.SetWindowLongPtr(
+            hwnd,
+            NativeMethods.GwlStyle,
+            new IntPtr(updated));
+        var frameChanged = NativeMethods.SetWindowPos(
+            hwnd,
+            IntPtr.Zero,
+            0,
+            0,
+            0,
+            0,
+            NativeMethods.SwpNoMove
+                | NativeMethods.SwpNoSize
+                | NativeMethods.SwpNoZOrder
+                | NativeMethods.SwpNoActivate
+                | NativeMethods.SwpFrameChanged);
+        var finalStyle = NativeMethods.GetWindowLongPtr(hwnd, NativeMethods.GwlStyle).ToInt64();
+        Debug.WriteLine(
+            $"TokenUsage tooltip normal style after WS_DLGFRAME A/B: {DescribeNormalStyle(finalStyle)} "
+            + $"frameChanged={frameChanged}");
+    }
+
+    private void LogDwmBorderDiagnostics(string stage)
+    {
+        var borderColor = 0;
+        var readHResult = NativeMethods.DwmGetWindowAttribute(
+            hwnd,
+            NativeMethods.DwmwaBorderColor,
+            out borderColor,
+            sizeof(int));
+        Debug.WriteLine(
+            $"TokenUsage tooltip DWM border diagnostics: stage={stage} "
+            + $"setHResult={FormatHResult(borderColorSetHResult)} "
+            + $"readHResult={FormatHResult(readHResult)} "
+            + $"readValue=0x{unchecked((uint)borderColor):X8} "
+            + $"expected=0x{unchecked((uint)NativeMethods.DwmColorNone):X8}");
+    }
+
+    private static string DescribeNormalStyle(long style)
+    {
+        var hasDialogFrame = (style & (long)NativeMethods.WsDlgFrame) != 0;
+        var hasBorder = (style & (long)NativeMethods.WsBorder) != 0;
+        var hasThickFrame = (style & (long)NativeMethods.WsThickFrame) != 0;
+        var hasCaption = (style & (long)NativeMethods.WsCaption)
+            == (long)NativeMethods.WsCaption;
+        return $"style=0x{unchecked((ulong)style):X16} "
+            + $"WS_DLGFRAME={hasDialogFrame} WS_BORDER={hasBorder} "
+            + $"WS_THICKFRAME={hasThickFrame} WS_CAPTION={hasCaption}";
+    }
+
+    private static string FormatHResult(int hResult) =>
+        $"0x{unchecked((uint)hResult):X8}";
+
     private IntPtr HandleWindowMessage(
         IntPtr window,
         uint message,
         UIntPtr wParam,
         IntPtr lParam)
     {
+        var isNormalStyleChanging = message == NativeMethods.WmStyleChanging
+            && enforceBorderlessNormalStyle
+            && (wParam.ToUInt64() & 0xFFFFFFFFUL) == unchecked((uint)NativeMethods.GwlStyle)
+            && lParam != IntPtr.Zero;
+        if (isNormalStyleChanging)
+        {
+            ClearDialogFrameFromStyleChange(lParam);
+        }
+
         if (message == NativeMethods.WmNcHitTest)
         {
             return new IntPtr(NativeMethods.HtTransparent);
         }
 
-        return originalWindowProcedure == IntPtr.Zero
+        var result = originalWindowProcedure == IntPtr.Zero
             ? NativeMethods.DefWindowProc(window, message, wParam, lParam)
             : NativeMethods.CallWindowProc(
                 originalWindowProcedure,
@@ -177,6 +274,31 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
                 message,
                 wParam,
                 lParam);
+        if (isNormalStyleChanging)
+        {
+            // The presenter can rewrite STYLESTRUCT.styleNew while handling
+            // WM_STYLECHANGING. Apply the same single-bit decision after it
+            // returns so the subsequent frame recalculation sees the value
+            // requested by this A/B.
+            ClearDialogFrameFromStyleChange(lParam);
+        }
+
+        return result;
+    }
+
+    private static void ClearDialogFrameFromStyleChange(IntPtr styleStruct)
+    {
+        var newStyle = Marshal.ReadInt32(
+            styleStruct,
+            NativeMethods.StyleStructNewOffset);
+        var updated = newStyle & ~unchecked((int)NativeMethods.WsDlgFrame);
+        if (updated != newStyle)
+        {
+            Marshal.WriteInt32(
+                styleStruct,
+                NativeMethods.StyleStructNewOffset,
+                updated);
+        }
     }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
