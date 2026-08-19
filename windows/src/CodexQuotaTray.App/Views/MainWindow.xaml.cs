@@ -136,6 +136,7 @@ public sealed partial class MainWindow : Window
 
     internal void HidePanel()
     {
+        tokenUsageView.ResetHeatmapInteraction();
         visibility.Hide();
         appWindow.Hide();
     }
@@ -144,6 +145,7 @@ public sealed partial class MainWindow : Window
     {
         exiting = true;
         Interlocked.Increment(ref pageTransitionRevision);
+        tokenUsageView.Dispose();
         visibility.Hide();
         backdrop.Dispose();
     }
@@ -230,6 +232,10 @@ public sealed partial class MainWindow : Window
         }
 
         ApplyBackdrop();
+        if (showingTokenPage)
+        {
+            tokenUsageView.PrepareHeatmapInteraction();
+        }
 
         // The first measure can still see the hidden window's old ScrollViewer
         // viewport. Re-measure after the window is shown so the client height is
@@ -456,10 +462,20 @@ public sealed partial class MainWindow : Window
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
+        if (args.WindowActivationState == WindowActivationState.Deactivated)
+        {
+            tokenUsageView.ResetHeatmapInteraction();
+            return;
+        }
+
         _ = WindowIconService.TrySetIcon(appWindow, ContentRoot.ActualTheme == ElementTheme.Dark);
         if (visibility.DesiredVisible)
         {
             ApplyBackdrop();
+            if (showingTokenPage)
+            {
+                tokenUsageView.PrepareHeatmapInteraction();
+            }
         }
     }
 
