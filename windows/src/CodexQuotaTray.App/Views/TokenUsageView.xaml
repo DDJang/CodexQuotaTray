@@ -180,45 +180,29 @@
             ShouldConstrainToRootBounds="False"
             VerticalOffset="0">
             <Grid
-                x:Name="SharedHeatmapTooltipMotionHost"
-                Width="576"
-                Height="238"
+                x:Name="SharedHeatmapTooltip"
+                Width="176"
+                Height="64"
                 IsHitTestVisible="False">
-                <Grid
-                    x:Name="SharedHeatmapTooltipMotionLayer"
-                    Width="176"
-                    Height="64"
-                    HorizontalAlignment="Left"
-                    VerticalAlignment="Top"
+                <Border
+                    Padding="12,8"
+                    Background="{ThemeResource TokenHeatmapToolTipTintBrush}"
+                    BorderBrush="{ThemeResource TokenHeatmapToolTipBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="9"
                     IsHitTestVisible="False">
-                    <Grid.TranslationTransition>
-                        <Vector3Transition Duration="0:0:0.11" />
-                    </Grid.TranslationTransition>
-                    <Grid
-                        x:Name="SharedHeatmapTooltip"
-                        Opacity="0"
-                        IsHitTestVisible="False">
-                        <Border
-                            Padding="12,8"
-                            Background="{ThemeResource TokenHeatmapToolTipTintBrush}"
-                            BorderBrush="{ThemeResource TokenHeatmapToolTipBorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="9"
-                            IsHitTestVisible="False">
-                            <StackPanel Spacing="2">
-                                <TextBlock
-                                    x:Name="HeatmapTooltipTokenText"
-                                    FontSize="16"
-                                    FontWeight="SemiBold"
-                                    Foreground="{ThemeResource PrimaryTextBrush}" />
-                                <TextBlock
-                                    x:Name="HeatmapTooltipDateText"
-                                    FontSize="14"
-                                    Foreground="{ThemeResource TertiaryTextBrush}" />
-                            </StackPanel>
-                        </Border>
-                    </Grid>
-                </Grid>
+                    <StackPanel Spacing="2">
+                        <TextBlock
+                            x:Name="HeatmapTooltipTokenText"
+                            FontSize="16"
+                            FontWeight="SemiBold"
+                            Foreground="{ThemeResource PrimaryTextBrush}" />
+                        <TextBlock
+                            x:Name="HeatmapTooltipDateText"
+                            FontSize="14"
+                            Foreground="{ThemeResource TertiaryTextBrush}" />
+                    </StackPanel>
+                </Border>
             </Grid>
         </primitives:Popup>
     </Grid>

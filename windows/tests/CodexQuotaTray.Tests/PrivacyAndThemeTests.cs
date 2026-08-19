@@ -100,8 +100,8 @@ public sealed class PrivacyAndThemeTests
 
         Assert.AreEqual("SolidColorBrush", lightTint.Name.LocalName);
         Assert.AreEqual("SolidColorBrush", darkTint.Name.LocalName);
-        Assert.AreEqual("#FFF5F8FC", lightTint.Attribute("Color")?.Value);
-        Assert.AreEqual("#FF20252B", darkTint.Attribute("Color")?.Value);
+        Assert.AreEqual("#B8F5F8FC", lightTint.Attribute("Color")?.Value);
+        Assert.AreEqual("#B820252B", darkTint.Attribute("Color")?.Value);
         Assert.AreEqual(
             "#996B7A89",
             Resource("Light", "TokenHeatmapEmptyCellHighlightBrush").Attribute("Color")?.Value);
@@ -148,17 +148,19 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsage, "Padding=\"12,8\"");
         StringAssert.Contains(tokenUsage, "Width=\"176\"");
         StringAssert.Contains(tokenUsage, "Height=\"64\"");
-        StringAssert.Contains(tokenUsage, "Width=\"576\"");
-        StringAssert.Contains(tokenUsage, "Height=\"238\"");
+        Assert.IsFalse(tokenUsage.Contains("Width=\"576\"", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsage.Contains("Height=\"238\"", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsage, "<primitives:Popup");
         StringAssert.Contains(tokenUsage, "ShouldConstrainToRootBounds=\"False\"");
         StringAssert.Contains(tokenUsage, "IsHitTestVisible=\"False\"");
+        Assert.AreEqual(1, tokenUsage.Split("<primitives:Popup", StringSplitOptions.None).Length - 1);
+        Assert.IsFalse(tokenUsage.Contains("SharedHeatmapTooltipMotionHost", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsage.Contains("SharedHeatmapTooltipMotionLayer", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsage.Contains("SystemBackdropElement", StringComparison.Ordinal));
-        Assert.IsFalse(tokenUsage.Contains("TokenHeatmapToolTipAcrylicBrush", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsage.Contains("AcrylicBrush", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsage, "FontSize=\"16\"");
         StringAssert.Contains(tokenUsage, "FontSize=\"14\"");
         StringAssert.Contains(tokenUsage, "Vector3Transition Duration=\"0:0:0.08\"");
-        StringAssert.Contains(tokenUsage, "Vector3Transition Duration=\"0:0:0.11\"");
         Assert.AreEqual(1, tokenUsage.Split("x:Name=\"SharedHeatmapTooltip\"", StringSplitOptions.None).Length - 1);
         Assert.IsFalse(tokenUsage.Contains("ToolTipService.ToolTip", StringComparison.Ordinal));
         var tokenUsageCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml.cs"));
@@ -174,13 +176,13 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsageCode, "TokenHeatmapInteraction.PlaceTooltipAboveCell");
         StringAssert.Contains(tokenUsageCode, "TransformToVisual(TokenUsageRoot)");
         Assert.IsFalse(tokenUsageCode.Contains("DispatcherQueueTimer", StringComparison.Ordinal));
-        StringAssert.Contains(tokenUsageCode, "EnsureTooltipHostPosition(");
-        StringAssert.Contains(tokenUsageCode, "SetTooltipTranslation(target)");
         StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.HorizontalOffset");
+        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.VerticalOffset = target.Y");
         StringAssert.Contains(tokenUsageCode, "WindowPlacementService.GetWorkArea");
         StringAssert.Contains(tokenUsageCode, "ClientToScreen");
-        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipMotionLayer.Translation = new Vector3(");
-        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipMotionLayer.TranslationTransition = null");
+        Assert.IsFalse(tokenUsageCode.Contains("SharedHeatmapTooltipMotionLayer", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("SetTooltipTranslation", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("EnsureTooltipHostPosition", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsageCode, "PointerExitDebounceMilliseconds");
         Assert.IsFalse(tokenUsageCode.Contains("CreateSpringVector3Animation", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsageCode.Contains("tooltipVisual.StopAnimation(\"Offset\")", StringComparison.Ordinal));
@@ -188,6 +190,8 @@ public sealed class PrivacyAndThemeTests
         Assert.IsFalse(tokenUsageCode.Contains("tooltipVisual.Offset", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsageCode.Contains("TransformToVisual(HeatmapTooltipOverlay)", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsageCode.Contains("MeasureSharedHeatmapTooltipIfNeeded", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("CreateVector3KeyFrameAnimation", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("StartAnimation(\"Scale\"", StringComparison.Ordinal));
         Assert.AreEqual(
             1,
             tokenUsageCode.Split("ElementCompositionPreview.GetElementVisual", StringSplitOptions.None).Length - 1);
@@ -195,8 +199,10 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.Opacity = 1f");
         StringAssert.Contains(tokenUsageCode, "measureMs=0");
         StringAssert.Contains(tokenUsageCode, "new AccessibilitySettings().HighContrast");
+        StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.SystemBackdrop = new DesktopAcrylicBackdrop();");
         StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.SystemBackdrop = null");
-        Assert.IsFalse(tokenUsageCode.Contains("DesktopAcrylicBackdrop", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("SystemBackdropElement", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("AcrylicBrush", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.IsOpen = true");
         StringAssert.Contains(tokenUsageCode, "SharedHeatmapTooltipPopup.XamlRoot = XamlRoot");
         StringAssert.Contains(tokenUsageCode, "if (wasFadingOut)");
