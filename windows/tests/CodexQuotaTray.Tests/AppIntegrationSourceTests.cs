@@ -74,4 +74,20 @@ public sealed class AppIntegrationSourceTests
         Assert.IsGreaterThan(controllerStart, controllerEnd);
         StringAssert.Contains(appSource[controllerStart..controllerEnd], "tokenUsageScanner,");
     }
+
+    [TestMethod]
+    public void InstallerDoesNotWaitUnboundedForShutdownHelper()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Installer", "CodexQuotaTray.iss"));
+        var methodStart = source.IndexOf("function PrepareToInstall(", StringComparison.Ordinal);
+        Assert.IsTrue(methodStart >= 0);
+        var methodEnd = source.IndexOf("\nend;", methodStart, StringComparison.Ordinal);
+        Assert.IsTrue(methodEnd > methodStart);
+        var method = source[methodStart..methodEnd];
+
+        StringAssert.Contains(method, "ewNoWait");
+        StringAssert.Contains(source, "CloseApplications=yes");
+        Assert.IsFalse(method.Contains("ewWaitUntilTerminated", StringComparison.Ordinal));
+    }
 }
