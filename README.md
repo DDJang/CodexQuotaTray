@@ -1,6 +1,6 @@
 # CodexQuotaTray
 
-[English](README.md) | [Chinese](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 CodexQuotaTray is a pair of lightweight, read-only Codex quota clients. They do not use Electron,
 WebView, or web scraping.
