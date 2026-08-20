@@ -67,4 +67,5 @@ public sealed record AlertWindowState(
     int? LastReliableRemaining,
     IReadOnlyList<int> HandledThresholds,
     DateTimeOffset? LastResetAlertCycleUtc = null,
-    bool ResetAlertCycleConsumed = false);
+    bool? ResetAlertCycleConsumed = null,
+    bool ResetAlertAwaitingCycleMetadata = false);

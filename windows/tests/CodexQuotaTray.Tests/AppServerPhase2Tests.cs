@@ -523,6 +523,30 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_DeliversGeneratedResetAlertToNotificationSink()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            CancellationToken.None);
+        var sink = new RecordingNotificationSink();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(new ResetRecoveryClient()),
+            new SettingsService(store, paths),
+            new PreviewPersistence(store, paths),
+            sink);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        _ = await service.RefreshAsync(CancellationToken.None);
+        _ = await service.RefreshAsync(CancellationToken.None);
+
+        Assert.HasCount(1, sink.Alerts);
+        Assert.AreEqual(QuotaAlertKind.Reset, sink.Alerts[0].Kind);
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_OverflowRecoveryTransportClosedDoesNotSelfAwaitAndNextRefreshRecreatesClient()
     {
         using var directory = new TemporaryDirectory();

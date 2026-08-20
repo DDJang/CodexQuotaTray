@@ -391,6 +391,54 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public void BucketBackedAlertIdentityIsStableAcrossOrdinalChanges()
+    {
+        var first = QuotaWindowIdentity.CreateAlertKey(null, "stable-bucket", "primary", 300, 0);
+        var reordered = QuotaWindowIdentity.CreateAlertKey(null, "stable-bucket", "primary", 300, 4);
+
+        Assert.AreEqual(first, reordered);
+        Assert.IsTrue(first.StartsWith("sha256:", StringComparison.Ordinal));
+        Assert.AreEqual(
+            "fallback:primary:300:4",
+            QuotaWindowIdentity.CreateLegacyAlertKey(null, "stable-bucket", "primary", 300, 4));
+    }
+
+    [TestMethod]
+    public void BucketBackedAlertIdentityMigratesLegacyFallbackHistory()
+    {
+        const string legacyKey = "fallback:primary:300:0";
+        var stableKey = QuotaWindowIdentity.CreateAlertKey(null, "stable-bucket", "primary", 300, 0);
+        var previousWindow = new AlertWindowState(
+            legacyKey,
+            300,
+            DateTimeOffset.UnixEpoch.AddMinutes(300),
+            40,
+            [50],
+            null,
+            false);
+        var previous = new AlertStateDocument(
+            1,
+            [50, 20, 10],
+            new Dictionary<string, AlertWindowState> { [legacyKey] = previousWindow },
+            true);
+        var input = new AlertInput(
+            stableKey,
+            "5 小时额度",
+            39,
+            true,
+            300,
+            DateTimeOffset.UnixEpoch.AddMinutes(300),
+            legacyKey);
+
+        var reduction = QuotaAlertReducer.Reduce(previous, [input], new NotificationSettings(true, true, true));
+
+        Assert.IsFalse(reduction.State.Windows.ContainsKey(legacyKey));
+        Assert.IsTrue(reduction.State.Windows.ContainsKey(stableKey));
+        CollectionAssert.Contains(reduction.State.Windows[stableKey].HandledThresholds.ToArray(), 50);
+        Assert.IsNull(reduction.Alert);
+    }
+
+    [TestMethod]
     public void FirstAlertSnapshotEstablishesBaselineWithoutNotification()
     {
         var input = Input(19);
@@ -454,6 +502,67 @@ public sealed class Phase3CoreTests
             [InputWithoutResetAt(90)],
             new NotificationSettings());
         Assert.AreEqual(QuotaAlertKind.Reset, missing.Alert!.Kind);
+    }
+
+    [TestMethod]
+    public void StrongRecoveryStartsNextCycleWhenPreviousCycleWasConsumedAndResetTimeIsDelayed()
+    {
+        var t1 = DateTimeOffset.UnixEpoch.AddDays(7);
+        var t2 = t1.AddDays(7);
+        var t3 = t2.AddDays(7);
+        var settings = new NotificationSettings();
+
+        var initialLow = QuotaAlertReducer.Reduce(null, [Input(20, t1)], settings);
+        var firstReset = QuotaAlertReducer.Reduce(initialLow.State, [Input(95, t2)], settings);
+        var usedAgain = QuotaAlertReducer.Reduce(firstReset.State, [Input(20, t2)], settings);
+        var delayedSecondReset = QuotaAlertReducer.Reduce(usedAgain.State, [Input(95, t2)], settings);
+        var repeatedHigh = QuotaAlertReducer.Reduce(delayedSecondReset.State, [Input(94, t2)], settings);
+        var metadataCatchUp = QuotaAlertReducer.Reduce(repeatedHigh.State, [Input(94, t3)], settings);
+        var usedThirdCycle = QuotaAlertReducer.Reduce(metadataCatchUp.State, [Input(20, t3)], settings);
+        var delayedThirdReset = QuotaAlertReducer.Reduce(usedThirdCycle.State, [Input(95, t3)], settings);
+
+        Assert.AreEqual(QuotaAlertKind.Reset, firstReset.Alert!.Kind);
+        Assert.AreEqual(QuotaAlertKind.Reset, delayedSecondReset.Alert!.Kind);
+        Assert.IsNull(repeatedHigh.Alert);
+        Assert.IsFalse(QuotaAlertReducer.IsCycleTransition(
+            repeatedHigh.State.Windows["window"],
+            Input(94, t3)));
+        Assert.IsNull(metadataCatchUp.Alert);
+        Assert.AreEqual(t3, metadataCatchUp.State.Windows["window"].LastResetAlertCycleUtc);
+        Assert.AreEqual(QuotaAlertKind.Reset, delayedThirdReset.Alert!.Kind);
+    }
+
+    [TestMethod]
+    public async Task PendingResetMetadataSurvivesRestartAndIgnoresStaleCycleTimestamp()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var persistence = new PreviewPersistence(new JsonFileStore(), paths);
+        var t1 = DateTimeOffset.UnixEpoch.AddDays(7);
+        var t2 = t1.AddDays(7);
+        var t3 = t2.AddDays(7);
+        var settings = new NotificationSettings();
+        var initial = QuotaAlertReducer.Reduce(null, [Input(20, t1)], settings);
+        var firstReset = QuotaAlertReducer.Reduce(initial.State, [Input(95, t2)], settings);
+        var low = QuotaAlertReducer.Reduce(firstReset.State, [Input(20, t2)], settings);
+        var resetWithoutMetadata = QuotaAlertReducer.Reduce(
+            low.State,
+            [InputWithoutResetAt(95)],
+            settings);
+        await persistence.SaveAlertStateAsync(resetWithoutMetadata.State, CancellationToken.None);
+
+        var restored = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        var staleTimestamp = QuotaAlertReducer.Reduce(restored, [Input(94, t2)], settings);
+        var metadataCatchUp = QuotaAlertReducer.Reduce(staleTimestamp.State, [Input(94, t3)], settings);
+
+        Assert.AreEqual(QuotaAlertKind.Reset, resetWithoutMetadata.Alert!.Kind);
+        Assert.IsNotNull(restored);
+        Assert.IsTrue(restored.Windows["window"].ResetAlertAwaitingCycleMetadata);
+        Assert.IsNull(staleTimestamp.Alert);
+        Assert.IsTrue(staleTimestamp.State.Windows["window"].ResetAlertAwaitingCycleMetadata);
+        Assert.IsNull(metadataCatchUp.Alert);
+        Assert.IsFalse(metadataCatchUp.State.Windows["window"].ResetAlertAwaitingCycleMetadata);
+        Assert.AreEqual(t3, metadataCatchUp.State.Windows["window"].LastResetAlertCycleUtc);
     }
 
     [DataRow(40, 60)]
@@ -580,6 +689,62 @@ public sealed class Phase3CoreTests
         Assert.IsNull(repeat.Alert);
         Assert.IsNotNull(old);
         Assert.IsFalse(old.ResetAlertBaselineEstablished);
+    }
+
+    [TestMethod]
+    public async Task OldAlertStateWithoutConsumedFieldMigratesExistingCycleAsConsumed()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var persistence = new PreviewPersistence(new JsonFileStore(), paths);
+        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        Directory.CreateDirectory(directory.Path);
+        await File.WriteAllTextAsync(
+            paths.AlertState,
+            $$"""
+            {
+              "schemaVersion": 1,
+              "baselineThresholds": [20, 10],
+              "resetAlertBaselineEstablished": true,
+              "windows": {
+                "window": {
+                  "pseudonymousKey": "window",
+                  "windowDurationMinutes": 10080,
+                  "resetAtUtc": "{{resetAt:O}}",
+                  "lastReliableRemaining": 94,
+                  "handledThresholds": [],
+                  "lastResetAlertCycleUtc": "{{resetAt:O}}"
+                }
+              }
+            }
+            """);
+
+        var restored = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        var normalized = QuotaAlertReducer.Reduce(restored, [Input(94, resetAt)], new NotificationSettings());
+
+        Assert.IsNotNull(restored);
+        Assert.IsNull(restored.Windows["window"].ResetAlertCycleConsumed);
+        Assert.IsTrue(normalized.State.Windows["window"].ResetAlertCycleConsumed);
+        Assert.IsNull(normalized.Alert);
+    }
+
+    [TestMethod]
+    public void MigratedBaselineAllowsReliablyProvenResetAtTransition()
+    {
+        var t1 = DateTimeOffset.UnixEpoch.AddDays(7);
+        var t2 = t1.AddDays(7);
+        var previous = new AlertStateDocument(
+            1,
+            [20, 10],
+            new Dictionary<string, AlertWindowState>
+            {
+                ["window"] = new("window", 10_080, t1, 25, [20], t1, true),
+            });
+
+        var reduction = QuotaAlertReducer.Reduce(previous, [Input(25, t2)], new NotificationSettings());
+
+        Assert.AreEqual(QuotaAlertKind.Reset, reduction.Alert!.Kind);
+        Assert.IsTrue(reduction.State.ResetAlertBaselineEstablished);
     }
 
     [TestMethod]

@@ -8,6 +8,7 @@ namespace CodexQuotaTray.Core.Protocol;
 public sealed record NormalizedQuotaWindow(
     string LocalKey,
     string AlertKey,
+    string? LegacyAlertKey,
     string? LimitName,
     string SourceSlot,
     long UsedPercent,
@@ -123,10 +124,17 @@ public static class QuotaNormalizer
             slot,
             window.WindowDurationMinutes,
             ordinal);
+        var legacyAlertKey = QuotaWindowIdentity.CreateLegacyAlertKey(
+            snapshot.LimitId,
+            bucket,
+            slot,
+            window.WindowDurationMinutes,
+            ordinal);
         fallbackOrdinal++;
         output.Add(new NormalizedQuotaWindow(
             localKey,
             alertKey,
+            legacyAlertKey,
             snapshot.LimitName,
             slot,
             used,
@@ -214,10 +222,20 @@ internal static class QuotaWindowIdentity
         long? durationMinutes,
         int ordinal)
     {
-        return !string.IsNullOrWhiteSpace(limitId)
-            ? $"sha256:{CreateLocalKey(limitId, null, sourceSlot, durationMinutes, ordinal)}"
+        return !string.IsNullOrWhiteSpace(limitId) || !string.IsNullOrWhiteSpace(bucket)
+            ? $"sha256:{CreateLocalKey(limitId, bucket, sourceSlot, durationMinutes, ordinal)}"
             : CreateFallback(sourceSlot, durationMinutes, ordinal);
     }
+
+    public static string? CreateLegacyAlertKey(
+        string? limitId,
+        string? bucket,
+        string sourceSlot,
+        long? durationMinutes,
+        int ordinal) =>
+        string.IsNullOrWhiteSpace(limitId) && !string.IsNullOrWhiteSpace(bucket)
+            ? CreateFallback(sourceSlot, durationMinutes, ordinal)
+            : null;
 
     private static string CreateFallback(string sourceSlot, long? durationMinutes, int ordinal) =>
         $"fallback:{sourceSlot}:{durationMinutes?.ToString() ?? "unknown"}:{ordinal}";
