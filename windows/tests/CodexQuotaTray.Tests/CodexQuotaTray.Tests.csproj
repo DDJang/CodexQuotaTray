@@ -18,6 +18,9 @@
     <None Include="..\..\src\CodexQuotaTray.App\Views\SettingsWindow.xaml.cs" Link="Views\SettingsWindow.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\TokenUsageView.xaml" Link="Views\TokenUsageView.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\TokenUsageView.xaml.cs" Link="Views\TokenUsageView.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Views\HeatmapTooltipWindow.xaml" Link="Views\HeatmapTooltipWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Views\HeatmapTooltipWindow.xaml.cs" Link="Views\HeatmapTooltipWindow.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Interop\NativeMethods.cs" Link="Interop\NativeMethods.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\App.xaml.cs" Link="App.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\TrayNotificationSink.cs" Link="Services\TrayNotificationSink.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\TrayIconService.cs" Link="Services\TrayIconService.cs" CopyToOutputDirectory="PreserveNewest" />

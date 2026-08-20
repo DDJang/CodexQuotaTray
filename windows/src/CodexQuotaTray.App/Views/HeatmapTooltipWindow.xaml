@@ -1,0 +1,41 @@
+<Window
+    x:Class="CodexQuotaTray.App.Views.HeatmapTooltipWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="">
+    <Grid
+        x:Name="TooltipRoot"
+        Width="176"
+        Height="64"
+        Background="Transparent"
+        IsHitTestVisible="False">
+        <Border
+            x:Name="FallbackSurface"
+            Background="{ThemeResource TokenHeatmapToolTipFallbackBrush}"
+            BorderBrush="{ThemeResource TokenHeatmapToolTipBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="9"
+            IsHitTestVisible="False"
+            Visibility="Collapsed" />
+        <Border
+            x:Name="TooltipSurface"
+            Padding="12,8"
+            Background="Transparent"
+            BorderBrush="{ThemeResource TokenHeatmapToolTipBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="9"
+            IsHitTestVisible="False">
+            <StackPanel Spacing="2">
+                <TextBlock
+                    x:Name="HeatmapTooltipTokenText"
+                    FontSize="16"
+                    FontWeight="SemiBold"
+                    Foreground="{ThemeResource PrimaryTextBrush}" />
+                <TextBlock
+                    x:Name="HeatmapTooltipDateText"
+                    FontSize="14"
+                    Foreground="{ThemeResource TertiaryTextBrush}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

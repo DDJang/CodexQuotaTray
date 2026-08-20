@@ -27,12 +27,36 @@ internal static class NativeMethods
     internal const uint NotifyIconVersion4 = 4;
     internal const uint MonitorDefaultToNearest = 0x00000002;
     internal const uint WsExToolWindow = 0x00000080;
+    internal const uint WsExTransparent = 0x00000020;
+    internal const uint WsExNoActivate = 0x08000000;
     internal const uint WsExAppWindow = 0x00040000;
     internal const uint WsPopup = 0x80000000;
+    internal const uint WsDlgFrame = 0x00400000;
+    internal const uint WsBorder = 0x00800000;
+    internal const uint WsThickFrame = 0x00040000;
+    internal const uint WsCaption = 0x00C00000;
+    internal const int GwlStyle = -16;
     internal const int GwlExStyle = -20;
+    internal const int GwlHwndParent = -8;
+    internal const int GwlWndProc = -4;
     internal const int DwmwaWindowCornerPreference = 33;
+    internal const int DwmwaBorderColor = 34;
+    internal const int DwmColorNone = unchecked((int)0xFFFFFFFE);
     internal const int DwmWindowCornerPreferenceRound = 2;
+    internal const int SwHide = 0;
+    internal const int SwShownoactivate = 4;
+    internal const uint WmStyleChanging = 0x007C;
+    internal const uint WmNcHitTest = 0x0084;
+    internal const int HtTransparent = -1;
+    internal const int StyleStructNewOffset = sizeof(int);
+    internal const uint SwpNoMove = 0x0002;
+    internal const uint SwpNoSize = 0x0001;
+    internal const uint SwpNoZOrder = 0x0004;
+    internal const uint SwpFrameChanged = 0x0020;
+    internal const uint SwpNoActivate = 0x0010;
+    internal const uint SwpShowWindow = 0x0040;
     internal static readonly IntPtr HwndMessage = new(-3);
+    internal static readonly IntPtr HwndTop = IntPtr.Zero;
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate IntPtr WindowProcedure(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
@@ -136,11 +160,38 @@ internal static class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool DestroyWindow(IntPtr hwnd);
 
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ShowWindow(IntPtr hwnd, int command);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetWindowPos(
+        IntPtr hwnd,
+        IntPtr insertAfter,
+        int x,
+        int y,
+        int width,
+        int height,
+        uint flags);
+
     [DllImport("user32.dll")]
     internal static extern IntPtr DefWindowProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll")]
+    internal static extern IntPtr CallWindowProc(
+        IntPtr previousWindowProcedure,
+        IntPtr hwnd,
+        uint message,
+        UIntPtr wParam,
+        IntPtr lParam);
+
+    [DllImport("user32.dll")]
     internal static extern uint GetDpiForWindow(IntPtr hwnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -207,10 +258,32 @@ internal static class NativeMethods
         _ = SetWindowLongPtr(hwnd, GwlExStyle, new IntPtr(updated));
     }
 
+    internal static void ConfigureTooltipWindow(IntPtr hwnd, IntPtr owner)
+    {
+        // Tool-window + no-activate keeps the shared backdrop window out of
+        // taskbar/Alt+Tab and preserves the main window as the foreground
+        // window. The owner relationship keeps it above that window only.
+        var style = GetWindowLongPtr(hwnd, GwlExStyle).ToInt64();
+        var updated = style
+            | WsExToolWindow
+            | WsExNoActivate
+            | WsExTransparent;
+        updated &= ~((long)WsExAppWindow);
+        _ = SetWindowLongPtr(hwnd, GwlExStyle, new IntPtr(updated));
+        _ = SetWindowLongPtr(hwnd, GwlHwndParent, owner);
+    }
+
     [DllImport("dwmapi.dll", SetLastError = false)]
     internal static extern int DwmSetWindowAttribute(
         IntPtr hwnd,
         int attribute,
         ref int value,
+        int valueSize);
+
+    [DllImport("dwmapi.dll", SetLastError = false)]
+    internal static extern int DwmGetWindowAttribute(
+        IntPtr hwnd,
+        int attribute,
+        out int value,
         int valueSize);
 }

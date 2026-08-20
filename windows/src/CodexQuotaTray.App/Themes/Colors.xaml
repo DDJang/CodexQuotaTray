@@ -42,7 +42,7 @@
             <SolidColorBrush x:Key="TabSelectionSurfaceBrush" Color="#82FFFFFF" />
             <SolidColorBrush x:Key="TokenHeatmapCellBorderBrush" Color="#7A155A91" />
             <SolidColorBrush x:Key="TokenHeatmapEmptyCellHighlightBrush" Color="#996B7A89" />
-            <SolidColorBrush x:Key="TokenHeatmapToolTipTintBrush" Color="#FFF5F8FC" />
+            <SolidColorBrush x:Key="TokenHeatmapToolTipFallbackBrush" Color="#FFF5F8FC" />
             <SolidColorBrush x:Key="TokenHeatmapToolTipBorderBrush" Color="#40526477" />
             <SolidColorBrush x:Key="TokenHeatmap0Brush" Color="#0F000000" />
             <SolidColorBrush x:Key="TokenHeatmap1Brush" Color="#3D3E7FB8" />
@@ -90,7 +90,7 @@
             <SolidColorBrush x:Key="TabSelectionSurfaceBrush" Color="#2EFFFFFF" />
             <SolidColorBrush x:Key="TokenHeatmapCellBorderBrush" Color="#E6E8EEF4" />
             <SolidColorBrush x:Key="TokenHeatmapEmptyCellHighlightBrush" Color="#B8C8D2DC" />
-            <SolidColorBrush x:Key="TokenHeatmapToolTipTintBrush" Color="#FF20252B" />
+            <SolidColorBrush x:Key="TokenHeatmapToolTipFallbackBrush" Color="#FF20252B" />
             <SolidColorBrush x:Key="TokenHeatmapToolTipBorderBrush" Color="#4A9AA8B7" />
             <SolidColorBrush x:Key="TokenHeatmap0Brush" Color="#08FFFFFF" />
             <SolidColorBrush x:Key="TokenHeatmap1Brush" Color="#3DB4E6FF" />
@@ -138,7 +138,7 @@
             <SolidColorBrush x:Key="TabSelectionSurfaceBrush" Color="{ThemeResource SystemColorHighlightColor}" />
             <SolidColorBrush x:Key="TokenHeatmapCellBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="TokenHeatmapEmptyCellHighlightBrush" Color="{ThemeResource SystemColorHighlightColor}" />
-            <SolidColorBrush x:Key="TokenHeatmapToolTipTintBrush" Color="{ThemeResource SystemColorWindowColor}" />
+            <SolidColorBrush x:Key="TokenHeatmapToolTipFallbackBrush" Color="{ThemeResource SystemColorWindowColor}" />
             <SolidColorBrush x:Key="TokenHeatmapToolTipBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
             <SolidColorBrush x:Key="TokenHeatmap0Brush" Color="{ThemeResource SystemColorButtonFaceColor}" />
             <SolidColorBrush x:Key="TokenHeatmap1Brush" Color="{ThemeResource SystemColorHighlightColor}" />
