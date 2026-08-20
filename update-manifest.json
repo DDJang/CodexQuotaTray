@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.8.7",
-    "tag": "windows-v0.8.7",
+    "version": "0.8.8",
+    "tag": "windows-v0.8.8",
     "installer": {
-      "name": "CodexQuotaTray-0.8.7-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.8.7/CodexQuotaTray-0.8.7-setup.exe",
-      "sha256": "f78738c556fb9a3455f8bfa228449460f37b4cb328733072bb1ede76ca41c7ff",
-      "size": 62555064
+      "name": "CodexQuotaTray-0.8.8-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.8.8/CodexQuotaTray-0.8.8-setup.exe",
+      "sha256": "509f8a4205b434865bdb5119270ec054b4cf0f56a1e99a7a4a064b0c487abff1",
+      "size": 63068080
     },
-    "releaseNotes": "## Windows\r\n\r\n- 降低 Token 使用量统计在大型历史 corpus 扫描时的内存占用，避免一次性加载整份日志内容。\r\n- 增量扫描可复用已读取位置，重复刷新不再重复读取全部历史文件；追加记录临时不完整时，下一次扫描会补齐并正确统计。\r\n",
-    "publishedAt": "2026-08-18T11:32:24Z"
+    "releaseNotes": "## Windows\r\n\r\n- 为 Token 统计热力图 Tooltip 引入真实 Acrylic 毛玻璃效果，并让快速横向、纵向移动时保持稳定跟随当前格子；Acrylic 不可用时自动使用不透明回退背景。\r\n- 修复高 DPI 下 Tooltip 的定位和窗口边框问题：保持约 8 DIP 间距，移除异常窗口框架、顶部 1px 黑线和不一致的四边描边。\r\n",
+    "publishedAt": "2026-08-20T04:28:11Z"
   },
   "android": {
     "version": "0.8.7",
