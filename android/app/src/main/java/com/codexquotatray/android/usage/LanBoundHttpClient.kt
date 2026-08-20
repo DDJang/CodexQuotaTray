@@ -4,9 +4,14 @@ import com.codexquotatray.android.quota.LanAvailability
 import okhttp3.OkHttpClient
 import java.io.IOException
 
-internal fun OkHttpClient.bindToWifiLan(lanAvailability: LanAvailability?, host: String): OkHttpClient =
+internal fun OkHttpClient.bindToWifiLan(
+    lanAvailability: LanAvailability?,
+    host: String,
+    diagnostics: LanDiagnosticLogger? = null,
+): OkHttpClient =
     if (lanAvailability == null) this else {
-        val socketFactory = lanAvailability.socketFactoryForHostOrNull(host)
+        val binding = lanAvailability.socketBindingForHostOrNull(host)
             ?: throw IOException("No Wi-Fi route to paired Windows host")
-        newBuilder().socketFactory(socketFactory).build()
+        diagnostics?.record("LAN bound network=${binding.networkId ?: "unknown"}")
+        newBuilder().socketFactory(binding.socketFactory).build()
     }

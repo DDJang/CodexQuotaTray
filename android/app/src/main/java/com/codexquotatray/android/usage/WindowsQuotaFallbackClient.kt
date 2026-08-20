@@ -88,7 +88,7 @@ class WindowsQuotaFallbackClient(
             .build()
         val callDiagnostics = LanHttpCallDiagnostics("Quota", diagnostics)
         val response = try {
-            callDiagnostics.instrument(client.bindToWifiLan(lanAvailability, safe.host)).newCall(request).execute().use { result ->
+            callDiagnostics.instrument(client.bindToWifiLan(lanAvailability, safe.host, diagnostics)).newCall(request).execute().use { result ->
                 callDiagnostics.responseReceived()
                 result.code to result.body?.string().orEmpty()
             }

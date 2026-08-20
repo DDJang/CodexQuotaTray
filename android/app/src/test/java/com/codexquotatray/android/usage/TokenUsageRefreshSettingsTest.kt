@@ -1,7 +1,8 @@
 package com.codexquotatray.android.usage
 
-import androidx.work.NetworkType
 import com.codexquotatray.android.quota.QuotaRefreshSettings
+import com.codexquotatray.android.refresh.BackgroundNetworkCapability
+import com.codexquotatray.android.refresh.BackgroundNetworkTransport
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -22,8 +23,14 @@ class TokenUsageRefreshSettingsTest {
     }
 
     @Test
-    fun pairedLanSyncDoesNotRequireValidatedInternetToBeScheduled() {
-        assertEquals(NetworkType.NOT_REQUIRED, TokenUsageRefreshScheduler.requiredNetworkType())
+    fun pairedLanSyncRequiresWifiWithoutValidatedInternet() {
+        val requirement = TokenUsageRefreshScheduler.networkRequirement()
+
+        assertEquals(setOf(BackgroundNetworkTransport.WIFI), requirement.transports)
+        assertTrue(requirement.capabilities.contains(BackgroundNetworkCapability.NOT_SUSPENDED))
+        assertFalse(requirement.capabilities.contains(BackgroundNetworkCapability.INTERNET))
+        assertFalse(requirement.capabilities.contains(BackgroundNetworkCapability.VALIDATED))
+        assertTrue(requirement.usesNetworkRequest)
     }
 
     @Test

@@ -24,7 +24,14 @@ interface LanAvailability {
     fun socketFactoryOrNull(): SocketFactory? = null
     fun isAvailableForHost(host: String): Boolean = isAvailable()
     fun socketFactoryForHostOrNull(host: String): SocketFactory? = socketFactoryOrNull()
+    fun socketBindingForHostOrNull(host: String): LanSocketBinding? =
+        socketFactoryForHostOrNull(host)?.let { LanSocketBinding(it, null) }
 }
+
+data class LanSocketBinding(
+    val socketFactory: SocketFactory,
+    val networkId: String?,
+)
 
 /**
  * Deliberately selects a real Wi-Fi network rather than relying on activeNetwork.
@@ -45,6 +52,11 @@ class AndroidLanAvailability(
     override fun isAvailableForHost(host: String): Boolean = wifiNetwork(host) != null
 
     override fun socketFactoryForHostOrNull(host: String): SocketFactory? = wifiNetwork(host)?.socketFactory
+
+    override fun socketBindingForHostOrNull(host: String): LanSocketBinding? =
+        wifiNetwork(host)?.let { network ->
+            LanSocketBinding(network.socketFactory, network.networkHandle.toString())
+        }
 
     private fun wifiNetwork(host: String? = null): Network? {
         val manager = connectivity ?: return null
