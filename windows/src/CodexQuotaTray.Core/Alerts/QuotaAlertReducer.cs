@@ -281,19 +281,29 @@ public static class QuotaAlertReducer
         AlertInput current,
         bool resetAtAdvance)
     {
-        if (current.ResetAtUtc is null)
+        if (current.ResetAtUtc is not { } after
+            || previous.WindowDurationMinutes is not > 0
+            || current.WindowDurationMinutes != previous.WindowDurationMinutes)
         {
             return false;
         }
 
-        if (previous.ResetAtUtc is null)
+        if (previous.ResetAtUtc is not null && !resetAtAdvance)
         {
-            return previous.WindowDurationMinutes is > 0
-                && current.WindowDurationMinutes == previous.WindowDurationMinutes
-                && current.ResetAtUtc != previous.LastResetAlertCycleUtc;
+            return false;
         }
 
-        return resetAtAdvance;
+        var before = previous.ResetAtUtc ?? previous.LastResetAlertCycleUtc;
+        if (before is null)
+        {
+            return true;
+        }
+
+        var advance = after - before.Value;
+        var duration = TimeSpan.FromMinutes(current.WindowDurationMinutes.Value);
+        // One window of resetAt movement can label the strong-recovery cycle
+        // already consumed. A larger jump proves at least one later cycle.
+        return advance > TimeSpan.Zero && advance <= duration;
     }
 
     private static IEnumerable<int> Enabled(NotificationSettings settings)

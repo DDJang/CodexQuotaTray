@@ -565,6 +565,38 @@ public sealed class Phase3CoreTests
         Assert.AreEqual(t3, metadataCatchUp.State.Windows["window"].LastResetAlertCycleUtc);
     }
 
+    [TestMethod]
+    public async Task PendingMetadataDoesNotConsumeMultiWindowResetJumpAfterRestart()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var persistence = new PreviewPersistence(new JsonFileStore(), paths);
+        var t1 = DateTimeOffset.UnixEpoch.AddDays(7);
+        var t2 = t1.AddDays(7);
+        var t4 = t2.AddDays(14);
+        var settings = new NotificationSettings(true, true, true);
+        var initial = QuotaAlertReducer.Reduce(null, [Input(20, t1)], settings);
+        var firstReset = QuotaAlertReducer.Reduce(initial.State, [Input(95, t2)], settings);
+        var low = QuotaAlertReducer.Reduce(firstReset.State, [Input(20, t2)], settings);
+        var delayedSecondReset = QuotaAlertReducer.Reduce(low.State, [Input(95, t2)], settings);
+        var usedSecondCycle = QuotaAlertReducer.Reduce(delayedSecondReset.State, [Input(50, t2)], settings);
+        await persistence.SaveAlertStateAsync(usedSecondCycle.State, CancellationToken.None);
+
+        var restored = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        var skippedCycleReset = QuotaAlertReducer.Reduce(restored, [Input(95, t4)], settings);
+        var thresholdRearmed = QuotaAlertReducer.Reduce(skippedCycleReset.State, [Input(50, t4)], settings);
+
+        Assert.AreEqual(QuotaAlertKind.Reset, firstReset.Alert!.Kind);
+        Assert.AreEqual(QuotaAlertKind.Reset, delayedSecondReset.Alert!.Kind);
+        Assert.IsNotNull(restored);
+        Assert.IsTrue(restored.Windows["window"].ResetAlertAwaitingCycleMetadata);
+        CollectionAssert.Contains(restored.Windows["window"].HandledThresholds.ToArray(), 50);
+        Assert.AreEqual(QuotaAlertKind.Reset, skippedCycleReset.Alert!.Kind);
+        Assert.IsFalse(skippedCycleReset.State.Windows["window"].ResetAlertAwaitingCycleMetadata);
+        Assert.AreEqual(t4, skippedCycleReset.State.Windows["window"].LastResetAlertCycleUtc);
+        Assert.AreEqual(50, thresholdRearmed.Alert!.Threshold);
+    }
+
     [DataRow(40, 60)]
     [DataRow(70, 100)]
     [DataRow(85, 100)]
