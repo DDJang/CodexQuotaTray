@@ -5,14 +5,46 @@ import com.codexquotatray.android.refresh.BackgroundNetworkCapability
 import com.codexquotatray.android.refresh.BackgroundNetworkTransport
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class QuotaRefreshSchedulerTest {
     @Test
-    fun pairedWindowsAllowsWifiOrCellularWithoutInternetCapability() {
-        val requirement = QuotaRefreshScheduler.networkRequirement(hasWindowsPairing = true)
+    fun oauthOnlyRequiresValidatedInternet() {
+        val requirement = QuotaRefreshScheduler.networkRequirement(
+            hasOAuth = true,
+            hasWindowsPairing = false,
+        )
+
+        assertEquals(emptySet<BackgroundNetworkTransport>(), requirement.transports)
+        assertEquals(NetworkType.CONNECTED, requirement.fallbackNetworkType)
+        assertTrue(requirement.capabilities.contains(BackgroundNetworkCapability.INTERNET))
+        assertTrue(requirement.capabilities.contains(BackgroundNetworkCapability.VALIDATED))
+        assertTrue(requirement.capabilities.contains(BackgroundNetworkCapability.NOT_SUSPENDED))
+        assertTrue(requirement.usesNetworkRequest)
+    }
+
+    @Test
+    fun windowsPairingOnlyRequiresWifiWithoutInternetCapability() {
+        val requirement = QuotaRefreshScheduler.networkRequirement(
+            hasOAuth = false,
+            hasWindowsPairing = true,
+        )
+
+        assertEquals(setOf(BackgroundNetworkTransport.WIFI), requirement.transports)
+        assertFalse(requirement.transports.contains(BackgroundNetworkTransport.CELLULAR))
+        assertTrue(requirement.capabilities.contains(BackgroundNetworkCapability.NOT_SUSPENDED))
+        assertFalse(requirement.capabilities.contains(BackgroundNetworkCapability.INTERNET))
+        assertFalse(requirement.capabilities.contains(BackgroundNetworkCapability.VALIDATED))
+        assertTrue(requirement.usesNetworkRequest)
+    }
+
+    @Test
+    fun oauthAndWindowsPairingAllowsWifiOrCellularWithoutInternetCapability() {
+        val requirement = QuotaRefreshScheduler.networkRequirement(
+            hasOAuth = true,
+            hasWindowsPairing = true,
+        )
 
         assertEquals(
             setOf(BackgroundNetworkTransport.WIFI, BackgroundNetworkTransport.CELLULAR),
@@ -25,33 +57,12 @@ class QuotaRefreshSchedulerTest {
     }
 
     @Test
-    fun unpairedQuotaRefreshRequiresNormalInternetConnectivity() {
-        val requirement = QuotaRefreshScheduler.networkRequirement(hasWindowsPairing = false)
-
-        assertEquals(
-            emptySet<BackgroundNetworkTransport>(),
-            requirement.transports,
-        )
-        assertEquals(NetworkType.CONNECTED, requirement.fallbackNetworkType)
-        assertTrue(requirement.capabilities.contains(BackgroundNetworkCapability.INTERNET))
-        assertTrue(requirement.capabilities.contains(BackgroundNetworkCapability.VALIDATED))
-        assertTrue(requirement.usesNetworkRequest)
-    }
-
-    @Test
-    fun quotaWithPairingStillHasARealNetworkRequirementInsteadOfNotRequired() {
-        assertNotEquals(
-            NetworkType.NOT_REQUIRED,
-            QuotaRefreshScheduler.networkRequirement(hasWindowsPairing = true).fallbackNetworkType,
-        )
-    }
-
-    @Test
-    fun windowsPairingAloneKeepsQuotaBackgroundWorkScheduled() {
+    fun dataSourcePresenceControlsQuotaScheduling() {
         val settings = QuotaRefreshSettings(enabled = true)
 
-        assertTrue(QuotaRefreshScheduler.shouldSchedule(settings, hasOAuth = false, hasWindowsPairing = true))
         assertTrue(QuotaRefreshScheduler.shouldSchedule(settings, hasOAuth = true, hasWindowsPairing = false))
+        assertTrue(QuotaRefreshScheduler.shouldSchedule(settings, hasOAuth = false, hasWindowsPairing = true))
+        assertTrue(QuotaRefreshScheduler.shouldSchedule(settings, hasOAuth = true, hasWindowsPairing = true))
         assertFalse(QuotaRefreshScheduler.shouldSchedule(settings, hasOAuth = false, hasWindowsPairing = false))
         assertFalse(
             QuotaRefreshScheduler.shouldSchedule(

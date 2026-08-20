@@ -74,11 +74,16 @@ internal object BackgroundNetworkConstraints {
     )
 
     /**
-     * Quota can use Direct HTTPS or a paired Windows fallback. With a pairing, either transport
-     * is useful and Internet must not be a hard requirement because the Wi-Fi path may be LAN-only.
+     * Quota can use Direct HTTPS or a paired Windows fallback. With both sources, either
+     * transport is useful and Internet must not be a hard requirement because the Wi-Fi path may
+     * be LAN-only. Pairing without OAuth must stay on Wi-Fi so cellular cannot wake a LAN-only
+     * Worker.
      */
-    fun quota(hasWindowsPairing: Boolean): BackgroundNetworkRequirement = if (hasWindowsPairing) {
-        BackgroundNetworkRequirement(
+    fun quota(
+        hasOAuth: Boolean,
+        hasWindowsPairing: Boolean,
+    ): BackgroundNetworkRequirement = when {
+        hasOAuth && hasWindowsPairing -> BackgroundNetworkRequirement(
             name = "QUOTA_WIFI_OR_CELLULAR",
             transports = setOf(
                 BackgroundNetworkTransport.WIFI,
@@ -86,8 +91,12 @@ internal object BackgroundNetworkConstraints {
             ),
             capabilities = setOf(BackgroundNetworkCapability.NOT_SUSPENDED),
         )
-    } else {
-        BackgroundNetworkRequirement(
+        hasWindowsPairing -> BackgroundNetworkRequirement(
+            name = "QUOTA_WIFI_LAN",
+            transports = setOf(BackgroundNetworkTransport.WIFI),
+            capabilities = setOf(BackgroundNetworkCapability.NOT_SUSPENDED),
+        )
+        else -> BackgroundNetworkRequirement(
             name = "QUOTA_VALIDATED_INTERNET",
             transports = emptySet(),
             capabilities = setOf(

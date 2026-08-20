@@ -36,7 +36,10 @@ class QuotaRefreshWorker(
         AndroidWorkerNetworkDiagnostics.record(
             applicationContext,
             "Quota",
-            QuotaRefreshScheduler.networkRequirement(hasWindowsPairing),
+            QuotaRefreshScheduler.networkRequirement(
+                hasOAuth = hasOAuth,
+                hasWindowsPairing = hasWindowsPairing,
+            ),
         )
         if (!hasOAuth && !hasWindowsPairing) {
             AppLogStore.record(applicationContext, "额度后台任务已跳过：缺少可用数据源", "WARN")
@@ -106,7 +109,10 @@ object QuotaRefreshScheduler {
             return
         }
 
-        val constraints = networkRequirement(hasWindowsPairing).constraints()
+        val constraints = networkRequirement(
+            hasOAuth = hasOAuth,
+            hasWindowsPairing = hasWindowsPairing,
+        ).constraints()
         val request = PeriodicWorkRequestBuilder<QuotaRefreshWorker>(
             settings.normalizedIntervalMinutes.toLong(),
             TimeUnit.MINUTES,
@@ -125,8 +131,13 @@ object QuotaRefreshScheduler {
         )
     }
 
-    internal fun networkRequirement(hasWindowsPairing: Boolean): BackgroundNetworkRequirement =
-        BackgroundNetworkConstraints.quota(hasWindowsPairing)
+    internal fun networkRequirement(
+        hasOAuth: Boolean,
+        hasWindowsPairing: Boolean,
+    ): BackgroundNetworkRequirement = BackgroundNetworkConstraints.quota(
+        hasOAuth = hasOAuth,
+        hasWindowsPairing = hasWindowsPairing,
+    )
 
     internal fun shouldSchedule(
         settings: QuotaRefreshSettings,
