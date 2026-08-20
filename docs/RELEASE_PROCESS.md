@@ -17,6 +17,13 @@
 这类明确表述授权完成选定平台的版本修改、release notes、commit、push、PR 创建或复用、等待 CI、
 merge、tag、Release workflow 监控和发布结果验证。没有明确授权时，普通开发、测试或审查任务不自动进入发布流程。
 
+### 发布 PR 合并策略
+
+所有平台发布 preparation PR 统一使用 **squash merge** 合并到 `main`；不得根据近期历史推断
+普通 merge，也不得使用 rebase merge。自动化发布脚本必须直接请求 squash merge，并在后续
+post-merge resume 中校验 merged PR 的 `headRefOid` 与 `mergeCommit` 身份。仓库历史中既有的
+普通 merge 不改变本规则。
+
 实际执行由 `scripts/publish-release.ps1` 驱动，`-Platform` 是必填参数：
 
 ```powershell
@@ -99,11 +106,11 @@ Common:  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps
 
 ### 7. 创建或复用 PR
 
-普通 release preparation 模式下，脚本按当前分支和 `main` 查找 open PR；找到就复用，否则创建一个 PR，不创建重复 PR。PR 标题和正文标明本次平台范围。脚本读取近期已合并 PR 和 merge commit 的父节点确认 merge convention；无法可靠识别时停止而不是猜测。post-merge resume 模式跳过本节。
+普通 release preparation 模式下，脚本按当前分支和 `main` 查找 open PR；找到就复用，否则创建一个 PR，不创建重复 PR。PR 标题和正文标明本次平台范围。post-merge resume 模式跳过本节。
 
 ### 8. 等待 PR CI 与 merge
 
-脚本使用 GitHub CLI 查询 PR checks 的真实状态，直到相关检查全部成功；失败、取消或错误立即停止，不执行 merge。CI 全通过后按已识别的 convention merge 到 `main`。
+脚本使用 GitHub CLI 查询 PR checks 的真实状态，直到相关检查全部成功；失败、取消或错误立即停止，不执行 merge。CI 全通过后使用 squash merge 合并到 `main`。
 
 ### 9. 等待选定平台的 main CI
 

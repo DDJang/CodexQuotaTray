@@ -699,38 +699,6 @@ function Get-OpenReleasePr {
     return $prs[0]
 }
 
-function Get-MergeConvention {
-    Write-Step 'Inferring the recent main merge convention.'
-    $merged = @(Read-GhJson @(
-        'pr', 'list', '--base', 'main', '--state', 'merged', '--limit', '3',
-        '--json', 'number,mergeCommit'
-    ))
-    $methods = [System.Collections.Generic.List[string]]::new()
-    foreach ($item in $merged) {
-        if ($null -eq $item.mergeCommit -or [string]::IsNullOrWhiteSpace([string]$item.mergeCommit.oid)) {
-            continue
-        }
-        $detail = Read-GhJson @('pr', 'view', ([string]$item.number), '--json', 'commits')
-        $commitCount = @($detail.commits).Count
-        $parentsText = Read-ExternalText -FilePath $script:Git -Arguments @(
-            'show', '-s', '--format=%P', ([string]$item.mergeCommit.oid)
-        )
-        $parentCount = @($parentsText -split '\s+' | Where-Object { $_ }).Count
-        if ($parentCount -gt 1) {
-            $methods.Add('merge')
-        } elseif ($parentCount -eq 1 -and $commitCount -gt 1) {
-            $methods.Add('squash')
-        }
-    }
-    $distinct = @($methods | Select-Object -Unique)
-    if ($distinct.Count -ne 1) {
-        Add-Blocker 'Recent merged PRs do not identify one unambiguous merge convention.'
-        return $null
-    }
-    Write-Host "Recent merge convention: $($distinct[0])"
-    return $distinct[0]
-}
-
 function Wait-PrChecks {
     param([Parameter(Mandatory = $true)][int]$Number)
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
@@ -1257,23 +1225,12 @@ $prNumber = [int]$pr.number
 Write-Host "Release PR: #$prNumber $($pr.url)"
 Wait-PrChecks -Number $prNumber
 
-$mergeMethod = Get-MergeConvention
-if ($null -eq $mergeMethod) {
-    throw 'No safe merge method was identified.'
-}
-if ($mergeMethod -ceq 'squash') {
-    Invoke-External -FilePath $script:Gh -Arguments @(
-        'pr', 'merge', ([string]$prNumber), '--squash',
-        '--subject', $releaseSubject,
-        '--body', "Release preparation for $script:ReleaseScope $Version."
-    )
-} else {
-    Invoke-External -FilePath $script:Gh -Arguments @(
-        'pr', 'merge', ([string]$prNumber), '--merge',
-        '--subject', $releaseSubject,
-        '--body', "Release preparation for $script:ReleaseScope $Version."
-    )
-}
+Write-Step 'Merging the release PR with squash merge.'
+Invoke-External -FilePath $script:Gh -Arguments @(
+    'pr', 'merge', ([string]$prNumber), '--squash',
+    '--subject', $releaseSubject,
+    '--body', "Release preparation for $script:ReleaseScope $Version."
+)
 }
 
 Write-Step 'Resolving the merged main commit and waiting for main CI.'
