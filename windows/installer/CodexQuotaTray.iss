@@ -109,24 +109,24 @@ end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
-  ExitCode: Integer;
+  ShutdownProcessId: Integer;
 begin
   Result := '';
   NeedsRestart := False;
   if not FileExists(ExpandConstant('{app}\codex-quota-tray-gui.exe')) then
     exit;
 
+  // Older builds can block while redirecting the shutdown request to the
+  // current single-instance owner. Do not make the installer wait on that
+  // helper; CloseApplications below will handle any remaining file locks.
   if not Exec(
     ExpandConstant('{app}\codex-quota-tray-gui.exe'),
     '--shutdown-existing',
     '',
     SW_HIDE,
-    ewWaitUntilTerminated,
-    ExitCode
+    ewNoWait,
+    ShutdownProcessId
   ) then begin
     Result := '无法请求旧版 CodexQuotaTray 正常退出。请先从托盘退出后重试。';
-    exit;
   end;
-  if ExitCode <> 0 then
-    Result := '旧版 CodexQuotaTray 未能在规定时间内退出。请先从托盘退出后重试。';
 end;
