@@ -845,7 +845,8 @@ public sealed class QuotaRuntimeService :
             (int)window.RemainingPercent,
             window.PercentageReliable,
             window.WindowDurationMinutes,
-            window.ResetAtUtc)).ToArray();
+            window.ResetAtUtc,
+            window.LegacyAlertKey)).ToArray();
         var previousAlertState = alertState;
         var reduction = QuotaAlertReducer.Reduce(alertState, inputs, Settings.EffectiveNotifications);
         if (!IsCurrentGeneration(generation))
@@ -1071,6 +1072,7 @@ public sealed class QuotaRuntimeService :
             $"cache:{index}",
             $"fallback:{window.SourceSlot}:{window.WindowDurationMinutes?.ToString() ?? "unknown"}:{index}",
             null,
+            null,
             window.SourceSlot,
             window.UsedPercent,
             window.RemainingPercent,
@@ -1157,7 +1159,8 @@ public sealed class QuotaRuntimeService :
             && entry.Value.LastReliableRemaining == other.LastReliableRemaining
             && entry.Value.HandledThresholds.SequenceEqual(other.HandledThresholds)
             && entry.Value.LastResetAlertCycleUtc == other.LastResetAlertCycleUtc
-            && entry.Value.ResetAlertCycleConsumed == other.ResetAlertCycleConsumed);
+            && entry.Value.ResetAlertCycleConsumed == other.ResetAlertCycleConsumed
+            && entry.Value.ResetAlertAwaitingCycleMetadata == other.ResetAlertAwaitingCycleMetadata);
     }
 
     private void SetCurrent(AppUiState state)

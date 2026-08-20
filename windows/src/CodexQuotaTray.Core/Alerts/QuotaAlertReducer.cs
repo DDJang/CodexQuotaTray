@@ -102,9 +102,17 @@ public static class QuotaAlertReducer
         foreach (var input in windows)
         {
             oldWindows.TryGetValue(input.PseudonymousKey, out var old);
+            string? legacyKeyToRemove = null;
+            if (old is null
+                && input.LegacyPseudonymousKey is { } legacyKey
+                && oldWindows.TryGetValue(legacyKey, out old))
+            {
+                legacyKeyToRemove = legacyKey;
+            }
+
             if (!input.IsPercentageReliable || input.RemainingPercent is < 0 or > 100)
             {
-                if (old is not null)
+                if (old is not null && legacyKeyToRemove is null)
                 {
                     output[input.PseudonymousKey] = old;
                 }
@@ -113,13 +121,26 @@ public static class QuotaAlertReducer
             }
 
             hasValidWindow = true;
+            if (legacyKeyToRemove is not null)
+            {
+                output.Remove(legacyKeyToRemove);
+            }
+
             var handled = old?.HandledThresholds.ToHashSet() ?? [];
-            var cycleTransition = old is not null && IsCycleTransition(old, input);
+            var resetAtAdvance = old is not null && IsReliableResetAtAdvance(old, input);
+            var strongRecovery = old is not null && IsStrongRecovery(old, input);
+            var metadataCatchUp = old is not null
+                && !strongRecovery
+                && old.ResetAlertAwaitingCycleMetadata
+                && IsCycleMetadataCatchUp(old, input, resetAtAdvance);
+            var cycleTransition = resetAtAdvance || strongRecovery;
             // A migrated/unestablished baseline is deliberately not allowed
-            // to re-arm thresholds or emit a reset. Both behaviors share this
-            // same baseline-gated transition so they cannot diverge.
-            var newCycle = !resetBaseline && cycleTransition;
-            var resetCycle = newCycle;
+            // to infer a reset from percentage recovery alone. A reliable
+            // resetAt advance can still prove a transition from persisted
+            // window history. Fresh installs have no old window to compare.
+            var newCycle = !metadataCatchUp
+                && cycleTransition
+                && (!resetBaseline || resetAtAdvance);
             if (newCycle)
             {
                 handled.Clear();
@@ -130,34 +151,28 @@ public static class QuotaAlertReducer
             // existing marker as already consumed when migrating them.
             var resetAlertConsumed = old?.ResetAlertCycleConsumed
                 ?? old?.LastResetAlertCycleUtc is not null;
-            if (input.ResetAtUtc is null && input.RemainingPercent < 80)
+            var awaitingCycleMetadata = old?.ResetAlertAwaitingCycleMetadata ?? false;
+            if (metadataCatchUp)
             {
-                // Without a reset timestamp, a later strong recovery after
-                // a low observation is the only available new-cycle signal.
-                resetAlertConsumed = false;
+                resetAlertCycle = input.ResetAtUtc;
+                awaitingCycleMetadata = false;
             }
-            if (resetCycle)
+            else if (newCycle)
             {
-                // A resetAt value identifies a known cycle.  When it is
-                // absent, keep the consumed bit so repeated high readings in
-                // the same unknown cycle cannot replay the reset alert.
-                var sameKnownCycle = input.ResetAtUtc is { } resetAt
-                    && resetAlertConsumed
-                    && resetAlertCycle == resetAt;
-                var sameUnknownCycle = input.ResetAtUtc is null && resetAlertConsumed;
-                if (!sameKnownCycle && !sameUnknownCycle)
+                if (settings.ResetAfterCycle)
                 {
-                    if (settings.ResetAfterCycle)
-                    {
-                        resetAlerts.Add(new QuotaResetWindow(
-                            input.WindowName,
-                            input.RemainingPercent,
-                            input.ResetAtUtc));
-                    }
-
-                    resetAlertCycle = input.ResetAtUtc ?? resetAlertCycle;
-                    resetAlertConsumed = true;
+                    resetAlerts.Add(new QuotaResetWindow(
+                        input.WindowName,
+                        input.RemainingPercent,
+                        input.ResetAtUtc));
                 }
+
+                resetAlertCycle = input.ResetAtUtc ?? resetAlertCycle;
+                resetAlertConsumed = true;
+                // Strong recovery is a complete logical-cycle signal. If
+                // resetAt did not also advance reliably, remember that its
+                // later advance only labels this already-consumed cycle.
+                awaitingCycleMetadata = strongRecovery && !resetAtAdvance;
             }
 
             var newlyEnabled = enabled.Except(previous?.BaselineThresholds ?? []).ToArray();
@@ -196,7 +211,8 @@ public static class QuotaAlertReducer
                 input.RemainingPercent,
                 handled.OrderDescending().ToArray(),
                 resetAlertCycle,
-                resetAlertConsumed);
+                resetAlertConsumed,
+                awaitingCycleMetadata);
         }
 
         thresholdAlerts.Sort((left, right) => left.Threshold.CompareTo(right.Threshold));
@@ -218,15 +234,21 @@ public static class QuotaAlertReducer
 
     public static bool IsCycleTransition(AlertWindowState previous, AlertInput current)
     {
-        if (IsReliableResetAtAdvance(previous, current))
+        if (IsStrongRecovery(previous, current))
         {
             return true;
         }
 
-        return previous.LastReliableRemaining is { } last
+        var resetAtAdvance = IsReliableResetAtAdvance(previous, current);
+        return resetAtAdvance
+            && !(previous.ResetAlertAwaitingCycleMetadata
+                && IsCycleMetadataCatchUp(previous, current, resetAtAdvance));
+    }
+
+    private static bool IsStrongRecovery(AlertWindowState previous, AlertInput current) =>
+        previous.LastReliableRemaining is { } last
             && current.RemainingPercent - last >= 50
             && current.RemainingPercent >= 80;
-    }
 
     public static bool IsNewCycle(AlertWindowState previous, AlertInput current) =>
         IsCycleTransition(previous, current);
@@ -254,6 +276,36 @@ public static class QuotaAlertReducer
         return after - before >= tolerance;
     }
 
+    private static bool IsCycleMetadataCatchUp(
+        AlertWindowState previous,
+        AlertInput current,
+        bool resetAtAdvance)
+    {
+        if (current.ResetAtUtc is not { } after
+            || previous.WindowDurationMinutes is not > 0
+            || current.WindowDurationMinutes != previous.WindowDurationMinutes)
+        {
+            return false;
+        }
+
+        if (previous.ResetAtUtc is not null && !resetAtAdvance)
+        {
+            return false;
+        }
+
+        var before = previous.ResetAtUtc ?? previous.LastResetAlertCycleUtc;
+        if (before is null)
+        {
+            return true;
+        }
+
+        var advance = after - before.Value;
+        var duration = TimeSpan.FromMinutes(current.WindowDurationMinutes.Value);
+        // One window of resetAt movement can label the strong-recovery cycle
+        // already consumed. A larger jump proves at least one later cycle.
+        return advance > TimeSpan.Zero && advance <= duration;
+    }
+
     private static IEnumerable<int> Enabled(NotificationSettings settings)
     {
         if (settings.Remaining50)
@@ -279,4 +331,5 @@ public sealed record AlertInput(
     int RemainingPercent,
     bool IsPercentageReliable,
     long? WindowDurationMinutes,
-    DateTimeOffset? ResetAtUtc);
+    DateTimeOffset? ResetAtUtc,
+    string? LegacyPseudonymousKey = null);
