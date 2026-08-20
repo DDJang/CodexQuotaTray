@@ -1,8 +1,24 @@
 # CodexQuotaTray 发布流程
 
-Windows 与 Android 版本完全独立，但所有正式 Release 都必须来自 `main`。本文件是 tag、签名和
-产物规则的唯一文档；具体执行逻辑以 `.github/workflows/windows-release.yml` 与
+Windows 与 Android 版本完全独立，但所有正式 Release 都必须来自 `main`。本文件是 tag、现有平台
+签名配置和产物规则的发布执行文档；具体执行逻辑以 `.github/workflows/windows-release.yml` 与
 `android-release.yml` 为准。
+
+## Windows 功能、下载与卸载
+
+Windows 客户端是只读的系统托盘额度工具，显示额度和重置时间，提供重置提醒、自动刷新以及
+本机 Codex session 的聚合 token 统计；它不消费 reset credit，也不执行账户写操作。
+
+正式 Windows 产物发布在[GitHub Releases](https://github.com/DDJang/CodexQuotaTray/releases)：
+
+- `CodexQuotaTray-<version>-setup.exe`：推荐的 per-user Inno Setup 安装器；
+- `CodexQuotaTray-<version>-win-x64.zip`：portable x64 包；
+- `SHA256SUMS.txt`：对应 Release 产物的 SHA256 校验值。
+
+安装器可通过 Windows“已安装的应用”卸载，并在卸载时明确询问是否保留用户数据。自动更新使用
+统一更新清单；用户也可以直接从上述 Release 页面下载并手动启动安装器。
+
+本项目的 [Code signing policy](CODE_SIGNING.md) 说明签名范围、团队角色、隐私政策和申请前状态。
 
 ## 平台规则
 
