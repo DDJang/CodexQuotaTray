@@ -6,10 +6,8 @@ import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
 import com.codexquotatray.android.refresh.AutomaticRefreshChannel
-import androidx.work.Constraints
 import androidx.work.BackoffPolicy
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
@@ -18,6 +16,9 @@ import java.util.concurrent.TimeUnit
 import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.refresh.BackgroundRefreshRetryPolicy
 import com.codexquotatray.android.refresh.BackgroundRetryDecision
+import com.codexquotatray.android.refresh.AndroidWorkerNetworkDiagnostics
+import com.codexquotatray.android.refresh.BackgroundNetworkConstraints
+import com.codexquotatray.android.refresh.BackgroundNetworkRequirement
 
 class QuotaRefreshWorker(
     appContext: Context,
@@ -32,6 +33,11 @@ class QuotaRefreshWorker(
         }
         val hasOAuth = OAuthStore(applicationContext).load() != null
         val hasWindowsPairing = TokenSyncStore(applicationContext).load() != null
+        AndroidWorkerNetworkDiagnostics.record(
+            applicationContext,
+            "Quota",
+            QuotaRefreshScheduler.networkRequirement(hasWindowsPairing),
+        )
         if (!hasOAuth && !hasWindowsPairing) {
             AppLogStore.record(applicationContext, "额度后台任务已跳过：缺少可用数据源", "WARN")
             return Result.success()
@@ -100,9 +106,7 @@ object QuotaRefreshScheduler {
             return
         }
 
-        val constraints = Constraints.Builder()
-            .setRequiredNetworkType(requiredNetworkType(hasWindowsPairing))
-            .build()
+        val constraints = networkRequirement(hasWindowsPairing).constraints()
         val request = PeriodicWorkRequestBuilder<QuotaRefreshWorker>(
             settings.normalizedIntervalMinutes.toLong(),
             TimeUnit.MINUTES,
@@ -121,14 +125,8 @@ object QuotaRefreshScheduler {
         )
     }
 
-    /**
-     * WorkManager treats CONNECTED as validated Internet on API 26+, which excludes a
-     * private Wi-Fi LAN that can still reach a paired Windows fallback server. A paired
-     * device must therefore be eligible to run without that constraint. The worker keeps
-     * Direct OpenAI first and only uses Windows after a NETWORK failure.
-     */
-    internal fun requiredNetworkType(hasWindowsPairing: Boolean): NetworkType =
-        if (hasWindowsPairing) NetworkType.NOT_REQUIRED else NetworkType.CONNECTED
+    internal fun networkRequirement(hasWindowsPairing: Boolean): BackgroundNetworkRequirement =
+        BackgroundNetworkConstraints.quota(hasWindowsPairing)
 
     internal fun shouldSchedule(
         settings: QuotaRefreshSettings,

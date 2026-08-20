@@ -2,10 +2,8 @@ package com.codexquotatray.android.usage
 
 import android.content.Context
 import android.content.Intent
-import androidx.work.Constraints
 import androidx.work.BackoffPolicy
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
@@ -16,6 +14,9 @@ import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
 import com.codexquotatray.android.refresh.AutomaticRefreshChannel
 import com.codexquotatray.android.refresh.BackgroundRefreshRetryPolicy
 import com.codexquotatray.android.refresh.BackgroundRetryDecision
+import com.codexquotatray.android.refresh.AndroidWorkerNetworkDiagnostics
+import com.codexquotatray.android.refresh.BackgroundNetworkConstraints
+import com.codexquotatray.android.refresh.BackgroundNetworkRequirement
 import com.codexquotatray.android.widget.QuotaWidgetBridge
 import java.util.concurrent.TimeUnit
 
@@ -35,6 +36,11 @@ class TokenUsageRefreshWorker(
 ) : Worker(appContext, workerParams) {
     override fun doWork(): Result {
         AppLogStore.record(applicationContext, "Token 后台任务已启动")
+        AndroidWorkerNetworkDiagnostics.record(
+            applicationContext,
+            "Token",
+            TokenUsageRefreshScheduler.networkRequirement(),
+        )
         val settings = TokenUsageRefreshSettingsStore(applicationContext).load()
         val pairingStore = TokenSyncStore(applicationContext)
         val pairing = pairingStore.load()
@@ -137,7 +143,7 @@ object TokenUsageRefreshScheduler {
     ): Boolean = shouldSchedule(settings, hasPairing) && isWifiLanAvailable
 
     /** Paired Token sync is local-only and must not wait for validated Internet. */
-    internal fun requiredNetworkType(): NetworkType = NetworkType.NOT_REQUIRED
+    internal fun networkRequirement(): BackgroundNetworkRequirement = BackgroundNetworkConstraints.token()
 
     fun cancel(context: Context) {
         WorkManager.getInstance(context.applicationContext).cancelUniqueWork(WORK_NAME)
@@ -157,7 +163,7 @@ object TokenUsageRefreshScheduler {
             TimeUnit.MINUTES,
         )
             .setConstraints(
-                Constraints.Builder().setRequiredNetworkType(requiredNetworkType()).build(),
+                networkRequirement().constraints(),
             )
             .setBackoffCriteria(
                 BackoffPolicy.EXPONENTIAL,
