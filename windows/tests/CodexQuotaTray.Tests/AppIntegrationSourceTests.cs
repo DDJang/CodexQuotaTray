@@ -30,9 +30,76 @@ public sealed class AppIntegrationSourceTests
         var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
 
         Assert.IsFalse(source.Contains("mainWindow.Activate()", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("mainWindow?.Activate()", StringComparison.Ordinal));
         Assert.IsFalse(source.Contains("mainWindow.HidePanel()", StringComparison.Ordinal));
         StringAssert.Contains(source, "else if (startupLaunch)");
         StringAssert.Contains(source, "mainWindow?.ShowPanel()");
+    }
+
+    [TestMethod]
+    public void ShutdownActivationStartsExitBeforeShowingMainWindow()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+        var methodStart = source.IndexOf("private void OnInstanceActivated(", StringComparison.Ordinal);
+        var methodEnd = source.IndexOf(
+            "private async Task<TokenUsageSnapshot> ScanTokenUsageAsync(",
+            methodStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(methodStart >= 0);
+        Assert.IsTrue(methodEnd > methodStart);
+        var method = source[methodStart..methodEnd];
+
+        var shutdown = method.IndexOf("ActivationContains(args, \"--shutdown-existing\")", StringComparison.Ordinal);
+        var exit = method.IndexOf("ExitApplication();", shutdown, StringComparison.Ordinal);
+        var returnAfterExit = method.IndexOf("return;", exit, StringComparison.Ordinal);
+        var show = method.IndexOf("mainWindow?.ShowPanel();", StringComparison.Ordinal);
+
+        Assert.IsTrue(shutdown >= 0);
+        Assert.IsTrue(exit > shutdown);
+        Assert.IsTrue(returnAfterExit > exit);
+        Assert.IsTrue(show > returnAfterExit);
+    }
+
+    [TestMethod]
+    public void ExitLifecycleUsesAnIdempotentGuardAndExplicitApplicationExit()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+
+        StringAssert.Contains(source, "private int exitStarted;");
+        StringAssert.Contains(source, "SessionEndingPolicy.ExitForWindowsUpdate(crashSessionLog, StartExit);");
+
+        var startExitStart = source.IndexOf("private void StartExit()", StringComparison.Ordinal);
+        var completeExitStart = source.IndexOf("private async Task CompleteExitAsync()", startExitStart, StringComparison.Ordinal);
+        Assert.IsTrue(startExitStart >= 0);
+        Assert.IsTrue(completeExitStart > startExitStart);
+        var startExit = source[startExitStart..completeExitStart];
+
+        var guard = startExit.IndexOf("Interlocked.Exchange(ref exitStarted, 1)", StringComparison.Ordinal);
+        var threadCheck = startExit.IndexOf("if (dispatcher.HasThreadAccess)", StringComparison.Ordinal);
+        var directStart = startExit.IndexOf("_ = CompleteExitAsync();", threadCheck, StringComparison.Ordinal);
+        var enqueue = startExit.IndexOf(
+            "dispatcher.TryEnqueue(() => _ = CompleteExitAsync())",
+            threadCheck,
+            StringComparison.Ordinal);
+
+        Assert.IsTrue(guard >= 0);
+        Assert.IsTrue(threadCheck > guard);
+        Assert.IsTrue(directStart > threadCheck);
+        Assert.IsTrue(enqueue > directStart);
+        StringAssert.Contains(startExit, "if (dispatcher is null)");
+        StringAssert.Contains(startExit, "FallbackExitWithoutUiDispatcher();");
+        StringAssert.Contains(source, "crashSessionLog?.CompleteSession();");
+        StringAssert.Contains(source, "Environment.Exit(0);");
+
+        var cleanupStart = source.IndexOf("private async Task CompleteExitAsync()", StringComparison.Ordinal);
+        var cleanupEnd = source.IndexOf("internal static bool HasArgument(", cleanupStart, StringComparison.Ordinal);
+        Assert.IsTrue(cleanupStart >= 0);
+        Assert.IsTrue(cleanupEnd > cleanupStart);
+        var cleanup = source[cleanupStart..cleanupEnd];
+
+        StringAssert.Contains(cleanup, "await initializationTask.WaitAsync(TimeSpan.FromSeconds(2));");
+        StringAssert.Contains(cleanup, "catch (TimeoutException)");
+        StringAssert.Contains(cleanup, "Exit();");
     }
 
     [TestMethod]
