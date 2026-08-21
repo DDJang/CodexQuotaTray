@@ -222,9 +222,6 @@ public sealed partial class MainWindow : Window
 
     private void ShowPanelCore(bool raisePanelShown = true)
     {
-        Position();
-        Activate();
-        appWindow.Show();
         if (!windowConfigured)
         {
             ConfigureWindow();
@@ -232,6 +229,9 @@ public sealed partial class MainWindow : Window
         }
 
         ApplyBackdrop();
+        Position();
+        Activate();
+        appWindow.Show();
         if (showingTokenPage)
         {
             tokenUsageView.PrepareHeatmapInteraction();
@@ -297,7 +297,8 @@ public sealed partial class MainWindow : Window
 
     private void Position(bool forceResize = false)
     {
-        var scale = ContentRoot.XamlRoot?.RasterizationScale ?? 1.0;
+        var scale = ContentRoot.XamlRoot?.RasterizationScale
+            ?? WindowPlacementService.GetRasterizationScale(hwnd);
         PanelContent.InvalidateMeasure();
         PanelContent.Measure(new Windows.Foundation.Size(PanelWidthDips, double.PositiveInfinity));
         ContentRoot.UpdateLayout();

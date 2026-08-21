@@ -171,12 +171,6 @@ public partial class App : Application
             }
         };
         mainWindow.ApplyTheme(runtime?.Settings.ThemeMode ?? ThemeMode.System);
-        mainWindow.Activate();
-        if (!showDemo)
-        {
-            mainWindow.HidePanel();
-        }
-
         // Start the data task before optional shell integration so a tray initialization
         // failure can never strand the model in its initial connecting state.
         initializationTask = InitializeStateAsync(
