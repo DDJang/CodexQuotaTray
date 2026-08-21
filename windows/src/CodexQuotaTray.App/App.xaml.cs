@@ -16,6 +16,7 @@ namespace CodexQuotaTray.App;
 
 public partial class App : Application
 {
+    private static readonly TimeSpan ExitGracePeriod = TimeSpan.FromSeconds(5);
     private readonly CancellationTokenSource lifetime = new();
     private MainWindow? mainWindow;
     private TrayIconService? trayIcon;
@@ -705,6 +706,11 @@ public partial class App : Application
             return;
         }
 
+        // Cleanup is best-effort, but an updater must never be left waiting on a
+        // background component that does not observe cancellation promptly.
+        crashSessionLog?.MarkExpectedTermination();
+        _ = ForceExitAfterGracePeriodAsync();
+
         var dispatcher = uiDispatcher;
         if (dispatcher is null)
         {
@@ -722,6 +728,12 @@ public partial class App : Application
         {
             FallbackExitWithoutUiDispatcher();
         }
+    }
+
+    private static async Task ForceExitAfterGracePeriodAsync()
+    {
+        await Task.Delay(ExitGracePeriod).ConfigureAwait(false);
+        Environment.Exit(0);
     }
 
     private void FallbackExitWithoutUiDispatcher()

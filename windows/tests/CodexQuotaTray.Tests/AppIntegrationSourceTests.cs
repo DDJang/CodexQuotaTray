@@ -88,8 +88,18 @@ public sealed class AppIntegrationSourceTests
         Assert.IsTrue(enqueue > directStart);
         StringAssert.Contains(startExit, "if (dispatcher is null)");
         StringAssert.Contains(startExit, "FallbackExitWithoutUiDispatcher();");
+        StringAssert.Contains(startExit, "crashSessionLog?.MarkExpectedTermination();");
+        StringAssert.Contains(startExit, "_ = ForceExitAfterGracePeriodAsync();");
         StringAssert.Contains(source, "crashSessionLog?.CompleteSession();");
         StringAssert.Contains(source, "Environment.Exit(0);");
+
+        var deadlineStart = source.IndexOf("private static async Task ForceExitAfterGracePeriodAsync()", StringComparison.Ordinal);
+        var fallbackStart = source.IndexOf("private void FallbackExitWithoutUiDispatcher()", deadlineStart, StringComparison.Ordinal);
+        Assert.IsTrue(deadlineStart >= 0);
+        Assert.IsTrue(fallbackStart > deadlineStart);
+        var deadline = source[deadlineStart..fallbackStart];
+        StringAssert.Contains(deadline, "await Task.Delay(ExitGracePeriod).ConfigureAwait(false);");
+        StringAssert.Contains(deadline, "Environment.Exit(0);");
 
         var cleanupStart = source.IndexOf("private async Task CompleteExitAsync()", StringComparison.Ordinal);
         var cleanupEnd = source.IndexOf("internal static bool HasArgument(", cleanupStart, StringComparison.Ordinal);
@@ -200,7 +210,7 @@ public sealed class AppIntegrationSourceTests
         var method = source[methodStart..methodEnd];
 
         StringAssert.Contains(method, "ewNoWait");
-        StringAssert.Contains(source, "CloseApplications=yes");
+        StringAssert.Contains(source, "CloseApplications=force");
         Assert.IsFalse(method.Contains("ewWaitUntilTerminated", StringComparison.Ordinal));
     }
 }
