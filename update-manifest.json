@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.8.10",
-    "tag": "windows-v0.8.10",
+    "version": "0.8.11",
+    "tag": "windows-v0.8.11",
     "installer": {
-      "name": "CodexQuotaTray-0.8.10-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.8.10/CodexQuotaTray-0.8.10-setup.exe",
-      "sha256": "eb4e1be2b2512b3863ef289f5b1abfb710d32133e2afe1a215f290e780374f72",
-      "size": 63057744
+      "name": "CodexQuotaTray-0.8.11-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.8.11/CodexQuotaTray-0.8.11-setup.exe",
+      "sha256": "88747d2074a9e8cc372e35b0eca9f10d36e8026db360186d55feed686340815c",
+      "size": 63090140
     },
-    "releaseNotes": "## Windows\r\n\r\n- 修复自动更新安装器在“Preparing to Install”阶段因旧版退出请求无界等待而卡住的问题。\r\n",
-    "publishedAt": "2026-08-20T06:27:04Z"
+    "releaseNotes": "## Windows\r\n\r\n- 修复 Windows 启动时短暂出现黑色窗口或闪烁的问题。\r\n- 首次显示前完成窗口配置、背景、定位和 DPI 准备，提升不同 DPI 环境下的首屏稳定性。\r\n",
+    "publishedAt": "2026-08-21T10:25:04Z"
   },
   "android": {
     "version": "0.8.8",
