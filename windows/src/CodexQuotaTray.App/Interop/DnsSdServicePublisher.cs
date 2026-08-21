@@ -1,8 +1,10 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Net;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
-using System.Diagnostics;
 using CodexQuotaTray.Core.TokenUsage;
 
 namespace CodexQuotaTray.App.Interop;
@@ -11,14 +13,21 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
 {
     internal const uint DnsRequestPending = 9506;
     private const uint DnsQueryRequestVersion1 = 1;
+    private static readonly TimeSpan DefaultLateCallbackGracePeriod = TimeSpan.FromSeconds(2);
     private static readonly DnsServiceRegisterComplete RegisterCompleteCallback = OnNativeCompletion;
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<IntPtr, CallbackRegistration> ActivePublishers = new();
-    private static long nextQueryContext;
+    private static readonly ConcurrentDictionary<IntPtr, CallbackRegistration> ActivePublishers = new();
+    private static readonly ConcurrentDictionary<IntPtr, CallbackRegistration> CallbackContexts = new();
+    private static readonly ConditionalWeakTable<IDnsSdNative, NativeOwnerRegistration> NativeOwnerRegistrations = new();
+    private static readonly ConcurrentDictionary<uint, WeakReference<IDnsSdNative>> NativeOwnersById = new();
+    private static readonly object NativeOwnerRegistryLock = new();
+    private static int nextOperationId;
+    private static uint nextNativeOwnerId;
     private readonly Guid deviceId;
     private readonly string displayName;
     private readonly string serviceInstancePrefix;
     private readonly IDnsSdNative native;
     private readonly TimeSpan callbackTimeout;
+    private readonly TimeSpan lateCallbackGracePeriod;
     private readonly Action<string> diagnostic;
     private readonly List<IntPtr> allocations = [];
     private readonly object callbackStateLock = new();
@@ -39,18 +48,27 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
         string serviceInstancePrefix = "CodexQuotaTray",
         IDnsSdNative? native = null,
         TimeSpan? callbackTimeout = null,
-        Action<string>? diagnostic = null)
+        Action<string>? diagnostic = null,
+        TimeSpan? lateCallbackGracePeriod = null)
     {
         this.deviceId = deviceId;
         this.displayName = displayName;
         this.serviceInstancePrefix = serviceInstancePrefix;
         this.native = native ?? WindowsDnsSdNative.Instance;
         this.callbackTimeout = callbackTimeout ?? TimeSpan.FromSeconds(2);
+        this.lateCallbackGracePeriod = lateCallbackGracePeriod ?? DefaultLateCallbackGracePeriod;
+        if (this.lateCallbackGracePeriod <= TimeSpan.Zero || this.lateCallbackGracePeriod > TimeSpan.FromSeconds(30))
+        {
+            throw new ArgumentOutOfRangeException(nameof(lateCallbackGracePeriod), "DNS-SD late callback grace must be between 0 and 30 seconds.");
+        }
         this.diagnostic = diagnostic ?? (message => System.Diagnostics.Debug.WriteLine(message));
     }
 
     internal bool IsStarted => phase == RegistrationPhase.Registered && serviceInstance != IntPtr.Zero;
     internal static int ActivePublisherCount => ActivePublishers.Values.Select(value => value.Publisher).Distinct().Count();
+    internal static int CallbackContextCount => CallbackContexts.Count;
+    internal static int NativeOwnerRegistryCount => NativeOwnersById.Count;
+    internal static bool HasCallbackContext(IntPtr context) => CallbackContexts.ContainsKey(context);
 
     internal async Task StartAsync(IPAddress address, int port, uint interfaceIndex = 0, CancellationToken cancellationToken = default)
     {
@@ -84,8 +102,8 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Windows DNS-SD instance creation failed.");
             }
 
-            queryContext = new IntPtr(Interlocked.Increment(ref nextQueryContext));
-            if (!ActivePublishers.TryAdd(queryContext, new CallbackRegistration(this, CallbackKind.Registration)))
+            queryContext = CreateQueryContext(native);
+            if (!TryAddCallbackContext(queryContext, CallbackKind.Registration))
             {
                 throw new InvalidOperationException("Could not allocate a DNS-SD callback context.");
             }
@@ -180,26 +198,130 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     {
         if (ActivePublishers.TryGetValue(queryContext, out var callbackRegistration))
         {
-            callbackRegistration.Publisher.HandleNativeCompletion(status, instance, callbackRegistration.Kind);
+            callbackRegistration.Publisher.HandleNativeCompletion(status, queryContext, instance, callbackRegistration);
+            return;
         }
-        else if (instance != IntPtr.Zero)
+
+        if (CallbackContexts.TryGetValue(queryContext, out var lateCallbackContext))
         {
-            try { WindowsDnsSdNative.Instance.FreeInstance(instance); }
-            catch (Exception error) when (error is DllNotFoundException or EntryPointNotFoundException)
+            lateCallbackContext.Publisher.HandleLateNativeCompletion(lateCallbackContext, instance);
+            return;
+        }
+
+        if (TryResolveNativeOwner(queryContext, out var ownerId, out var owner))
+        {
+            if (instance != IntPtr.Zero)
             {
-                System.Diagnostics.Debug.WriteLine($"DNS-SD orphan callback instance cleanup failed: {error.GetType().Name}");
+                try
+                {
+                    owner!.FreeInstance(instance);
+                }
+                catch (Exception error)
+                {
+                    Debug.WriteLine($"DNS-SD post-grace callback instance cleanup failed for owner {ownerId}: {error.GetType().Name}");
+                }
+            }
+            return;
+        }
+
+        Debug.WriteLine($"DNS-SD callback ignored because native owner {ownerId} is unknown.");
+    }
+
+    private static IntPtr CreateQueryContext(IDnsSdNative owner)
+    {
+        if (IntPtr.Size != 8)
+        {
+            throw new PlatformNotSupportedException("DNS-SD query contexts require an x64 process.");
+        }
+
+        var operationId = unchecked((uint)Interlocked.Increment(ref nextOperationId));
+        if (operationId == 0)
+        {
+            throw new InvalidOperationException("DNS-SD operation ID space is exhausted.");
+        }
+
+        var ownerId = GetNativeOwnerId(owner);
+        var token = ((ulong)ownerId << 32) | operationId;
+        return new IntPtr(unchecked((long)token));
+    }
+
+    private static uint GetNativeOwnerId(IDnsSdNative owner)
+    {
+        lock (NativeOwnerRegistryLock)
+        {
+            PruneDeadNativeOwners();
+            if (NativeOwnerRegistrations.TryGetValue(owner, out var existing))
+            {
+                return existing.Id;
+            }
+
+            var ownerId = unchecked(++nextNativeOwnerId);
+            if (ownerId == 0)
+            {
+                throw new InvalidOperationException("DNS-SD native owner ID space is exhausted.");
+            }
+
+            NativeOwnerRegistrations.Add(owner, new NativeOwnerRegistration(ownerId));
+            NativeOwnersById[ownerId] = new WeakReference<IDnsSdNative>(owner);
+            return ownerId;
+        }
+    }
+
+    private static bool TryResolveNativeOwner(
+        IntPtr queryContext,
+        out uint ownerId,
+        out IDnsSdNative? owner)
+    {
+        ownerId = 0;
+        owner = null;
+        if (IntPtr.Size != 8)
+        {
+            return false;
+        }
+
+        var token = unchecked((ulong)queryContext.ToInt64());
+        ownerId = unchecked((uint)(token >> 32));
+        if (ownerId == 0 || unchecked((uint)token) == 0 ||
+            !NativeOwnersById.TryGetValue(ownerId, out var ownerReference))
+        {
+            return false;
+        }
+
+        if (ownerReference.TryGetTarget(out owner))
+        {
+            return true;
+        }
+
+        _ = NativeOwnersById.TryRemove(ownerId, out _);
+        owner = null;
+        return false;
+    }
+
+    private static void PruneDeadNativeOwners()
+    {
+        foreach (var entry in NativeOwnersById)
+        {
+            if (entry.Value.TryGetTarget(out _))
+            {
+                continue;
+            }
+
+            if (NativeOwnersById.TryGetValue(entry.Key, out var current) && ReferenceEquals(current, entry.Value))
+            {
+                _ = NativeOwnersById.TryRemove(entry.Key, out _);
             }
         }
     }
 
-    private void HandleNativeCompletion(uint status, IntPtr instance, CallbackKind callbackKind)
+    private void HandleNativeCompletion(
+        uint status,
+        IntPtr queryContext,
+        IntPtr instance,
+        CallbackRegistration callbackRegistration)
     {
         try
         {
-            if (instance != IntPtr.Zero)
-            {
-                native.FreeInstance(instance);
-            }
+            callbackRegistration.FreeInstance(instance);
         }
         catch (Exception error)
         {
@@ -211,11 +333,23 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             lock (callbackStateLock)
             {
                 diagnostic($"DNS-SD callback phase={phase} status={status} elapsedMs={elapsed?.ToString() ?? "n/a"}");
-                var completion = callbackKind == CallbackKind.Registration
+                var completion = callbackRegistration.Kind == CallbackKind.Registration
                     ? registrationCompletion
                     : deregistrationCompletion;
                 completion?.TrySetResult(status);
             }
+        }
+    }
+
+    private void HandleLateNativeCompletion(CallbackRegistration callbackRegistration, IntPtr instance)
+    {
+        try
+        {
+            callbackRegistration.FreeInstance(instance);
+        }
+        catch (Exception error)
+        {
+            diagnostic($"DNS-SD late callback instance cleanup failed: {error.GetType().Name}");
         }
     }
 
@@ -281,7 +415,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
     private async Task<uint> DeregisterAsync()
     {
         var completion = new TaskCompletionSource<uint>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var context = new IntPtr(Interlocked.Increment(ref nextQueryContext));
+        var context = CreateQueryContext(native);
         lock (callbackStateLock)
         {
             phase = RegistrationPhase.Deregistering;
@@ -291,7 +425,7 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
             deregistrationRequest.RegisterCompletionCallback = Marshal.GetFunctionPointerForDelegate(RegisterCompleteCallback);
             deregistrationRequest.QueryContext = context;
         }
-        if (!ActivePublishers.TryAdd(context, new CallbackRegistration(this, CallbackKind.Deregistration)))
+        if (!TryAddCallbackContext(context, CallbackKind.Deregistration))
         {
             throw new InvalidOperationException("Could not allocate a DNS-SD deregistration callback context.");
         }
@@ -315,12 +449,48 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
         }
         if (registrationContext != IntPtr.Zero)
         {
-            _ = ActivePublishers.TryRemove(registrationContext, out _);
+            RetireCallbackContext(registrationContext);
         }
         if (deregistrationContext != IntPtr.Zero)
         {
-            _ = ActivePublishers.TryRemove(deregistrationContext, out _);
+            RetireCallbackContext(deregistrationContext);
         }
+    }
+
+    private void RetireCallbackContext(IntPtr context)
+    {
+        _ = ActivePublishers.TryRemove(context, out _);
+        if (!CallbackContexts.ContainsKey(context))
+        {
+            return;
+        }
+
+        _ = ExpireCallbackContextAsync(context);
+    }
+
+    private async Task ExpireCallbackContextAsync(IntPtr context)
+    {
+        await Task.Delay(lateCallbackGracePeriod).ConfigureAwait(false);
+        if (CallbackContexts.TryRemove(context, out _))
+        {
+            diagnostic("DNS-SD late callback grace expired; callback context released.");
+        }
+    }
+
+    private bool TryAddCallbackContext(IntPtr context, CallbackKind kind)
+    {
+        var callbackRegistration = new CallbackRegistration(this, native, kind);
+        if (!CallbackContexts.TryAdd(context, callbackRegistration))
+        {
+            return false;
+        }
+        if (ActivePublishers.TryAdd(context, callbackRegistration))
+        {
+            return true;
+        }
+
+        _ = CallbackContexts.TryRemove(context, out _);
+        return false;
     }
 
     private IntPtr Allocate(int bytes)
@@ -369,7 +539,33 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
 
     private enum RegistrationPhase { Stopped, Registering, CancellingRegistration, Registered, Deregistering }
     private enum CallbackKind { Registration, Deregistration }
-    private readonly record struct CallbackRegistration(DnsSdServicePublisher Publisher, CallbackKind Kind);
+
+    private sealed class NativeOwnerRegistration(uint id)
+    {
+        public uint Id { get; } = id;
+    }
+
+    private sealed class CallbackRegistration(
+        DnsSdServicePublisher publisher,
+        IDnsSdNative owner,
+        CallbackKind kind)
+    {
+        private int instanceFreed;
+
+        public DnsSdServicePublisher Publisher { get; } = publisher;
+        public IDnsSdNative Owner { get; } = owner;
+        public CallbackKind Kind { get; } = kind;
+
+        public void FreeInstance(IntPtr instance)
+        {
+            if (instance == IntPtr.Zero || Interlocked.Exchange(ref instanceFreed, 1) != 0)
+            {
+                return;
+            }
+
+            Owner.FreeInstance(instance);
+        }
+    }
 }
 
 [UnmanagedFunctionPointer(CallingConvention.Winapi)]
