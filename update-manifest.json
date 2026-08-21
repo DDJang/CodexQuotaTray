@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.8.11",
-    "tag": "windows-v0.8.11",
+    "version": "0.8.13",
+    "tag": "windows-v0.8.13",
     "installer": {
-      "name": "CodexQuotaTray-0.8.11-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.8.11/CodexQuotaTray-0.8.11-setup.exe",
-      "sha256": "88747d2074a9e8cc372e35b0eca9f10d36e8026db360186d55feed686340815c",
-      "size": 63090140
+      "name": "CodexQuotaTray-0.8.13-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.8.13/CodexQuotaTray-0.8.13-setup.exe",
+      "sha256": "01927ad58346be529aaab1d50a2843c4eda8d0a64822acf5b7439ac905246440",
+      "size": 63063000
     },
-    "releaseNotes": "## Windows\r\n\r\n- 修复 Windows 启动时短暂出现黑色窗口或闪烁的问题。\r\n- 首次显示前完成窗口配置、背景、定位和 DPI 准备，提升不同 DPI 环境下的首屏稳定性。\r\n",
-    "publishedAt": "2026-08-21T10:25:04Z"
+    "releaseNotes": "## Windows\r\n\r\n- 修复 Windows 安装器关闭流程的可靠性，减少更新或卸载时旧进程未及时退出造成的阻塞。\r\n- 稳定局域网 DNS-SD 注册与注销回调的生命周期清理，覆盖超时、取消和延迟回调场景。\r\n- 加固 DNS-SD 生命周期测试的时序等待与上下文校验，提升 CI 中相关测试的稳定性。\r\n",
+    "publishedAt": "2026-08-21T15:46:36Z"
   },
   "android": {
     "version": "0.8.8",
