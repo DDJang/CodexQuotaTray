@@ -36,7 +36,9 @@ UninstallDisplayIcon={app}\codex-quota-tray-gui.exe
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-CloseApplications=yes
+; CodexQuotaTray has no unsaved document state. If graceful shutdown misses its
+; bounded deadline, force-close the process instead of leaving updates blocked.
+CloseApplications=force
 RestartApplications=no
 ChangesAssociations=no
 AllowNoIcons=yes
