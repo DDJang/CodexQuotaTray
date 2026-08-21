@@ -25,6 +25,52 @@ public sealed class AppIntegrationSourceTests
     }
 
     [TestMethod]
+    public void MainWindowIsNotActivatedBeforeStartupVisibilityIsRequested()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+
+        Assert.IsFalse(source.Contains("mainWindow.Activate()", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("mainWindow.HidePanel()", StringComparison.Ordinal));
+        StringAssert.Contains(source, "else if (startupLaunch)");
+        StringAssert.Contains(source, "mainWindow?.ShowPanel()");
+    }
+
+    [TestMethod]
+    public void MainWindowPreparesItsFirstPresentationBeforeShowing()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var methodStart = source.IndexOf("private void ShowPanelCore(", StringComparison.Ordinal);
+        var methodEnd = source.IndexOf("internal void ApplyTheme(", methodStart, StringComparison.Ordinal);
+        Assert.IsTrue(methodStart >= 0);
+        Assert.IsTrue(methodEnd > methodStart);
+        var method = source[methodStart..methodEnd];
+
+        var configure = method.IndexOf("ConfigureWindow();", StringComparison.Ordinal);
+        var backdrop = method.IndexOf("ApplyBackdrop();", StringComparison.Ordinal);
+        var position = method.IndexOf("Position();", StringComparison.Ordinal);
+        var activate = method.IndexOf("Activate();", StringComparison.Ordinal);
+        var show = method.IndexOf("appWindow.Show();", StringComparison.Ordinal);
+        var correction = method.IndexOf("QueuePositionIfVisible(forceResize: true);", StringComparison.Ordinal);
+
+        Assert.IsTrue(configure >= 0);
+        Assert.IsTrue(backdrop > configure);
+        Assert.IsTrue(position > backdrop);
+        Assert.IsTrue(activate > position);
+        Assert.IsTrue(show > activate);
+        Assert.IsTrue(correction > show);
+    }
+
+    [TestMethod]
+    public void MainWindowUsesNativeDpiWhenXamlRootIsUnavailable()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+
+        StringAssert.Contains(source, "WindowPlacementService.GetRasterizationScale(hwnd)");
+    }
+
+    [TestMethod]
     public void TokenUsageCacheRestoreStillUsesStartupSettingsWithoutQuotaInitialization()
     {
         var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
