@@ -36,7 +36,7 @@ public partial class App : Application
     private AppIdentity? applicationIdentity;
     private CrashSessionLog? crashSessionLog;
     private PreviousCrashInfo? previousCrashInfo;
-    private bool exiting;
+    private int exitStarted;
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
@@ -293,7 +293,10 @@ public partial class App : Application
         {
             _ = uiDispatcher.TryEnqueue(() =>
             {
-                mainWindow?.ShowPanel();
+                if (Volatile.Read(ref exitStarted) == 0)
+                {
+                    mainWindow?.ShowPanel();
+                }
             });
         }
         else if (startupLaunch)
@@ -304,7 +307,10 @@ public partial class App : Application
         {
             _ = uiDispatcher.TryEnqueue(() =>
             {
-                mainWindow?.ShowPanel();
+                if (Volatile.Read(ref exitStarted) == 0)
+                {
+                    mainWindow?.ShowPanel();
+                }
             });
         }
 
@@ -362,9 +368,16 @@ public partial class App : Application
             await initializationTask;
         }
 
-        if (runtime is { Settings.SilentStartup: false })
+        if (Volatile.Read(ref exitStarted) == 0
+            && runtime is { Settings.SilentStartup: false })
         {
-            _ = uiDispatcher?.TryEnqueue(() => mainWindow?.ShowPanel());
+            _ = uiDispatcher?.TryEnqueue(() =>
+            {
+                if (Volatile.Read(ref exitStarted) == 0)
+                {
+                    mainWindow?.ShowPanel();
+                }
+            });
         }
     }
 
@@ -527,11 +540,22 @@ public partial class App : Application
     {
         if (ActivationContains(args, "--shutdown-existing"))
         {
-            _ = uiDispatcher?.TryEnqueue(ExitApplication);
+            ExitApplication();
             return;
         }
 
-        _ = uiDispatcher?.TryEnqueue(() => mainWindow?.ShowPanel());
+        if (Volatile.Read(ref exitStarted) != 0)
+        {
+            return;
+        }
+
+        _ = uiDispatcher?.TryEnqueue(() =>
+        {
+            if (Volatile.Read(ref exitStarted) == 0)
+            {
+                mainWindow?.ShowPanel();
+            }
+        });
     }
 
     private async Task<TokenUsageSnapshot> ScanTokenUsageAsync(
@@ -670,25 +694,67 @@ public partial class App : Application
     }
 
     private void ExitForWindowsUpdate() =>
-        SessionEndingPolicy.ExitForWindowsUpdate(crashSessionLog, ExitApplication);
+        SessionEndingPolicy.ExitForWindowsUpdate(crashSessionLog, StartExit);
 
-    private async void ExitApplication()
+    private void ExitApplication() => StartExit();
+
+    private void StartExit()
     {
-        if (exiting)
+        if (Interlocked.Exchange(ref exitStarted, 1) != 0)
         {
             return;
         }
 
-        exiting = true;
+        var dispatcher = uiDispatcher;
+        if (dispatcher is null)
+        {
+            FallbackExitWithoutUiDispatcher();
+            return;
+        }
+
+        if (dispatcher.HasThreadAccess)
+        {
+            _ = CompleteExitAsync();
+            return;
+        }
+
+        if (!dispatcher.TryEnqueue(() => _ = CompleteExitAsync()))
+        {
+            FallbackExitWithoutUiDispatcher();
+        }
+    }
+
+    private void FallbackExitWithoutUiDispatcher()
+    {
+        try
+        {
+            crashSessionLog?.CompleteSession();
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            Debug.WriteLine($"Crash session completion failed during fallback exit: {error.GetType().Name}");
+        }
+        finally
+        {
+            Environment.Exit(0);
+        }
+    }
+
+    private async Task CompleteExitAsync()
+    {
         lifetime.Cancel();
         if (initializationTask is not null)
         {
             try
             {
-                await initializationTask;
+                await initializationTask.WaitAsync(TimeSpan.FromSeconds(2));
             }
             catch (OperationCanceledException)
             {
+            }
+            catch (TimeoutException)
+            {
+                Debug.WriteLine("WinUI initialization did not finish during shutdown.");
             }
         }
 
