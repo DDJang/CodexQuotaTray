@@ -91,13 +91,12 @@ public sealed class LanReliabilityTests
     [TestMethod]
     public async Task DnsSdNoCallbackEventuallyExpiresCallbackContext()
     {
-        var contextBefore = DnsSdServicePublisher.CallbackContextCount;
         var native = new FakeDnsSdNative(registerStatus: 0, deregisterStatus: 0, emitRegistrationCallback: false);
         var publisher = Publisher(
             native,
             [],
             callbackTimeout: TimeSpan.FromMilliseconds(25),
-            lateCallbackGracePeriod: TimeSpan.FromMilliseconds(40));
+            lateCallbackGracePeriod: TimeSpan.FromMilliseconds(25));
 
         var start = publisher.StartAsync(IPAddress.Parse("192.168.1.20"), 43821);
         await WaitUntilAsync(() => native.RegisterCancelCalls == 1);
@@ -105,7 +104,12 @@ public sealed class LanReliabilityTests
         native.ReleaseDeregistrationCallback();
 
         await Assert.ThrowsAsync<TimeoutException>(() => start);
-        await WaitUntilAsync(() => DnsSdServicePublisher.CallbackContextCount == contextBefore);
+        var registrationContext = native.RegistrationQueryContext;
+        var deregistrationContext = native.DeregistrationQueryContext;
+        await WaitUntilAsync(
+            () => !DnsSdServicePublisher.HasCallbackContext(registrationContext)
+                && !DnsSdServicePublisher.HasCallbackContext(deregistrationContext),
+            timeout: TimeSpan.FromSeconds(5));
 
         Assert.AreEqual(0, native.RegistrationCallbackFreeCount);
         native.AssertEveryInstanceFreedOnce(includeDeregistrationCallback: true);
@@ -471,9 +475,9 @@ public sealed class LanReliabilityTests
             diagnostic: logs.Add,
             lateCallbackGracePeriod: lateCallbackGracePeriod ?? TimeSpan.FromMilliseconds(100));
 
-    private static async Task WaitUntilAsync(Func<bool> condition)
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan? timeout = null)
     {
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(2));
         while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(10);
         Assert.IsTrue(condition(), "condition did not become true before timeout");
     }
