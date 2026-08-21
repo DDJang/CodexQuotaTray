@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.8.13",
-    "tag": "windows-v0.8.13",
+    "version": "0.8.14",
+    "tag": "windows-v0.8.14",
     "installer": {
-      "name": "CodexQuotaTray-0.8.13-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.8.13/CodexQuotaTray-0.8.13-setup.exe",
-      "sha256": "01927ad58346be529aaab1d50a2843c4eda8d0a64822acf5b7439ac905246440",
-      "size": 63063000
+      "name": "CodexQuotaTray-0.8.14-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.8.14/CodexQuotaTray-0.8.14-setup.exe",
+      "sha256": "4eb8bf90f0300f5e92885111af5112df463956205baec5ccc921913b3d1ddfdd",
+      "size": 63066644
     },
-    "releaseNotes": "## Windows\r\n\r\n- 修复 Windows 安装器关闭流程的可靠性，减少更新或卸载时旧进程未及时退出造成的阻塞。\r\n- 稳定局域网 DNS-SD 注册与注销回调的生命周期清理，覆盖超时、取消和延迟回调场景。\r\n- 加固 DNS-SD 生命周期测试的时序等待与上下文校验，提升 CI 中相关测试的稳定性。\r\n",
-    "publishedAt": "2026-08-21T15:46:36Z"
+    "releaseNotes": "# Windows\r\n\r\n- 修复自动更新或覆盖安装时后台任务未及时退出、导致安装器无法释放文件占用的问题。\r\n",
+    "publishedAt": "2026-08-21T16:25:52Z"
   },
   "android": {
     "version": "0.8.8",
