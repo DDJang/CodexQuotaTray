@@ -351,7 +351,6 @@ class SettingsActivity : ComponentActivity() {
                     checked = resetCreditExpiryEnabled,
                     enabled = notificationEnabled,
                     onChange = ::updateResetCreditExpiry,
-                    description = stringResource(R.string.reset_credit_expiry_description),
                 )
                 SettingsDivider()
                 SettingsInlineLabel(

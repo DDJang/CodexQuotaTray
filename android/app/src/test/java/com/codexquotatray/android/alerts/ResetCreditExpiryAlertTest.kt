@@ -169,6 +169,43 @@ class ResetCreditExpiryAlertTest {
         )
     }
 
+    @Test
+    fun evaluationOfFirstDueCardLeavesNextDueCardForTheNextSchedule() {
+        val store = MemoryAlertStateStore()
+        val firstCredit = baseCredit.copy(
+            expiresAt = nowMillis / 1_000L + 3_600L,
+            title = "First",
+        )
+        val firstExpiry = firstCredit.expiresAt ?: error("fixture expiry missing")
+        val secondCredit = firstCredit.copy(
+            expiresAt = firstExpiry + 24L * 3_600L,
+            title = "Second",
+        )
+        val secondExpiry = secondCredit.expiresAt ?: error("fixture expiry missing")
+        val snapshot = ResetCreditSnapshot(
+            availableCount = 2,
+            credits = listOf(firstCredit, secondCredit),
+        )
+
+        val events = QuotaAlertEvaluator(store).evaluateResetCredits(
+            snapshot.credits,
+            QuotaAlertSettings(resetCreditExpiryEnabled = true),
+            nowMillis,
+            snapshot.availableCount,
+        )
+
+        assertEquals(listOf(firstCredit), events.map { it.resetCredit })
+        assertEquals(
+            secondExpiry * 1_000L - 24L * 3_600_000L,
+            com.codexquotatray.android.quota.ResetCreditExpiryReminderScheduler.nextReminderAt(
+                snapshot,
+                leadHours = 24,
+                nowMillis = nowMillis,
+                stateStore = store,
+            ),
+        )
+    }
+
     private class MemoryAlertStateStore : AlertStateStore {
         private val windows = mutableMapOf<String, AlertRecord>()
         private val credits = mutableMapOf<String, ResetCreditAlertRecord>()

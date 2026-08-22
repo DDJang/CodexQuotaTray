@@ -571,9 +571,11 @@
                                 </StackPanel>
                                 <ComboBox
                                     Grid.Column="1"
-                                    Width="110"
+                                    Width="176"
                                     SelectedIndex="{Binding SelectedResetCreditExpiryLeadIndex, Mode=TwoWay}"
-                                    IsEnabled="{Binding NotifyResetCreditExpiry}">
+                                    IsEnabled="{Binding NotifyResetCreditExpiry}"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center">
                                     <ComboBoxItem Content="1 天前" />
                                     <ComboBoxItem Content="6 小时前" />
                                     <ComboBoxItem Content="1 小时前" />
