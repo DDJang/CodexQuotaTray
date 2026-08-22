@@ -235,6 +235,37 @@ class WindowsQuotaFallbackTest {
         assertNull(window.remainingPercent)
         assertNull(window.windowDurationMins)
         assertNull(window.resetsAt)
+        assertNull(result.resetCredits)
+    }
+
+    @Test
+    fun windowsResetCreditProjectionPreservesCountDetailsAndNullableFields() {
+        val result = WindowsQuotaJson.parse(
+            """
+            {"schemaVersion":1,"generatedAtUtc":"2026-08-10T12:00:00Z","planType":"plus",
+             "quotaState":"available","windows":[],
+             "resetCredits":{"availableCount":2,"credits":[
+               {"id":"credit-1","resetType":"five_hour","status":"available",
+                "grantedAt":null,"expiresAt":1900000000,"title":null,"description":"desc"},
+               {"id":"credit-2","resetType":null,"status":"redeemed",
+                "grantedAt":null,"expiresAt":null,"title":"Old","description":null}
+             ]}}
+            """.trimIndent(),
+        )
+
+        assertEquals(2L, result.resetCredits?.availableCount)
+        assertEquals(2, result.resetCredits?.credits?.size)
+        assertEquals("five_hour", result.resetCredits?.credits?.first()?.resetType)
+        assertNull(result.resetCredits?.credits?.first()?.grantedAt)
+        assertNull(result.resetCredits?.credits?.first()?.title)
+        assertEquals("redeemed", result.resetCredits?.credits?.get(1)?.status)
+    }
+
+    @Test
+    fun oldWindowsQuotaJsonWithoutResetCreditsRemainsCompatible() {
+        val result = WindowsQuotaJson.parse(quotaFixture())
+
+        assertNull(result.resetCredits)
     }
 
     private fun resolver(

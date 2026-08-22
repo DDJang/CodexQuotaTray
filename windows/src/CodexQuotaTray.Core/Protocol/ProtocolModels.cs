@@ -161,9 +161,21 @@ public sealed class RateLimitResetCredit
     [JsonPropertyName("id")]
     public string? Id { get; init; }
 
+    [JsonPropertyName("resetType")]
+    public string? ResetType { get; init; }
+
     [JsonPropertyName("status")]
     public string? Status { get; init; }
 
+    [JsonPropertyName("grantedAt")]
+    public JsonElement? GrantedAt { get; init; }
+
     [JsonPropertyName("expiresAt")]
     public JsonElement? ExpiresAt { get; init; }
+
+    [JsonPropertyName("title")]
+    public string? Title { get; init; }
+
+    [JsonPropertyName("description")]
+    public string? Description { get; init; }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Runtime;
 
 namespace CodexQuotaTray.Core.Persistence;
@@ -44,7 +45,8 @@ public sealed record QuotaCacheDocument(
     string? PlanType,
     IReadOnlyList<QuotaCacheWindow> Windows,
     long? ResetCreditAvailableCount = null,
-    DateTimeOffset? ResetCreditEarliestExpiryUtc = null);
+    DateTimeOffset? ResetCreditEarliestExpiryUtc = null,
+    IReadOnlyList<ResetCreditView>? ResetCreditCredits = null);
 
 public sealed record QuotaCacheWindow(
     string SourceSlot,

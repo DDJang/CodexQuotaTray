@@ -263,6 +263,28 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public void ResetCreditProtocolModelRetainsNullableCardFields()
+    {
+        var response = JsonSerializer.Deserialize<RateLimitsResponse>(
+            """
+            {"rateLimitResetCredits":{"availableCount":2,"credits":[
+              {"id":"credit-1","resetType":"five_hour","status":"available",
+               "grantedAt":1900000000,"expiresAt":1900003600,"title":"Five hour","description":null}
+            ]}}
+            """
+        );
+        var credit = response!.RateLimitResetCredits!.Credits!.Single();
+
+        Assert.AreEqual("credit-1", credit.Id);
+        Assert.AreEqual("five_hour", credit.ResetType);
+        Assert.AreEqual("available", credit.Status);
+        Assert.AreEqual(JsonValueKind.Number, credit.GrantedAt!.Value.ValueKind);
+        Assert.AreEqual(JsonValueKind.Number, credit.ExpiresAt!.Value.ValueKind);
+        Assert.AreEqual("Five hour", credit.Title);
+        Assert.IsNull(credit.Description);
+    }
+
+    [TestMethod]
     public void ResetCreditDetails_UseAuthoritativeCountAndEarliestValidExpiry()
     {
         var normalized = QuotaNormalizer.Normalize(LoadFixture("rate_limits_reset_credits.json", true));
@@ -270,6 +292,12 @@ public sealed class AppServerPhase2Tests
         Assert.AreEqual(2, normalized.ResetCredits.AvailableCount);
         Assert.AreEqual(DateTimeOffset.FromUnixTimeSeconds(1_901_000_000), normalized.ResetCredits.EarliestKnownExpiry);
         Assert.AreEqual(ResetCreditKind.CompleteDetails, normalized.ResetCredits.Kind);
+        var credits = normalized.ResetCredits.Credits;
+        Assert.IsNotNull(credits);
+        Assert.HasCount(2, credits!);
+        Assert.AreEqual("available", credits[0].Status);
+        Assert.AreEqual("[REDACTED]", credits[0].Id);
+        Assert.AreEqual(DateTimeOffset.FromUnixTimeSeconds(1_901_000_000), credits[0].ExpiresAtUtc);
     }
 
     [TestMethod]

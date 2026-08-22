@@ -53,7 +53,7 @@ null 的字段；无基线、溢出或无法安全定位时完整补读。RPC er
 Android 通过设备代码 OAuth 获得 App 私有凭据，额度请求为：
 
 ```text
-GET https://chatgpt.com/backend-api/wham/usage
+GET https://chatgpt.com/api/codex/usage
 Authorization: Bearer <access-token>
 Accept: application/json
 ChatGPT-Account-Id: <account-id>  # 仅可靠时发送
@@ -61,7 +61,10 @@ ChatGPT-Account-Id: <account-id>  # 仅可靠时发送
 
 消费 `plan_type`、`rate_limit.primary_window`、`secondary_window` 和
 `additional_rate_limits[]`。窗口字段 `used_percent`、`reset_at`、`limit_window_seconds` 均可
-缺失。401/403 允许一次 refresh 恢复后重试；普通刷新不无条件 refresh。
+缺失。若响应含 `rate_limit_reset_credits.available_count > 0`，再用同一组 OAuth 请求只读的
+`GET https://chatgpt.com/api/codex/rate-limit-reset-credits` 获取明细；数量为 0 时不请求明细。
+明细失败不影响 usage 成功，`availableCount` 仍为权威值，`credits=null` 与成功返回的 `[]`
+保持可区分。401/403 允许一次 refresh 恢复后重试；普通刷新不无条件 refresh。
 
 错误分为登录、网络、服务端和非法响应。Direct 永远优先；只有 `NETWORK`、已配对 Windows 且
 Wi-Fi LAN 可用时才读取 `/v1/quota`。Windows 失败后仍呈现原 Direct 网络错误。
@@ -79,15 +82,18 @@ Wi-Fi LAN 可用时才读取 `/v1/quota`。Windows 失败后仍呈现原 Direct 
 规范化数据中，但不进入 WinUI、Android 前台或小组件。没有 `codex` 时保持空/不可用语义，
 不把未知 bucket 映射或回退为 `codex`。
 
-WinUI `QuotaCacheDocument` 只保存格式版本、成功时间、套餐、最多 32 个归一化窗口以及最小
-reset-credit 摘要；不保存 raw limit/reset ID、账户、CLI 路径、warning/RPC 正文或 raw JSON。
+WinUI `QuotaCacheDocument` 只保存格式版本、成功时间、套餐、最多 32 个归一化窗口以及
+reset-credit 的可展示摘要/明细投影；`credits=null` 与 `[]` 保持可区分，并不保存完整
+reset-credit ID、账户、CLI 路径、warning/RPC 正文或 raw JSON。Windows LAN snapshot 通过同样的
+`availableCount`/`credits` 投影把只读信息传给 Android；旧 snapshot 缺少该字段时按未知处理。
 
 WinUI 可按用户设置将 `TokenUsageSnapshot` 保存为 `token-usage-cache.json`。该缓存只含 schema
 版本、生成时间、时区、Token 摘要和最多 366 条按日数字聚合，不含 session ID、文件路径、账户、
 prompt、response、工具内容或原始 JSONL；关闭“保存统计缓存”后删除，读取异常时直接忽略。
 
 Android `QuotaSnapshotStore` 保存最后成功的脱敏产品快照：套餐、quota state、数据更新时间、
-来源及窗口的 bucket、本地标识/名称、百分比、时长和重置时间。它另外保存本机
+来源及窗口的 bucket、本地标识/名称、百分比、时长和重置时间，以及 reset-credit 的权威数量和
+可展示明细投影（`credits=null` 与 `[]` 保持可区分，不保存完整 reset-credit ID）。它另外保存本机
 `lastSuccessfulRefreshAtMillis` 以保持缓存兼容，但前台 freshness 使用进程内最后一次自动尝试
 时间，不替代数据更新时间。快照不含 OAuth
 凭据、HTTP body/header、账户 ID、错误正文或历史序列；退出登录会清除快照。

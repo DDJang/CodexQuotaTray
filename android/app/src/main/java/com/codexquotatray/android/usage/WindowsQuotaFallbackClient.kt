@@ -6,6 +6,8 @@ import com.codexquotatray.android.quota.LanAvailability
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.protocol.QuotaWindow
+import com.codexquotatray.android.protocol.ResetCredit
+import com.codexquotatray.android.protocol.ResetCreditSnapshot
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -139,7 +141,41 @@ internal object WindowsQuotaJson {
             quotaState = quotaState,
             updatedAtMillis = updatedAtMillis,
             source = QuotaSource.WINDOWS,
+            resetCredits = parseResetCredits(root),
         )
+    }
+
+    private fun parseResetCredits(root: JSONObject): ResetCreditSnapshot? {
+        if (!root.has("resetCredits")) return null
+        val value = root.opt("resetCredits")
+        if (value === JSONObject.NULL) return null
+        val summary = value as? JSONObject ?: return null
+        val credits = when {
+            !summary.has("credits") -> null
+            summary.opt("credits") === JSONObject.NULL -> null
+            else -> summary.optJSONArray("credits")?.let(::parseResetCreditArray)
+        }
+        return ResetCreditSnapshot(
+            availableCount = summary.numberOrNull("availableCount", "available_count"),
+            credits = credits,
+        )
+    }
+
+    private fun parseResetCreditArray(array: JSONArray): List<ResetCredit> = buildList {
+        for (index in 0 until array.length()) {
+            val credit = array.optJSONObject(index) ?: continue
+            add(
+                ResetCredit(
+                    id = credit.stringOrNull("id"),
+                    resetType = credit.stringOrNull("resetType") ?: credit.stringOrNull("reset_type"),
+                    status = credit.stringOrNull("status"),
+                    grantedAt = credit.timestampOrNull("grantedAt", "granted_at"),
+                    expiresAt = credit.timestampOrNull("expiresAt", "expires_at"),
+                    title = credit.stringOrNull("title"),
+                    description = credit.stringOrNull("description"),
+                ),
+            )
+        }
     }
 
     private fun parseWindows(windows: JSONArray): List<QuotaWindow> = buildList {
@@ -184,11 +220,26 @@ internal object WindowsQuotaJson {
         value
     }
 
-    private fun JSONObject.numberOrNull(key: String): Long? = when (val value = opt(key)) {
-        is Number -> value.toLong()
-        is String -> value.trim().toLongOrNull()
-        else -> null
-    }
+    private fun JSONObject.numberOrNull(vararg keys: String): Long? = keys.asSequence()
+        .mapNotNull { key ->
+            when (val value = opt(key)) {
+                is Number -> value.toLong()
+                is String -> value.trim().toLongOrNull()
+                else -> null
+            }
+        }
+        .firstOrNull()
+
+    private fun JSONObject.timestampOrNull(vararg keys: String): Long? = keys.asSequence()
+        .mapNotNull { key ->
+            when (val value = opt(key)) {
+                is Number -> value.toLong()
+                is String -> value.trim().toLongOrNull()
+                    ?: runCatching { Instant.parse(value.trim()).epochSecond }.getOrNull()
+                else -> null
+            }
+        }
+        .firstOrNull()
 
     private fun invalid(message: String): Nothing =
         throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.INVALID_RESPONSE, message)

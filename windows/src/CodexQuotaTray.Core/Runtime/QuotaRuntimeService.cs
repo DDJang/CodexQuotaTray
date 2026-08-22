@@ -1086,14 +1086,17 @@ public sealed class QuotaRuntimeService :
         latestNormalized = new NormalizedQuotaSnapshot(
             windows,
             cache.ResetCreditAvailableCount is null
-                ? new ResetCreditViewState(ResetCreditKind.Unavailable)
+                ? new ResetCreditViewState(
+                    ResetCreditKind.Unavailable,
+                    Credits: cache.ResetCreditCredits)
                 : new ResetCreditViewState(
                     cache.ResetCreditAvailableCount == 0 ? ResetCreditKind.Empty : ResetCreditKind.CountOnly,
                     (int)Math.Clamp(cache.ResetCreditAvailableCount.Value, 0, int.MaxValue),
-                    cache.ResetCreditEarliestExpiryUtc),
+                    cache.ResetCreditEarliestExpiryUtc,
+                    Credits: cache.ResetCreditCredits),
             cache.PlanType,
             0,
-            cache.ResetCreditAvailableCount is not null,
+            cache.ResetCreditAvailableCount is not null || cache.ResetCreditCredits is not null,
             cache.ResetCreditAvailableCount,
             null);
         lastAppliedSuccessUtc = cache.LastSuccessUtc;
@@ -1121,8 +1124,23 @@ public sealed class QuotaRuntimeService :
                 PercentageReliable: window.PercentageReliable,
                 WindowDurationMins: window.WindowDurationMinutes,
                 ResetsAt: window.ResetAtUtc?.ToUnixTimeSeconds(),
-                BucketId: window.BucketId)).ToArray());
+                BucketId: window.BucketId)).ToArray(),
+            ResetCredits: ToLanResetCredits(snapshot));
     }
+
+    private static QuotaLanResetCredits? ToLanResetCredits(NormalizedQuotaSnapshot snapshot) =>
+        !snapshot.ResetCreditsFieldPresent
+            ? null
+            : new QuotaLanResetCredits(
+                snapshot.ResetCredits.AvailableCount,
+                snapshot.ResetCredits.Credits?.Select(credit => new QuotaLanResetCredit(
+                    credit.Id,
+                    credit.ResetType,
+                    credit.Status,
+                    credit.GrantedAtUtc?.ToUnixTimeSeconds(),
+                    credit.ExpiresAtUtc?.ToUnixTimeSeconds(),
+                    credit.Title,
+                    credit.Description)).ToArray());
 
     private static QuotaCacheDocument ToCache(NormalizedQuotaSnapshot snapshot, DateTimeOffset now) => new(
         1,
@@ -1137,13 +1155,20 @@ public sealed class QuotaRuntimeService :
             window.ResetAtUtc,
             window.BucketId)).ToArray(),
         snapshot.AvailableCount,
-        snapshot.ResetCredits.EarliestKnownExpiry);
+        snapshot.ResetCredits.EarliestKnownExpiry,
+        snapshot.ResetCredits.Credits?
+            .Select(credit => credit with { Id = null })
+            .ToArray());
 
     private static bool CacheContentEquals(QuotaCacheDocument left, QuotaCacheDocument right) =>
         left.FormatVersion == right.FormatVersion
         && string.Equals(left.PlanType, right.PlanType, StringComparison.Ordinal)
         && left.ResetCreditAvailableCount == right.ResetCreditAvailableCount
         && left.ResetCreditEarliestExpiryUtc == right.ResetCreditEarliestExpiryUtc
+        && ((left.ResetCreditCredits is null && right.ResetCreditCredits is null)
+            || (left.ResetCreditCredits is not null
+                && right.ResetCreditCredits is not null
+                && left.ResetCreditCredits.SequenceEqual(right.ResetCreditCredits)))
         && left.Windows.Count == right.Windows.Count
         && left.Windows.Zip(right.Windows).All(pair =>
             string.Equals(pair.First.SourceSlot, pair.Second.SourceSlot, StringComparison.Ordinal)

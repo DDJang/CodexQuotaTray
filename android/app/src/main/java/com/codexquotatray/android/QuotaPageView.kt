@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -56,6 +57,8 @@ import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
 import com.codexquotatray.android.refresh.AutomaticRefreshChannel
 import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import com.codexquotatray.android.ui.QuotaCardModel
+import com.codexquotatray.android.ui.ResetCreditDetailState
+import com.codexquotatray.android.ui.ResetCreditUiModel
 import com.codexquotatray.android.ui.QuotaUiModel
 import com.codexquotatray.android.ui.QuotaUiStatus
 import com.codexquotatray.android.protocol.QuotaSource
@@ -66,6 +69,7 @@ import com.codexquotatray.android.ui.unauthenticatedQuotaUiModel
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.cacheIdentity
 import java.text.SimpleDateFormat
+import java.time.ZoneId
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -328,6 +332,7 @@ internal fun QuotaPage(
         if (model.status != QuotaUiStatus.UNAUTHENTICATED) {
             if (model.status == QuotaUiStatus.LOADED && model.windows.isEmpty()) Text("暂无可用额度")
             model.windows.forEach { QuotaWindowCard(it) }
+            model.resetCredits?.let { ResetCreditCard(it) }
         } else {
             Button(onClick = rememberSystemHapticClick(controller::openLogin), enabled = !controller.busy, modifier = Modifier.fillMaxWidth()) { Text("登录 Codex") }
         }
@@ -372,39 +377,8 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
         animationSpec = tween(durationMillis = QUOTA_PROGRESS_ANIMATION_MILLIS),
         label = "quota-progress-color",
     )
-    val cardShape = RoundedCornerShape(18.dp)
-    val dark = palette.color(palette.background).luminance() < 0.1f
-    val cardBrush = if (dark) {
-        Brush.linearGradient(
-            listOf(
-                Color(0xFF2A3037).copy(alpha = 0.68f),
-                Color(0xFF17191D).copy(alpha = 0.94f),
-                Color(0xFF101216).copy(alpha = 0.97f),
-            ),
-        )
-    } else {
-        Brush.linearGradient(
-            listOf(
-                Color.White.copy(alpha = 0.96f),
-                palette.color(palette.surface).copy(alpha = 0.9f),
-                palette.color(palette.surface).copy(alpha = 0.98f),
-            ),
-        )
-    }
-    val borderBrush = Brush.linearGradient(
-        listOf(
-            if (dark) Color.White.copy(alpha = 0.20f) else palette.color(palette.border),
-            if (dark) Color.White.copy(alpha = 0.09f) else palette.color(palette.border).copy(alpha = 0.72f),
-            if (dark) Color.Black.copy(alpha = 0.26f) else palette.color(palette.border).copy(alpha = 0.56f),
-        ),
-    )
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .background(cardBrush, cardShape)
-            .border(1.dp, borderBrush, cardShape)
-            .padding(16.dp),
-    ) {
+    QuotaCardSurface {
+        val palette = LocalQuotaPalette.current
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -438,6 +412,150 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun ResetCreditCard(resetCredits: ResetCreditUiModel) {
+    val palette = LocalQuotaPalette.current
+    val zoneId = ZoneId.systemDefault()
+    val locale = Locale.getDefault()
+    QuotaCardSurface {
+        Column(
+            Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(com.codexquotatray.android.R.string.reset_credits_title),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.color(palette.title),
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    stringResource(
+                        com.codexquotatray.android.R.string.reset_credits_available,
+                        resetCredits.availableCount,
+                    ),
+                    fontSize = 14.sp,
+                    color = palette.color(palette.secondary),
+                )
+            }
+            when (resetCredits.detailState) {
+                ResetCreditDetailState.UNAVAILABLE -> Text(
+                    stringResource(com.codexquotatray.android.R.string.reset_credits_details_unavailable),
+                    color = palette.color(palette.secondary),
+                    fontSize = 14.sp,
+                )
+
+                ResetCreditDetailState.EMPTY -> Text(
+                    stringResource(com.codexquotatray.android.R.string.reset_credits_details_empty),
+                    color = palette.color(palette.secondary),
+                    fontSize = 14.sp,
+                )
+
+                ResetCreditDetailState.PARTIAL,
+                ResetCreditDetailState.COMPLETE,
+                -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (credit in resetCredits.availableCredits) {
+                        ResetCreditRow(credit, zoneId, locale, palette)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResetCreditRow(
+    credit: com.codexquotatray.android.protocol.ResetCredit,
+    zoneId: ZoneId,
+    locale: Locale,
+    palette: ThemePalette,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text(
+            text = credit.title?.trim()?.takeIf(String::isNotEmpty)
+                ?: credit.resetType?.trim()?.takeIf(String::isNotEmpty)?.let(::readableResetType)
+                ?: stringResource(com.codexquotatray.android.R.string.reset_credit_default_title),
+            modifier = Modifier.weight(1f),
+            fontSize = 15.sp,
+            color = palette.color(palette.body),
+        )
+        Spacer(Modifier.size(12.dp))
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                stringResource(
+                    com.codexquotatray.android.R.string.reset_credit_expiry,
+                    com.codexquotatray.android.ui.formatResetCreditExpiry(credit.expiresAt, zoneId, locale),
+                ),
+                fontSize = 13.sp,
+                color = palette.color(palette.secondary),
+            )
+            Text(
+                stringResource(
+                    com.codexquotatray.android.R.string.reset_credit_remaining,
+                    com.codexquotatray.android.ui.formatResetCreditRemaining(
+                        credit.expiresAt,
+                        System.currentTimeMillis() / 1_000L,
+                    ),
+                ),
+                fontSize = 13.sp,
+                color = palette.color(palette.secondary),
+            )
+        }
+    }
+}
+
+private fun readableResetType(value: String): String = value
+    .replace('_', ' ')
+    .replace('-', ' ')
+    .trim()
+
+@Composable
+private fun QuotaCardSurface(content: @Composable () -> Unit) {
+    val palette = LocalQuotaPalette.current
+    val cardShape = RoundedCornerShape(18.dp)
+    val dark = palette.color(palette.background).luminance() < 0.1f
+    val cardBrush = if (dark) {
+        Brush.linearGradient(
+            listOf(
+                Color(0xFF2A3037).copy(alpha = 0.68f),
+                Color(0xFF17191D).copy(alpha = 0.94f),
+                Color(0xFF101216).copy(alpha = 0.97f),
+            ),
+        )
+    } else {
+        Brush.linearGradient(
+            listOf(
+                Color.White.copy(alpha = 0.96f),
+                palette.color(palette.surface).copy(alpha = 0.9f),
+                palette.color(palette.surface).copy(alpha = 0.98f),
+            ),
+        )
+    }
+    val borderBrush = Brush.linearGradient(
+        listOf(
+            if (dark) Color.White.copy(alpha = 0.20f) else palette.color(palette.border),
+            if (dark) Color.White.copy(alpha = 0.09f) else palette.color(palette.border).copy(alpha = 0.72f),
+            if (dark) Color.Black.copy(alpha = 0.26f) else palette.color(palette.border).copy(alpha = 0.56f),
+        ),
+    )
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .background(cardBrush, cardShape)
+            .border(1.dp, borderBrush, cardShape)
+            .padding(16.dp),
+    ) {
+        content()
     }
 }
 

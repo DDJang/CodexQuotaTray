@@ -1,4 +1,11 @@
 <resources>
     <string name="app_name">CodexQuotaTray</string>
     <string name="widget_quota_name">额度概览</string>
+    <string name="reset_credits_title">重置卡</string>
+    <string name="reset_credits_available">可用 %1$d 张</string>
+    <string name="reset_credits_details_unavailable">到期明细暂不可用</string>
+    <string name="reset_credits_details_empty">暂无可用明细</string>
+    <string name="reset_credit_default_title">重置卡</string>
+    <string name="reset_credit_expiry">到期 %1$s</string>
+    <string name="reset_credit_remaining">剩余 %1$s</string>
 </resources>
