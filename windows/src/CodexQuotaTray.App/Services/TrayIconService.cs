@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Drawing;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.App.Views;
@@ -494,15 +495,23 @@ internal sealed class TrayIconService : IDisposable
 
         var data = CreateData();
         data.Flags |= NativeMethods.NifInfo;
-        data.InfoTitle = "Codex 额度提醒";
-        data.Info = alert.Kind switch
+        data.InfoTitle = alert.Kind == QuotaAlertKind.ResetCreditExpiry
+            ? ResetCreditExpiryTitle()
+            : "Codex 额度提醒";
+        var quotaMessage = alert.Kind switch
         {
             QuotaAlertKind.Reset => FormatResetAlert(alert.ResetWindows),
+            QuotaAlertKind.ResetCreditExpiry => FormatResetCreditExpiryAlert(alert.ResetCreditExpiryWindows),
             QuotaAlertKind.Composite => FormatCompositeAlert(alert),
             _ => alert.ThresholdWindows.Count > 0
                 ? FormatThresholdAlert(alert.ThresholdWindows)
                 : $"{alert.WindowName}剩余 {alert.RemainingPercent}%",
         };
+        data.Info = quotaMessage
+            + (alert.ResetCreditExpiryWindows.Count > 0
+                && alert.Kind is not (QuotaAlertKind.Composite or QuotaAlertKind.ResetCreditExpiry)
+                ? Environment.NewLine + FormatResetCreditExpiryAlert(alert.ResetCreditExpiryWindows)
+                : string.Empty);
         data.InfoFlags = NativeMethods.NiifInfo;
         if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
         {
@@ -554,7 +563,37 @@ internal sealed class TrayIconService : IDisposable
     private static string FormatCompositeAlert(QuotaAlert alert) =>
         FormatThresholdAlert(alert.ThresholdWindows)
         + Environment.NewLine
-        + FormatResetAlert(alert.ResetWindows);
+        + FormatResetAlert(alert.ResetWindows)
+        + (alert.ResetCreditExpiryWindows.Count == 0
+            ? string.Empty
+            : Environment.NewLine + FormatResetCreditExpiryAlert(alert.ResetCreditExpiryWindows));
+
+    private static string FormatResetCreditExpiryAlert(IReadOnlyList<QuotaResetCreditExpiry> credits)
+    {
+        if (credits.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var earliest = credits.OrderBy(credit => credit.ExpiresAtUtc).First().ExpiresAtUtc
+            .ToLocalTime()
+            .ToString("MM-dd HH:mm");
+        if (CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("en", StringComparison.OrdinalIgnoreCase))
+        {
+            return credits.Count == 1
+                ? $"1 available reset credit expires at {earliest}"
+                : $"{credits.Count} available reset credits expiring · earliest {earliest}";
+        }
+
+        return credits.Count == 1
+            ? $"1 张可用重置卡将在 {earliest} 到期"
+            : $"{credits.Count} 张可用重置卡即将到期 · 最早 {earliest}";
+    }
+
+    private static string ResetCreditExpiryTitle() =>
+        CultureInfo.CurrentUICulture.TwoLetterISOLanguageName.Equals("en", StringComparison.OrdinalIgnoreCase)
+            ? "Reset credit expiring"
+            : "重置卡即将到期";
 
     internal void UpdateTooltip(string value)
     {

@@ -175,6 +175,7 @@ internal fun SettingsNavigationRow(
 internal fun SettingsToggleRow(
     title: String,
     checked: Boolean,
+    description: String? = null,
     enabled: Boolean = true,
     onChange: (Boolean) -> Unit,
 ) {
@@ -185,13 +186,31 @@ internal fun SettingsToggleRow(
         onClick = { hapticOnChange(!checked) },
         role = Role.Switch,
     ) {
-        Text(
-            text = title,
-            modifier = Modifier.weight(1f),
-            color = palette.color(palette.body),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Medium,
-        )
+        if (description.isNullOrBlank()) {
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                color = palette.color(palette.body),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        } else {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = palette.color(palette.body),
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = description,
+                    color = palette.color(palette.secondary),
+                    fontSize = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
         Switch(
             checked = checked,
             onCheckedChange = if (enabled) hapticOnChange else null,

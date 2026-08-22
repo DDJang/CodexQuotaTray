@@ -133,8 +133,8 @@
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="32" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                 <FontIcon Glyph="&#xEA8F;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
-                                    <TextBlock Text="额度提醒" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="阈值与周期重置提醒" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="提醒" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="额度与重置卡提醒" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             </Grid>
@@ -480,7 +480,7 @@
                     </StackPanel>
 
                     <StackPanel x:Name="AlertSettingsPanel" Spacing="8" Visibility="Collapsed">
-                    <TextBlock Text="提醒条件" Style="{StaticResource SettingsSectionHeaderStyle}" />
+                    <TextBlock Text="额度提醒" Style="{StaticResource SettingsSectionHeaderStyle}" />
                     <Grid
                         x:Name="ReminderOptionsGrid"
                         Style="{StaticResource SettingsOperationRowStyle}">
@@ -543,6 +543,46 @@
                                     VerticalAlignment="Center" />
                             </Border>
                     </Grid>
+                    <TextBlock Text="重置卡提醒" Style="{StaticResource SettingsSectionHeaderStyle}" Margin="0,8,0,0" />
+                    <Border Style="{StaticResource SettingsItemCardStyle}">
+                        <StackPanel Spacing="8">
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="临期提醒" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="在可用重置卡即将到期时发送通知" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <ToggleSwitch
+                                    Grid.Column="1"
+                                    IsOn="{Binding NotifyResetCreditExpiry, Mode=TwoWay}"
+                                    Style="{StaticResource SettingsToggleSwitchStyle}" />
+                            </Grid>
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="提前提醒时间" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="在到期前发送一次提醒" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <ComboBox
+                                    Grid.Column="1"
+                                    Width="176"
+                                    SelectedIndex="{Binding SelectedResetCreditExpiryLeadIndex, Mode=TwoWay}"
+                                    IsEnabled="{Binding NotifyResetCreditExpiry}"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center">
+                                    <ComboBoxItem Content="1 天前" />
+                                    <ComboBoxItem Content="6 小时前" />
+                                    <ComboBoxItem Content="1 小时前" />
+                                </ComboBox>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
                     </StackPanel>
 
                     <StackPanel x:Name="UpdateSettingsPanel" Spacing="8" Visibility="Collapsed">

@@ -347,6 +347,10 @@ public sealed class QuotaRuntimeService :
                 coordinator.LastSuccessUtc ?? timeProvider.GetUtcNow(),
                 Settings.ShowRemainingPercent,
                 Settings.Use24HourTime));
+            await EvaluateAlertsAsync(
+                latestNormalized,
+                Volatile.Read(ref clientGeneration),
+                cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -839,16 +843,34 @@ public sealed class QuotaRuntimeService :
             return false;
         }
 
-        var inputs = snapshot.Windows.Select(window => new AlertInput(
-            window.AlertKey,
-            AlertWindowName(window),
-            (int)window.RemainingPercent,
-            window.PercentageReliable,
-            window.WindowDurationMinutes,
-            window.ResetAtUtc,
-            window.LegacyAlertKey)).ToArray();
+        var inputs = snapshot.Windows
+            .Where(window => QuotaBucketPolicy.IsCanonical(window.BucketId))
+            .Select(window => new AlertInput(
+                window.AlertKey,
+                AlertWindowName(window),
+                (int)window.RemainingPercent,
+                window.PercentageReliable,
+                window.WindowDurationMinutes,
+                window.ResetAtUtc,
+                window.LegacyAlertKey))
+            .ToArray();
+        var resetCreditInputs = snapshot.ResetCredits.AvailableCount == 0
+            ? null
+            : snapshot.ResetCredits.Credits?
+            .Select(credit => new ResetCreditExpiryInput(
+                ResetCreditFingerprint.Create(credit),
+                credit.Status,
+                credit.ExpiresAtUtc,
+                credit.Title,
+                credit.ResetType))
+            .ToArray();
         var previousAlertState = alertState;
-        var reduction = QuotaAlertReducer.Reduce(alertState, inputs, Settings.EffectiveNotifications);
+        var reduction = QuotaAlertReducer.Reduce(
+            alertState,
+            inputs,
+            Settings.EffectiveNotifications,
+            resetCreditInputs,
+            timeProvider.GetUtcNow());
         if (!IsCurrentGeneration(generation))
         {
             return false;
@@ -907,6 +929,26 @@ public sealed class QuotaRuntimeService :
                         {
                             System.Diagnostics.Debug.WriteLine(
                                 $"Quota notification state restore failed: {restoreError.GetType().Name}");
+                        }
+                    }
+                    else
+                    {
+                        // The first-ever alert has no previous document to
+                        // restore. Persist an empty baseline so a restart
+                        // cannot mark the undelivered event as handled.
+                        alertState = null;
+                        try
+                        {
+                            await persistence.SaveAlertStateAsync(
+                                new AlertStateDocument(1, [], []),
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (Exception restoreError) when (
+                            restoreError is not OutOfMemoryException
+                            and not StackOverflowException)
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"Quota notification empty-state restore failed: {restoreError.GetType().Name}");
                         }
                     }
 
@@ -1015,6 +1057,14 @@ public sealed class QuotaRuntimeService :
                 await RequestAsync(RefreshReason.Scheduled, cancellationToken).ConfigureAwait(false);
             }
 
+            if (latestNormalized is not null)
+            {
+                await EvaluateAlertsAsync(
+                    latestNormalized,
+                    Volatile.Read(ref clientGeneration),
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             ApplyStaleState();
         }
     }
@@ -1078,18 +1128,22 @@ public sealed class QuotaRuntimeService :
             window.RemainingPercent,
             window.PercentageReliable,
             window.WindowDurationMinutes,
-            window.ResetAtUtc)).ToArray();
+            window.ResetAtUtc,
+            window.BucketId)).ToArray();
         latestNormalized = new NormalizedQuotaSnapshot(
             windows,
             cache.ResetCreditAvailableCount is null
-                ? new ResetCreditViewState(ResetCreditKind.Unavailable)
+                ? new ResetCreditViewState(
+                    ResetCreditKind.Unavailable,
+                    Credits: cache.ResetCreditCredits)
                 : new ResetCreditViewState(
                     cache.ResetCreditAvailableCount == 0 ? ResetCreditKind.Empty : ResetCreditKind.CountOnly,
                     (int)Math.Clamp(cache.ResetCreditAvailableCount.Value, 0, int.MaxValue),
-                    cache.ResetCreditEarliestExpiryUtc),
+                    cache.ResetCreditEarliestExpiryUtc,
+                    Credits: cache.ResetCreditCredits),
             cache.PlanType,
             0,
-            cache.ResetCreditAvailableCount is not null,
+            cache.ResetCreditAvailableCount is not null || cache.ResetCreditCredits is not null,
             cache.ResetCreditAvailableCount,
             null);
         lastAppliedSuccessUtc = cache.LastSuccessUtc;
@@ -1097,21 +1151,43 @@ public sealed class QuotaRuntimeService :
         SetCurrent(projector.Project(latestNormalized, cache.LastSuccessUtc, Settings.ShowRemainingPercent, Settings.Use24HourTime));
     }
 
-    private static QuotaLanSnapshot ToLanSnapshot(NormalizedQuotaSnapshot snapshot, DateTimeOffset generatedAtUtc) => new(
-        SchemaVersion: 1,
-        GeneratedAtUtc: generatedAtUtc,
-        PlanType: snapshot.PlanType,
-        QuotaState: snapshot.Windows.Count == 0 ? "zero_windows" : "available",
-        Windows: snapshot.Windows.Select(window => new QuotaLanWindow(
-            LimitId: window.LocalKey,
-            LimitName: window.LimitName,
-            PlanType: null,
-            SourceSlot: window.SourceSlot,
-            UsedPercent: window.UsedPercent,
-            RemainingPercent: window.RemainingPercent,
-            PercentageReliable: window.PercentageReliable,
-            WindowDurationMins: window.WindowDurationMinutes,
-            ResetsAt: window.ResetAtUtc?.ToUnixTimeSeconds())).ToArray());
+    private static QuotaLanSnapshot ToLanSnapshot(NormalizedQuotaSnapshot snapshot, DateTimeOffset generatedAtUtc)
+    {
+        var visibleWindows = snapshot.Windows
+            .Where(window => QuotaBucketPolicy.IsCanonical(window.BucketId))
+            .ToArray();
+        return new QuotaLanSnapshot(
+            SchemaVersion: 1,
+            GeneratedAtUtc: generatedAtUtc,
+            PlanType: visibleWindows.Length == 0 ? null : snapshot.PlanType,
+            QuotaState: visibleWindows.Length == 0 ? "zero_windows" : "available",
+            Windows: visibleWindows.Select(window => new QuotaLanWindow(
+                LimitId: window.LocalKey,
+                LimitName: window.LimitName,
+                PlanType: null,
+                SourceSlot: window.SourceSlot,
+                UsedPercent: window.UsedPercent,
+                RemainingPercent: window.RemainingPercent,
+                PercentageReliable: window.PercentageReliable,
+                WindowDurationMins: window.WindowDurationMinutes,
+                ResetsAt: window.ResetAtUtc?.ToUnixTimeSeconds(),
+                BucketId: window.BucketId)).ToArray(),
+            ResetCredits: ToLanResetCredits(snapshot));
+    }
+
+    private static QuotaLanResetCredits? ToLanResetCredits(NormalizedQuotaSnapshot snapshot) =>
+        !snapshot.ResetCreditsFieldPresent
+            ? null
+            : new QuotaLanResetCredits(
+                snapshot.ResetCredits.AvailableCount,
+                snapshot.ResetCredits.Credits?.Select(credit => new QuotaLanResetCredit(
+                    credit.Id,
+                    credit.ResetType,
+                    credit.Status,
+                    credit.GrantedAtUtc?.ToUnixTimeSeconds(),
+                    credit.ExpiresAtUtc?.ToUnixTimeSeconds(),
+                    credit.Title,
+                    credit.Description)).ToArray());
 
     private static QuotaCacheDocument ToCache(NormalizedQuotaSnapshot snapshot, DateTimeOffset now) => new(
         1,
@@ -1123,18 +1199,27 @@ public sealed class QuotaRuntimeService :
             window.RemainingPercent,
             window.PercentageReliable,
             window.WindowDurationMinutes,
-            window.ResetAtUtc)).ToArray(),
+            window.ResetAtUtc,
+            window.BucketId)).ToArray(),
         snapshot.AvailableCount,
-        snapshot.ResetCredits.EarliestKnownExpiry);
+        snapshot.ResetCredits.EarliestKnownExpiry,
+        snapshot.ResetCredits.Credits?
+            .Select(credit => credit with { Id = null })
+            .ToArray());
 
     private static bool CacheContentEquals(QuotaCacheDocument left, QuotaCacheDocument right) =>
         left.FormatVersion == right.FormatVersion
         && string.Equals(left.PlanType, right.PlanType, StringComparison.Ordinal)
         && left.ResetCreditAvailableCount == right.ResetCreditAvailableCount
         && left.ResetCreditEarliestExpiryUtc == right.ResetCreditEarliestExpiryUtc
+        && ((left.ResetCreditCredits is null && right.ResetCreditCredits is null)
+            || (left.ResetCreditCredits is not null
+                && right.ResetCreditCredits is not null
+                && left.ResetCreditCredits.SequenceEqual(right.ResetCreditCredits)))
         && left.Windows.Count == right.Windows.Count
         && left.Windows.Zip(right.Windows).All(pair =>
             string.Equals(pair.First.SourceSlot, pair.Second.SourceSlot, StringComparison.Ordinal)
+            && string.Equals(pair.First.BucketId, pair.Second.BucketId, StringComparison.Ordinal)
             && pair.First.UsedPercent == pair.Second.UsedPercent
             && pair.First.RemainingPercent == pair.Second.RemainingPercent
             && pair.First.PercentageReliable == pair.Second.PercentageReliable
@@ -1146,12 +1231,13 @@ public sealed class QuotaRuntimeService :
         if (left.SchemaVersion != right.SchemaVersion
             || left.ResetAlertBaselineEstablished != right.ResetAlertBaselineEstablished
             || !left.BaselineThresholds.SequenceEqual(right.BaselineThresholds)
-            || left.Windows.Count != right.Windows.Count)
+            || left.Windows.Count != right.Windows.Count
+            || (left.ResetCredits?.Count ?? 0) != (right.ResetCredits?.Count ?? 0))
         {
             return false;
         }
 
-        return left.Windows.All(entry =>
+        if (!left.Windows.All(entry =>
             right.Windows.TryGetValue(entry.Key, out var other)
             && entry.Value.PseudonymousKey == other.PseudonymousKey
             && entry.Value.WindowDurationMinutes == other.WindowDurationMinutes
@@ -1160,7 +1246,14 @@ public sealed class QuotaRuntimeService :
             && entry.Value.HandledThresholds.SequenceEqual(other.HandledThresholds)
             && entry.Value.LastResetAlertCycleUtc == other.LastResetAlertCycleUtc
             && entry.Value.ResetAlertCycleConsumed == other.ResetAlertCycleConsumed
-            && entry.Value.ResetAlertAwaitingCycleMetadata == other.ResetAlertAwaitingCycleMetadata);
+            && entry.Value.ResetAlertAwaitingCycleMetadata == other.ResetAlertAwaitingCycleMetadata))
+        {
+            return false;
+        }
+
+        return (left.ResetCredits ?? new Dictionary<string, ResetCreditAlertState>()).All(entry =>
+            right.ResetCredits?.TryGetValue(entry.Key, out var other) == true
+            && entry.Value == other);
     }
 
     private void SetCurrent(AppUiState state)

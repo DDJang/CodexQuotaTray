@@ -44,6 +44,7 @@ data class OAuthCredentials(
         const val DEFAULT_AUTH_BASE_URL = "https://auth.openai.com"
         const val REFRESH_TOKEN_URL = "$DEFAULT_AUTH_BASE_URL/oauth/token"
         const val USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
+        const val RESET_CREDITS_URL = "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits"
         const val DEVICE_CODE_URL = "$DEFAULT_AUTH_BASE_URL/api/accounts/deviceauth/usercode"
         const val DEVICE_TOKEN_URL = "$DEFAULT_AUTH_BASE_URL/api/accounts/deviceauth/token"
         const val DEVICE_VERIFICATION_URL = "$DEFAULT_AUTH_BASE_URL/codex/device"

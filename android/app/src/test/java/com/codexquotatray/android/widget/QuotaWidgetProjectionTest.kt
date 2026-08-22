@@ -30,6 +30,42 @@ class QuotaWidgetProjectionTest {
     }
 
     @Test
+    fun widgetReusesCanonicalProjectionForMixedAndUnknownBuckets() {
+        val mixed = QuotaWidgetProjection.fromResult(
+            result = result(
+                window("primary", 300, 72, 1_900_000_000L, "codex"),
+                window("reserve", 10_080, 48, 1_900_600_000L, "gpt-reserve"),
+            ),
+            updatedAtMillis = 1_700_000_000_000L,
+        )
+        val unknown = QuotaWidgetProjection.fromResult(
+            result = result(window("unknown", 300, 72, 1_900_000_000L, "future-unknown")),
+            updatedAtMillis = 1_700_000_000_000L,
+        )
+
+        assertEquals(1, mixed.windows.size)
+        assertEquals("5 小时", mixed.primary?.title)
+        assertTrue(unknown.windows.isEmpty())
+    }
+
+    @Test
+    fun doubleWidgetPercentLabelsKeepBoundaryValuesWithoutOverlapProneFormatting() {
+        assertEquals("0%", formatQuotaPercent(0))
+        assertEquals("61%", formatQuotaPercent(61))
+        assertEquals("100%", formatQuotaPercent(100))
+        assertEquals("100%", formatQuotaPercent(123))
+        assertEquals("不可用", formatQuotaPercent(null))
+        assertEquals(
+            "7天 · 52%",
+            QuotaWidgetRenderer.formatQuotaLabel(QuotaWidgetWindow("7 天", 52, null, 10_080L)),
+        )
+        assertEquals(
+            "5小时 · 100%",
+            QuotaWidgetRenderer.formatQuotaLabel(QuotaWidgetWindow("5 小时", 100, null, 300L)),
+        )
+    }
+
+    @Test
     fun oneWindowAndUnknownRemainingAreRepresentedWithoutFabricatedZero() {
         val projection = QuotaWidgetProjection.fromResult(
             result("primary", window("primary", 300, null, null)),
@@ -161,6 +197,7 @@ class QuotaWidgetProjectionTest {
         duration: Long,
         remaining: Int?,
         resetsAt: Long?,
+        bucketId: String? = "codex",
     ) = QuotaWindow(
         limitId = slot,
         limitName = null,
@@ -170,5 +207,6 @@ class QuotaWidgetProjectionTest {
         remainingPercent = remaining,
         windowDurationMins = duration,
         resetsAt = resetsAt,
+        bucketId = bucketId,
     )
 }

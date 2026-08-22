@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Globalization;
 using CodexQuotaTray.Core.Models;
 
 namespace CodexQuotaTray.Core.Protocol;
@@ -15,7 +16,8 @@ public sealed record NormalizedQuotaWindow(
     long RemainingPercent,
     bool PercentageReliable,
     long? WindowDurationMinutes,
-    DateTimeOffset? ResetAtUtc);
+    DateTimeOffset? ResetAtUtc,
+    string? BucketId = null);
 
 public sealed record NormalizedQuotaSnapshot(
     IReadOnlyList<NormalizedQuotaWindow> Windows,
@@ -141,7 +143,8 @@ public static class QuotaNormalizer
             100 - used,
             reliable,
             window.WindowDurationMinutes,
-            ParseUnixSeconds(window.ResetsAt)));
+            ParseUnixSeconds(window.ResetsAt),
+            bucket ?? QuotaBucketPolicy.CanonicalBucketId));
     }
 
     private static (ResetCreditViewState State, long? AvailableCount, int? DetailCount) NormalizeResetCredits(
@@ -149,9 +152,22 @@ public static class QuotaNormalizer
         bool fieldPresent,
         ref int issues)
     {
+        var normalizedCredits = summary?.Credits?
+            .Select(credit => new ResetCreditView(
+                credit.Id,
+                credit.ResetType,
+                credit.Status,
+                ParseTimestampElement(credit.GrantedAt),
+                ParseTimestampElement(credit.ExpiresAt),
+                credit.Title,
+                credit.Description))
+            .ToArray();
         if (!fieldPresent || summary is null || summary.AvailableCount is null)
         {
-            return (new ResetCreditViewState(ResetCreditKind.Unavailable), null, summary?.Credits?.Count);
+            return (
+                new ResetCreditViewState(ResetCreditKind.Unavailable, Credits: normalizedCredits),
+                null,
+                summary?.Credits?.Count);
         }
 
         var count = summary.AvailableCount.Value;
@@ -163,7 +179,10 @@ public static class QuotaNormalizer
 
         if (count == 0)
         {
-            return (new ResetCreditViewState(ResetCreditKind.Empty, 0), 0, summary.Credits?.Count);
+            return (
+                new ResetCreditViewState(ResetCreditKind.Empty, 0, Credits: normalizedCredits),
+                0,
+                summary.Credits?.Count);
         }
 
         var detailCount = summary.Credits?.Count;
@@ -175,21 +194,50 @@ public static class QuotaNormalizer
             .ToArray() ?? [];
         if (expirations.Length == 0)
         {
-            return (new ResetCreditViewState(ResetCreditKind.CountOnly, ClampCount(count)), count, detailCount);
+            return (
+                new ResetCreditViewState(ResetCreditKind.CountOnly, ClampCount(count), Credits: normalizedCredits),
+                count,
+                detailCount);
         }
 
         var kind = detailCount == count ? ResetCreditKind.CompleteDetails : ResetCreditKind.PartialDetails;
-        return (new ResetCreditViewState(kind, ClampCount(count), expirations[0]), count, detailCount);
+        return (
+            new ResetCreditViewState(kind, ClampCount(count), expirations[0], Credits: normalizedCredits),
+            count,
+            detailCount);
     }
 
     private static DateTimeOffset? ParseTimestampElement(JsonElement? value)
     {
-        if (value is not { ValueKind: JsonValueKind.Number } element || !element.TryGetInt64(out var timestamp))
+        if (value is not { } element)
         {
             return null;
         }
 
-        return ParseUnixSeconds(timestamp);
+        if (element.ValueKind == JsonValueKind.Number && element.TryGetInt64(out var timestamp))
+        {
+            return ParseUnixSeconds(timestamp);
+        }
+
+        if (element.ValueKind == JsonValueKind.String)
+        {
+            var text = element.GetString()?.Trim();
+            if (long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out timestamp))
+            {
+                return ParseUnixSeconds(timestamp);
+            }
+
+            if (DateTimeOffset.TryParse(
+                    text,
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                    out var parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return null;
     }
 
     private static int ClampCount(long count) => (int)Math.Clamp(count, 0, int.MaxValue);
@@ -250,7 +298,12 @@ public sealed class QuotaViewProjector(TimeProvider timeProvider, TimeZoneInfo t
         bool use24HourTime = true)
     {
         var now = timeProvider.GetUtcNow();
-        var windows = snapshot.Windows.Select(window => ProjectWindow(window, now, showRemainingPercent, use24HourTime)).ToArray();
+        var visibleWindows = snapshot.Windows
+            .Where(window => QuotaBucketPolicy.IsCanonical(window.BucketId))
+            .ToArray();
+        var windows = visibleWindows
+            .Select(window => ProjectWindow(window, now, showRemainingPercent, use24HourTime))
+            .ToArray();
         var receivedLocal = TimeZoneInfo.ConvertTime(receivedAtUtc, timeZone);
         var nowLocal = TimeZoneInfo.ConvertTime(now, timeZone);
         var tone = snapshot.IssueCount == 0 ? StatusTone.Success : StatusTone.Warning;
@@ -262,7 +315,14 @@ public sealed class QuotaViewProjector(TimeProvider timeProvider, TimeZoneInfo t
         var resetCredits = snapshot.ResetCredits.EarliestKnownExpiry is { } expiry
             ? snapshot.ResetCredits with { ExpiryLabel = TimeZoneInfo.ConvertTime(expiry, timeZone).ToString("M月d日") }
             : snapshot.ResetCredits;
-        return new AppUiState("Codex", snapshot.PlanType, status, tone, windows, resetCredits, IsPrototype: false);
+        return new AppUiState(
+            "Codex",
+            visibleWindows.Length == 0 ? null : snapshot.PlanType,
+            status,
+            tone,
+            windows,
+            resetCredits,
+            IsPrototype: false);
     }
 
     private QuotaWindowView ProjectWindow(

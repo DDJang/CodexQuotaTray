@@ -1,8 +1,11 @@
 package com.codexquotatray.android.ui
 
 import com.codexquotatray.android.protocol.DirectQuotaResult
+import com.codexquotatray.android.protocol.QuotaBucketPolicy
 import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.protocol.QuotaWindow
+import com.codexquotatray.android.protocol.ResetCredit
+import com.codexquotatray.android.protocol.ResetCreditSnapshot
 import kotlin.math.abs
 
 enum class QuotaUiStatus {
@@ -20,10 +23,24 @@ data class QuotaCardModel(
     val resetsAt: Long?,
 )
 
+enum class ResetCreditDetailState {
+    UNAVAILABLE,
+    EMPTY,
+    PARTIAL,
+    COMPLETE,
+}
+
+data class ResetCreditUiModel(
+    val availableCount: Long,
+    val availableCredits: List<ResetCredit>,
+    val detailState: ResetCreditDetailState,
+)
+
 data class QuotaUiModel(
     val status: QuotaUiStatus,
     val accountLabel: String = "Codex",
     val windows: List<QuotaCardModel> = emptyList(),
+    val resetCredits: ResetCreditUiModel? = null,
     val updatedAtMillis: Long? = null,
     val source: QuotaSource = QuotaSource.DIRECT,
     val message: String? = null,
@@ -36,7 +53,7 @@ fun DirectQuotaResult.toQuotaUiModel(): QuotaUiModel {
             message = "额度详情暂不可用",
         )
     }
-    return loadedQuota(windows, planType, quotaState, updatedAtMillis, source)
+    return loadedQuota(windows, planType, quotaState, updatedAtMillis, source, resetCredits)
 }
 
 fun unauthenticatedQuotaUiModel(): QuotaUiModel = QuotaUiModel(
@@ -51,6 +68,7 @@ fun quotaLoadingUiModel(
     status = QuotaUiStatus.LOADING,
     accountLabel = previous?.accountLabel ?: "Codex",
     windows = previous?.windows ?: emptyList(),
+    resetCredits = previous?.resetCredits,
     updatedAtMillis = previous?.updatedAtMillis,
     source = previous?.source ?: QuotaSource.DIRECT,
     message = message,
@@ -63,6 +81,7 @@ fun quotaErrorUiModel(
     status = QuotaUiStatus.ERROR,
     accountLabel = previous?.accountLabel ?: "Codex",
     windows = previous?.windows ?: emptyList(),
+    resetCredits = previous?.resetCredits,
     updatedAtMillis = previous?.updatedAtMillis,
     source = previous?.source ?: QuotaSource.DIRECT,
     message = message,
@@ -74,8 +93,10 @@ private fun loadedQuota(
     quotaState: String,
     updatedAtMillis: Long,
     source: QuotaSource,
+    resetCredits: ResetCreditSnapshot?,
 ): QuotaUiModel {
-    val cards = windows.mapIndexed { index, window ->
+    val canonicalWindows = windows.filter { QuotaBucketPolicy.isCanonical(it, source) }
+    val cards = canonicalWindows.mapIndexed { index, window ->
         QuotaCardModel(
             title = displayName(window, index),
             remainingPercent = window.remainingPercent,
@@ -86,15 +107,30 @@ private fun loadedQuota(
     }
     val resolvedPlanType = planType
         ?.takeIf(String::isNotBlank)
-        ?: windows.firstNotNullOfOrNull { it.planType?.takeIf(String::isNotBlank) }
+        ?: canonicalWindows.firstNotNullOfOrNull { it.planType?.takeIf(String::isNotBlank) }
     return QuotaUiModel(
         status = QuotaUiStatus.LOADED,
         accountLabel = resolvedPlanType?.replaceFirstChar { it.uppercase() } ?: "Codex",
         windows = cards,
+        resetCredits = resetCredits?.toUiModel(),
         updatedAtMillis = updatedAtMillis,
         source = source,
-        message = if (quotaState == "zero_windows") "暂无可用额度" else null,
+        message = if (quotaState == "zero_windows" || canonicalWindows.isEmpty()) "暂无可用额度" else null,
     )
+}
+
+private fun ResetCreditSnapshot.toUiModel(): ResetCreditUiModel? {
+    val count = availableCount?.takeIf { it > 0L } ?: return null
+    val availableCredits = credits.orEmpty().filter { credit ->
+        credit.status?.trim()?.equals("available", ignoreCase = true) == true
+    }
+    val detailState = when {
+        credits == null -> ResetCreditDetailState.UNAVAILABLE
+        availableCredits.isEmpty() -> ResetCreditDetailState.EMPTY
+        availableCredits.size.toLong() < count -> ResetCreditDetailState.PARTIAL
+        else -> ResetCreditDetailState.COMPLETE
+    }
+    return ResetCreditUiModel(count, availableCredits, detailState)
 }
 
 private fun displayName(window: QuotaWindow, index: Int): String {

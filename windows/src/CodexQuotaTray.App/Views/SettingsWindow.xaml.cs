@@ -156,7 +156,7 @@ public sealed partial class SettingsWindow : Window
             "General" => ("常规", GeneralSettingsPanel),
             "Sync" => ("刷新与同步", SyncSettingsPanel),
             "Appearance" => ("个性化", AppearanceSettingsPanel),
-            "Alerts" => ("额度提醒", AlertSettingsPanel),
+            "Alerts" => ("提醒", AlertSettingsPanel),
             "Updates" => ("更新", UpdateSettingsPanel),
             "Advanced" => ("数据与高级选项", AdvancedSettingsPanel),
             "About" => ("关于", AboutSettingsPanel),

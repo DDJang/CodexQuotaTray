@@ -9,7 +9,8 @@ public sealed record QuotaLanSnapshot(
     DateTimeOffset GeneratedAtUtc,
     string? PlanType,
     string QuotaState,
-    IReadOnlyList<QuotaLanWindow> Windows);
+    IReadOnlyList<QuotaLanWindow> Windows,
+    QuotaLanResetCredits? ResetCredits = null);
 
 public sealed record QuotaLanWindow(
     string? LimitId,
@@ -20,4 +21,23 @@ public sealed record QuotaLanWindow(
     long? RemainingPercent,
     bool? PercentageReliable,
     long? WindowDurationMins,
-    long? ResetsAt);
+    long? ResetsAt,
+    string? BucketId = null);
+
+/// <summary>
+/// Read-only reset-credit projection for the paired Android client. A null
+/// Credits list means details were unavailable; an empty list means the
+/// detail read succeeded and returned no items.
+/// </summary>
+public sealed record QuotaLanResetCredits(
+    long? AvailableCount,
+    IReadOnlyList<QuotaLanResetCredit>? Credits = null);
+
+public sealed record QuotaLanResetCredit(
+    string? Id,
+    string? ResetType,
+    string? Status,
+    long? GrantedAt,
+    long? ExpiresAt,
+    string? Title,
+    string? Description);

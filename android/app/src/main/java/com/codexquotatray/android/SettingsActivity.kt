@@ -35,6 +35,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.dp
 import com.codexquotatray.android.alerts.QuotaAlertSettingsStore
 import com.codexquotatray.android.alerts.QuotaNotifications
@@ -42,6 +44,7 @@ import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import com.codexquotatray.android.quota.QuotaRefreshSettings
 import com.codexquotatray.android.quota.QuotaRefreshSettingsStore
 import com.codexquotatray.android.quota.QuotaSnapshotStore
+import com.codexquotatray.android.quota.ResetCreditExpiryReminderScheduler
 import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
@@ -90,6 +93,8 @@ class SettingsActivity : ComponentActivity() {
     private var destination by mutableStateOf(SettingsDestination.ROOT)
     private var lowQuota by mutableStateOf(false)
     private var resetAlert by mutableStateOf(false)
+    private var resetCreditExpiryEnabled by mutableStateOf(false)
+    private var resetCreditExpiryLeadHours by mutableStateOf(24)
     private var notificationEnabled by mutableStateOf(false)
     private var quotaAutoRefresh by mutableStateOf(true)
     private var backgroundRefresh by mutableStateOf(false)
@@ -340,6 +345,31 @@ class SettingsActivity : ComponentActivity() {
                 }
             }
         }
+        SettingsSection(stringResource(R.string.reset_credit_expiry_section)) {
+            SettingsGroup {
+                SettingsToggleRow(
+                    title = stringResource(R.string.reset_credit_expiry_toggle),
+                    checked = resetCreditExpiryEnabled,
+                    enabled = notificationEnabled,
+                    onChange = ::updateResetCreditExpiry,
+                )
+                SettingsDivider()
+                SettingsInlineLabel(
+                    stringResource(R.string.reset_credit_expiry_lead),
+                    enabled = notificationEnabled && resetCreditExpiryEnabled,
+                )
+                SettingsSegmentedSelector(
+                    options = listOf(
+                        SettingsSegmentOption(24, stringResource(R.string.reset_credit_expiry_lead_day)),
+                        SettingsSegmentOption(6, stringResource(R.string.reset_credit_expiry_lead_six_hours)),
+                        SettingsSegmentOption(1, stringResource(R.string.reset_credit_expiry_lead_one_hour)),
+                    ),
+                    selectedValue = resetCreditExpiryLeadHours,
+                    enabled = notificationEnabled && resetCreditExpiryEnabled,
+                    onSelected = ::selectResetCreditExpiryLead,
+                )
+            }
+        }
     }
 
     @Composable
@@ -406,6 +436,7 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun ColumnScope.TokenPairingSettings() {
+        val locale = LocalLocale.current.platformLocale
         SettingsSection("Windows") {
             SettingsGroup {
                 SettingsInfoRow("状态", tokenStatus)
@@ -414,7 +445,7 @@ class SettingsActivity : ComponentActivity() {
                     SettingsInfoRow("电脑", "${it.displayName ?: "Windows PC"} · ${it.host}:${it.port}")
                     SettingsInfoRow(
                         "上次同步",
-                        it.lastSyncUtc?.let { raw -> formatPairingTime(raw) } ?: "尚未成功同步",
+                        it.lastSyncUtc?.let { raw -> formatPairingTime(raw, locale) } ?: "尚未成功同步",
                     )
                     SettingsActionButton("立即同步", onClick = ::syncPairedNow)
                     SettingsActionButton("重新扫码配对", onClick = ::scanPairing)
@@ -446,6 +477,8 @@ class SettingsActivity : ComponentActivity() {
         val refresh = refreshStore.load()
         lowQuota = alert.lowQuotaEnabled
         resetAlert = alert.resetEnabled
+        resetCreditExpiryEnabled = alert.resetCreditExpiryEnabled
+        resetCreditExpiryLeadHours = alert.resetCreditExpiryLeadHours
         notificationEnabled = notificationsEnabled()
         quotaAutoRefresh = refresh.autoRefreshOnOpen
         backgroundRefresh = refresh.enabled
@@ -477,6 +510,30 @@ class SettingsActivity : ComponentActivity() {
         refreshStore.save(refreshStore.load().copy(enabled = enabled))
         QuotaRefreshScheduler.schedule(this)
         AppLogStore.record(this, "额度后台自动刷新已${if (enabled) "开启" else "关闭"}")
+    }
+
+    private fun updateResetCreditExpiry(enabled: Boolean) {
+        resetCreditExpiryEnabled = enabled
+        alertStore.save(
+            alertStore.load().copy(resetCreditExpiryEnabled = enabled),
+        )
+        ResetCreditExpiryReminderScheduler.evaluateNow(this)
+        ResetCreditExpiryReminderScheduler.schedule(this)
+        AppLogStore.record(this, "重置卡临期提醒已${if (enabled) "开启" else "关闭"}")
+    }
+
+    private fun selectResetCreditExpiryLead(hours: Int) {
+        resetCreditExpiryLeadHours = when (hours) {
+            6 -> 6
+            1 -> 1
+            else -> 24
+        }
+        alertStore.save(
+            alertStore.load().copy(resetCreditExpiryLeadHours = resetCreditExpiryLeadHours),
+        )
+        ResetCreditExpiryReminderScheduler.evaluateNow(this)
+        ResetCreditExpiryReminderScheduler.schedule(this)
+        AppLogStore.record(this, "重置卡临期提醒提前时间设为 ${resetCreditExpiryLeadHours} 小时")
     }
 
     private fun updateTokenAutoSync(enabled: Boolean) {
@@ -574,6 +631,7 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun ColumnScope.UpdateSettingsPage() {
+        val locale = LocalLocale.current.platformLocale
         SettingsSection("下载源") {
             SettingsGroup {
                 SettingsSelectionRow("GitHub", updateSource == UpdateSource.GITHUB) {
@@ -604,7 +662,7 @@ class SettingsActivity : ComponentActivity() {
             SettingsGroup {
                 SettingsInfoRow("当前版本", BuildConfig.VERSION_NAME)
                 SettingsDivider()
-                SettingsInfoRow("上次检查", formatUpdateCheckTime(updateLastCheckAtMillis))
+                SettingsInfoRow("上次检查", formatUpdateCheckTime(updateLastCheckAtMillis, locale))
                 SettingsDivider()
                 SettingsInfoRow("状态", updateStatus)
                 SettingsActionButton(
@@ -796,16 +854,16 @@ class SettingsActivity : ComponentActivity() {
             .onFailure { error -> updateStatus = error.message ?: "无法打开系统安装器" }
     }
 
-    private fun formatUpdateCheckTime(value: Long): String = if (value <= 0L) {
+    private fun formatUpdateCheckTime(value: Long, locale: java.util.Locale): String = if (value <= 0L) {
         "尚未检查"
     } else {
-        DateTimeFormatter.ofPattern("MM-dd HH:mm", java.util.Locale.getDefault())
+        DateTimeFormatter.ofPattern("MM-dd HH:mm", locale)
             .withZone(ZoneId.systemDefault())
             .format(Instant.ofEpochMilli(value))
     }
 
-    private fun formatPairingTime(raw: String): String = runCatching {
-        DateTimeFormatter.ofPattern("MM-dd HH:mm", java.util.Locale.getDefault())
+    private fun formatPairingTime(raw: String, locale: java.util.Locale): String = runCatching {
+        DateTimeFormatter.ofPattern("MM-dd HH:mm", locale)
             .withZone(ZoneId.systemDefault())
             .format(Instant.parse(raw))
     }.getOrDefault("未知")

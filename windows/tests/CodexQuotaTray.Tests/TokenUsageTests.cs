@@ -514,8 +514,22 @@ public sealed class TokenUsageTests
                     RemainingPercent: 80,
                     PercentageReliable: true,
                     WindowDurationMins: 300,
-                    ResetsAt: null),
-            ]);
+                     ResetsAt: null,
+                     BucketId: "codex"),
+            ],
+            ResetCredits: new QuotaLanResetCredits(
+                AvailableCount: 2,
+                Credits:
+                [
+                    new QuotaLanResetCredit(
+                        Id: "credit-1",
+                        ResetType: "five_hour",
+                        Status: "available",
+                        GrantedAt: 1_899_000_000,
+                        ExpiresAt: 1_900_000_000,
+                        Title: "Five hour",
+                        Description: null),
+                ]));
         QuotaLanSnapshot? availableQuota = quota;
         await using var server = new TokenUsageSyncServer(
             new TokenUsageScanner(),
@@ -538,8 +552,40 @@ public sealed class TokenUsageTests
         Assert.AreEqual(1, document.RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.AreEqual("available", document.RootElement.GetProperty("quotaState").GetString());
         var window = document.RootElement.GetProperty("windows")[0];
+        Assert.AreEqual("codex", window.GetProperty("bucketId").GetString());
         Assert.AreEqual(80, window.GetProperty("remainingPercent").GetInt32());
         Assert.AreEqual(JsonValueKind.Null, window.GetProperty("resetsAt").ValueKind);
+        var resetCredits = document.RootElement.GetProperty("resetCredits");
+        Assert.AreEqual(2, resetCredits.GetProperty("availableCount").GetInt64());
+        Assert.AreEqual("available", resetCredits.GetProperty("credits")[0].GetProperty("status").GetString());
+        Assert.AreEqual(JsonValueKind.Null, resetCredits.GetProperty("credits")[0].GetProperty("description").ValueKind);
+    }
+
+    [TestMethod]
+    public void LanResetCreditNullAndEmptyDetailsRemainDistinctDuringJsonRoundTrip()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var unavailable = new QuotaLanSnapshot(
+            1,
+            DateTimeOffset.UnixEpoch,
+            "Plus",
+            "available",
+            [],
+            new QuotaLanResetCredits(2, null));
+        var empty = unavailable with { ResetCredits = new QuotaLanResetCredits(2, []) };
+
+        var unavailableRoundTrip = JsonSerializer.Deserialize<QuotaLanSnapshot>(
+            JsonSerializer.Serialize(unavailable, options),
+            options);
+        var emptyRoundTrip = JsonSerializer.Deserialize<QuotaLanSnapshot>(
+            JsonSerializer.Serialize(empty, options),
+            options);
+
+        Assert.IsNotNull(unavailableRoundTrip?.ResetCredits);
+        Assert.IsNull(unavailableRoundTrip!.ResetCredits!.Credits);
+        Assert.IsNotNull(emptyRoundTrip?.ResetCredits);
+        Assert.IsNotNull(emptyRoundTrip!.ResetCredits!.Credits);
+        Assert.HasCount(0, emptyRoundTrip.ResetCredits.Credits!);
     }
 
     private static async Task<long> LifetimeTokensAsync(HttpClient client, string path = "/v1/token-usage")

@@ -38,8 +38,19 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
         TokenRefreshMode = settings.TokenRefreshMode == RefreshMode.Auto
             ? RefreshMode.Every15Minutes
             : settings.TokenRefreshMode,
-        Notifications = settings.EffectiveNotifications,
+        Notifications = NormalizeNotifications(settings.EffectiveNotifications),
     };
+
+    private static NotificationSettings NormalizeNotifications(NotificationSettings settings) =>
+        settings with
+        {
+            ResetCreditExpiryLeadHours = settings.ResetCreditExpiryLeadHours switch
+            {
+                6 => 6,
+                1 => 1,
+                _ => 24,
+            },
+        };
 
     private static AppSettings Migrate(JsonElement root)
     {
@@ -68,14 +79,16 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
         Boolean(value, "remaining50", false),
         Boolean(value, "remaining20", true),
         Boolean(value, "remaining10", true),
-        Boolean(value, "resetAfterCycle", true));
+        Boolean(value, "resetAfterCycle", true),
+        Boolean(value, "notifyResetCreditExpiry", false),
+        Integer(value, "resetCreditExpiryLeadHours", 24));
 
     private static NotificationSettings ParseLegacyNotifications(JsonElement root)
     {
         var twenty = Boolean(root, "notifyRemaining20", true);
         var five = Boolean(root, "notifyRemaining5", true);
         var exhausted = Boolean(root, "notifyExhausted", true);
-        return new NotificationSettings(false, twenty, five || exhausted, true);
+        return new NotificationSettings(false, twenty, five || exhausted, true, false, 24);
     }
 
     private static RefreshMode ParseRefreshMode(JsonElement root)
@@ -103,6 +116,11 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
     private static bool Boolean(JsonElement root, string name, bool fallback) =>
         root.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True or JsonValueKind.False
             ? value.GetBoolean()
+            : fallback;
+
+    private static int Integer(JsonElement root, string name, int fallback) =>
+        root.TryGetProperty(name, out var value) && value.TryGetInt32(out var parsed)
+            ? parsed
             : fallback;
 
     private static T EnumValue<T>(JsonElement root, string name, T fallback)

@@ -174,9 +174,12 @@ public sealed class AppServerPhase2Tests
 
         Assert.HasCount(3, normalized.Windows);
         Assert.AreEqual(10, normalized.Windows[0].UsedPercent);
+        Assert.AreEqual("a", normalized.Windows[0].BucketId);
         Assert.AreEqual(100, normalized.Windows[1].UsedPercent);
+        Assert.AreEqual("a", normalized.Windows[1].BucketId);
         Assert.IsFalse(normalized.Windows[1].PercentageReliable);
         Assert.AreEqual(80, normalized.Windows[2].UsedPercent);
+        Assert.AreEqual("b", normalized.Windows[2].BucketId);
         Assert.AreEqual("Team", normalized.PlanType);
         Assert.IsFalse(normalized.Windows.Any(window => window.UsedPercent == 99));
     }
@@ -260,6 +263,28 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public void ResetCreditProtocolModelRetainsNullableCardFields()
+    {
+        var response = JsonSerializer.Deserialize<RateLimitsResponse>(
+            """
+            {"rateLimitResetCredits":{"availableCount":2,"credits":[
+              {"id":"credit-1","resetType":"five_hour","status":"available",
+               "grantedAt":1900000000,"expiresAt":1900003600,"title":"Five hour","description":null}
+            ]}}
+            """
+        );
+        var credit = response!.RateLimitResetCredits!.Credits!.Single();
+
+        Assert.AreEqual("credit-1", credit.Id);
+        Assert.AreEqual("five_hour", credit.ResetType);
+        Assert.AreEqual("available", credit.Status);
+        Assert.AreEqual(JsonValueKind.Number, credit.GrantedAt!.Value.ValueKind);
+        Assert.AreEqual(JsonValueKind.Number, credit.ExpiresAt!.Value.ValueKind);
+        Assert.AreEqual("Five hour", credit.Title);
+        Assert.IsNull(credit.Description);
+    }
+
+    [TestMethod]
     public void ResetCreditDetails_UseAuthoritativeCountAndEarliestValidExpiry()
     {
         var normalized = QuotaNormalizer.Normalize(LoadFixture("rate_limits_reset_credits.json", true));
@@ -267,6 +292,12 @@ public sealed class AppServerPhase2Tests
         Assert.AreEqual(2, normalized.ResetCredits.AvailableCount);
         Assert.AreEqual(DateTimeOffset.FromUnixTimeSeconds(1_901_000_000), normalized.ResetCredits.EarliestKnownExpiry);
         Assert.AreEqual(ResetCreditKind.CompleteDetails, normalized.ResetCredits.Kind);
+        var credits = normalized.ResetCredits.Credits;
+        Assert.IsNotNull(credits);
+        Assert.HasCount(2, credits!);
+        Assert.AreEqual("available", credits[0].Status);
+        Assert.AreEqual("[REDACTED]", credits[0].Id);
+        Assert.AreEqual(DateTimeOffset.FromUnixTimeSeconds(1_901_000_000), credits[0].ExpiresAtUtc);
     }
 
     [TestMethod]
@@ -1085,7 +1116,8 @@ public sealed class AppServerPhase2Tests
                     80,
                     true,
                     300,
-                    DateTimeOffset.UnixEpoch.AddMinutes(300))]),
+                    DateTimeOffset.UnixEpoch.AddMinutes(300),
+                    "codex")]),
             CancellationToken.None);
 
         var client = new ControlledClient();

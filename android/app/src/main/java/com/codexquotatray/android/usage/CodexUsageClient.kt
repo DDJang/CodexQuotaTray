@@ -2,12 +2,17 @@ package com.codexquotatray.android.usage
 
 import com.codexquotatray.android.auth.OAuthCredentials
 import com.codexquotatray.android.protocol.DirectQuotaResult
+import com.codexquotatray.android.protocol.QuotaBucketPolicy
 import com.codexquotatray.android.protocol.QuotaWindow
+import com.codexquotatray.android.protocol.ResetCredit
+import com.codexquotatray.android.protocol.ResetCreditSnapshot
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
+import org.json.JSONTokener
 import org.json.JSONObject
 import java.io.IOException
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToLong
 
@@ -27,6 +32,7 @@ class UsageException(
 class CodexUsageClient(
     private val httpClient: OkHttpClient = defaultClient(),
     private val usageUrl: String = OAuthCredentials.USAGE_URL,
+    private val resetCreditsUrl: String = OAuthCredentials.RESET_CREDITS_URL,
 ) {
     fun fetch(
         credentials: OAuthCredentials,
@@ -59,7 +65,18 @@ class CodexUsageClient(
         val json = runCatching { JSONObject(response.body) }.getOrElse {
             throw UsageException(UsageFailureKind.INVALID_RESPONSE, "usage response was not JSON")
         }
-        return parseUsage(json)
+        val usage = parseUsage(json)
+        val availableCount = usage.resetCredits?.availableCount
+        if (availableCount == null || availableCount <= 0L) return usage
+
+        // The detail endpoint is deliberately best-effort. The usage response
+        // remains the successful quota result and its authoritative count is
+        // retained even when this second read is unavailable.
+        return usage.copy(
+            resetCredits = usage.resetCredits.copy(
+                credits = fetchResetCreditDetails(credentials, callTimeoutMillis),
+            ),
+        )
     }
 
     internal fun parseUsage(json: JSONObject, nowMillis: Long = System.currentTimeMillis()): DirectQuotaResult {
@@ -80,6 +97,7 @@ class CodexUsageClient(
             windowKey = "primary",
             limitId = "primary",
             limitName = null,
+            bucketId = QuotaBucketPolicy.CANONICAL_BUCKET_ID,
         )
         addRateWindow(
             windows = windows,
@@ -87,6 +105,7 @@ class CodexUsageClient(
             windowKey = "secondary",
             limitId = "secondary",
             limitName = null,
+            bucketId = QuotaBucketPolicy.CANONICAL_BUCKET_ID,
         )
 
         val additional = rateLimitValue(json, "additional_rate_limits")
@@ -106,6 +125,7 @@ class CodexUsageClient(
                 windowKey = "primary",
                 limitId = "$prefix:primary",
                 limitName = name,
+                bucketId = stableId,
             )
             addRateWindow(
                 windows = windows,
@@ -113,6 +133,7 @@ class CodexUsageClient(
                 windowKey = "secondary",
                 limitId = "$prefix:secondary",
                 limitName = name,
+                bucketId = stableId,
             )
         }
 
@@ -121,7 +142,33 @@ class CodexUsageClient(
             windows = windows,
             quotaState = if (windows.isEmpty()) "zero_windows" else "available",
             updatedAtMillis = nowMillis,
+            // Reset credits are optional metadata. A malformed summary must
+            // never change the base usage result's success semantics.
+            resetCredits = runCatching { parseResetCreditSummary(json) }.getOrNull(),
         )
+    }
+
+    private fun fetchResetCreditDetails(
+        credentials: OAuthCredentials,
+        callTimeoutMillis: Long?,
+    ): List<ResetCredit>? = try {
+        val requestBuilder = Request.Builder()
+            .url(resetCreditsUrl)
+            .get()
+            .header("Authorization", "Bearer ${credentials.accessToken}")
+            .header("Accept", "application/json")
+            .header("User-Agent", "CodexQuotaAndroid/0.1.0")
+            .header("originator", "CodexQuota Android")
+        credentials.accountId
+            ?.takeIf(String::isNotBlank)
+            ?.let { requestBuilder.header("ChatGPT-Account-Id", it) }
+
+        val response = clientFor(callTimeoutMillis).newCall(requestBuilder.build()).execute().use { result ->
+            HttpPayload(result.code, result.body?.string().orEmpty())
+        }
+        if (response.code !in 200..299) null else parseResetCreditDetails(response.body)
+    } catch (_: Exception) {
+        null
     }
 
     private fun addRateWindow(
@@ -130,6 +177,7 @@ class CodexUsageClient(
         windowKey: String,
         limitId: String,
         limitName: String?,
+        bucketId: String,
     ) {
         val window = rateLimit.optJSONObject("${windowKey}_window") ?: return
         val used = number(window, "used_percent")?.toInt()?.coerceIn(0, 100)
@@ -147,11 +195,65 @@ class CodexUsageClient(
                 ?.takeIf { it > 0L }
                 ?.let { (it / 60.0).roundToLong().coerceAtLeast(1L) },
             resetsAt = number(window, "reset_at", "resets_at"),
+            bucketId = bucketId,
         )
     }
 
     private fun rateLimitValue(json: JSONObject, key: String): JSONArray =
         json.optJSONArray(key) ?: JSONArray()
+
+    private fun parseResetCreditSummary(json: JSONObject): ResetCreditSnapshot? {
+        val key = sequenceOf("rate_limit_reset_credits", "rateLimitResetCredits")
+            .firstOrNull(json::has)
+            ?: return null
+        val value = json.opt(key)
+        if (value === JSONObject.NULL) {
+            return ResetCreditSnapshot(availableCount = null)
+        }
+        val summary = value as? JSONObject
+            ?: return ResetCreditSnapshot(availableCount = null)
+        return ResetCreditSnapshot(
+            availableCount = number(summary, "available_count", "availableCount"),
+            credits = parseCreditsValue(summary, "credits", "reset_credits"),
+        )
+    }
+
+    internal fun parseResetCreditDetails(raw: String): List<ResetCredit> {
+        val value = JSONTokener(raw).nextValue()
+        val credits = when (value) {
+            is JSONArray -> value
+            is JSONObject -> value.optJSONArray("credits")
+                ?: value.optJSONArray("reset_credits")
+                ?: throw IllegalArgumentException("reset credits response missing credits")
+            else -> throw IllegalArgumentException("reset credits response was not an object or array")
+        }
+        return parseCreditsArray(credits)
+    }
+
+    private fun parseCreditsValue(summary: JSONObject, vararg keys: String): List<com.codexquotatray.android.protocol.ResetCredit>? {
+        val key = keys.firstOrNull(summary::has) ?: return null
+        val value = summary.opt(key)
+        if (value === JSONObject.NULL) return null
+        return (value as? JSONArray)?.let { runCatching { parseCreditsArray(it) }.getOrNull() }
+    }
+
+    private fun parseCreditsArray(array: JSONArray): List<ResetCredit> = buildList {
+        for (index in 0 until array.length()) {
+            val credit = array.optJSONObject(index)
+                ?: throw IllegalArgumentException("reset credit detail invalid at index $index")
+            add(
+                ResetCredit(
+                    id = string(credit, "id"),
+                    resetType = string(credit, "reset_type", "resetType"),
+                    status = string(credit, "status"),
+                    grantedAt = timestamp(credit, "granted_at", "grantedAt"),
+                    expiresAt = timestamp(credit, "expires_at", "expiresAt"),
+                    title = string(credit, "title"),
+                    description = string(credit, "description"),
+                ),
+            )
+        }
+    }
 
     private fun string(json: JSONObject, vararg keys: String): String? = keys.asSequence()
         .mapNotNull { key -> json.opt(key).takeIf { it is String } as String? }
@@ -163,6 +265,17 @@ class CodexUsageClient(
             when (val value = json.opt(key)) {
                 is Number -> value.toLong()
                 is String -> value.trim().toLongOrNull()
+                else -> null
+            }
+        }
+        .firstOrNull()
+
+    private fun timestamp(json: JSONObject, vararg keys: String): Long? = keys.asSequence()
+        .mapNotNull { key ->
+            when (val value = json.opt(key)) {
+                is Number -> value.toLong()
+                is String -> value.trim().toLongOrNull()
+                    ?: runCatching { Instant.parse(value.trim()).epochSecond }.getOrNull()
                 else -> null
             }
         }

@@ -6,6 +6,8 @@ import org.json.JSONObject
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.protocol.QuotaWindow
+import com.codexquotatray.android.protocol.ResetCredit
+import com.codexquotatray.android.protocol.ResetCreditSnapshot
 import com.codexquotatray.android.usage.TokenUsagePairingLifecycle
 
 /**
@@ -46,10 +48,15 @@ class QuotaSnapshotStore(context: Context) {
                                 .putNullable("usedPercent", window.usedPercent)
                                 .putNullable("remainingPercent", window.remainingPercent)
                                 .putNullable("windowDurationMins", window.windowDurationMins)
-                                .putNullable("resetsAt", window.resetsAt),
+                                .putNullable("resetsAt", window.resetsAt)
+                                .putNullable("bucketId", window.bucketId),
                         )
                     }
                 },
+            )
+            .put(
+                "resetCredits",
+                result.resetCredits?.let(QuotaSnapshotResetCreditsCodec::encode) ?: JSONObject.NULL,
             )
         preferences.edit()
             .putString(KEY_SNAPSHOT, root.toString())
@@ -87,16 +94,19 @@ class QuotaSnapshotStore(context: Context) {
                                 remainingPercent = window.intOrNull("remainingPercent"),
                                 windowDurationMins = window.longOrNull("windowDurationMins"),
                                 resetsAt = window.longOrNull("resetsAt"),
+                                bucketId = window.stringOrNull("bucketId"),
                             ),
                         )
                     }
                 }
+                val resetCredits = QuotaSnapshotResetCreditsCodec.decode(root)
                 DirectQuotaResult(
                     planType = root.stringOrNull("planType"),
                     windows = windows,
                     quotaState = root.stringOrNull("quotaState") ?: "unavailable",
                     updatedAtMillis = root.longOrNull("updatedAtMillis") ?: return@runCatching null,
                     source = source,
+                    resetCredits = resetCredits,
                 )
             }.getOrNull()
         }
@@ -182,4 +192,64 @@ private fun JSONObject.longOrNull(key: String): Long? = when (val value = opt(ke
     is Number -> value.toLong()
     is String -> value.toLongOrNull()
     else -> null
+}
+
+/** Shared by the store and pure JVM tests so null and [] remain distinct. */
+internal object QuotaSnapshotResetCreditsCodec {
+    fun encode(snapshot: ResetCreditSnapshot): JSONObject = JSONObject()
+        .putNullable("availableCount", snapshot.availableCount)
+        .put(
+            "credits",
+            snapshot.credits?.let { credits ->
+                JSONArray().apply {
+                    credits.forEach { credit ->
+                        put(
+                            JSONObject()
+                                // Full reset-credit IDs are intentionally not persisted.
+                                .putNullable("id", null)
+                                .putNullable("resetType", credit.resetType)
+                                .putNullable("status", credit.status)
+                                .putNullable("grantedAt", credit.grantedAt)
+                                .putNullable("expiresAt", credit.expiresAt)
+                                .putNullable("title", credit.title)
+                                .putNullable("description", credit.description),
+                        )
+                    }
+                }
+            } ?: JSONObject.NULL,
+        )
+
+    fun decode(root: JSONObject): ResetCreditSnapshot? {
+        if (!root.has("resetCredits")) return null
+        val value = root.opt("resetCredits")
+        if (value === JSONObject.NULL) return null
+        val summary = value as? JSONObject ?: return null
+        val credits: List<ResetCredit>? = if (
+            !summary.has("credits") || summary.opt("credits") === JSONObject.NULL
+        ) {
+            null
+        } else {
+            val array = summary.optJSONArray("credits") ?: return null
+            buildList<ResetCredit> {
+                for (index in 0 until array.length()) {
+                    val credit = array.optJSONObject(index) ?: continue
+                    add(
+                        ResetCredit(
+                                id = null,
+                            resetType = credit.stringOrNull("resetType"),
+                            status = credit.stringOrNull("status"),
+                            grantedAt = credit.longOrNull("grantedAt"),
+                            expiresAt = credit.longOrNull("expiresAt"),
+                            title = credit.stringOrNull("title"),
+                            description = credit.stringOrNull("description"),
+                        ),
+                    )
+                }
+            }
+        }
+        return ResetCreditSnapshot(
+            availableCount = summary.longOrNull("availableCount"),
+            credits = credits,
+        )
+    }
 }

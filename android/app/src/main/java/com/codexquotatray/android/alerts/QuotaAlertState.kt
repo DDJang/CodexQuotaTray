@@ -1,6 +1,7 @@
 package com.codexquotatray.android.alerts
 
 import android.content.Context
+import com.codexquotatray.android.protocol.ResetCredit
 import com.codexquotatray.android.protocol.QuotaWindow
 import java.security.MessageDigest
 import kotlin.math.max
@@ -14,15 +15,23 @@ data class AlertRecord(
     val notified10: Boolean = false,
 )
 
+data class ResetCreditAlertRecord(
+    val lastSeenMillis: Long? = null,
+    val expiresAtMillis: Long? = null,
+    val notified: Boolean = false,
+)
+
 enum class AlertEventKind {
     THRESHOLD,
     RESET,
+    RESET_CREDIT_EXPIRY,
 }
 
 data class QuotaAlertEvent(
     val kind: AlertEventKind,
     val window: QuotaWindow,
     val threshold: Int? = null,
+    val resetCredit: ResetCredit? = null,
 )
 
 interface AlertStateStore {
@@ -31,6 +40,10 @@ interface AlertStateStore {
     fun clearWindow(windowKey: String)
     fun markSuccessfulRefresh(nowMillis: Long)
     fun lastSuccessfulRefresh(): Long?
+    fun loadResetCredit(fingerprint: String): ResetCreditAlertRecord? = null
+    fun saveResetCredit(fingerprint: String, record: ResetCreditAlertRecord) = Unit
+    fun clearResetCredit(fingerprint: String) = Unit
+    fun resetCreditKeys(): Set<String> = emptySet()
 }
 
 class QuotaAlertStateStore(context: Context) : AlertStateStore {
@@ -82,6 +95,42 @@ class QuotaAlertStateStore(context: Context) : AlertStateStore {
             .commit()
     }
 
+    @Synchronized
+    override fun loadResetCredit(fingerprint: String): ResetCreditAlertRecord? {
+        val prefix = creditKeyPrefix(fingerprint)
+        if (!preferences.contains(prefix + CREDIT_NOTIFIED)) return null
+        return ResetCreditAlertRecord(
+            lastSeenMillis = preferences.getLong(prefix + CREDIT_LAST_SEEN, 0L).takeIf { it > 0L },
+            expiresAtMillis = preferences.getLong(prefix + CREDIT_EXPIRES_AT, 0L).takeIf { it > 0L },
+            notified = preferences.getBoolean(prefix + CREDIT_NOTIFIED, false),
+        )
+    }
+
+    @Synchronized
+    override fun saveResetCredit(fingerprint: String, record: ResetCreditAlertRecord) {
+        val prefix = creditKeyPrefix(fingerprint)
+        preferences.edit()
+            .putLong(prefix + CREDIT_LAST_SEEN, record.lastSeenMillis ?: 0L)
+            .putLong(prefix + CREDIT_EXPIRES_AT, record.expiresAtMillis ?: 0L)
+            .putBoolean(prefix + CREDIT_NOTIFIED, record.notified)
+            .commit()
+    }
+
+    @Synchronized
+    override fun clearResetCredit(fingerprint: String) {
+        val prefix = creditKeyPrefix(fingerprint)
+        preferences.edit()
+            .remove(prefix + CREDIT_LAST_SEEN)
+            .remove(prefix + CREDIT_EXPIRES_AT)
+            .remove(prefix + CREDIT_NOTIFIED)
+            .commit()
+    }
+
+    override fun resetCreditKeys(): Set<String> = preferences.all.keys
+        .filter { it.startsWith(CREDIT_PREFIX) }
+        .map { it.removePrefix(CREDIT_PREFIX).substringBefore('_') }
+        .toSet()
+
     override fun markSuccessfulRefresh(nowMillis: Long) {
         preferences.edit().putLong(KEY_LAST_SUCCESSFUL_REFRESH, nowMillis).commit()
     }
@@ -105,6 +154,10 @@ class QuotaAlertStateStore(context: Context) : AlertStateStore {
         private const val NOTIFIED_50 = "notified_50"
         private const val NOTIFIED_20 = "notified_20"
         private const val NOTIFIED_10 = "notified_10"
+        private const val CREDIT_PREFIX = "credit_"
+        private const val CREDIT_LAST_SEEN = "last_seen"
+        private const val CREDIT_EXPIRES_AT = "expires_at"
+        private const val CREDIT_NOTIFIED = "notified"
         private const val UNKNOWN_INT = -1
 
         internal fun stableKey(window: QuotaWindow): String = stableKey(
@@ -117,6 +170,8 @@ class QuotaAlertStateStore(context: Context) : AlertStateStore {
                 .digest(value.toByteArray(Charsets.UTF_8))
             return digest.joinToString("") { byte -> "%02x".format(byte) }.take(24)
         }
+
+        private fun creditKeyPrefix(fingerprint: String): String = "$CREDIT_PREFIX${fingerprint}_"
     }
 }
 
@@ -124,6 +179,7 @@ class QuotaAlertEvaluator(
     private val stateStore: AlertStateStore,
 ) {
     private val lastEvaluationPrevious = linkedMapOf<String, AlertRecord?>()
+    private val lastResetCreditEvaluationPrevious = linkedMapOf<String, ResetCreditAlertRecord?>()
 
     fun evaluate(windows: List<QuotaWindow>): List<QuotaAlertEvent> {
         val events = mutableListOf<QuotaAlertEvent>()
@@ -207,12 +263,98 @@ class QuotaAlertEvaluator(
         return events
     }
 
+    fun evaluateResetCredits(
+        credits: List<ResetCredit>?,
+        settings: QuotaAlertSettings,
+        nowMillis: Long = System.currentTimeMillis(),
+        availableCount: Long? = null,
+    ): List<QuotaAlertEvent> {
+        lastResetCreditEvaluationPrevious.clear()
+        if (!settings.resetCreditExpiryEnabled) return emptyList()
+
+        val nowSeconds = nowMillis / 1_000L
+        val leadMillis = QuotaAlertSettingsStore.normalizeLeadHours(settings.resetCreditExpiryLeadHours) * 3_600_000L
+        val current = if (availableCount == 0L) {
+            emptyMap()
+        } else {
+            credits.orEmpty()
+            .asSequence()
+            .filter { credit ->
+                credit.status?.trim()?.equals("available", ignoreCase = true) == true
+                    && credit.expiresAt != null
+                    && credit.expiresAt > nowSeconds
+            }
+            .associateBy { credit -> ResetCreditFingerprint.create(credit) }
+        }
+        val events = mutableListOf<QuotaAlertEvent>()
+        current.forEach { (fingerprint, credit) ->
+            val previous = stateStore.loadResetCredit(fingerprint)
+            lastResetCreditEvaluationPrevious.putIfAbsent(fingerprint, previous)
+            val expiresAtMillis = credit.expiresAt!! * 1_000L
+            val dueAtMillis = expiresAtMillis - leadMillis
+            val alreadyNotified = previous?.notified == true
+            val shouldNotify = !alreadyNotified && nowMillis >= dueAtMillis
+            stateStore.saveResetCredit(
+                fingerprint,
+                ResetCreditAlertRecord(
+                    lastSeenMillis = nowMillis,
+                    expiresAtMillis = expiresAtMillis,
+                    notified = alreadyNotified || shouldNotify,
+                ),
+            )
+            if (shouldNotify) {
+                events += QuotaAlertEvent(
+                    kind = AlertEventKind.RESET_CREDIT_EXPIRY,
+                    window = QuotaWindow(
+                        limitId = null,
+                        limitName = credit.title ?: credit.resetType ?: "重置卡",
+                        sourceSlot = "reset_credit",
+                        usedPercent = null,
+                        remainingPercent = null,
+                        windowDurationMins = null,
+                        resetsAt = credit.expiresAt,
+                    ),
+                    resetCredit = credit,
+                )
+            }
+        }
+
+        val staleBefore = nowMillis - 30L * 24L * 3_600_000L
+        stateStore.resetCreditKeys()
+            .filterNot(current::containsKey)
+            .forEach { fingerprint ->
+                val previous = stateStore.loadResetCredit(fingerprint) ?: return@forEach
+                if (previous.expiresAtMillis?.let { it <= nowMillis } == true
+                    || previous.lastSeenMillis == null
+                    || previous.lastSeenMillis < staleBefore) {
+                    lastResetCreditEvaluationPrevious.putIfAbsent(fingerprint, previous)
+                    stateStore.clearResetCredit(fingerprint)
+                }
+            }
+        stateStore.resetCreditKeys()
+            .mapNotNull { fingerprint ->
+                stateStore.loadResetCredit(fingerprint)?.let { fingerprint to it }
+            }
+            .sortedBy { it.second.lastSeenMillis ?: Long.MIN_VALUE }
+            .take((stateStore.resetCreditKeys().size - 128).coerceAtLeast(0))
+            .forEach { (fingerprint, previous) ->
+                lastResetCreditEvaluationPrevious.putIfAbsent(fingerprint, previous)
+                stateStore.clearResetCredit(fingerprint)
+            }
+        return events
+    }
+
     /** Restores the state captured by the most recent evaluation. */
     fun restoreLastEvaluation() {
         lastEvaluationPrevious.forEach { (key, previous) ->
             if (previous == null) stateStore.clearWindow(key) else stateStore.save(key, previous)
         }
         lastEvaluationPrevious.clear()
+        lastResetCreditEvaluationPrevious.forEach { (fingerprint, previous) ->
+            if (previous == null) stateStore.clearResetCredit(fingerprint)
+            else stateStore.saveResetCredit(fingerprint, previous)
+        }
+        lastResetCreditEvaluationPrevious.clear()
     }
 
     private fun isCycleTransition(previous: AlertRecord, window: QuotaWindow): Boolean {

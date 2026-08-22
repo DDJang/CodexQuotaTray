@@ -6,6 +6,15 @@ import org.junit.Test
 
 class QuotaAlertSettingsTest {
     @Test
+    fun resetCreditExpirySettingsDefaultOffAndLeadValuesAreWhitelisted() {
+        assertEquals(false, QuotaAlertSettings().resetCreditExpiryEnabled)
+        assertEquals(24, QuotaAlertSettings().resetCreditExpiryLeadHours)
+        assertEquals(24, QuotaAlertSettingsStore.normalizeLeadHours(99))
+        assertEquals(6, QuotaAlertSettingsStore.normalizeLeadHours(6))
+        assertEquals(1, QuotaAlertSettingsStore.normalizeLeadHours(1))
+    }
+
+    @Test
     fun lowQuotaAndResetNotificationsCanBeDisabledIndependently() {
         val threshold = QuotaAlertEvent(
             kind = AlertEventKind.THRESHOLD,

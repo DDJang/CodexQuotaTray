@@ -1,4 +1,19 @@
 <resources>
     <string name="app_name">CodexQuotaTray</string>
     <string name="widget_quota_name">额度概览</string>
+    <string name="reset_credits_title">重置卡</string>
+    <string name="reset_credits_available">可用 %1$d 张</string>
+    <string name="reset_credits_details_unavailable">到期明细暂不可用</string>
+    <string name="reset_credits_details_empty">暂无可用明细</string>
+    <string name="reset_credit_expiry">到期 %1$s</string>
+    <string name="reset_credit_remaining">剩余 %1$s</string>
+    <string name="reset_credit_expiry_section">重置卡提醒</string>
+    <string name="reset_credit_expiry_toggle">临期提醒</string>
+    <string name="reset_credit_expiry_lead">提前提醒时间</string>
+    <string name="reset_credit_expiry_lead_day">1 天</string>
+    <string name="reset_credit_expiry_lead_six_hours">6 小时</string>
+    <string name="reset_credit_expiry_lead_one_hour">1 小时</string>
+    <string name="reset_credit_expiry_notification_title">重置卡即将到期</string>
+    <string name="reset_credit_expiry_notification_single">1 张可用重置卡将在 %1$s 到期</string>
+    <string name="reset_credit_expiry_notification_multiple">%1$d 张可用重置卡即将到期 · 最早 %2$s</string>
 </resources>

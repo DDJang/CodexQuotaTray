@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
+import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -40,6 +41,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,6 +58,8 @@ import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
 import com.codexquotatray.android.refresh.AutomaticRefreshChannel
 import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import com.codexquotatray.android.ui.QuotaCardModel
+import com.codexquotatray.android.ui.ResetCreditDetailState
+import com.codexquotatray.android.ui.ResetCreditUiModel
 import com.codexquotatray.android.ui.QuotaUiModel
 import com.codexquotatray.android.ui.QuotaUiStatus
 import com.codexquotatray.android.protocol.QuotaSource
@@ -66,6 +70,7 @@ import com.codexquotatray.android.ui.unauthenticatedQuotaUiModel
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.cacheIdentity
 import java.text.SimpleDateFormat
+import java.time.ZoneId
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -328,6 +333,7 @@ internal fun QuotaPage(
         if (model.status != QuotaUiStatus.UNAUTHENTICATED) {
             if (model.status == QuotaUiStatus.LOADED && model.windows.isEmpty()) Text("暂无可用额度")
             model.windows.forEach { QuotaWindowCard(it) }
+            model.resetCredits?.let { ResetCreditCard(it) }
         } else {
             Button(onClick = rememberSystemHapticClick(controller::openLogin), enabled = !controller.busy, modifier = Modifier.fillMaxWidth()) { Text("登录 Codex") }
         }
@@ -337,11 +343,11 @@ internal fun QuotaPage(
 
 @Composable
 private fun QuotaStatusLine(model: QuotaUiModel) {
-    RefreshStatusLine(quotaStatusLine(model))
+    RefreshStatusLine(quotaStatusLine(model, LocalLocale.current.platformLocale))
 }
 
-private fun quotaStatusLine(model: QuotaUiModel): String {
-    val updatedAt = model.updatedAtMillis?.let(::formatClockTime)
+private fun quotaStatusLine(model: QuotaUiModel, locale: Locale): String {
+    val updatedAt = model.updatedAtMillis?.let { formatClockTime(it, locale) }
     return when (model.status) {
         QuotaUiStatus.LOADING -> RefreshStatusFormatter.refreshing(model.updatedAtMillis != null)
         QuotaUiStatus.UNAUTHENTICATED -> RefreshStatusFormatter.quotaNoSource()
@@ -359,6 +365,7 @@ private fun quotaStatusLine(model: QuotaUiModel): String {
 @Composable
 private fun QuotaWindowCard(window: QuotaCardModel) {
     val palette = LocalQuotaPalette.current
+    val locale = LocalLocale.current.platformLocale
     val remainingPercent = window.remainingPercent
     val progressTarget = remainingPercent?.let(::quotaProgress) ?: 0f
     val colorTarget = remainingPercent?.let(::quotaProgressColor) ?: palette.color(palette.accent)
@@ -372,6 +379,135 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
         animationSpec = tween(durationMillis = QUOTA_PROGRESS_ANIMATION_MILLIS),
         label = "quota-progress-color",
     )
+    QuotaCardSurface {
+        val palette = LocalQuotaPalette.current
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            QuotaProgressRing(
+                progress = animatedProgress,
+                progressColor = animatedColor,
+                trackColor = palette.color(palette.progressTrack),
+                remainingPercent = remainingPercent,
+            )
+            Spacer(Modifier.size(16.dp))
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Text(
+                    window.title,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.color(palette.title),
+                )
+                Text(
+                    formatResetAt(window.resetsAt, locale),
+                    color = palette.color(palette.secondary),
+                    fontSize = 14.sp,
+                )
+                Text(
+                    formatRemaining(window.resetsAt),
+                    color = palette.color(palette.secondary),
+                    fontSize = 14.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResetCreditCard(resetCredits: ResetCreditUiModel) {
+    val palette = LocalQuotaPalette.current
+    val zoneId = ZoneId.systemDefault()
+    val locale = LocalLocale.current.platformLocale
+    QuotaCardSurface {
+        Column(
+            Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(com.codexquotatray.android.R.string.reset_credits_title),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = palette.color(palette.title),
+                )
+                Spacer(Modifier.weight(1f))
+                Text(
+                    stringResource(
+                        com.codexquotatray.android.R.string.reset_credits_available,
+                        resetCredits.availableCount,
+                    ),
+                    fontSize = 14.sp,
+                    color = palette.color(palette.secondary),
+                )
+            }
+            when (resetCredits.detailState) {
+                ResetCreditDetailState.UNAVAILABLE -> Text(
+                    stringResource(com.codexquotatray.android.R.string.reset_credits_details_unavailable),
+                    color = palette.color(palette.secondary),
+                    fontSize = 14.sp,
+                )
+
+                ResetCreditDetailState.EMPTY -> Text(
+                    stringResource(com.codexquotatray.android.R.string.reset_credits_details_empty),
+                    color = palette.color(palette.secondary),
+                    fontSize = 14.sp,
+                )
+
+                ResetCreditDetailState.PARTIAL,
+                ResetCreditDetailState.COMPLETE,
+                -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (credit in resetCredits.availableCredits) {
+                        ResetCreditRow(credit, zoneId, locale, palette)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ResetCreditRow(
+    credit: com.codexquotatray.android.protocol.ResetCredit,
+    zoneId: ZoneId,
+    locale: Locale,
+    palette: ThemePalette,
+) {
+    Column(
+        Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.End,
+    ) {
+        Text(
+            stringResource(
+                com.codexquotatray.android.R.string.reset_credit_expiry,
+                com.codexquotatray.android.ui.formatResetCreditExpiry(credit.expiresAt, zoneId, locale),
+            ),
+            fontSize = 13.sp,
+            color = palette.color(palette.secondary),
+        )
+        Text(
+            stringResource(
+                com.codexquotatray.android.R.string.reset_credit_remaining,
+                com.codexquotatray.android.ui.formatResetCreditRemaining(
+                    credit.expiresAt,
+                    System.currentTimeMillis() / 1_000L,
+                ),
+            ),
+            fontSize = 13.sp,
+            color = palette.color(palette.secondary),
+        )
+    }
+}
+
+@Composable
+private fun QuotaCardSurface(content: @Composable () -> Unit) {
+    val palette = LocalQuotaPalette.current
     val cardShape = RoundedCornerShape(18.dp)
     val dark = palette.color(palette.background).luminance() < 0.1f
     val cardBrush = if (dark) {
@@ -405,39 +541,7 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
             .border(1.dp, borderBrush, cardShape)
             .padding(16.dp),
     ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            QuotaProgressRing(
-                progress = animatedProgress,
-                progressColor = animatedColor,
-                trackColor = palette.color(palette.progressTrack),
-                remainingPercent = remainingPercent,
-            )
-            Spacer(Modifier.size(16.dp))
-            Column(
-                Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(7.dp),
-            ) {
-                Text(
-                    window.title,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = palette.color(palette.title),
-                )
-                Text(
-                    formatResetAt(window.resetsAt),
-                    color = palette.color(palette.secondary),
-                    fontSize = 14.sp,
-                )
-                Text(
-                    formatRemaining(window.resetsAt),
-                    color = palette.color(palette.secondary),
-                    fontSize = 14.sp,
-                )
-            }
-        }
+        content()
     }
 }
 
@@ -500,9 +604,9 @@ private fun QuotaProgressRing(
 
 private const val QUOTA_PROGRESS_ANIMATION_MILLIS = 350
 
-private fun formatResetAt(epochSeconds: Long?): String {
+private fun formatResetAt(epochSeconds: Long?, locale: Locale): String {
     if (epochSeconds == null) return "重置时间未知"
-    val absolute = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(epochSeconds * 1_000L))
+    val absolute = SimpleDateFormat("MM-dd HH:mm", locale).format(Date(epochSeconds * 1_000L))
     return "重置 $absolute"
 }
 
@@ -513,4 +617,4 @@ private fun formatRemaining(epochSeconds: Long?): String {
     return "剩余 ${formatResetRemaining(remainingSeconds)}"
 }
 
-private fun formatClockTime(epochMillis: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(epochMillis))
+private fun formatClockTime(epochMillis: Long, locale: Locale) = SimpleDateFormat("HH:mm", locale).format(Date(epochMillis))

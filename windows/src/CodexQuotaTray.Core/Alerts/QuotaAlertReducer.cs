@@ -7,6 +7,7 @@ public enum QuotaAlertKind
     Threshold,
     Reset,
     Composite,
+    ResetCreditExpiry,
 }
 
 public sealed record QuotaThresholdWindow(
@@ -19,6 +20,12 @@ public sealed record QuotaResetWindow(
     int RemainingPercent,
     DateTimeOffset? ResetAtUtc);
 
+public sealed record QuotaResetCreditExpiry(
+    string Fingerprint,
+    DateTimeOffset ExpiresAtUtc,
+    string? Title,
+    string? ResetType);
+
 public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Threshold)
 {
     public QuotaAlertKind Kind { get; init; } = QuotaAlertKind.Threshold;
@@ -26,6 +33,8 @@ public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Thr
     public IReadOnlyList<QuotaThresholdWindow> ThresholdWindows { get; init; } = [];
 
     public IReadOnlyList<QuotaResetWindow> ResetWindows { get; init; } = [];
+
+    public IReadOnlyList<QuotaResetCreditExpiry> ResetCreditExpiryWindows { get; init; } = [];
 
     public static QuotaAlert ForThresholds(IReadOnlyList<QuotaThresholdWindow> windows)
     {
@@ -61,7 +70,8 @@ public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Thr
 
     public static QuotaAlert ForComposite(
         IReadOnlyList<QuotaThresholdWindow> thresholds,
-        IReadOnlyList<QuotaResetWindow> resets)
+        IReadOnlyList<QuotaResetWindow> resets,
+        IReadOnlyList<QuotaResetCreditExpiry>? resetCredits = null)
     {
         if (thresholds.Count == 0 || resets.Count == 0)
         {
@@ -74,6 +84,25 @@ public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Thr
             Kind = QuotaAlertKind.Composite,
             ThresholdWindows = thresholds,
             ResetWindows = resets,
+            ResetCreditExpiryWindows = resetCredits ?? [],
+        };
+    }
+
+    public static QuotaAlert ForResetCreditExpiry(IReadOnlyList<QuotaResetCreditExpiry> credits)
+    {
+        if (credits.Count == 0)
+        {
+            throw new ArgumentException("At least one reset credit is required.", nameof(credits));
+        }
+
+        var first = credits[0];
+        return new QuotaAlert(
+            first.Title ?? first.ResetType ?? "重置卡",
+            0,
+            0)
+        {
+            Kind = QuotaAlertKind.ResetCreditExpiry,
+            ResetCreditExpiryWindows = credits,
         };
     }
 }
@@ -87,8 +116,11 @@ public static class QuotaAlertReducer
     public static AlertReduction Reduce(
         AlertStateDocument? previous,
         IReadOnlyList<AlertInput> windows,
-        NotificationSettings settings)
+        NotificationSettings settings,
+        IReadOnlyList<ResetCreditExpiryInput>? resetCreditInputs = null,
+        DateTimeOffset? nowUtc = null)
     {
+        var now = nowUtc ?? DateTimeOffset.UtcNow;
         var enabled = Enabled(settings).ToArray();
         var baseline = previous is null || previous.SchemaVersion != 1;
         var baselineEstablished = !baseline && previous!.ResetAlertBaselineEstablished;
@@ -215,22 +247,104 @@ public static class QuotaAlertReducer
                 awaitingCycleMetadata);
         }
 
+        var resetCreditStates = baseline
+            ? new Dictionary<string, ResetCreditAlertState>(StringComparer.Ordinal)
+            : new Dictionary<string, ResetCreditAlertState>(
+                previous!.ResetCredits ?? new Dictionary<string, ResetCreditAlertState>(),
+                StringComparer.Ordinal);
+        var resetCreditAlerts = new List<QuotaResetCreditExpiry>();
+        var seenResetCredits = new HashSet<string>(StringComparer.Ordinal);
+        if (settings.NotifyResetCreditExpiry)
+        {
+            foreach (var input in resetCreditInputs ?? [])
+            {
+                if (!IsValidResetCredit(input, now)
+                    || string.IsNullOrWhiteSpace(input.Fingerprint)
+                    || !seenResetCredits.Add(input.Fingerprint))
+                {
+                    continue;
+                }
+
+                resetCreditStates.TryGetValue(input.Fingerprint, out var old);
+                var dueAt = input.ExpiresAtUtc!.Value
+                    - TimeSpan.FromHours(NormalizeLeadHours(settings.ResetCreditExpiryLeadHours));
+                var notified = old?.Notified == true;
+                if (!notified && now >= dueAt)
+                {
+                    resetCreditAlerts.Add(new QuotaResetCreditExpiry(
+                        input.Fingerprint,
+                        input.ExpiresAtUtc.Value,
+                        input.Title,
+                        input.ResetType));
+                    notified = true;
+                }
+
+                resetCreditStates[input.Fingerprint] = new ResetCreditAlertState(
+                    now,
+                    input.ExpiresAtUtc,
+                    notified);
+            }
+
+            var staleBefore = now - TimeSpan.FromDays(30);
+            foreach (var entry in resetCreditStates.ToArray())
+            {
+                if (seenResetCredits.Contains(entry.Key))
+                {
+                    continue;
+                }
+
+                if (entry.Value.ExpiresAtUtc <= now
+                    || entry.Value.LastSeenUtc is null
+                    || entry.Value.LastSeenUtc < staleBefore)
+                {
+                    resetCreditStates.Remove(entry.Key);
+                }
+            }
+
+            while (resetCreditStates.Count > 128)
+            {
+                var oldest = resetCreditStates
+                    .OrderBy(entry => entry.Value.LastSeenUtc ?? DateTimeOffset.MinValue)
+                    .First().Key;
+                resetCreditStates.Remove(oldest);
+            }
+        }
+
         thresholdAlerts.Sort((left, right) => left.Threshold.CompareTo(right.Threshold));
         var alert = thresholdAlerts.Count > 0 && resetAlerts.Count > 0
-            ? QuotaAlert.ForComposite(thresholdAlerts, resetAlerts)
+            ? QuotaAlert.ForComposite(thresholdAlerts, resetAlerts, resetCreditAlerts)
             : thresholdAlerts.Count > 0
                 ? QuotaAlert.ForThresholds(thresholdAlerts)
                 : resetAlerts.Count > 0
                     ? QuotaAlert.ForReset(resetAlerts)
-                    : null;
+                    : resetCreditAlerts.Count > 0
+                        ? QuotaAlert.ForResetCreditExpiry(resetCreditAlerts)
+                        : null;
+        if (alert is not null && resetCreditAlerts.Count > 0 && alert.Kind is not QuotaAlertKind.Composite)
+        {
+            alert = alert with { ResetCreditExpiryWindows = resetCreditAlerts };
+        }
         return new AlertReduction(
             new AlertStateDocument(
                 1,
                 enabled,
                 output,
-                baselineEstablished || hasValidWindow),
+                baselineEstablished || hasValidWindow,
+                resetCreditStates),
             alert);
     }
+
+    private static bool IsValidResetCredit(ResetCreditExpiryInput input, DateTimeOffset now) =>
+        string.Equals(input.Status?.Trim(), "available", StringComparison.OrdinalIgnoreCase)
+        && input.ExpiresAtUtc is { } expiresAt
+        && expiresAt > now;
+
+    private static int NormalizeLeadHours(int value) => value switch
+    {
+        6 => 6,
+        1 => 1,
+        _ => 24,
+    };
 
     public static bool IsCycleTransition(AlertWindowState previous, AlertInput current)
     {
@@ -333,3 +447,10 @@ public sealed record AlertInput(
     long? WindowDurationMinutes,
     DateTimeOffset? ResetAtUtc,
     string? LegacyPseudonymousKey = null);
+
+public sealed record ResetCreditExpiryInput(
+    string Fingerprint,
+    string? Status,
+    DateTimeOffset? ExpiresAtUtc,
+    string? Title,
+    string? ResetType);

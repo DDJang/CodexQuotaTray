@@ -4,6 +4,7 @@ import com.codexquotatray.android.auth.OAuthCredentials
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -26,6 +27,12 @@ class CodexUsageClientTest {
     @After
     fun tearDown() {
         server.shutdown()
+    }
+
+    @Test
+    fun productionEndpointsKeepUsageAndResetCreditReadsSeparate() {
+        assertEquals("https://chatgpt.com/backend-api/wham/usage", OAuthCredentials.USAGE_URL)
+        assertEquals("https://chatgpt.com/backend-api/wham/rate-limit-reset-credits", OAuthCredentials.RESET_CREDITS_URL)
     }
 
     @Test
@@ -60,6 +67,8 @@ class CodexUsageClientTest {
         assertEquals(listOf(88, 55, 80), result.windows.map { it.remainingPercent })
         assertEquals(listOf(300L, 10_080L, 60L), result.windows.map { it.windowDurationMins })
         assertEquals("Spark", result.windows[2].limitName)
+        assertEquals(listOf("codex", "codex", "Spark"), result.windows.map { it.bucketId })
+        assertNull(result.resetCredits)
 
         val request = requireNotNull(server.takeRequest(1, TimeUnit.SECONDS))
         assertEquals("GET", request.method)
@@ -67,6 +76,169 @@ class CodexUsageClientTest {
         assertEquals("Bearer fake-access", request.getHeader("Authorization"))
         assertEquals("fake-account", request.getHeader("ChatGPT-Account-Id"))
         assertEquals("application/json", request.getHeader("Accept"))
+    }
+
+    @Test
+    fun usageCountFetchesResetCreditDetailsWithTheSameOAuthHeaders() {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                {"rate_limit":{"primary_window":{"used_percent":10}},
+                 "rate_limit_reset_credits":{"available_count":2}}
+                """.trimIndent(),
+            ),
+        )
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """
+                {"credits":[
+                  {"id":"credit-1","resetType":"five_hour","status":"available",
+                   "grantedAt":1900000000,"expiresAt":1900003600,"title":"Five hour","description":null},
+                  {"id":"credit-2","reset_type":"weekly","status":"AVAILABLE",
+                   "granted_at":null,"expires_at":null,"title":null,"description":"week"}
+                ]}
+                """.trimIndent(),
+            ),
+        )
+
+        val result = client().fetch(credentials())
+
+        assertEquals(2L, result.resetCredits?.availableCount)
+        assertEquals(2, result.resetCredits?.credits?.size)
+        assertEquals("credit-1", result.resetCredits?.credits?.first()?.id)
+        assertEquals("five_hour", result.resetCredits?.credits?.first()?.resetType)
+        assertEquals("available", result.resetCredits?.credits?.first()?.status)
+        assertEquals(1_900_003_600L, result.resetCredits?.credits?.first()?.expiresAt)
+        assertNull(result.resetCredits?.credits?.get(1)?.expiresAt)
+
+        val usageRequest = requireNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+        val detailsRequest = requireNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+        assertEquals("/backend-api/wham/usage", usageRequest.path)
+        assertEquals("/backend-api/wham/rate-limit-reset-credits", detailsRequest.path)
+        assertEquals("Bearer fake-access", detailsRequest.getHeader("Authorization"))
+        assertEquals("fake-account", detailsRequest.getHeader("ChatGPT-Account-Id"))
+    }
+
+    @Test
+    fun nullResetCreditSummaryDoesNotChangeUsageSuccess() {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"rate_limit":{"primary_window":{"used_percent":10}},"rate_limit_reset_credits":null}""",
+            ),
+        )
+
+        val result = client().fetch(credentials())
+
+        assertEquals("available", result.quotaState)
+        assertTrue(result.resetCredits != null)
+        assertNull(result.resetCredits?.availableCount)
+        assertEquals("/backend-api/wham/usage", requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)).path)
+        assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun detailFailureKeepsUsageSuccessfulAndAuthoritativeCount() {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"rate_limit":{"primary_window":{"used_percent":10}},"rate_limit_reset_credits":{"available_count":2}}""",
+            ),
+        )
+        server.enqueue(MockResponse().setResponseCode(503).setBody("busy"))
+
+        val result = client().fetch(credentials())
+
+        assertEquals("available", result.quotaState)
+        assertEquals(2L, result.resetCredits?.availableCount)
+        assertNull(result.resetCredits?.credits)
+    }
+
+    @Test
+    fun invalidDetailsJsonKeepsUsageSuccessfulAndAuthoritativeCount() {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"rate_limit":{"primary_window":{"used_percent":10}},"rate_limit_reset_credits":{"available_count":2}}""",
+            ),
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody("not-json"))
+
+        val result = client().fetch(credentials())
+
+        assertEquals("available", result.quotaState)
+        assertEquals(2L, result.resetCredits?.availableCount)
+        assertNull(result.resetCredits?.credits)
+    }
+
+    @Test
+    fun detailsIOExceptionKeepsUsageSuccessfulAndAuthoritativeCount() {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"rate_limit":{"primary_window":{"used_percent":10}},"rate_limit_reset_credits":{"available_count":2}}""",
+            ),
+        )
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+
+        val result = client().fetch(credentials())
+
+        assertEquals("available", result.quotaState)
+        assertEquals(2L, result.resetCredits?.availableCount)
+        assertNull(result.resetCredits?.credits)
+    }
+
+    @Test
+    fun zeroAvailableCreditsDoesNotReadTheDetailEndpoint() {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"rate_limit":{"primary_window":{"used_percent":10}},"rate_limit_reset_credits":{"available_count":0}}""",
+            ),
+        )
+
+        val result = client().fetch(credentials())
+
+        assertEquals(0L, result.resetCredits?.availableCount)
+        assertNull(result.resetCredits?.credits)
+        assertEquals("/backend-api/wham/usage", requireNotNull(server.takeRequest(1, TimeUnit.SECONDS)).path)
+        assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
+    }
+
+    @Test
+    fun detailsArrayMayBeEmptyAndRemainsDistinctFromUnavailableDetails() {
+        server.enqueue(
+            MockResponse().setResponseCode(200).setBody(
+                """{"rate_limit":{"primary_window":{"used_percent":10}},"rate_limit_reset_credits":{"available_count":2}}""",
+            ),
+        )
+        server.enqueue(MockResponse().setResponseCode(200).setBody("{\"credits\":[]}"))
+
+        val result = client().fetch(credentials())
+
+        assertEquals(2L, result.resetCredits?.availableCount)
+        assertTrue(result.resetCredits?.credits?.isEmpty() == true)
+    }
+
+    @Test
+    fun malformedOptionalResetCreditSummaryDoesNotInvalidateBaseQuota() {
+        val values = listOf<Any?>(
+            JSONObject(),
+            JSONObject().put("available_count", JSONObject().put("unexpected", true)),
+            JSONObject().put("available_count", "not-a-number"),
+        )
+
+        values.forEach { value ->
+            val payload = JSONObject()
+                .put(
+                    "rate_limit",
+                    JSONObject().put(
+                        "primary_window",
+                        JSONObject().put("used_percent", 10),
+                    ),
+                )
+                .put("rate_limit_reset_credits", value)
+
+            val result = client().parseUsage(payload, nowMillis = 1_900_000_000L)
+
+            assertEquals("available", result.quotaState)
+            assertEquals(1, result.windows.size)
+        }
     }
 
     @Test
@@ -177,7 +349,10 @@ class CodexUsageClientTest {
     }
 
     private fun client(): CodexUsageClient =
-        CodexUsageClient(usageUrl = server.url("/backend-api/wham/usage").toString())
+        CodexUsageClient(
+            usageUrl = server.url("/backend-api/wham/usage").toString(),
+            resetCreditsUrl = server.url("/backend-api/wham/rate-limit-reset-credits").toString(),
+        )
 
     private fun additionalPayload(order: List<String>): JSONObject = JSONObject()
         .put(

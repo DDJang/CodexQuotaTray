@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Runtime;
 
 namespace CodexQuotaTray.Core.Persistence;
@@ -14,7 +15,9 @@ public sealed record NotificationSettings(
     bool Remaining50 = false,
     bool Remaining20 = true,
     bool Remaining10 = true,
-    bool ResetAfterCycle = true);
+    bool ResetAfterCycle = true,
+    bool NotifyResetCreditExpiry = false,
+    int ResetCreditExpiryLeadHours = 24);
 
 public sealed record AppSettings(
     bool StartWithWindows = false,
@@ -44,7 +47,8 @@ public sealed record QuotaCacheDocument(
     string? PlanType,
     IReadOnlyList<QuotaCacheWindow> Windows,
     long? ResetCreditAvailableCount = null,
-    DateTimeOffset? ResetCreditEarliestExpiryUtc = null);
+    DateTimeOffset? ResetCreditEarliestExpiryUtc = null,
+    IReadOnlyList<ResetCreditView>? ResetCreditCredits = null);
 
 public sealed record QuotaCacheWindow(
     string SourceSlot,
@@ -52,13 +56,15 @@ public sealed record QuotaCacheWindow(
     long RemainingPercent,
     bool PercentageReliable,
     long? WindowDurationMinutes,
-    DateTimeOffset? ResetAtUtc);
+    DateTimeOffset? ResetAtUtc,
+    string? BucketId = null);
 
 public sealed record AlertStateDocument(
     int SchemaVersion,
     IReadOnlyList<int> BaselineThresholds,
     Dictionary<string, AlertWindowState> Windows,
-    bool ResetAlertBaselineEstablished = false);
+    bool ResetAlertBaselineEstablished = false,
+    Dictionary<string, ResetCreditAlertState>? ResetCredits = null);
 
 public sealed record AlertWindowState(
     string PseudonymousKey,
@@ -69,3 +75,8 @@ public sealed record AlertWindowState(
     DateTimeOffset? LastResetAlertCycleUtc = null,
     bool? ResetAlertCycleConsumed = null,
     bool ResetAlertAwaitingCycleMetadata = false);
+
+public sealed record ResetCreditAlertState(
+    DateTimeOffset? LastSeenUtc = null,
+    DateTimeOffset? ExpiresAtUtc = null,
+    bool Notified = false);

@@ -4,7 +4,8 @@ public sealed record ResetCreditViewState(
     ResetCreditKind Kind,
     int? AvailableCount = null,
     DateTimeOffset? EarliestKnownExpiry = null,
-    string? ExpiryLabel = null)
+    string? ExpiryLabel = null,
+    IReadOnlyList<ResetCreditView>? Credits = null)
 {
     public string Summary => Kind switch
     {
@@ -21,3 +22,12 @@ public sealed record ResetCreditViewState(
     private string FormatExpiry(DateTimeOffset? value) =>
         ExpiryLabel is { Length: > 0 } label ? $"{label} " : value is null ? "未知日期" : $"{value:M月d日} ";
 }
+
+public sealed record ResetCreditView(
+    string? Id,
+    string? ResetType,
+    string? Status,
+    DateTimeOffset? GrantedAtUtc,
+    DateTimeOffset? ExpiresAtUtc,
+    string? Title,
+    string? Description);
