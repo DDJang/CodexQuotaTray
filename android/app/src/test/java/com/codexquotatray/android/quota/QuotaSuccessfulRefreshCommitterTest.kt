@@ -117,7 +117,19 @@ class QuotaSuccessfulRefreshCommitterTest {
 
     private fun quota(source: QuotaSource, updatedAtMillis: Long, remaining: Int = 90) = DirectQuotaResult(
         planType = "plus",
-        windows = listOf(QuotaWindow("primary", "Primary", "plus", "primary", 100 - remaining, remaining, 300, 1_000)),
+        windows = listOf(
+            QuotaWindow(
+                "primary",
+                "Primary",
+                "plus",
+                "primary",
+                100 - remaining,
+                remaining,
+                300,
+                1_000,
+                "codex",
+            ),
+        ),
         quotaState = "available",
         updatedAtMillis = updatedAtMillis,
         source = source,

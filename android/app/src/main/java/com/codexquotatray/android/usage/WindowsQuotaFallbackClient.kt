@@ -157,6 +157,7 @@ internal object WindowsQuotaJson {
                     remainingPercent = remaining ?: used?.let { 100 - it },
                     windowDurationMins = window.positiveLongOrNull("windowDurationMins"),
                     resetsAt = window.nonNegativeLongOrNull("resetsAt"),
+                    bucketId = window.stringOrNull("bucketId"),
                 ),
             )
         }

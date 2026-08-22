@@ -46,7 +46,8 @@ class QuotaSnapshotStore(context: Context) {
                                 .putNullable("usedPercent", window.usedPercent)
                                 .putNullable("remainingPercent", window.remainingPercent)
                                 .putNullable("windowDurationMins", window.windowDurationMins)
-                                .putNullable("resetsAt", window.resetsAt),
+                                .putNullable("resetsAt", window.resetsAt)
+                                .putNullable("bucketId", window.bucketId),
                         )
                     }
                 },
@@ -87,6 +88,7 @@ class QuotaSnapshotStore(context: Context) {
                                 remainingPercent = window.intOrNull("remainingPercent"),
                                 windowDurationMins = window.longOrNull("windowDurationMins"),
                                 resetsAt = window.longOrNull("resetsAt"),
+                                bucketId = window.stringOrNull("bucketId"),
                             ),
                         )
                     }

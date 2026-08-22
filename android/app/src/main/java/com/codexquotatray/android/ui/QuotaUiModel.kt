@@ -1,6 +1,7 @@
 package com.codexquotatray.android.ui
 
 import com.codexquotatray.android.protocol.DirectQuotaResult
+import com.codexquotatray.android.protocol.QuotaBucketPolicy
 import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.protocol.QuotaWindow
 import kotlin.math.abs
@@ -75,7 +76,8 @@ private fun loadedQuota(
     updatedAtMillis: Long,
     source: QuotaSource,
 ): QuotaUiModel {
-    val cards = windows.mapIndexed { index, window ->
+    val canonicalWindows = windows.filter { QuotaBucketPolicy.isCanonical(it, source) }
+    val cards = canonicalWindows.mapIndexed { index, window ->
         QuotaCardModel(
             title = displayName(window, index),
             remainingPercent = window.remainingPercent,
@@ -86,14 +88,14 @@ private fun loadedQuota(
     }
     val resolvedPlanType = planType
         ?.takeIf(String::isNotBlank)
-        ?: windows.firstNotNullOfOrNull { it.planType?.takeIf(String::isNotBlank) }
+        ?: canonicalWindows.firstNotNullOfOrNull { it.planType?.takeIf(String::isNotBlank) }
     return QuotaUiModel(
         status = QuotaUiStatus.LOADED,
         accountLabel = resolvedPlanType?.replaceFirstChar { it.uppercase() } ?: "Codex",
         windows = cards,
         updatedAtMillis = updatedAtMillis,
         source = source,
-        message = if (quotaState == "zero_windows") "暂无可用额度" else null,
+        message = if (quotaState == "zero_windows" || canonicalWindows.isEmpty()) "暂无可用额度" else null,
     )
 }
 

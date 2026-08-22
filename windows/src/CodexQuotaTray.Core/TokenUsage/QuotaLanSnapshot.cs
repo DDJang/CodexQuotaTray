@@ -20,4 +20,5 @@ public sealed record QuotaLanWindow(
     long? RemainingPercent,
     bool? PercentageReliable,
     long? WindowDurationMins,
-    long? ResetsAt);
+    long? ResetsAt,
+    string? BucketId = null);

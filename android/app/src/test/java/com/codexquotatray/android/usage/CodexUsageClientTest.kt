@@ -60,6 +60,7 @@ class CodexUsageClientTest {
         assertEquals(listOf(88, 55, 80), result.windows.map { it.remainingPercent })
         assertEquals(listOf(300L, 10_080L, 60L), result.windows.map { it.windowDurationMins })
         assertEquals("Spark", result.windows[2].limitName)
+        assertEquals(listOf("codex", "codex", "Spark"), result.windows.map { it.bucketId })
 
         val request = requireNotNull(server.takeRequest(1, TimeUnit.SECONDS))
         assertEquals("GET", request.method)

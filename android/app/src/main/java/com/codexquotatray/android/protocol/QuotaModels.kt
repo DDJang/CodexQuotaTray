@@ -10,6 +10,7 @@ data class QuotaWindow(
     val remainingPercent: Int?,
     val windowDurationMins: Long?,
     val resetsAt: Long?,
+    val bucketId: String? = null,
 )
 
 data class DirectQuotaResult(

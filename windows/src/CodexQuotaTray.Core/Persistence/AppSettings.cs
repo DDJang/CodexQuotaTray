@@ -52,7 +52,8 @@ public sealed record QuotaCacheWindow(
     long RemainingPercent,
     bool PercentageReliable,
     long? WindowDurationMinutes,
-    DateTimeOffset? ResetAtUtc);
+    DateTimeOffset? ResetAtUtc,
+    string? BucketId = null);
 
 public sealed record AlertStateDocument(
     int SchemaVersion,

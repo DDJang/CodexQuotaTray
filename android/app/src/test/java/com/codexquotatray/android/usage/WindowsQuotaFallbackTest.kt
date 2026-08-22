@@ -230,6 +230,7 @@ class WindowsQuotaFallbackTest {
         )
 
         val window = result.windows.single()
+        assertNull(window.bucketId)
         assertNull(window.usedPercent)
         assertNull(window.remainingPercent)
         assertNull(window.windowDurationMins)
@@ -272,7 +273,7 @@ class WindowsQuotaFallbackTest {
 
     private fun windowsSuccess() = success().copy(source = QuotaSource.WINDOWS)
 
-    private fun window(remaining: Int) = QuotaWindow(
+    private fun window(remaining: Int, bucketId: String? = "codex") = QuotaWindow(
         limitId = "primary",
         limitName = null,
         sourceSlot = "primary",
@@ -280,6 +281,7 @@ class WindowsQuotaFallbackTest {
         remainingPercent = remaining,
         windowDurationMins = 300,
         resetsAt = 1_900_000_000L,
+        bucketId = bucketId,
     )
 
     private fun networkFailure() = QuotaReadException(QuotaReadFailureKind.NETWORK, "network")
@@ -299,5 +301,6 @@ class WindowsQuotaFallbackTest {
         """{"schemaVersion":1,"generatedAtUtc":"2026-08-10T12:00:00Z","planType":"plus",
             "quotaState":"available","windows":[{"limitId":"primary","limitName":null,
             "planType":null,"sourceSlot":"primary","usedPercent":28,"remainingPercent":72,
-            "percentageReliable":true,"windowDurationMins":300,"resetsAt":1900000000}]}""".trimIndent()
+            "percentageReliable":true,"windowDurationMins":300,"resetsAt":1900000000,
+            "bucketId":"codex"}]}""".trimIndent()
 }

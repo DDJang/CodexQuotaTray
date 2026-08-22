@@ -174,9 +174,12 @@ public sealed class AppServerPhase2Tests
 
         Assert.HasCount(3, normalized.Windows);
         Assert.AreEqual(10, normalized.Windows[0].UsedPercent);
+        Assert.AreEqual("a", normalized.Windows[0].BucketId);
         Assert.AreEqual(100, normalized.Windows[1].UsedPercent);
+        Assert.AreEqual("a", normalized.Windows[1].BucketId);
         Assert.IsFalse(normalized.Windows[1].PercentageReliable);
         Assert.AreEqual(80, normalized.Windows[2].UsedPercent);
+        Assert.AreEqual("b", normalized.Windows[2].BucketId);
         Assert.AreEqual("Team", normalized.PlanType);
         Assert.IsFalse(normalized.Windows.Any(window => window.UsedPercent == 99));
     }
@@ -1085,7 +1088,8 @@ public sealed class AppServerPhase2Tests
                     80,
                     true,
                     300,
-                    DateTimeOffset.UnixEpoch.AddMinutes(300))]),
+                    DateTimeOffset.UnixEpoch.AddMinutes(300),
+                    "codex")]),
             CancellationToken.None);
 
         var client = new ControlledClient();

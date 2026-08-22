@@ -75,6 +75,10 @@ Wi-Fi LAN 可用时才读取 `/v1/quota`。Windows 失败后仍呈现原 Direct 
 - 缺失百分比、时长和重置时间保持未知；
 - malformed 新响应不清空最后有效状态。
 
+额度用户展示投影只接受 canonical bucket `codex`；`gpt-reserve` 和未知 bucket 保留在原始
+规范化数据中，但不进入 WinUI、Android 前台或小组件。没有 `codex` 时保持空/不可用语义，
+不把未知 bucket 映射或回退为 `codex`。
+
 WinUI `QuotaCacheDocument` 只保存格式版本、成功时间、套餐、最多 32 个归一化窗口以及最小
 reset-credit 摘要；不保存 raw limit/reset ID、账户、CLI 路径、warning/RPC 正文或 raw JSON。
 
@@ -83,7 +87,7 @@ WinUI 可按用户设置将 `TokenUsageSnapshot` 保存为 `token-usage-cache.js
 prompt、response、工具内容或原始 JSONL；关闭“保存统计缓存”后删除，读取异常时直接忽略。
 
 Android `QuotaSnapshotStore` 保存最后成功的脱敏产品快照：套餐、quota state、数据更新时间、
-来源及窗口的本地标识/名称、百分比、时长和重置时间。它另外保存本机
+来源及窗口的 bucket、本地标识/名称、百分比、时长和重置时间。它另外保存本机
 `lastSuccessfulRefreshAtMillis` 以保持缓存兼容，但前台 freshness 使用进程内最后一次自动尝试
 时间，不替代数据更新时间。快照不含 OAuth
 凭据、HTTP body/header、账户 ID、错误正文或历史序列；退出登录会清除快照。
@@ -132,7 +136,7 @@ generatedAtUtc: ISO-8601
 planType: string?
 quotaState: available | zero_windows
 windows[]:
-  limitId?, limitName?, planType?, sourceSlot
+  bucketId?, limitId?, limitName?, planType?, sourceSlot
   usedPercent?, remainingPercent?, percentageReliable?
   windowDurationMins?, resetsAt?
 ```

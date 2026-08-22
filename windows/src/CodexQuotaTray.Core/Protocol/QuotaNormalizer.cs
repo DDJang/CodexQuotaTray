@@ -15,7 +15,8 @@ public sealed record NormalizedQuotaWindow(
     long RemainingPercent,
     bool PercentageReliable,
     long? WindowDurationMinutes,
-    DateTimeOffset? ResetAtUtc);
+    DateTimeOffset? ResetAtUtc,
+    string? BucketId = null);
 
 public sealed record NormalizedQuotaSnapshot(
     IReadOnlyList<NormalizedQuotaWindow> Windows,
@@ -141,7 +142,8 @@ public static class QuotaNormalizer
             100 - used,
             reliable,
             window.WindowDurationMinutes,
-            ParseUnixSeconds(window.ResetsAt)));
+            ParseUnixSeconds(window.ResetsAt),
+            bucket ?? QuotaBucketPolicy.CanonicalBucketId));
     }
 
     private static (ResetCreditViewState State, long? AvailableCount, int? DetailCount) NormalizeResetCredits(
@@ -250,7 +252,12 @@ public sealed class QuotaViewProjector(TimeProvider timeProvider, TimeZoneInfo t
         bool use24HourTime = true)
     {
         var now = timeProvider.GetUtcNow();
-        var windows = snapshot.Windows.Select(window => ProjectWindow(window, now, showRemainingPercent, use24HourTime)).ToArray();
+        var visibleWindows = snapshot.Windows
+            .Where(window => QuotaBucketPolicy.IsCanonical(window.BucketId))
+            .ToArray();
+        var windows = visibleWindows
+            .Select(window => ProjectWindow(window, now, showRemainingPercent, use24HourTime))
+            .ToArray();
         var receivedLocal = TimeZoneInfo.ConvertTime(receivedAtUtc, timeZone);
         var nowLocal = TimeZoneInfo.ConvertTime(now, timeZone);
         var tone = snapshot.IssueCount == 0 ? StatusTone.Success : StatusTone.Warning;
@@ -262,7 +269,14 @@ public sealed class QuotaViewProjector(TimeProvider timeProvider, TimeZoneInfo t
         var resetCredits = snapshot.ResetCredits.EarliestKnownExpiry is { } expiry
             ? snapshot.ResetCredits with { ExpiryLabel = TimeZoneInfo.ConvertTime(expiry, timeZone).ToString("M月d日") }
             : snapshot.ResetCredits;
-        return new AppUiState("Codex", snapshot.PlanType, status, tone, windows, resetCredits, IsPrototype: false);
+        return new AppUiState(
+            "Codex",
+            visibleWindows.Length == 0 ? null : snapshot.PlanType,
+            status,
+            tone,
+            windows,
+            resetCredits,
+            IsPrototype: false);
     }
 
     private QuotaWindowView ProjectWindow(

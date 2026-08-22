@@ -38,6 +38,32 @@ class QuotaUiModelTest {
     }
 
     @Test
+    fun mixedCanonicalAndReserveWindowsOnlyExposeCodex() {
+        val model = direct(
+            windows = listOf(
+                window(limitId = "primary", remainingPercent = 88, bucketId = "codex"),
+                window(limitId = "reserve", remainingPercent = 40, bucketId = "gpt-reserve"),
+            ),
+        ).toQuotaUiModel()
+
+        assertEquals(1, model.windows.size)
+        assertEquals(88, model.windows.single().remainingPercent)
+        assertNull(model.message)
+    }
+
+    @Test
+    fun onlyReserveOrUnknownWindowsUseTheEmptyState() {
+        for (bucketId in listOf("gpt-reserve", "future-unknown")) {
+            val model = direct(
+                windows = listOf(window(bucketId = bucketId)),
+            ).toQuotaUiModel()
+
+            assertTrue(model.windows.isEmpty())
+            assertEquals("暂无可用额度", model.message)
+        }
+    }
+
+    @Test
     fun missingValuesDoNotBecomeZero() {
         val model = direct(
             windows = listOf(window(usedPercent = null, remainingPercent = null, resetAt = null)),
@@ -109,6 +135,7 @@ class QuotaUiModelTest {
         remainingPercent: Int? = 90,
         duration: Long? = 300,
         resetAt: Long? = 1_900_000_000L,
+        bucketId: String? = "codex",
     ): QuotaWindow = QuotaWindow(
         limitId = limitId,
         limitName = limitName,
@@ -117,5 +144,6 @@ class QuotaUiModelTest {
         remainingPercent = remainingPercent,
         windowDurationMins = duration,
         resetsAt = resetAt,
+        bucketId = bucketId,
     )
 }

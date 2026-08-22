@@ -2,6 +2,7 @@ package com.codexquotatray.android.quota
 
 import com.codexquotatray.android.alerts.QuotaAlertEvent
 import com.codexquotatray.android.protocol.DirectQuotaResult
+import com.codexquotatray.android.protocol.QuotaBucketPolicy
 import com.codexquotatray.android.protocol.QuotaWindow
 
 /** The one success path shared by Direct OpenAI and Windows LAN quota results. */
@@ -18,7 +19,7 @@ internal class QuotaSuccessfulRefreshCommitter(
         if (result.quotaState == "unavailable") return false
         val completedAtMillis = nowMillis()
         saveSnapshot(result, completedAtMillis, windowsDeviceIdentity)
-        val events = evaluateAlerts(result.windows)
+        val events = evaluateAlerts(QuotaBucketPolicy.canonicalWindows(result))
         markSuccessfulRefresh(completedAtMillis)
         val published = try {
             publishNotifications(events)

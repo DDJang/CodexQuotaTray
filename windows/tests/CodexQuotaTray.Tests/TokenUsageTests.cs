@@ -514,7 +514,8 @@ public sealed class TokenUsageTests
                     RemainingPercent: 80,
                     PercentageReliable: true,
                     WindowDurationMins: 300,
-                    ResetsAt: null),
+                    ResetsAt: null,
+                    BucketId: "codex"),
             ]);
         QuotaLanSnapshot? availableQuota = quota;
         await using var server = new TokenUsageSyncServer(
@@ -538,6 +539,7 @@ public sealed class TokenUsageTests
         Assert.AreEqual(1, document.RootElement.GetProperty("schemaVersion").GetInt32());
         Assert.AreEqual("available", document.RootElement.GetProperty("quotaState").GetString());
         var window = document.RootElement.GetProperty("windows")[0];
+        Assert.AreEqual("codex", window.GetProperty("bucketId").GetString());
         Assert.AreEqual(80, window.GetProperty("remainingPercent").GetInt32());
         Assert.AreEqual(JsonValueKind.Null, window.GetProperty("resetsAt").ValueKind);
     }

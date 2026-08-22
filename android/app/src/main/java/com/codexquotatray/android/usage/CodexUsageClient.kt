@@ -2,6 +2,7 @@ package com.codexquotatray.android.usage
 
 import com.codexquotatray.android.auth.OAuthCredentials
 import com.codexquotatray.android.protocol.DirectQuotaResult
+import com.codexquotatray.android.protocol.QuotaBucketPolicy
 import com.codexquotatray.android.protocol.QuotaWindow
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -80,6 +81,7 @@ class CodexUsageClient(
             windowKey = "primary",
             limitId = "primary",
             limitName = null,
+            bucketId = QuotaBucketPolicy.CANONICAL_BUCKET_ID,
         )
         addRateWindow(
             windows = windows,
@@ -87,6 +89,7 @@ class CodexUsageClient(
             windowKey = "secondary",
             limitId = "secondary",
             limitName = null,
+            bucketId = QuotaBucketPolicy.CANONICAL_BUCKET_ID,
         )
 
         val additional = rateLimitValue(json, "additional_rate_limits")
@@ -106,6 +109,7 @@ class CodexUsageClient(
                 windowKey = "primary",
                 limitId = "$prefix:primary",
                 limitName = name,
+                bucketId = stableId,
             )
             addRateWindow(
                 windows = windows,
@@ -113,6 +117,7 @@ class CodexUsageClient(
                 windowKey = "secondary",
                 limitId = "$prefix:secondary",
                 limitName = name,
+                bucketId = stableId,
             )
         }
 
@@ -130,6 +135,7 @@ class CodexUsageClient(
         windowKey: String,
         limitId: String,
         limitName: String?,
+        bucketId: String,
     ) {
         val window = rateLimit.optJSONObject("${windowKey}_window") ?: return
         val used = number(window, "used_percent")?.toInt()?.coerceIn(0, 100)
@@ -147,6 +153,7 @@ class CodexUsageClient(
                 ?.takeIf { it > 0L }
                 ?.let { (it / 60.0).roundToLong().coerceAtLeast(1L) },
             resetsAt = number(window, "reset_at", "resets_at"),
+            bucketId = bucketId,
         )
     }
 
