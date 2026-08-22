@@ -13,15 +13,15 @@
     "publishedAt": "2026-08-22T13:11:27Z"
   },
   "android": {
-    "version": "0.8.8",
-    "tag": "android-v0.8.8",
+    "version": "0.9.0",
+    "tag": "android-v0.9.0",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.8.8.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.8.8/CodexQuotaTray-Android-v0.8.8.apk",
-      "sha256": "4588a8a33a656903d276bb4b4b301173c16ccc45fb4611261763a6f8d0e3716a",
-      "size": 26763009
+      "name": "CodexQuotaTray-Android-v0.9.0.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.9.0/CodexQuotaTray-Android-v0.9.0.apk",
+      "sha256": "7212e99629917d42dcf2d5e121f83c8b25a22c78843e4688c018e112e32cebd1",
+      "size": 26836585
     },
-    "releaseNotes": "## Android\n\n- 优化后台额度刷新在 Android 网络切换和系统挂起场景下的稳定性。\n- 改进 OAuth 与 Windows 配对数据源的后台网络选择，提升 Windows LAN fallback 的可用性。\n",
-    "publishedAt": "2026-08-20T11:28:47Z"
+    "releaseNotes": "## Android\n\n- 新增重置额度次数卡片与临近到期提醒设置，帮助及时了解可用的重置额度。\n- 优化双窗口额度页面和桌面小组件的布局、窗口识别与多语言显示。\n- 修复 Direct WHAM 额度接口路径，并改进 OAuth 与 Windows fallback 的额度刷新和展示稳定性。\n",
+    "publishedAt": "2026-08-22T13:14:36Z"
   }
 }
