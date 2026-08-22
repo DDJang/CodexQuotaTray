@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.8.14",
-    "tag": "windows-v0.8.14",
+    "version": "0.9.0",
+    "tag": "windows-v0.9.0",
     "installer": {
-      "name": "CodexQuotaTray-0.8.14-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.8.14/CodexQuotaTray-0.8.14-setup.exe",
-      "sha256": "4eb8bf90f0300f5e92885111af5112df463956205baec5ccc921913b3d1ddfdd",
-      "size": 63066644
+      "name": "CodexQuotaTray-0.9.0-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.9.0/CodexQuotaTray-0.9.0-setup.exe",
+      "sha256": "8a601de677adfcbd4c2d7cfcc344e7d8fa63f95573237246c075ccc97f1f03a0",
+      "size": 63080162
     },
-    "releaseNotes": "# Windows\r\n\r\n- 修复自动更新或覆盖安装时后台任务未及时退出、导致安装器无法释放文件占用的问题。\r\n",
-    "publishedAt": "2026-08-21T16:25:52Z"
+    "releaseNotes": "## Windows\r\n\r\n- 新增重置额度次数的临近到期提醒设置与通知。\r\n- 改进额度窗口与重置额度信息的识别和展示一致性。\r\n- 优化系统托盘设置中的额度提醒配置与持久化行为。\r\n",
+    "publishedAt": "2026-08-22T13:11:27Z"
   },
   "android": {
     "version": "0.8.8",
