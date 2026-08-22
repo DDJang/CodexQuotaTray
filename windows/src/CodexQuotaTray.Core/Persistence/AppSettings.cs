@@ -15,7 +15,9 @@ public sealed record NotificationSettings(
     bool Remaining50 = false,
     bool Remaining20 = true,
     bool Remaining10 = true,
-    bool ResetAfterCycle = true);
+    bool ResetAfterCycle = true,
+    bool NotifyResetCreditExpiry = false,
+    int ResetCreditExpiryLeadHours = 24);
 
 public sealed record AppSettings(
     bool StartWithWindows = false,
@@ -61,7 +63,8 @@ public sealed record AlertStateDocument(
     int SchemaVersion,
     IReadOnlyList<int> BaselineThresholds,
     Dictionary<string, AlertWindowState> Windows,
-    bool ResetAlertBaselineEstablished = false);
+    bool ResetAlertBaselineEstablished = false,
+    Dictionary<string, ResetCreditAlertState>? ResetCredits = null);
 
 public sealed record AlertWindowState(
     string PseudonymousKey,
@@ -72,3 +75,8 @@ public sealed record AlertWindowState(
     DateTimeOffset? LastResetAlertCycleUtc = null,
     bool? ResetAlertCycleConsumed = null,
     bool ResetAlertAwaitingCycleMetadata = false);
+
+public sealed record ResetCreditAlertState(
+    DateTimeOffset? LastSeenUtc = null,
+    DateTimeOffset? ExpiresAtUtc = null,
+    bool Notified = false);

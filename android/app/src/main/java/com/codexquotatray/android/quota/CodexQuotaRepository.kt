@@ -3,6 +3,7 @@ package com.codexquotatray.android.quota
 import android.content.Context
 import com.codexquotatray.android.AppLogStore
 import com.codexquotatray.android.alerts.QuotaAlertEvaluator
+import com.codexquotatray.android.alerts.QuotaAlertSettingsStore
 import com.codexquotatray.android.alerts.QuotaAlertStateStore
 import com.codexquotatray.android.alerts.QuotaNotificationPublisher
 import com.codexquotatray.android.auth.CodexOAuthClient
@@ -71,6 +72,7 @@ class CodexQuotaRepository(
 ) {
     private val appContext = context.applicationContext
     private val alertEvaluator by lazy { QuotaAlertEvaluator(alertStateStore) }
+    private val alertSettingsStore by lazy { QuotaAlertSettingsStore(appContext) }
     private val fallbackResolver by lazy {
         WindowsQuotaFallbackResolver(
             pairingStore = tokenSyncStore,
@@ -91,6 +93,17 @@ class CodexQuotaRepository(
             markSuccessfulRefresh = alertStateStore::markSuccessfulRefresh,
             publishNotifications = notificationPublisher::publish,
             restoreAlerts = alertEvaluator::restoreLastEvaluation,
+            evaluateResetCreditAlerts = { resetCredits, nowMillis ->
+                alertEvaluator.evaluateResetCredits(
+                    resetCredits?.credits,
+                    alertSettingsStore.load(),
+                    nowMillis,
+                    resetCredits?.availableCount,
+                )
+            },
+            reconcileResetCreditReminder = {
+                ResetCreditExpiryReminderScheduler.schedule(appContext)
+            },
             publishWidget = { result, _, _ ->
                 runCatching {
                     com.codexquotatray.android.widget.QuotaWidgetBridge.publish(

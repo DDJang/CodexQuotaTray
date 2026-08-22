@@ -6,4 +6,14 @@
     <string name="reset_credit_default_title">Reset credit</string>
     <string name="reset_credit_expiry">Expires %1$s</string>
     <string name="reset_credit_remaining">Remaining %1$s</string>
+    <string name="reset_credit_expiry_section">Reset credit alerts</string>
+    <string name="reset_credit_expiry_toggle">Expiry alert</string>
+    <string name="reset_credit_expiry_description">Notify when an available reset credit is about to expire</string>
+    <string name="reset_credit_expiry_lead">Alert lead time</string>
+    <string name="reset_credit_expiry_lead_day">1 day</string>
+    <string name="reset_credit_expiry_lead_six_hours">6 hours</string>
+    <string name="reset_credit_expiry_lead_one_hour">1 hour</string>
+    <string name="reset_credit_expiry_notification_title">Reset credit expiring</string>
+    <string name="reset_credit_expiry_notification_single">1 available reset credit expires at %1$s</string>
+    <string name="reset_credit_expiry_notification_multiple">%1$d available reset credits expiring · earliest %2$s</string>
 </resources>

@@ -8,7 +8,12 @@ import android.content.Context
 import android.content.Intent
 import com.codexquotatray.android.AppLogStore
 import com.codexquotatray.android.MainActivity
+import com.codexquotatray.android.R
 import com.codexquotatray.android.protocol.QuotaWindow
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 object QuotaNotifications {
@@ -49,26 +54,25 @@ class QuotaNotificationPublisher(context: Context) {
         val manager = appContext.getSystemService(NotificationManager::class.java)
         if (!manager.areNotificationsEnabled()) return false
         return try {
-            enabledEvents.forEach { event ->
-                val notificationId = NOTIFICATION_IDS.getAndIncrement()
-                val notification = Notification.Builder(appContext, QuotaNotifications.CHANNEL_ID)
-                    .setSmallIcon(android.R.drawable.ic_dialog_info)
-                    .setContentTitle(title(event))
-                    .setContentText(message(event))
-                    .setStyle(Notification.BigTextStyle().bigText(message(event)))
-                    .setContentIntent(
-                        QuotaNotifications.mainActivityPendingIntent(appContext, notificationId),
-                    )
-                    .setAutoCancel(true)
-                    .build()
-                manager.notify(notificationId, notification)
+            val expiryEvents = enabledEvents.filter { it.kind == AlertEventKind.RESET_CREDIT_EXPIRY }
+            enabledEvents.filterNot { it.kind == AlertEventKind.RESET_CREDIT_EXPIRY }.forEach { event ->
+                post(manager, title(event), message(event))
                 AppLogStore.record(
                     appContext,
                     when (event.kind) {
                         AlertEventKind.RESET -> "额度重置通知已发送"
                         AlertEventKind.THRESHOLD -> "低额度通知已发送：${event.threshold}%阈值"
+                        AlertEventKind.RESET_CREDIT_EXPIRY -> "重置卡临期通知已发送"
                     },
                 )
+            }
+            if (expiryEvents.isNotEmpty()) {
+                post(
+                    manager,
+                appContext.getString(R.string.reset_credit_expiry_notification_title),
+                    resetCreditMessage(expiryEvents),
+                )
+                AppLogStore.record(appContext, "重置卡临期通知已发送")
             }
             true
         } catch (error: Exception) {
@@ -83,6 +87,8 @@ class QuotaNotificationPublisher(context: Context) {
             10 -> "Codex 额度即将用完"
             else -> "Codex 额度较低"
         }
+        AlertEventKind.RESET_CREDIT_EXPIRY ->
+            appContext.getString(R.string.reset_credit_expiry_notification_title)
     }
 
     private fun message(event: QuotaAlertEvent): String {
@@ -91,7 +97,43 @@ class QuotaNotificationPublisher(context: Context) {
         return when (event.kind) {
             AlertEventKind.RESET -> "$window 已重置，$remaining"
             AlertEventKind.THRESHOLD -> "$window $remaining，已低于 ${event.threshold}%"
+            AlertEventKind.RESET_CREDIT_EXPIRY -> resetCreditMessage(listOf(event))
         }
+    }
+
+    private fun resetCreditMessage(events: List<QuotaAlertEvent>): String {
+        val earliest = events.mapNotNull { it.resetCredit?.expiresAt }
+            .minOrNull()
+            ?.let { seconds ->
+                DateTimeFormatter.ofPattern("MM-dd HH:mm", Locale.getDefault())
+                    .withZone(ZoneId.systemDefault())
+                    .format(Instant.ofEpochSecond(seconds))
+            }
+            ?: "未知时间"
+        return if (events.size == 1) {
+            appContext.getString(R.string.reset_credit_expiry_notification_single, earliest)
+        } else {
+            appContext.getString(
+                R.string.reset_credit_expiry_notification_multiple,
+                events.size,
+                earliest,
+            )
+        }
+    }
+
+    private fun post(manager: NotificationManager, title: String, message: String) {
+        val notificationId = NOTIFICATION_IDS.getAndIncrement()
+        val notification = Notification.Builder(appContext, QuotaNotifications.CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(Notification.BigTextStyle().bigText(message))
+            .setContentIntent(
+                QuotaNotifications.mainActivityPendingIntent(appContext, notificationId),
+            )
+            .setAutoCancel(true)
+            .build()
+        manager.notify(notificationId, notification)
     }
 
     private fun displayName(window: QuotaWindow): String {

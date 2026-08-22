@@ -347,6 +347,10 @@ public sealed class QuotaRuntimeService :
                 coordinator.LastSuccessUtc ?? timeProvider.GetUtcNow(),
                 Settings.ShowRemainingPercent,
                 Settings.Use24HourTime));
+            await EvaluateAlertsAsync(
+                latestNormalized,
+                Volatile.Read(ref clientGeneration),
+                cancellationToken).ConfigureAwait(false);
         }
         else
         {
@@ -850,8 +854,23 @@ public sealed class QuotaRuntimeService :
                 window.ResetAtUtc,
                 window.LegacyAlertKey))
             .ToArray();
+        var resetCreditInputs = snapshot.ResetCredits.AvailableCount == 0
+            ? null
+            : snapshot.ResetCredits.Credits?
+            .Select(credit => new ResetCreditExpiryInput(
+                ResetCreditFingerprint.Create(credit),
+                credit.Status,
+                credit.ExpiresAtUtc,
+                credit.Title,
+                credit.ResetType))
+            .ToArray();
         var previousAlertState = alertState;
-        var reduction = QuotaAlertReducer.Reduce(alertState, inputs, Settings.EffectiveNotifications);
+        var reduction = QuotaAlertReducer.Reduce(
+            alertState,
+            inputs,
+            Settings.EffectiveNotifications,
+            resetCreditInputs,
+            timeProvider.GetUtcNow());
         if (!IsCurrentGeneration(generation))
         {
             return false;
@@ -910,6 +929,26 @@ public sealed class QuotaRuntimeService :
                         {
                             System.Diagnostics.Debug.WriteLine(
                                 $"Quota notification state restore failed: {restoreError.GetType().Name}");
+                        }
+                    }
+                    else
+                    {
+                        // The first-ever alert has no previous document to
+                        // restore. Persist an empty baseline so a restart
+                        // cannot mark the undelivered event as handled.
+                        alertState = null;
+                        try
+                        {
+                            await persistence.SaveAlertStateAsync(
+                                new AlertStateDocument(1, [], []),
+                                cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (Exception restoreError) when (
+                            restoreError is not OutOfMemoryException
+                            and not StackOverflowException)
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"Quota notification empty-state restore failed: {restoreError.GetType().Name}");
                         }
                     }
 
@@ -1016,6 +1055,14 @@ public sealed class QuotaRuntimeService :
                 || timeProvider.GetUtcNow() - anchor >= coordinator.EffectiveInterval(MinimumReliableRemaining()))
             {
                 await RequestAsync(RefreshReason.Scheduled, cancellationToken).ConfigureAwait(false);
+            }
+
+            if (latestNormalized is not null)
+            {
+                await EvaluateAlertsAsync(
+                    latestNormalized,
+                    Volatile.Read(ref clientGeneration),
+                    cancellationToken).ConfigureAwait(false);
             }
 
             ApplyStaleState();
@@ -1184,12 +1231,13 @@ public sealed class QuotaRuntimeService :
         if (left.SchemaVersion != right.SchemaVersion
             || left.ResetAlertBaselineEstablished != right.ResetAlertBaselineEstablished
             || !left.BaselineThresholds.SequenceEqual(right.BaselineThresholds)
-            || left.Windows.Count != right.Windows.Count)
+            || left.Windows.Count != right.Windows.Count
+            || (left.ResetCredits?.Count ?? 0) != (right.ResetCredits?.Count ?? 0))
         {
             return false;
         }
 
-        return left.Windows.All(entry =>
+        if (!left.Windows.All(entry =>
             right.Windows.TryGetValue(entry.Key, out var other)
             && entry.Value.PseudonymousKey == other.PseudonymousKey
             && entry.Value.WindowDurationMinutes == other.WindowDurationMinutes
@@ -1198,7 +1246,14 @@ public sealed class QuotaRuntimeService :
             && entry.Value.HandledThresholds.SequenceEqual(other.HandledThresholds)
             && entry.Value.LastResetAlertCycleUtc == other.LastResetAlertCycleUtc
             && entry.Value.ResetAlertCycleConsumed == other.ResetAlertCycleConsumed
-            && entry.Value.ResetAlertAwaitingCycleMetadata == other.ResetAlertAwaitingCycleMetadata);
+            && entry.Value.ResetAlertAwaitingCycleMetadata == other.ResetAlertAwaitingCycleMetadata))
+        {
+            return false;
+        }
+
+        return (left.ResetCredits ?? new Dictionary<string, ResetCreditAlertState>()).All(entry =>
+            right.ResetCredits?.TryGetValue(entry.Key, out var other) == true
+            && entry.Value == other);
     }
 
     private void SetCurrent(AppUiState state)

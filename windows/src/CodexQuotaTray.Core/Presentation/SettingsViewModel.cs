@@ -69,6 +69,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool notifyRemaining20;
     [ObservableProperty] private bool notifyRemaining10;
     [ObservableProperty] private bool notifyAfterQuotaReset;
+    [ObservableProperty] private bool notifyResetCreditExpiry;
+    [ObservableProperty] private int resetCreditExpiryLeadHours = 24;
     [ObservableProperty] private bool silentStartup;
     [ObservableProperty] private bool phoneTokenSyncEnabled;
     [ObservableProperty] private bool tokenRefreshOnPanelOpen;
@@ -214,6 +216,29 @@ public sealed partial class SettingsViewModel : ObservableObject
         RefreshMode.Every30Minutes,
         RefreshMode.ManualOnly,
     ];
+
+    public int SelectedResetCreditExpiryLeadIndex
+    {
+        get => ResetCreditExpiryLeadHours switch
+        {
+            6 => 1,
+            1 => 2,
+            _ => 0,
+        };
+        set
+        {
+            var hours = value switch
+            {
+                1 => 6,
+                2 => 1,
+                _ => 24,
+            };
+            if (ResetCreditExpiryLeadHours != hours)
+            {
+                ResetCreditExpiryLeadHours = hours;
+            }
+        }
+    }
 
     public IReadOnlyList<ThemeMode> ThemeModes { get; } = Enum.GetValues<ThemeMode>();
 
@@ -528,7 +553,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         RefreshMode: SelectedRefreshMode,
         RefreshOnPanelOpen: RefreshOnPanelOpen,
         RefreshOnNetworkRestore: RefreshOnNetworkRestore,
-        Notifications: new NotificationSettings(NotifyRemaining50, NotifyRemaining20, NotifyRemaining10, NotifyAfterQuotaReset),
+        Notifications: new NotificationSettings(
+            NotifyRemaining50,
+            NotifyRemaining20,
+            NotifyRemaining10,
+            NotifyAfterQuotaReset,
+            NotifyResetCreditExpiry,
+            ResetCreditExpiryLeadHours),
         ThemeMode: SelectedThemeMode,
         SilentStartup: SilentStartup,
         PhoneTokenSyncEnabled: PhoneTokenSyncEnabled,
@@ -556,6 +587,9 @@ public sealed partial class SettingsViewModel : ObservableObject
             NotifyRemaining20 = value.EffectiveNotifications.Remaining20;
             NotifyRemaining10 = value.EffectiveNotifications.Remaining10;
             NotifyAfterQuotaReset = value.EffectiveNotifications.ResetAfterCycle;
+            NotifyResetCreditExpiry = value.EffectiveNotifications.NotifyResetCreditExpiry;
+            ResetCreditExpiryLeadHours = value.EffectiveNotifications.ResetCreditExpiryLeadHours;
+            OnPropertyChanged(nameof(SelectedResetCreditExpiryLeadIndex));
             SelectedRefreshMode = value.RefreshMode == RefreshMode.Auto
                 ? RefreshMode.Every15Minutes
                 : value.RefreshMode;
@@ -596,6 +630,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnNotifyRemaining10Changed(bool value) => QueueSettingsApply();
 
     partial void OnNotifyAfterQuotaResetChanged(bool value) => QueueSettingsApply();
+
+    partial void OnNotifyResetCreditExpiryChanged(bool value) => QueueSettingsApply();
+
+    partial void OnResetCreditExpiryLeadHoursChanged(int value)
+    {
+        OnPropertyChanged(nameof(SelectedResetCreditExpiryLeadIndex));
+        QueueSettingsApply();
+    }
 
     partial void OnSilentStartupChanged(bool value) => QueueSettingsApply();
 
