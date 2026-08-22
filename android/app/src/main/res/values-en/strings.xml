@@ -1,4 +1,6 @@
 <resources>
+    <string name="app_name">CodexQuotaTray</string>
+    <string name="widget_quota_name">Quota overview</string>
     <string name="reset_credits_title">Reset credits</string>
     <string name="reset_credits_available">%1$d available</string>
     <string name="reset_credits_details_unavailable">Expiry details unavailable</string>

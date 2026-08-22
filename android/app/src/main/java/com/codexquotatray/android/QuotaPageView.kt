@@ -41,6 +41,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -342,11 +343,11 @@ internal fun QuotaPage(
 
 @Composable
 private fun QuotaStatusLine(model: QuotaUiModel) {
-    RefreshStatusLine(quotaStatusLine(model))
+    RefreshStatusLine(quotaStatusLine(model, LocalLocale.current.platformLocale))
 }
 
-private fun quotaStatusLine(model: QuotaUiModel): String {
-    val updatedAt = model.updatedAtMillis?.let(::formatClockTime)
+private fun quotaStatusLine(model: QuotaUiModel, locale: Locale): String {
+    val updatedAt = model.updatedAtMillis?.let { formatClockTime(it, locale) }
     return when (model.status) {
         QuotaUiStatus.LOADING -> RefreshStatusFormatter.refreshing(model.updatedAtMillis != null)
         QuotaUiStatus.UNAUTHENTICATED -> RefreshStatusFormatter.quotaNoSource()
@@ -364,6 +365,7 @@ private fun quotaStatusLine(model: QuotaUiModel): String {
 @Composable
 private fun QuotaWindowCard(window: QuotaCardModel) {
     val palette = LocalQuotaPalette.current
+    val locale = LocalLocale.current.platformLocale
     val remainingPercent = window.remainingPercent
     val progressTarget = remainingPercent?.let(::quotaProgress) ?: 0f
     val colorTarget = remainingPercent?.let(::quotaProgressColor) ?: palette.color(palette.accent)
@@ -401,7 +403,7 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
                     color = palette.color(palette.title),
                 )
                 Text(
-                    formatResetAt(window.resetsAt),
+                    formatResetAt(window.resetsAt, locale),
                     color = palette.color(palette.secondary),
                     fontSize = 14.sp,
                 )
@@ -419,7 +421,7 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
 private fun ResetCreditCard(resetCredits: ResetCreditUiModel) {
     val palette = LocalQuotaPalette.current
     val zoneId = ZoneId.systemDefault()
-    val locale = Locale.getDefault()
+    val locale = LocalLocale.current.platformLocale
     QuotaCardSurface {
         Column(
             Modifier.fillMaxWidth(),
@@ -602,9 +604,9 @@ private fun QuotaProgressRing(
 
 private const val QUOTA_PROGRESS_ANIMATION_MILLIS = 350
 
-private fun formatResetAt(epochSeconds: Long?): String {
+private fun formatResetAt(epochSeconds: Long?, locale: Locale): String {
     if (epochSeconds == null) return "重置时间未知"
-    val absolute = SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(epochSeconds * 1_000L))
+    val absolute = SimpleDateFormat("MM-dd HH:mm", locale).format(Date(epochSeconds * 1_000L))
     return "重置 $absolute"
 }
 
@@ -615,4 +617,4 @@ private fun formatRemaining(epochSeconds: Long?): String {
     return "剩余 ${formatResetRemaining(remainingSeconds)}"
 }
 
-private fun formatClockTime(epochMillis: Long) = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(epochMillis))
+private fun formatClockTime(epochMillis: Long, locale: Locale) = SimpleDateFormat("HH:mm", locale).format(Date(epochMillis))

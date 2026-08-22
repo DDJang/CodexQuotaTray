@@ -36,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.dp
 import com.codexquotatray.android.alerts.QuotaAlertSettingsStore
 import com.codexquotatray.android.alerts.QuotaNotifications
@@ -435,6 +436,7 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun ColumnScope.TokenPairingSettings() {
+        val locale = LocalLocale.current.platformLocale
         SettingsSection("Windows") {
             SettingsGroup {
                 SettingsInfoRow("状态", tokenStatus)
@@ -443,7 +445,7 @@ class SettingsActivity : ComponentActivity() {
                     SettingsInfoRow("电脑", "${it.displayName ?: "Windows PC"} · ${it.host}:${it.port}")
                     SettingsInfoRow(
                         "上次同步",
-                        it.lastSyncUtc?.let { raw -> formatPairingTime(raw) } ?: "尚未成功同步",
+                        it.lastSyncUtc?.let { raw -> formatPairingTime(raw, locale) } ?: "尚未成功同步",
                     )
                     SettingsActionButton("立即同步", onClick = ::syncPairedNow)
                     SettingsActionButton("重新扫码配对", onClick = ::scanPairing)
@@ -629,6 +631,7 @@ class SettingsActivity : ComponentActivity() {
 
     @Composable
     private fun ColumnScope.UpdateSettingsPage() {
+        val locale = LocalLocale.current.platformLocale
         SettingsSection("下载源") {
             SettingsGroup {
                 SettingsSelectionRow("GitHub", updateSource == UpdateSource.GITHUB) {
@@ -659,7 +662,7 @@ class SettingsActivity : ComponentActivity() {
             SettingsGroup {
                 SettingsInfoRow("当前版本", BuildConfig.VERSION_NAME)
                 SettingsDivider()
-                SettingsInfoRow("上次检查", formatUpdateCheckTime(updateLastCheckAtMillis))
+                SettingsInfoRow("上次检查", formatUpdateCheckTime(updateLastCheckAtMillis, locale))
                 SettingsDivider()
                 SettingsInfoRow("状态", updateStatus)
                 SettingsActionButton(
@@ -851,16 +854,16 @@ class SettingsActivity : ComponentActivity() {
             .onFailure { error -> updateStatus = error.message ?: "无法打开系统安装器" }
     }
 
-    private fun formatUpdateCheckTime(value: Long): String = if (value <= 0L) {
+    private fun formatUpdateCheckTime(value: Long, locale: java.util.Locale): String = if (value <= 0L) {
         "尚未检查"
     } else {
-        DateTimeFormatter.ofPattern("MM-dd HH:mm", java.util.Locale.getDefault())
+        DateTimeFormatter.ofPattern("MM-dd HH:mm", locale)
             .withZone(ZoneId.systemDefault())
             .format(Instant.ofEpochMilli(value))
     }
 
-    private fun formatPairingTime(raw: String): String = runCatching {
-        DateTimeFormatter.ofPattern("MM-dd HH:mm", java.util.Locale.getDefault())
+    private fun formatPairingTime(raw: String, locale: java.util.Locale): String = runCatching {
+        DateTimeFormatter.ofPattern("MM-dd HH:mm", locale)
             .withZone(ZoneId.systemDefault())
             .format(Instant.parse(raw))
     }.getOrDefault("未知")
