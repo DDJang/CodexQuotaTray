@@ -30,6 +30,15 @@ class QuotaWidgetProjectionTest {
     }
 
     @Test
+    fun doubleWidgetPercentLabelsKeepBoundaryValuesWithoutOverlapProneFormatting() {
+        assertEquals("0%", formatQuotaPercent(0))
+        assertEquals("61%", formatQuotaPercent(61))
+        assertEquals("100%", formatQuotaPercent(100))
+        assertEquals("100%", formatQuotaPercent(123))
+        assertEquals("不可用", formatQuotaPercent(null))
+    }
+
+    @Test
     fun oneWindowAndUnknownRemainingAreRepresentedWithoutFabricatedZero() {
         val projection = QuotaWidgetProjection.fromResult(
             result("primary", window("primary", 300, null, null)),
