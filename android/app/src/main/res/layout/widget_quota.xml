@@ -108,7 +108,7 @@
                     android:textSize="10sp" />
             </LinearLayout>
 
-            <FrameLayout
+            <RelativeLayout
                 android:id="@+id/widget_quota_double_layout"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
@@ -118,8 +118,10 @@
                     android:id="@+id/widget_quota_double_labels"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_gravity="top|start"
+                    android:layout_alignParentStart="true"
+                    android:layout_alignParentTop="true"
                     android:layout_marginStart="2dp"
+                    android:layout_toStartOf="@id/widget_quota_double_rings"
                     android:orientation="vertical">
 
                     <TextView
@@ -142,11 +144,12 @@
                     android:id="@+id/widget_quota_double_rings"
                     android:layout_width="92dp"
                     android:layout_height="92dp"
-                    android:layout_gravity="center_vertical|end"
-                    android:layout_marginEnd="4dp"
+                    android:layout_alignParentEnd="true"
+                    android:layout_centerVertical="true"
+                    android:layout_marginEnd="0dp"
                     android:contentDescription="@null"
                     android:scaleType="fitCenter" />
-            </FrameLayout>
+            </RelativeLayout>
         </FrameLayout>
 
         <TextView
