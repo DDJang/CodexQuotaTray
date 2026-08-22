@@ -3,7 +3,6 @@
     <string name="reset_credits_available">%1$d available</string>
     <string name="reset_credits_details_unavailable">Expiry details unavailable</string>
     <string name="reset_credits_details_empty">No available details</string>
-    <string name="reset_credit_default_title">Reset credit</string>
     <string name="reset_credit_expiry">Expires %1$s</string>
     <string name="reset_credit_remaining">Remaining %1$s</string>
     <string name="reset_credit_expiry_section">Reset credit alerts</string>

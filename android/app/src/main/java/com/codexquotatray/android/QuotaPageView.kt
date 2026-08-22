@@ -477,47 +477,31 @@ private fun ResetCreditRow(
     locale: Locale,
     palette: ThemePalette,
 ) {
-    Row(
+    Column(
         Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top,
+        horizontalAlignment = Alignment.End,
     ) {
         Text(
-            text = credit.title?.trim()?.takeIf(String::isNotEmpty)
-                ?: credit.resetType?.trim()?.takeIf(String::isNotEmpty)?.let(::readableResetType)
-                ?: stringResource(com.codexquotatray.android.R.string.reset_credit_default_title),
-            modifier = Modifier.weight(1f),
-            fontSize = 15.sp,
-            color = palette.color(palette.body),
+            stringResource(
+                com.codexquotatray.android.R.string.reset_credit_expiry,
+                com.codexquotatray.android.ui.formatResetCreditExpiry(credit.expiresAt, zoneId, locale),
+            ),
+            fontSize = 13.sp,
+            color = palette.color(palette.secondary),
         )
-        Spacer(Modifier.size(12.dp))
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                stringResource(
-                    com.codexquotatray.android.R.string.reset_credit_expiry,
-                    com.codexquotatray.android.ui.formatResetCreditExpiry(credit.expiresAt, zoneId, locale),
+        Text(
+            stringResource(
+                com.codexquotatray.android.R.string.reset_credit_remaining,
+                com.codexquotatray.android.ui.formatResetCreditRemaining(
+                    credit.expiresAt,
+                    System.currentTimeMillis() / 1_000L,
                 ),
-                fontSize = 13.sp,
-                color = palette.color(palette.secondary),
-            )
-            Text(
-                stringResource(
-                    com.codexquotatray.android.R.string.reset_credit_remaining,
-                    com.codexquotatray.android.ui.formatResetCreditRemaining(
-                        credit.expiresAt,
-                        System.currentTimeMillis() / 1_000L,
-                    ),
-                ),
-                fontSize = 13.sp,
-                color = palette.color(palette.secondary),
-            )
-        }
+            ),
+            fontSize = 13.sp,
+            color = palette.color(palette.secondary),
+        )
     }
 }
-
-private fun readableResetType(value: String): String = value
-    .replace('_', ' ')
-    .replace('-', ' ')
-    .trim()
 
 @Composable
 private fun QuotaCardSurface(content: @Composable () -> Unit) {
