@@ -53,7 +53,7 @@ null 的字段；无基线、溢出或无法安全定位时完整补读。RPC er
 Android 通过设备代码 OAuth 获得 App 私有凭据，额度请求为：
 
 ```text
-GET https://chatgpt.com/api/codex/usage
+GET https://chatgpt.com/backend-api/wham/usage
 Authorization: Bearer <access-token>
 Accept: application/json
 ChatGPT-Account-Id: <account-id>  # 仅可靠时发送
@@ -62,7 +62,7 @@ ChatGPT-Account-Id: <account-id>  # 仅可靠时发送
 消费 `plan_type`、`rate_limit.primary_window`、`secondary_window` 和
 `additional_rate_limits[]`。窗口字段 `used_percent`、`reset_at`、`limit_window_seconds` 均可
 缺失。若响应含 `rate_limit_reset_credits.available_count > 0`，再用同一组 OAuth 请求只读的
-`GET https://chatgpt.com/api/codex/rate-limit-reset-credits` 获取明细；数量为 0 时不请求明细。
+`GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits` 获取明细；数量为 0 时不请求明细。
 明细失败不影响 usage 成功，`availableCount` 仍为权威值，`credits=null` 与成功返回的 `[]`
 保持可区分。401/403 允许一次 refresh 恢复后重试；普通刷新不无条件 refresh。
 

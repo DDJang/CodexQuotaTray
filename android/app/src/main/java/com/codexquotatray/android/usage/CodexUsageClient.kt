@@ -142,14 +142,16 @@ class CodexUsageClient(
             windows = windows,
             quotaState = if (windows.isEmpty()) "zero_windows" else "available",
             updatedAtMillis = nowMillis,
-            resetCredits = parseResetCreditSummary(json),
+            // Reset credits are optional metadata. A malformed summary must
+            // never change the base usage result's success semantics.
+            resetCredits = runCatching { parseResetCreditSummary(json) }.getOrNull(),
         )
     }
 
     private fun fetchResetCreditDetails(
         credentials: OAuthCredentials,
         callTimeoutMillis: Long?,
-    ): List<ResetCredit>? {
+    ): List<ResetCredit>? = try {
         val requestBuilder = Request.Builder()
             .url(resetCreditsUrl)
             .get()
@@ -161,15 +163,12 @@ class CodexUsageClient(
             ?.takeIf(String::isNotBlank)
             ?.let { requestBuilder.header("ChatGPT-Account-Id", it) }
 
-        val response = try {
-            clientFor(callTimeoutMillis).newCall(requestBuilder.build()).execute().use { result ->
-                HttpPayload(result.code, result.body?.string().orEmpty())
-            }
-        } catch (_: IOException) {
-            return null
+        val response = clientFor(callTimeoutMillis).newCall(requestBuilder.build()).execute().use { result ->
+            HttpPayload(result.code, result.body?.string().orEmpty())
         }
-        if (response.code !in 200..299) return null
-        return runCatching { parseResetCreditDetails(response.body) }.getOrNull()
+        if (response.code !in 200..299) null else parseResetCreditDetails(response.body)
+    } catch (_: Exception) {
+        null
     }
 
     private fun addRateWindow(
