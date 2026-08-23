@@ -407,7 +407,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             bool hasCredentials;
             try
             {
-                hasCredentials = await account!.HasUsableOAuthCredentialsAsync(cancellationToken).ConfigureAwait(false);
+                hasCredentials = await account!.HasUsableOAuthCredentialsAsync(cancellationToken);
             }
             catch (OAuthException)
             {
@@ -424,13 +424,13 @@ public sealed partial class SettingsViewModel : ObservableObject
         if ((SelectedQuotaDataSource == QuotaDataSource.CodexCli
                 || SelectedTokenUsageDataSource == TokenUsageDataSource.CodexCli)
             && account is not null
-            && !await account.HasUsableCodexCliAsync(cancellationToken).ConfigureAwait(false))
+            && !await account.HasUsableCodexCliAsync(cancellationToken))
         {
             StatusText = "当前 Codex CLI 不可用，无法应用该来源";
             return;
         }
 
-        await ApplySettingsAsync(ToSettings(includeDataSources: true), cancellationToken).ConfigureAwait(false);
+        await ApplySettingsAsync(ToSettings(includeDataSources: true), cancellationToken);
     }
 
     public Task ApplySelectedDataSourcesAsync(CancellationToken cancellationToken) =>
@@ -448,7 +448,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         try
         {
-            RefreshAccountStatusPresentation(await account.ReadStatusAsync(cancellationToken).ConfigureAwait(false));
+            RefreshAccountStatusPresentation(await account.ReadStatusAsync(cancellationToken));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -476,11 +476,11 @@ public sealed partial class SettingsViewModel : ObservableObject
         StatusText = "正在准备 OAuth 设备登录…";
         try
         {
-            var device = await account.RequestOAuthDeviceCodeAsync(cancellationToken).ConfigureAwait(false);
+            var device = await account.RequestOAuthDeviceCodeAsync(cancellationToken);
             OAuthUserCodeText = device.UserCode;
             OAuthVerificationUrl = device.VerificationUrl;
             StatusText = $"请打开 {device.VerificationUrl} 并输入设备码 {device.UserCode}";
-            var credentials = await account.CompleteOAuthLoginAsync(device, null, cancellationToken).ConfigureAwait(false);
+            var credentials = await account.CompleteOAuthLoginAsync(device, null, cancellationToken);
             OAuthAvailable = true;
             OAuthAccountStatusText = string.IsNullOrWhiteSpace(credentials.Email) ? "已登录" : credentials.Email!;
             StatusText = "OAuth 登录成功";
@@ -495,6 +495,13 @@ public sealed partial class SettingsViewModel : ObservableObject
             OAuthAccountStatusText = error.Kind == OAuthFailureKind.DeviceAuthDisabled
                 ? "设备码登录不可用"
                 : "未登录";
+            StatusText = "OAuth 登录失败";
+            OnPropertyChanged(nameof(IsOAuthAvailable));
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            OAuthAvailable = false;
+            OAuthAccountStatusText = "未登录";
             StatusText = "OAuth 登录失败";
             OnPropertyChanged(nameof(IsOAuthAvailable));
         }
@@ -514,12 +521,26 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        await account.LogoutOAuthAsync(cancellationToken).ConfigureAwait(false);
-        OAuthAvailable = false;
-        OAuthAccountStatusText = "未登录";
-        StatusText = "OAuth 已退出登录";
-        OnPropertyChanged(nameof(IsOAuthAvailable));
+        try
+        {
+            await account.LogoutOAuthAsync(cancellationToken);
+            OAuthAvailable = false;
+            OAuthAccountStatusText = "未登录";
+            StatusText = "OAuth 已退出登录";
+            OnPropertyChanged(nameof(IsOAuthAvailable));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            StatusText = "OAuth 退出登录失败";
+        }
     }
+
+    public void ReportOAuthVerificationOpenFailure() => StatusText = "无法打开设备验证页";
+
+    public void ReportDataSourceApplyFailure() => StatusText = "数据来源切换失败，已保留原来源";
 
     [RelayCommand]
     private void OpenOfficialUsage() => pageActions.OpenOfficialUsage();

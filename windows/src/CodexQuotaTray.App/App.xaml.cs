@@ -176,8 +176,11 @@ public partial class App : Application
             stateProvider,
             new ExternalNavigation(),
             runtimeStateEventsAuthoritative);
+        var presentationDispatcher = uiDispatcher
+            ?? throw new InvalidOperationException("The WinUI dispatcher is unavailable.");
         tokenUsageViewModel = new TokenUsageViewModel(
-            cancellationToken => ScanTokenUsageAsync(tokenUsageScanner, persistence, cancellationToken));
+            cancellationToken => ScanTokenUsageAsync(tokenUsageScanner, persistence, cancellationToken),
+            (action, cancellationToken) => EnqueueAsync(presentationDispatcher, action, cancellationToken));
         var tokenUsageViewModelLocal = tokenUsageViewModel;
         viewModelReference = viewModel;
         mainWindow = new MainWindow(viewModel, tokenUsageViewModelLocal, identity.DisplayName);
@@ -462,16 +465,18 @@ public partial class App : Application
 
     private void OnSettingsDataSourcesChanged(object? sender, DataSourcesChangedEventArgs args)
     {
-        if (!args.TokenUsageDataSourceChanged)
+        var viewModel = tokenUsageViewModel;
+        var dispatcher = uiDispatcher;
+        if (!args.TokenUsageDataSourceChanged || viewModel is null || dispatcher is null)
         {
             return;
         }
 
-        tokenUsageViewModel?.ClearForSourceChange();
-        if (tokenUsageViewModel is not null)
+        _ = dispatcher.TryEnqueue(() =>
         {
-            _ = tokenUsageViewModel.RefreshAfterSourceChangeAsync(lifetime.Token);
-        }
+            viewModel.ClearForSourceChange();
+            _ = viewModel.RefreshAfterSourceChangeAsync(lifetime.Token);
+        });
     }
 
     private void OnSettingsThemeSaved(object? sender, ThemeMode mode)

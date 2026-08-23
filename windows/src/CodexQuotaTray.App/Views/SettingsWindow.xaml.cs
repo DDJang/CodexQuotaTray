@@ -261,7 +261,14 @@ public sealed partial class SettingsWindow : Window
             return;
         }
 
-        await viewModel.ApplySelectedDataSourcesAsync(CancellationToken.None);
+        try
+        {
+            await viewModel.ApplySelectedDataSourcesAsync(CancellationToken.None);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            viewModel.ReportDataSourceApplyFailure();
+        }
     }
 
     private void OnOpenOAuthVerificationRequested(object sender, RoutedEventArgs args)
@@ -273,7 +280,14 @@ public sealed partial class SettingsWindow : Window
             return;
         }
 
-        Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+        try
+        {
+            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            viewModel.ReportOAuthVerificationOpenFailure();
+        }
     }
 
     private async void OnUpdateCheckCompleted(object? sender, WindowsUpdateCheckResult result)

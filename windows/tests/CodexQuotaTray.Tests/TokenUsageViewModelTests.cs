@@ -228,6 +228,53 @@ public sealed class TokenUsageViewModelTests
     }
 
     [TestMethod]
+    public async Task RefreshCommitsBoundStateThroughTheConfiguredDispatcher()
+    {
+        var insideDispatcher = false;
+        var mutationsOutsideDispatcher = new List<string>();
+        var snapshot = CreateSnapshot(128_392) with { Source = TokenUsageDataSource.CodexCli };
+        var viewModel = new TokenUsageViewModel(
+            async _ =>
+            {
+                await Task.Yield();
+                return snapshot;
+            },
+            (action, _) =>
+            {
+                insideDispatcher = true;
+                try
+                {
+                    action();
+                }
+                finally
+                {
+                    insideDispatcher = false;
+                }
+
+                return Task.CompletedTask;
+            });
+        viewModel.PropertyChanged += (_, args) =>
+        {
+            if (!insideDispatcher)
+            {
+                mutationsOutsideDispatcher.Add(args.PropertyName ?? "(unknown property)");
+            }
+        };
+        viewModel.HeatmapCells.CollectionChanged += (_, _) =>
+        {
+            if (!insideDispatcher)
+            {
+                mutationsOutsideDispatcher.Add(nameof(viewModel.HeatmapCells));
+            }
+        };
+
+        await viewModel.RefreshNowAsync(CancellationToken.None);
+
+        Assert.IsEmpty(mutationsOutsideDispatcher);
+        Assert.HasCount(119, viewModel.HeatmapCells);
+    }
+
+    [TestMethod]
     public void BackgroundRefreshPolicyUsesConfiguredFixedIntervals()
     {
         var now = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);

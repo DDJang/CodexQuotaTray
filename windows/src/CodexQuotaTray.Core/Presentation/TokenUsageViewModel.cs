@@ -13,6 +13,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
 {
     private const int HeatmapWeeks = 17;
     private readonly Func<CancellationToken, Task<TokenUsageSnapshot>> scan;
+    private readonly Func<Action, CancellationToken, Task> dispatch;
     private readonly SemaphoreSlim refreshGate = new(1, 1);
     private TokenUsageSnapshot? snapshot;
     private int sourceGeneration;
@@ -66,9 +67,16 @@ public sealed partial class TokenUsageViewModel : ObservableObject
     [ObservableProperty]
     private string longestStreak = "0 天";
 
-    public TokenUsageViewModel(Func<CancellationToken, Task<TokenUsageSnapshot>> scan)
+    public TokenUsageViewModel(
+        Func<CancellationToken, Task<TokenUsageSnapshot>> scan,
+        Func<Action, CancellationToken, Task>? dispatch = null)
     {
         this.scan = scan;
+        this.dispatch = dispatch ?? ((action, _) =>
+        {
+            action();
+            return Task.CompletedTask;
+        });
     }
 
     public ObservableCollection<TokenHeatmapCell> HeatmapCells { get; } = [];
@@ -121,18 +129,31 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         var generation = Volatile.Read(ref sourceGeneration);
         try
         {
-            LastAttemptUtc = DateTimeOffset.UtcNow;
-            IsRefreshing = true;
-            ShowLoading = snapshot is null;
-            StatusText = "正在刷新…";
-            StatusTone = StatusTone.Refreshing;
-            HasErrorWithoutData = false;
+            await dispatch(
+                () =>
+                {
+                    LastAttemptUtc = DateTimeOffset.UtcNow;
+                    IsRefreshing = true;
+                    ShowLoading = snapshot is null;
+                    StatusText = "正在刷新…";
+                    StatusTone = StatusTone.Refreshing;
+                    HasErrorWithoutData = false;
+                },
+                cancellationToken).ConfigureAwait(false);
             try
             {
                 var value = await scan(cancellationToken).ConfigureAwait(false);
                 if (generation == Volatile.Read(ref sourceGeneration))
                 {
-                    Apply(value);
+                    await dispatch(
+                        () =>
+                        {
+                            if (generation == Volatile.Read(ref sourceGeneration))
+                            {
+                                Apply(value);
+                            }
+                        },
+                        cancellationToken).ConfigureAwait(false);
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -142,17 +163,38 @@ public sealed partial class TokenUsageViewModel : ObservableObject
             {
                 if (generation == Volatile.Read(ref sourceGeneration))
                 {
-                    StatusText = snapshot is null ? "刷新失败" : "刷新失败 · 显示上次数据";
-                    StatusTone = snapshot is null ? StatusTone.Error : StatusTone.Warning;
-                    HasErrorWithoutData = snapshot is null;
+                    await dispatch(
+                        () =>
+                        {
+                            if (generation != Volatile.Read(ref sourceGeneration))
+                            {
+                                return;
+                            }
+
+                            StatusText = snapshot is null ? "刷新失败" : "刷新失败 · 显示上次数据";
+                            StatusTone = snapshot is null ? StatusTone.Error : StatusTone.Warning;
+                            HasErrorWithoutData = snapshot is null;
+                        },
+                        CancellationToken.None).ConfigureAwait(false);
                 }
             }
         }
         finally
         {
-            IsRefreshing = false;
-            ShowLoading = false;
-            refreshGate.Release();
+            try
+            {
+                await dispatch(
+                    () =>
+                    {
+                        IsRefreshing = false;
+                        ShowLoading = false;
+                    },
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            finally
+            {
+                refreshGate.Release();
+            }
         }
     }
 
