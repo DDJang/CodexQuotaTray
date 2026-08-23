@@ -1,6 +1,9 @@
+using System.Net;
+using CodexQuotaTray.Core.Auth;
 using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
+using CodexQuotaTray.Core.Protocol;
 using CodexQuotaTray.Core.Runtime;
 using CodexQuotaTray.Core.Updates;
 
@@ -519,6 +522,41 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public async Task OAuthDeviceLoginCanBeCancelledWithoutDisablingDataSources()
+    {
+        using var httpClient = new HttpClient(new OAuthLoginPendingHandler());
+        var credentials = new OAuthCredentialManager(
+            new EmptyOAuthCredentialStore(),
+            new OAuthClient(httpClient, "https://auth.test"));
+        await using var account = new WindowsAccountService(new UnusedCliFactory(), credentials);
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions(),
+            account: account);
+
+        var login = viewModel.LoginOAuthCommand.ExecuteAsync(null);
+        for (var attempt = 0; attempt < 100 && !viewModel.ShowOAuthDeviceLoginDetails; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.IsTrue(viewModel.ShowOAuthDeviceLoginDetails);
+        Assert.IsTrue(viewModel.ShowOAuthCancelButton);
+        Assert.IsTrue(viewModel.CanEditDataSources);
+
+        viewModel.CancelOAuthLoginCommand.Execute(null);
+        await login;
+
+        Assert.IsFalse(viewModel.OAuthLoginInProgress);
+        Assert.IsFalse(viewModel.ShowOAuthDeviceLoginDetails);
+        Assert.IsFalse(viewModel.ShowOAuthCancelButton);
+        Assert.IsTrue(viewModel.ShowOAuthLoginButton);
+        Assert.AreEqual("未登录", viewModel.OAuthAccountStatusText);
+        Assert.AreEqual("OAuth 登录已取消", viewModel.StatusText);
+    }
+
+    [TestMethod]
     public async Task RuntimeAuthoritativeProviderDoesNotReapplyReturnedSnapshot()
     {
         var returned = new AppUiState(
@@ -573,6 +611,42 @@ public sealed class ViewModelTests
 
         public ValueTask RequestAsync(RefreshReason reason, CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
+    }
+
+    private sealed class EmptyOAuthCredentialStore : IOAuthCredentialStore
+    {
+        public Task<OAuthCredentials?> LoadAsync(CancellationToken cancellationToken) => Task.FromResult<OAuthCredentials?>(null);
+
+        public Task SaveAsync(OAuthCredentials credentials, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task ClearAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class UnusedCliFactory : ICodexAppServerClientFactory
+    {
+        public ICodexAppServerClient Create() => throw new InvalidOperationException("CLI is not used by this test.");
+    }
+
+    private sealed class OAuthLoginPendingHandler : HttpMessageHandler
+    {
+        private int requestCount;
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            var response = Interlocked.Increment(ref requestCount) == 1
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "{\"device_auth_id\":\"device-1\",\"user_code\":\"ABCD-EFGH\",\"interval\":1}"),
+                }
+                : new HttpResponseMessage(HttpStatusCode.Forbidden)
+                {
+                    Content = new StringContent("{}"),
+                };
+            return Task.FromResult(response);
+        }
     }
 
     private sealed class StubSettingsPlatformActions(bool canConfigureStartup = true) : ISettingsPlatformActions

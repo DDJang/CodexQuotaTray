@@ -70,6 +70,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly WindowsAccountService? account;
     private readonly SemaphoreSlim applyGate = new(1, 1);
     private readonly SemaphoreSlim dataSourceGate = new(1, 1);
+    private CancellationTokenSource? oauthLoginCancellationSource;
     private bool suppressSettingsApply = true;
     private bool suppressUpdateApply = true;
     private long settingsRevision;
@@ -175,8 +176,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             if (SetProperty(ref oauthLoginInProgress, value))
             {
-                OnPropertyChanged(nameof(CanEditDataSources));
                 OnPropertyChanged(nameof(ShowOAuthLoginButton));
+                OnPropertyChanged(nameof(ShowOAuthCancelButton));
                 OnPropertyChanged(nameof(ShowOAuthDeviceLoginDetails));
             }
         }
@@ -191,6 +192,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             {
                 OnPropertyChanged(nameof(IsOAuthAvailable));
                 OnPropertyChanged(nameof(ShowOAuthLoginButton));
+                OnPropertyChanged(nameof(ShowOAuthCancelButton));
                 OnPropertyChanged(nameof(ShowOAuthLogoutButton));
             }
         }
@@ -300,9 +302,11 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public bool IsOAuthAvailable => OAuthAvailable;
 
-    public bool CanEditDataSources => !IsBusy && !OAuthLoginInProgress && !DataSourceChangeInProgress;
+    public bool CanEditDataSources => !IsBusy && !DataSourceChangeInProgress;
 
     public bool ShowOAuthLoginButton => !OAuthAvailable && !OAuthLoginInProgress;
+
+    public bool ShowOAuthCancelButton => !OAuthAvailable && OAuthLoginInProgress;
 
     public bool ShowOAuthLogoutButton => OAuthAvailable;
 
@@ -554,19 +558,24 @@ public sealed partial class SettingsViewModel : ObservableObject
         OAuthUserCodeText = string.Empty;
         OAuthVerificationUrl = string.Empty;
         StatusText = "正在准备 OAuth 设备登录…";
+        using var loginCancellationSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        oauthLoginCancellationSource = loginCancellationSource;
         try
         {
-            var device = await account.RequestOAuthDeviceCodeAsync(cancellationToken);
+            var device = await account.RequestOAuthDeviceCodeAsync(loginCancellationSource.Token);
             OAuthUserCodeText = device.UserCode;
             OAuthVerificationUrl = device.VerificationUrl;
             StatusText = $"请打开 {device.VerificationUrl} 并输入设备码 {device.UserCode}";
-            var credentials = await account.CompleteOAuthLoginAsync(device, null, cancellationToken);
+            var credentials = await account.CompleteOAuthLoginAsync(device, null, loginCancellationSource.Token);
             OAuthAvailable = true;
             OAuthAccountStatusText = string.IsNullOrWhiteSpace(credentials.Email) ? "已登录" : credentials.Email!;
             StatusText = "OAuth 登录成功";
         }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (loginCancellationSource.IsCancellationRequested)
         {
+            OAuthAvailable = false;
+            OAuthAccountStatusText = "未登录";
+            StatusText = "OAuth 登录已取消";
         }
         catch (OAuthException error)
         {
@@ -584,10 +593,20 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         finally
         {
+            if (ReferenceEquals(oauthLoginCancellationSource, loginCancellationSource))
+            {
+                oauthLoginCancellationSource = null;
+            }
+
+            OAuthUserCodeText = string.Empty;
+            OAuthVerificationUrl = string.Empty;
             OAuthLoginInProgress = false;
             LoginOAuthCommand.NotifyCanExecuteChanged();
         }
     }
+
+    [RelayCommand]
+    private void CancelOAuthLogin() => oauthLoginCancellationSource?.Cancel();
 
     [RelayCommand]
     private async Task LogoutOAuthAsync(CancellationToken cancellationToken)
