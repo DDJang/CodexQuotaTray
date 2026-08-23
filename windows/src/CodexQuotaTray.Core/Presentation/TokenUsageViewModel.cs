@@ -127,6 +127,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         }
 
         var generation = Volatile.Read(ref sourceGeneration);
+        var refreshPresentationStartedTimestamp = Stopwatch.GetTimestamp();
         try
         {
             await dispatch(
@@ -183,6 +184,9 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         {
             try
             {
+                await RefreshPresentationPolicy
+                    .WaitForMinimumAsync(refreshPresentationStartedTimestamp)
+                    .ConfigureAwait(false);
                 await dispatch(
                     () =>
                     {

@@ -1,4 +1,5 @@
 using CodexQuotaTray.Core.Models;
+using System.Diagnostics;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Runtime;
@@ -192,6 +193,22 @@ public sealed class TokenUsageViewModelTests
 
         releaseScan.SetResult();
         await refresh;
+    }
+
+    [TestMethod]
+    public async Task FastRefreshKeepsLoadingPresentationVisibleForMinimumDuration()
+    {
+        var viewModel = new TokenUsageViewModel(_ => Task.FromResult(CreateSnapshot(128_392)));
+        var elapsed = Stopwatch.StartNew();
+
+        await viewModel.RefreshNowAsync(CancellationToken.None);
+
+        Assert.IsGreaterThanOrEqualTo(
+            RefreshPresentationPolicy.MinimumIndicatorDuration - TimeSpan.FromMilliseconds(75),
+            elapsed.Elapsed);
+        Assert.IsFalse(viewModel.IsRefreshing);
+        Assert.IsFalse(viewModel.ShowLoading);
+        Assert.IsTrue(viewModel.ShowContent);
     }
 
     [TestMethod]

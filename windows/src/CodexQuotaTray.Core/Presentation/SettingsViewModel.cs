@@ -154,7 +154,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     public string OAuthUserCodeText
     {
         get => oauthUserCodeText;
-        private set => SetProperty(ref oauthUserCodeText, value);
+        private set
+        {
+            if (SetProperty(ref oauthUserCodeText, value))
+            {
+                OnPropertyChanged(nameof(OAuthUserCodeDisplayText));
+                OnPropertyChanged(nameof(OAuthUserCodeClipboardText));
+            }
+        }
     }
 
     public string OAuthVerificationUrl
@@ -165,6 +172,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             if (SetProperty(ref oauthVerificationUrl, value))
             {
                 OnPropertyChanged(nameof(ShowOAuthDeviceLoginDetails));
+                OnPropertyChanged(nameof(ShowOAuthLoginPreparing));
+                OnPropertyChanged(nameof(OAuthVerificationDisplayText));
             }
         }
     }
@@ -179,6 +188,7 @@ public sealed partial class SettingsViewModel : ObservableObject
                 OnPropertyChanged(nameof(ShowOAuthLoginButton));
                 OnPropertyChanged(nameof(ShowOAuthCancelButton));
                 OnPropertyChanged(nameof(ShowOAuthDeviceLoginDetails));
+                OnPropertyChanged(nameof(ShowOAuthLoginPreparing));
             }
         }
     }
@@ -312,6 +322,16 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public bool ShowOAuthDeviceLoginDetails =>
         OAuthLoginInProgress && !string.IsNullOrWhiteSpace(OAuthVerificationUrl);
+
+    public bool ShowOAuthLoginPreparing =>
+        OAuthLoginInProgress && string.IsNullOrWhiteSpace(OAuthVerificationUrl);
+
+    public string OAuthUserCodeDisplayText => $"代码：{OAuthUserCodeText}";
+
+    public string OAuthUserCodeClipboardText =>
+        OAuthUserCodeText.Replace("-", string.Empty, StringComparison.Ordinal);
+
+    public string OAuthVerificationDisplayText => $"验证网址：{OAuthVerificationUrl}";
 
     public int SelectedQuotaDataSourceIndex => (int)SelectedQuotaDataSource;
 
@@ -643,6 +663,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     public void ReportOAuthVerificationOpenFailure() => StatusText = "无法打开设备验证页";
+
+    public void ReportOAuthCodeCopied() => StatusText = "设备登录代码已复制";
+
+    public void ReportOAuthCodeCopyFailure() => StatusText = "无法复制设备登录代码";
 
     public void ReportDataSourceApplyFailure() => StatusText = "数据来源切换失败，已保留原来源";
 
@@ -1197,7 +1221,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             CliAccountAvailable = value.CodexCliAccount?.IsAuthenticated == true;
             CliAccountStatusText = value.CodexCliAccount is { IsAuthenticated: true } cli
-                ? FormatAccount(cli)
+                ? FormatCliAccount(cli)
                 : value.CodexCliAvailable
                     ? "未登录，请先通过 Codex CLI 登录"
                     : "不可用";
@@ -1212,4 +1236,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         string.IsNullOrWhiteSpace(value.Email)
             ? value.PlanType ?? "已连接"
             : value.Email!;
+
+    private static string FormatCliAccount(AccountReadResult value) =>
+        $"已登录 · {FormatAccount(value)}";
 }

@@ -222,7 +222,7 @@
                                     <TextBlock Text="Codex CLI 账户" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="{Binding CliAccountStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <Button Grid.Column="1" Width="160" Content="刷新状态" Command="{Binding RefreshAccountStatusCommand}" Style="{StaticResource SettingsActionButtonStyle}" />
+                                <Button Grid.Column="1" MinWidth="120" Content="刷新状态" Command="{Binding RefreshAccountStatusCommand}" Style="{StaticResource SettingsActionButtonStyle}" />
                             </Grid>
                         </Border>
                         <Border Style="{StaticResource SettingsItemCardStyle}">
@@ -234,14 +234,22 @@
                                         <TextBlock Text="{Binding OAuthAccountStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                        <Button Width="160" Content="登录 OAuth" Command="{Binding LoginOAuthCommand}" Style="{StaticResource SettingsActionButtonStyle}" Visibility="{Binding ShowOAuthLoginButton, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                        <Button Width="160" Content="取消登录" Command="{Binding CancelOAuthLoginCommand}" Style="{StaticResource SettingsActionButtonStyle}" Visibility="{Binding ShowOAuthCancelButton, Converter={StaticResource BooleanToVisibilityConverter}}" />
-                                        <Button Width="160" Content="退出登录" Command="{Binding LogoutOAuthCommand}" Style="{StaticResource SettingsActionButtonStyle}" Visibility="{Binding ShowOAuthLogoutButton, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                        <Button MinWidth="120" Content="登录 OAuth" Command="{Binding LoginOAuthCommand}" Style="{StaticResource SettingsActionButtonStyle}" Visibility="{Binding ShowOAuthLoginButton, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                        <Button MinWidth="120" Content="取消登录" Command="{Binding CancelOAuthLoginCommand}" Style="{StaticResource SettingsActionButtonStyle}" Visibility="{Binding ShowOAuthCancelButton, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                        <Button MinWidth="120" Content="退出登录" Command="{Binding LogoutOAuthCommand}" Style="{StaticResource SettingsActionButtonStyle}" Visibility="{Binding ShowOAuthLogoutButton, Converter={StaticResource BooleanToVisibilityConverter}}" />
                                     </StackPanel>
                                 </Grid>
+                                <StackPanel Orientation="Horizontal" Spacing="8" Visibility="{Binding ShowOAuthLoginPreparing, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <ProgressRing Width="18" Height="18" IsActive="{Binding ShowOAuthLoginPreparing}" />
+                                    <TextBlock VerticalAlignment="Center" Text="正在获取设备登录代码…" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
                                 <StackPanel Spacing="8" Visibility="{Binding ShowOAuthDeviceLoginDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                    <TextBlock Text="{Binding OAuthUserCodeText}" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="{Binding OAuthVerificationUrl}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock VerticalAlignment="Center" Text="{Binding OAuthUserCodeDisplayText}" Style="{StaticResource SettingsLabelStyle}" />
+                                        <Button Grid.Column="1" MinHeight="32" Content="复制代码" Click="OnCopyOAuthCodeRequested" Style="{StaticResource SettingsActionButtonStyle}" AutomationProperties.Name="复制 OAuth 设备代码" />
+                                    </Grid>
+                                    <TextBlock Text="{Binding OAuthVerificationDisplayText}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
                                     <Button Content="打开设备验证页" Click="OnOpenOAuthVerificationRequested" Style="{StaticResource SettingsActionButtonStyle}" HorizontalAlignment="Left" />
                                     <TextBlock Text="设备登录会在外部浏览器完成；应用不会读取浏览器 Cookie。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
                                 </StackPanel>
@@ -258,7 +266,7 @@
                                     <TextBlock Text="额度来源" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="{Binding SelectedQuotaDataSourceDescription}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
                                 </StackPanel>
-                                <ComboBox Grid.Column="1" Width="224" SelectedIndex="{Binding SelectedQuotaDataSourceIndex, Mode=OneWay}" IsEnabled="{Binding CanEditDataSources}" SelectionChanged="OnQuotaDataSourceSelectionChanged">
+                                <ComboBox Grid.Column="1" Width="224" VerticalAlignment="Center" SelectedIndex="{Binding SelectedQuotaDataSourceIndex, Mode=OneWay}" IsEnabled="{Binding CanEditDataSources}" SelectionChanged="OnQuotaDataSourceSelectionChanged">
                                     <ComboBoxItem Content="OpenAI（Codex CLI）" IsEnabled="{Binding DataContext.CliAccountAvailable, ElementName=SettingsRoot}" />
                                     <ComboBoxItem Content="OpenAI（OAuth）" IsEnabled="{Binding DataContext.OAuthAvailable, ElementName=SettingsRoot}" />
                                 </ComboBox>
@@ -271,7 +279,7 @@
                                     <TextBlock Text="统计来源" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="{Binding SelectedTokenUsageDataSourceDescription}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
                                 </StackPanel>
-                                <ComboBox Grid.Column="1" Width="224" SelectedIndex="{Binding SelectedTokenUsageDataSourceIndex, Mode=OneWay}" IsEnabled="{Binding CanEditDataSources}" SelectionChanged="OnStatisticsDataSourceSelectionChanged">
+                                <ComboBox Grid.Column="1" Width="224" VerticalAlignment="Center" SelectedIndex="{Binding SelectedTokenUsageDataSourceIndex, Mode=OneWay}" IsEnabled="{Binding CanEditDataSources}" SelectionChanged="OnStatisticsDataSourceSelectionChanged">
                                     <ComboBoxItem Content="本机" />
                                     <ComboBoxItem Content="OpenAI（Codex CLI）" IsEnabled="{Binding DataContext.CliAccountAvailable, ElementName=SettingsRoot}" />
                                     <ComboBoxItem Content="OpenAI（OAuth）" IsEnabled="{Binding DataContext.OAuthAvailable, ElementName=SettingsRoot}" />

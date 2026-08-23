@@ -80,7 +80,7 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
-    public void ApplySnapshot_SynchronizesAutomaticRefreshStateAndCommand()
+    public async Task ApplySnapshot_SynchronizesAutomaticRefreshStateAndCommand()
     {
         var viewModel = new MainViewModel(
             new StubProvider(new AppUiState(
@@ -113,6 +113,12 @@ public sealed class ViewModelTests
             StatusTone = StatusTone.Success,
             IsRefreshing = false,
         });
+
+        Assert.IsTrue(viewModel.IsRefreshing);
+        Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
+        Assert.AreEqual("正在刷新…", viewModel.StatusText);
+
+        await Task.Delay(RefreshPresentationPolicy.MinimumIndicatorDuration + TimeSpan.FromMilliseconds(150));
 
         Assert.IsFalse(viewModel.IsRefreshing);
         Assert.IsTrue(viewModel.RefreshCommand.CanExecute(null));
@@ -524,7 +530,8 @@ public sealed class ViewModelTests
     [TestMethod]
     public async Task OAuthDeviceLoginCanBeCancelledWithoutDisablingDataSources()
     {
-        using var httpClient = new HttpClient(new OAuthLoginPendingHandler());
+        var handler = new OAuthLoginPendingHandler();
+        using var httpClient = new HttpClient(handler);
         var credentials = new OAuthCredentialManager(
             new EmptyOAuthCredentialStore(),
             new OAuthClient(httpClient, "https://auth.test"));
@@ -536,14 +543,23 @@ public sealed class ViewModelTests
             account: account);
 
         var login = viewModel.LoginOAuthCommand.ExecuteAsync(null);
+        Assert.IsTrue(viewModel.ShowOAuthLoginPreparing);
+        Assert.IsTrue(viewModel.ShowOAuthCancelButton);
+        Assert.IsTrue(viewModel.CanEditDataSources);
+
+        handler.ReleaseDeviceCode();
         for (var attempt = 0; attempt < 100 && !viewModel.ShowOAuthDeviceLoginDetails; attempt++)
         {
             await Task.Delay(10);
         }
 
         Assert.IsTrue(viewModel.ShowOAuthDeviceLoginDetails);
+        Assert.IsFalse(viewModel.ShowOAuthLoginPreparing);
         Assert.IsTrue(viewModel.ShowOAuthCancelButton);
         Assert.IsTrue(viewModel.CanEditDataSources);
+        Assert.AreEqual("代码：ABCD-EFGH", viewModel.OAuthUserCodeDisplayText);
+        Assert.AreEqual("ABCDEFGH", viewModel.OAuthUserCodeClipboardText);
+        Assert.AreEqual("验证网址：https://auth.test/codex/device", viewModel.OAuthVerificationDisplayText);
 
         viewModel.CancelOAuthLoginCommand.Execute(null);
         await login;
@@ -629,23 +645,30 @@ public sealed class ViewModelTests
 
     private sealed class OAuthLoginPendingHandler : HttpMessageHandler
     {
+        private readonly TaskCompletionSource deviceCodeRelease =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int requestCount;
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        internal void ReleaseDeviceCode() => deviceCodeRelease.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            var response = Interlocked.Increment(ref requestCount) == 1
-                ? new HttpResponseMessage(HttpStatusCode.OK)
+            if (Interlocked.Increment(ref requestCount) == 1)
+            {
+                await deviceCodeRelease.Task.WaitAsync(cancellationToken);
+                return new HttpResponseMessage(HttpStatusCode.OK)
                 {
                     Content = new StringContent(
                         "{\"device_auth_id\":\"device-1\",\"user_code\":\"ABCD-EFGH\",\"interval\":1}"),
-                }
-                : new HttpResponseMessage(HttpStatusCode.Forbidden)
-                {
-                    Content = new StringContent("{}"),
                 };
-            return Task.FromResult(response);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.Forbidden)
+            {
+                Content = new StringContent("{}"),
+            };
         }
     }
 

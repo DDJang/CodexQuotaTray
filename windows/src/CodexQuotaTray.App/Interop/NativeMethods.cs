@@ -41,6 +41,7 @@ internal static class NativeMethods
     internal const int GwlWndProc = -4;
     internal const int DwmwaWindowCornerPreference = 33;
     internal const int DwmwaBorderColor = 34;
+    internal const int DwmwaCloak = 13;
     internal const int DwmColorNone = unchecked((int)0xFFFFFFFE);
     internal const int DwmWindowCornerPreferenceRound = 2;
     internal const int SwHide = 0;

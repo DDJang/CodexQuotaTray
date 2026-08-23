@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.ApplicationModel.DataTransfer;
 using WinRT.Interop;
 using Windows.Graphics;
 
@@ -300,6 +301,28 @@ public sealed partial class SettingsWindow : Window
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
             viewModel.ReportOAuthVerificationOpenFailure();
+        }
+    }
+
+    private void OnCopyOAuthCodeRequested(object sender, RoutedEventArgs args)
+    {
+        var code = viewModel.OAuthUserCodeClipboardText;
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return;
+        }
+
+        try
+        {
+            var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+            package.SetText(code);
+            Clipboard.SetContent(package);
+            Clipboard.Flush();
+            viewModel.ReportOAuthCodeCopied();
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            viewModel.ReportOAuthCodeCopyFailure();
         }
     }
 
