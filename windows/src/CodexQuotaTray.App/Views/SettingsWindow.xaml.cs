@@ -1,5 +1,6 @@
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.App.Services;
+using System.Diagnostics;
 using CodexQuotaTray.Core;
 using BackdropKind = CodexQuotaTray.Core.Models.BackdropKind;
 using CodexQuotaTray.Core.Persistence;
@@ -155,6 +156,8 @@ public sealed partial class SettingsWindow : Window
         {
             "General" => ("常规", GeneralSettingsPanel),
             "Sync" => ("刷新与同步", SyncSettingsPanel),
+            "Account" => ("账户", AccountSettingsPanel),
+            "DataSources" => ("数据来源", DataSourcesSettingsPanel),
             "Appearance" => ("个性化", AppearanceSettingsPanel),
             "Alerts" => ("提醒", AlertSettingsPanel),
             "Updates" => ("更新", UpdateSettingsPanel),
@@ -182,6 +185,8 @@ public sealed partial class SettingsWindow : Window
     [
         GeneralSettingsPanel,
         SyncSettingsPanel,
+        AccountSettingsPanel,
+        DataSourcesSettingsPanel,
         AppearanceSettingsPanel,
         AlertSettingsPanel,
         UpdateSettingsPanel,
@@ -233,6 +238,42 @@ public sealed partial class SettingsWindow : Window
             viewModel.RefreshTokenSyncStatus();
             UpdateTokenSyncQrCode();
         });
+    }
+
+    private async void OnApplyDataSourcesRequested(object sender, RoutedEventArgs args)
+    {
+        if (!viewModel.HasPendingDataSourceChanges)
+        {
+            return;
+        }
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = SettingsRoot.XamlRoot,
+            Title = "确认切换数据来源？",
+            Content = "切换后会清除当前页面的旧来源投影，并立即读取新来源。不同来源的数据不会互相回退或合并。",
+            PrimaryButtonText = "应用并刷新",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Primary,
+        };
+        if (await TryShowDialogAsync(dialog) != ContentDialogResult.Primary)
+        {
+            return;
+        }
+
+        await viewModel.ApplySelectedDataSourcesAsync(CancellationToken.None);
+    }
+
+    private void OnOpenOAuthVerificationRequested(object sender, RoutedEventArgs args)
+    {
+        if (!Uri.TryCreate(viewModel.OAuthVerificationUrl, UriKind.Absolute, out var uri)
+            || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(uri.Host, "auth.openai.com", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
     }
 
     private async void OnUpdateCheckCompleted(object? sender, WindowsUpdateCheckResult result)

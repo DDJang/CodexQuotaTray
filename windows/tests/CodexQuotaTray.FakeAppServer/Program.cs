@@ -51,6 +51,45 @@ while (await Console.In.ReadLineAsync() is { } line)
             continue;
         }
 
+        if (method == "account/read" && initialized && mode != "method-not-found")
+        {
+            await WriteAsync(new
+            {
+                id = id.GetInt64(),
+                result = new
+                {
+                    requiresOpenaiAuth = false,
+                    account = new { type = "chatgpt", email = "account@example.invalid", planType = "plus" },
+                },
+            });
+            continue;
+        }
+
+        if (method == "account/usage/read" && initialized && mode != "method-not-found")
+        {
+            await WriteAsync(new
+            {
+                id = id.GetInt64(),
+                result = new
+                {
+                    summary = new
+                    {
+                        lifetimeTokens = 12_345L,
+                        peakDailyTokens = 2_345L,
+                        currentStreakDays = 3L,
+                        longestStreakDays = 8L,
+                        longestRunningTurnSec = 42L,
+                    },
+                    dailyUsageBuckets = new[]
+                    {
+                        new { startDate = "2026-08-23", tokens = 512L },
+                        new { startDate = "2026-08-22", tokens = 256L },
+                    },
+                },
+            });
+            continue;
+        }
+
         if (method != "account/rateLimits/read" || !initialized)
         {
             await WriteAsync(new { id = id.GetInt64(), error = new { code = -32601, message = "method not found" } });

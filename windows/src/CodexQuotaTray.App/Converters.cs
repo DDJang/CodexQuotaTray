@@ -1,4 +1,5 @@
 using CodexQuotaTray.Core.Models;
+using CodexQuotaTray.Core.Persistence;
 using PersistenceThemeMode = CodexQuotaTray.Core.Persistence.ThemeMode;
 using RuntimeRefreshMode = CodexQuotaTray.Core.Runtime.RefreshMode;
 using Microsoft.UI.Xaml;
@@ -89,6 +90,33 @@ public sealed class ThemeModeDisplayConverter : IValueConverter
         PersistenceThemeMode.System => "跟随系统",
         PersistenceThemeMode.Light => "浅色",
         PersistenceThemeMode.Dark => "深色",
+        _ => value?.ToString() ?? string.Empty,
+    };
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+public sealed class QuotaDataSourceDisplayConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) => value switch
+    {
+        QuotaDataSource.CodexCli => "OpenAI（Codex CLI）",
+        QuotaDataSource.OAuth => "OpenAI（OAuth）",
+        _ => value?.ToString() ?? string.Empty,
+    };
+
+    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
+        throw new NotSupportedException();
+}
+
+public sealed class TokenUsageDataSourceDisplayConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, string language) => value switch
+    {
+        TokenUsageDataSource.Local => "本机历史",
+        TokenUsageDataSource.CodexCli => "OpenAI（Codex CLI）",
+        TokenUsageDataSource.OAuth => "OpenAI（OAuth）",
         _ => value?.ToString() ?? string.Empty,
     };
 

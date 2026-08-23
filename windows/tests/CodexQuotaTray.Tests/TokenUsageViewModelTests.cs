@@ -1,4 +1,5 @@
 using CodexQuotaTray.Core.Models;
+using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Runtime;
 using CodexQuotaTray.Core.TokenUsage;
@@ -191,6 +192,39 @@ public sealed class TokenUsageViewModelTests
 
         releaseScan.SetResult();
         await refresh;
+    }
+
+    [TestMethod]
+    public async Task SourceChangeDoesNotProjectAnOlderRefreshResult()
+    {
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = CreateSnapshot(111);
+        var second = CreateSnapshot(222) with { Source = TokenUsageDataSource.OAuth };
+        var calls = 0;
+        var viewModel = new TokenUsageViewModel(async _ =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                firstStarted.SetResult();
+                await releaseFirst.Task;
+                return first;
+            }
+
+            return second;
+        });
+
+        var firstRefresh = viewModel.RefreshNowAsync(CancellationToken.None);
+        await firstStarted.Task;
+        viewModel.ClearForSourceChange();
+        var secondRefresh = viewModel.RefreshAfterSourceChangeAsync(CancellationToken.None);
+
+        Assert.IsFalse(secondRefresh.IsCompleted);
+        releaseFirst.SetResult();
+        await Task.WhenAll(firstRefresh, secondRefresh);
+
+        Assert.AreEqual("222", viewModel.TodayTokens);
+        Assert.IsTrue(viewModel.HasData);
     }
 
     [TestMethod]

@@ -72,7 +72,9 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
             PhoneTokenSyncEnabled: Boolean(root, "phoneTokenSyncEnabled", false),
             TokenRefreshMode: EnumValue(root, "tokenRefreshMode", defaults.TokenRefreshMode),
             TokenRefreshOnPanelOpen: Boolean(root, "tokenRefreshOnPanelOpen", defaults.TokenRefreshOnPanelOpen),
-            PersistTokenUsageCache: Boolean(root, "persistTokenUsageCache", defaults.PersistTokenUsageCache));
+            PersistTokenUsageCache: Boolean(root, "persistTokenUsageCache", defaults.PersistTokenUsageCache),
+            QuotaDataSource: EnumValue(root, "quotaDataSource", defaults.QuotaDataSource),
+            TokenUsageDataSource: EnumValue(root, "tokenUsageDataSource", defaults.TokenUsageDataSource));
     }
 
     private static NotificationSettings ParseNotifications(JsonElement value) => new(
@@ -127,6 +129,7 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
         where T : struct, Enum =>
         root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
         && Enum.TryParse<T>(value.GetString(), true, out var parsed)
+        && Enum.IsDefined(parsed)
             ? parsed
             : fallback;
 
@@ -149,12 +152,18 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
 
 public class PreviewPersistence(JsonFileStore store, PreviewDataPaths paths)
 {
-    public async Task<QuotaCacheDocument?> LoadQuotaCacheAsync(CancellationToken cancellationToken)
+    public async Task<QuotaCacheDocument?> LoadQuotaCacheAsync(
+        CancellationToken cancellationToken,
+        QuotaDataSource source = QuotaDataSource.CodexCli)
     {
         try
         {
-            var value = await store.LoadAsync<QuotaCacheDocument>(paths.QuotaCache, cancellationToken).ConfigureAwait(false);
-            return value?.FormatVersion == 1 && value.Windows.Count <= 32 ? value : null;
+            var value = await store.LoadAsync<QuotaCacheDocument>(paths.QuotaCacheFor(source), cancellationToken).ConfigureAwait(false);
+            return value?.FormatVersion == 1
+                && value.Source == source
+                && value.Windows.Count <= 32
+                    ? value
+                    : null;
         }
         catch (Exception error) when (error is JsonException or IOException or InvalidDataException or UnauthorizedAccessException)
         {
@@ -163,7 +172,7 @@ public class PreviewPersistence(JsonFileStore store, PreviewDataPaths paths)
     }
 
     public virtual Task SaveQuotaCacheAsync(QuotaCacheDocument value, CancellationToken cancellationToken) =>
-        store.SaveAsync(paths.QuotaCache, value, cancellationToken);
+        store.SaveAsync(paths.QuotaCacheFor(value.Source), value, cancellationToken);
 
     public virtual Task<bool> SaveQuotaCacheWithCommitAsync(
         QuotaCacheDocument value,
@@ -171,26 +180,30 @@ public class PreviewPersistence(JsonFileStore store, PreviewDataPaths paths)
         SemaphoreSlim commitGate,
         Func<bool> canCommit,
         Action onCommitted) =>
-        store.SaveWithCommitAsync(paths.QuotaCache, value, cancellationToken, commitGate, canCommit, onCommitted);
+        store.SaveWithCommitAsync(paths.QuotaCacheFor(value.Source), value, cancellationToken, commitGate, canCommit, onCommitted);
 
-    public Task ClearQuotaCacheAsync()
+    public Task ClearQuotaCacheAsync(QuotaDataSource source = QuotaDataSource.CodexCli)
     {
-        if (File.Exists(paths.QuotaCache))
+        var path = paths.QuotaCacheFor(source);
+        if (File.Exists(path))
         {
-            File.Delete(paths.QuotaCache);
+            File.Delete(path);
         }
 
         return Task.CompletedTask;
     }
 
-    public async Task<TokenUsageSnapshot?> LoadTokenUsageCacheAsync(CancellationToken cancellationToken)
+    public async Task<TokenUsageSnapshot?> LoadTokenUsageCacheAsync(
+        CancellationToken cancellationToken,
+        TokenUsageDataSource source = TokenUsageDataSource.Local)
     {
         try
         {
-            var value = await store.LoadAsync<TokenUsageSnapshot>(paths.TokenUsageCache, cancellationToken).ConfigureAwait(false);
+            var value = await store.LoadAsync<TokenUsageSnapshot>(paths.TokenUsageCacheFor(source), cancellationToken).ConfigureAwait(false);
             return value?.SchemaVersion == 1
                 && value.Summary is not null
                 && value.Days is { Count: <= 366 }
+                && value.Source == source
                     ? value
                     : null;
         }
@@ -201,13 +214,14 @@ public class PreviewPersistence(JsonFileStore store, PreviewDataPaths paths)
     }
 
     public Task SaveTokenUsageCacheAsync(TokenUsageSnapshot value, CancellationToken cancellationToken) =>
-        store.SaveAsync(paths.TokenUsageCache, value, cancellationToken);
+        store.SaveAsync(paths.TokenUsageCacheFor(value.Source), value, cancellationToken);
 
-    public Task ClearTokenUsageCacheAsync()
+    public Task ClearTokenUsageCacheAsync(TokenUsageDataSource source = TokenUsageDataSource.Local)
     {
-        if (File.Exists(paths.TokenUsageCache))
+        var path = paths.TokenUsageCacheFor(source);
+        if (File.Exists(path))
         {
-            File.Delete(paths.TokenUsageCache);
+            File.Delete(path);
         }
 
         return Task.CompletedTask;

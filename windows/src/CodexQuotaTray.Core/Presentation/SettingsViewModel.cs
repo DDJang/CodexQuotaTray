@@ -1,10 +1,25 @@
+using CodexQuotaTray.Core.Auth;
 using CodexQuotaTray.Core.Persistence;
+using CodexQuotaTray.Core.Protocol;
 using CodexQuotaTray.Core.Runtime;
 using CodexQuotaTray.Core.Updates;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace CodexQuotaTray.Core.Presentation;
+
+public sealed class DataSourcesChangedEventArgs : EventArgs
+{
+    public DataSourcesChangedEventArgs(bool quotaDataSourceChanged, bool tokenUsageDataSourceChanged)
+    {
+        QuotaDataSourceChanged = quotaDataSourceChanged;
+        TokenUsageDataSourceChanged = tokenUsageDataSourceChanged;
+    }
+
+    public bool QuotaDataSourceChanged { get; }
+
+    public bool TokenUsageDataSourceChanged { get; }
+}
 
 public interface ISettingsPlatformActions
 {
@@ -52,6 +67,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     private readonly ISettingsPlatformActions platform;
     private readonly ISettingsPageActions pageActions;
     private readonly IWindowsUpdateController? updates;
+    private readonly WindowsAccountService? account;
     private readonly SemaphoreSlim applyGate = new(1, 1);
     private bool suppressSettingsApply = true;
     private bool suppressUpdateApply = true;
@@ -81,6 +97,20 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private RefreshMode selectedRefreshMode;
     [ObservableProperty] private RefreshMode selectedTokenRefreshMode;
     [ObservableProperty] private ThemeMode selectedThemeMode;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPendingDataSourceChanges))]
+    [NotifyPropertyChangedFor(nameof(SelectedQuotaDataSourceDescription))]
+    private QuotaDataSource selectedQuotaDataSource;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasPendingDataSourceChanges))]
+    [NotifyPropertyChangedFor(nameof(SelectedTokenUsageDataSourceDescription))]
+    private TokenUsageDataSource selectedTokenUsageDataSource;
+    [ObservableProperty] private string cliAccountStatusText = "尚未检查";
+    private string oauthAccountStatusText = "尚未检查";
+    private string oauthUserCodeText = string.Empty;
+    private string oauthVerificationUrl = string.Empty;
+    private bool oauthLoginInProgress;
+    private bool oauthAvailable;
     [ObservableProperty] private string statusText = string.Empty;
     [ObservableProperty] private bool automaticUpdateChecksEnabled;
     [ObservableProperty] private bool updateRemindersEnabled;
@@ -106,18 +136,57 @@ public sealed partial class SettingsViewModel : ObservableObject
     private WindowsUpdateDownloadProgress downloadProgress = WindowsUpdateDownloadProgress.Idle;
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ResetCommand))]
+    [NotifyPropertyChangedFor(nameof(CanEditDataSources))]
     private bool isBusy;
+
+    public string OAuthAccountStatusText
+    {
+        get => oauthAccountStatusText;
+        private set => SetProperty(ref oauthAccountStatusText, value);
+    }
+
+    public string OAuthUserCodeText
+    {
+        get => oauthUserCodeText;
+        private set => SetProperty(ref oauthUserCodeText, value);
+    }
+
+    public string OAuthVerificationUrl
+    {
+        get => oauthVerificationUrl;
+        private set => SetProperty(ref oauthVerificationUrl, value);
+    }
+
+    public bool OAuthLoginInProgress
+    {
+        get => oauthLoginInProgress;
+        private set
+        {
+            if (SetProperty(ref oauthLoginInProgress, value))
+            {
+                OnPropertyChanged(nameof(CanEditDataSources));
+            }
+        }
+    }
+
+    public bool OAuthAvailable
+    {
+        get => oauthAvailable;
+        private set => SetProperty(ref oauthAvailable, value);
+    }
 
     public SettingsViewModel(
         IQuotaRuntimeControl runtime,
         ISettingsPlatformActions platform,
         ISettingsPageActions pageActions,
-        IWindowsUpdateController? updates = null)
+        IWindowsUpdateController? updates = null,
+        WindowsAccountService? account = null)
     {
         this.runtime = runtime;
         this.platform = platform;
         this.pageActions = pageActions;
         this.updates = updates;
+        this.account = account;
         platform.TokenSyncChanged += OnTokenSyncChanged;
         if (updates is not null)
         {
@@ -126,6 +195,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         Load(runtime.Settings);
         RefreshTokenSyncStatus();
+        RefreshAccountStatusPresentation(null);
         RefreshWindowsUpdateStatus();
         suppressUpdateApply = false;
         suppressSettingsApply = false;
@@ -134,6 +204,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     public event EventHandler<ThemeMode>? ThemeSaved;
 
     public event EventHandler? TokenSyncChanged;
+
+    public event EventHandler<DataSourcesChangedEventArgs>? DataSourcesChanged;
 
     public event EventHandler<WindowsUpdateCheckResult>? UpdateCheckCompleted;
 
@@ -205,6 +277,29 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public bool CanConfigureStartup => platform.CanConfigureStartup;
 
+    public bool HasPendingDataSourceChanges =>
+        runtime.Settings.QuotaDataSource != SelectedQuotaDataSource
+        || runtime.Settings.TokenUsageDataSource != SelectedTokenUsageDataSource;
+
+    public bool IsOAuthAvailable => OAuthAvailable;
+
+    public bool CanEditDataSources => !IsBusy && !OAuthLoginInProgress;
+
+    public string SelectedQuotaDataSourceDescription => SelectedQuotaDataSource switch
+    {
+        QuotaDataSource.CodexCli => "通过本机 Codex CLI 的 App Server 获取账户额度，需要 Codex CLI 已登录。",
+        QuotaDataSource.OAuth => "使用 CodexQuotaTray 独立 OAuth 登录直接读取 OpenAI 账户额度，不依赖 Codex CLI。",
+        _ => "请选择额度来源。",
+    };
+
+    public string SelectedTokenUsageDataSourceDescription => SelectedTokenUsageDataSource switch
+    {
+        TokenUsageDataSource.Local => "仅统计当前电脑可读取的 Codex session；依赖本地 session 文件，删除后历史无法恢复。",
+        TokenUsageDataSource.CodexCli => "统计 OpenAI/Codex 账户活动，可能包含其他设备或 Remote/Cloud；服务端每日数据可能有延迟，需要 Codex CLI 已登录。",
+        TokenUsageDataSource.OAuth => "统计 OpenAI/Codex 账户活动，可能包含其他设备或 Remote/Cloud；使用独立 OAuth 登录，服务端每日数据可能有延迟。",
+        _ => "请选择 Token 使用量来源。",
+    };
+
     public string StartupDescription => CanConfigureStartup
         ? "登录 Windows 时自动启动托盘应用。"
         : "预览模式不可配置开机启动。";
@@ -242,6 +337,10 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public IReadOnlyList<ThemeMode> ThemeModes { get; } = Enum.GetValues<ThemeMode>();
 
+    public IReadOnlyList<QuotaDataSource> QuotaDataSources { get; } = Enum.GetValues<QuotaDataSource>();
+
+    public IReadOnlyList<TokenUsageDataSource> TokenUsageDataSources { get; } = Enum.GetValues<TokenUsageDataSource>();
+
     public IReadOnlyList<PercentageDisplayModeOption> PercentageDisplayModes { get; } =
     [
         new(true, "剩余百分比"),
@@ -264,7 +363,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     private Task ResetAsync(CancellationToken cancellationToken)
     {
         InvalidatePendingApply();
-        Load(AppSettings.Defaults);
+        Load(AppSettings.Defaults with
+        {
+            QuotaDataSource = runtime.Settings.QuotaDataSource,
+            TokenUsageDataSource = runtime.Settings.TokenUsageDataSource,
+        });
         return ApplyCurrentSettingsAsync(cancellationToken);
     }
 
@@ -281,6 +384,142 @@ public sealed partial class SettingsViewModel : ObservableObject
     [RelayCommand]
     private Task RefreshQuotaAsync(CancellationToken cancellationToken) =>
         pageActions.RefreshQuotaAsync(cancellationToken);
+
+    [RelayCommand(CanExecute = nameof(CanEditDataSources))]
+    private async Task ApplyDataSourcesAsync(CancellationToken cancellationToken)
+    {
+        if (!HasPendingDataSourceChanges)
+        {
+            return;
+        }
+
+        if ((SelectedQuotaDataSource == QuotaDataSource.OAuth
+                || SelectedTokenUsageDataSource == TokenUsageDataSource.OAuth)
+            && account is null)
+        {
+            StatusText = "OAuth 账户服务不可用";
+            return;
+        }
+
+        if (SelectedQuotaDataSource == QuotaDataSource.OAuth
+            || SelectedTokenUsageDataSource == TokenUsageDataSource.OAuth)
+        {
+            bool hasCredentials;
+            try
+            {
+                hasCredentials = await account!.HasUsableOAuthCredentialsAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch (OAuthException)
+            {
+                hasCredentials = false;
+            }
+
+            if (!hasCredentials)
+            {
+                StatusText = "请先登录可用的 OAuth 账户，再应用该来源";
+                return;
+            }
+        }
+
+        if ((SelectedQuotaDataSource == QuotaDataSource.CodexCli
+                || SelectedTokenUsageDataSource == TokenUsageDataSource.CodexCli)
+            && account is not null
+            && !await account.HasUsableCodexCliAsync(cancellationToken).ConfigureAwait(false))
+        {
+            StatusText = "当前 Codex CLI 不可用，无法应用该来源";
+            return;
+        }
+
+        await ApplySettingsAsync(ToSettings(includeDataSources: true), cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task ApplySelectedDataSourcesAsync(CancellationToken cancellationToken) =>
+        ApplyDataSourcesAsync(cancellationToken);
+
+    [RelayCommand]
+    private async Task RefreshAccountStatusAsync(CancellationToken cancellationToken)
+    {
+        if (account is null)
+        {
+            RefreshAccountStatusPresentation(null);
+            StatusText = "账户服务不可用";
+            return;
+        }
+
+        try
+        {
+            RefreshAccountStatusPresentation(await account.ReadStatusAsync(cancellationToken).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            StatusText = "账户状态读取失败";
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanEditDataSources))]
+    private async Task LoginOAuthAsync(CancellationToken cancellationToken)
+    {
+        if (account is null)
+        {
+            StatusText = "账户服务不可用";
+            return;
+        }
+
+        OAuthLoginInProgress = true;
+        ApplyDataSourcesCommand.NotifyCanExecuteChanged();
+        LoginOAuthCommand.NotifyCanExecuteChanged();
+        OAuthUserCodeText = string.Empty;
+        OAuthVerificationUrl = string.Empty;
+        StatusText = "正在准备 OAuth 设备登录…";
+        try
+        {
+            var device = await account.RequestOAuthDeviceCodeAsync(cancellationToken).ConfigureAwait(false);
+            OAuthUserCodeText = device.UserCode;
+            OAuthVerificationUrl = device.VerificationUrl;
+            StatusText = $"请打开 {device.VerificationUrl} 并输入设备码 {device.UserCode}";
+            var credentials = await account.CompleteOAuthLoginAsync(device, null, cancellationToken).ConfigureAwait(false);
+            OAuthAvailable = true;
+            OAuthAccountStatusText = string.IsNullOrWhiteSpace(credentials.Email) ? "已登录" : credentials.Email!;
+            StatusText = "OAuth 登录成功";
+            OnPropertyChanged(nameof(IsOAuthAvailable));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (OAuthException error)
+        {
+            OAuthAvailable = false;
+            OAuthAccountStatusText = error.Kind == OAuthFailureKind.DeviceAuthDisabled
+                ? "设备码登录不可用"
+                : "未登录";
+            StatusText = "OAuth 登录失败";
+            OnPropertyChanged(nameof(IsOAuthAvailable));
+        }
+        finally
+        {
+            OAuthLoginInProgress = false;
+            ApplyDataSourcesCommand.NotifyCanExecuteChanged();
+            LoginOAuthCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    [RelayCommand]
+    private async Task LogoutOAuthAsync(CancellationToken cancellationToken)
+    {
+        if (account is null)
+        {
+            return;
+        }
+
+        await account.LogoutOAuthAsync(cancellationToken).ConfigureAwait(false);
+        OAuthAvailable = false;
+        OAuthAccountStatusText = "未登录";
+        StatusText = "OAuth 已退出登录";
+        OnPropertyChanged(nameof(IsOAuthAvailable));
+    }
 
     [RelayCommand]
     private void OpenOfficialUsage() => pageActions.OpenOfficialUsage();
@@ -496,6 +735,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         CancellationToken cancellationToken)
     {
         var previous = Normalize(runtime.Settings);
+        var quotaDataSourceChanged = previous.QuotaDataSource != settings.QuotaDataSource;
+        var tokenUsageDataSourceChanged = previous.TokenUsageDataSource != settings.TokenUsageDataSource;
         IsBusy = true;
         try
         {
@@ -505,6 +746,12 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
 
             await runtime.ApplySettingsAsync(settings, cancellationToken);
+            if (quotaDataSourceChanged || tokenUsageDataSourceChanged)
+            {
+                DataSourcesChanged?.Invoke(
+                    this,
+                    new DataSourcesChangedEventArgs(quotaDataSourceChanged, tokenUsageDataSourceChanged));
+            }
             if (previous.PhoneTokenSyncEnabled != settings.PhoneTokenSyncEnabled)
             {
                 await platform.ApplyTokenSyncEnabledAsync(settings.PhoneTokenSyncEnabled, cancellationToken);
@@ -545,7 +792,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     private void InvalidatePendingApply() => Interlocked.Increment(ref settingsRevision);
 
-    private AppSettings ToSettings() => SettingsService.Normalize(new AppSettings(
+    private AppSettings ToSettings(bool includeDataSources = false) => SettingsService.Normalize(new AppSettings(
         StartWithWindows: CanConfigureStartup && StartWithWindows,
         ShowRemainingPercent: ShowRemainingPercent,
         Use24HourTime: true,
@@ -565,7 +812,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         PhoneTokenSyncEnabled: PhoneTokenSyncEnabled,
         TokenRefreshMode: SelectedTokenRefreshMode,
         TokenRefreshOnPanelOpen: TokenRefreshOnPanelOpen,
-        PersistTokenUsageCache: PersistTokenUsageCache));
+        PersistTokenUsageCache: PersistTokenUsageCache,
+        QuotaDataSource: includeDataSources ? SelectedQuotaDataSource : runtime.Settings.QuotaDataSource,
+        TokenUsageDataSource: includeDataSources ? SelectedTokenUsageDataSource : runtime.Settings.TokenUsageDataSource));
 
     private AppSettings Normalize(AppSettings value) => SettingsService.Normalize(value) with
     {
@@ -600,6 +849,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             SilentStartup = value.SilentStartup;
             PhoneTokenSyncEnabled = value.PhoneTokenSyncEnabled;
             TokenRefreshOnPanelOpen = value.TokenRefreshOnPanelOpen;
+            SelectedQuotaDataSource = value.QuotaDataSource;
+            SelectedTokenUsageDataSource = value.TokenUsageDataSource;
         }
         finally
         {
@@ -650,6 +901,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnSelectedTokenRefreshModeChanged(RefreshMode value) => QueueSettingsApply();
 
     partial void OnSelectedThemeModeChanged(ThemeMode value) => QueueSettingsApply();
+
+    partial void OnIsBusyChanged(bool value)
+    {
+        ApplyDataSourcesCommand.NotifyCanExecuteChanged();
+        LoginOAuthCommand.NotifyCanExecuteChanged();
+    }
 
     partial void OnAutomaticUpdateChecksEnabledChanged(bool value)
     {
@@ -802,4 +1059,33 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     private void OnTokenSyncChanged(object? sender, EventArgs args) => TokenSyncChanged?.Invoke(this, args);
+
+    private void RefreshAccountStatusPresentation(WindowsAccountStatus? value)
+    {
+        if (value is null)
+        {
+            CliAccountStatusText = account is null ? "不可用" : "尚未检查";
+            OAuthAccountStatusText = account is null ? "不可用" : "未检查";
+            OAuthAvailable = false;
+        }
+        else
+        {
+            CliAccountStatusText = value.CodexCliAccount is { RequiresOpenAiAuth: true }
+                ? "未登录，请先通过 Codex CLI 登录"
+                : value.CodexCliAccount is { } cli
+                    ? FormatAccount(cli)
+                    : value.CodexCliAvailable ? "已连接" : "不可用";
+            OAuthAvailable = value.OAuthAvailable;
+            OAuthAccountStatusText = value.OAuthAccount is { } oauth
+                ? FormatAccount(oauth)
+                : "未登录";
+        }
+
+        OnPropertyChanged(nameof(IsOAuthAvailable));
+    }
+
+    private static string FormatAccount(AccountReadResult value) =>
+        string.IsNullOrWhiteSpace(value.Email)
+            ? value.PlanType ?? "已连接"
+            : value.Email!;
 }

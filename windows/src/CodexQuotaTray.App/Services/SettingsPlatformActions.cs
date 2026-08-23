@@ -75,7 +75,11 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
         _ = Process.Start(new ProcessStartInfo(paths.Root) { UseShellExecute = true });
     }
 
-    public Task ClearQuotaCacheAsync() => persistence.ClearQuotaCacheAsync();
+    public async Task ClearQuotaCacheAsync()
+    {
+        await persistence.ClearQuotaCacheAsync(QuotaDataSource.CodexCli).ConfigureAwait(false);
+        await persistence.ClearQuotaCacheAsync(QuotaDataSource.OAuth).ConfigureAwait(false);
+    }
 
     public Task ApplyTokenSyncEnabledAsync(bool enabled, CancellationToken cancellationToken) =>
         tokenSync.SetEnabledAsync(enabled, cancellationToken);

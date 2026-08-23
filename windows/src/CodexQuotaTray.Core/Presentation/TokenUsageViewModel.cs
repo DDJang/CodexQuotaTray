@@ -13,8 +13,9 @@ public sealed partial class TokenUsageViewModel : ObservableObject
 {
     private const int HeatmapWeeks = 17;
     private readonly Func<CancellationToken, Task<TokenUsageSnapshot>> scan;
+    private readonly SemaphoreSlim refreshGate = new(1, 1);
     private TokenUsageSnapshot? snapshot;
-    private int refreshRunning;
+    private int sourceGeneration;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
@@ -78,7 +79,11 @@ public sealed partial class TokenUsageViewModel : ObservableObject
 
     public DateTimeOffset? LastAttemptUtc { get; private set; }
 
-    public Task RefreshNowAsync(CancellationToken cancellationToken) => RefreshAsync(cancellationToken);
+    public Task RefreshNowAsync(CancellationToken cancellationToken) =>
+        RefreshCoreAsync(cancellationToken, waitForCurrent: false);
+
+    public Task RefreshAfterSourceChangeAsync(CancellationToken cancellationToken) =>
+        RefreshCoreAsync(cancellationToken, waitForCurrent: true);
 
     public void RestoreSnapshot(TokenUsageSnapshot value)
     {
@@ -93,37 +98,61 @@ public sealed partial class TokenUsageViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanRefresh))]
-    private async Task RefreshAsync(CancellationToken cancellationToken)
+    private Task RefreshAsync(CancellationToken cancellationToken) =>
+        RefreshCoreAsync(cancellationToken, waitForCurrent: false);
+
+    private async Task RefreshCoreAsync(CancellationToken cancellationToken, bool waitForCurrent)
     {
-        if (Interlocked.Exchange(ref refreshRunning, 1) != 0)
+        bool entered;
+        if (waitForCurrent)
+        {
+            await refreshGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            entered = true;
+        }
+        else
+        {
+            entered = await refreshGate.WaitAsync(0, cancellationToken).ConfigureAwait(false);
+        }
+        if (!entered)
         {
             return;
         }
 
-        LastAttemptUtc = DateTimeOffset.UtcNow;
-        IsRefreshing = true;
-        ShowLoading = snapshot is null;
-        StatusText = "正在刷新…";
-        StatusTone = StatusTone.Refreshing;
-        HasErrorWithoutData = false;
+        var generation = Volatile.Read(ref sourceGeneration);
         try
         {
-            Apply(await scan(cancellationToken));
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-        }
-        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
-        {
-            StatusText = snapshot is null ? "刷新失败" : "刷新失败 · 显示上次数据";
-            StatusTone = snapshot is null ? StatusTone.Error : StatusTone.Warning;
-            HasErrorWithoutData = snapshot is null;
+            LastAttemptUtc = DateTimeOffset.UtcNow;
+            IsRefreshing = true;
+            ShowLoading = snapshot is null;
+            StatusText = "正在刷新…";
+            StatusTone = StatusTone.Refreshing;
+            HasErrorWithoutData = false;
+            try
+            {
+                var value = await scan(cancellationToken).ConfigureAwait(false);
+                if (generation == Volatile.Read(ref sourceGeneration))
+                {
+                    Apply(value);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+            }
+            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+            {
+                if (generation == Volatile.Read(ref sourceGeneration))
+                {
+                    StatusText = snapshot is null ? "刷新失败" : "刷新失败 · 显示上次数据";
+                    StatusTone = snapshot is null ? StatusTone.Error : StatusTone.Warning;
+                    HasErrorWithoutData = snapshot is null;
+                }
+            }
         }
         finally
         {
             IsRefreshing = false;
             ShowLoading = false;
-            Volatile.Write(ref refreshRunning, 0);
+            refreshGate.Release();
         }
     }
 
@@ -135,13 +164,13 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         var cells = TokenHeatmap.Build(value.Days, localToday, HeatmapWeeks);
 
         snapshot = value;
-        TodayTokens = TokenUsageFormatter.Format(summary.TodayTokens);
-        Last7DaysTokens = TokenUsageFormatter.Format(summary.Last7DaysTokens);
-        Last30DaysTokens = TokenUsageFormatter.Format(summary.Last30DaysTokens);
-        LifetimeTokens = TokenUsageFormatter.Format(summary.LifetimeTokens);
-        PeakDailyTokens = TokenUsageFormatter.Format(summary.PeakDailyTokens);
-        CurrentStreak = $"{summary.CurrentStreak} 天";
-        LongestStreak = $"{summary.LongestStreak} 天";
+        TodayTokens = FormatMetric(summary.TodayTokens, TokenUsageMetricAvailability.Today);
+        Last7DaysTokens = FormatMetric(summary.Last7DaysTokens, TokenUsageMetricAvailability.Last7Days);
+        Last30DaysTokens = FormatMetric(summary.Last30DaysTokens, TokenUsageMetricAvailability.Last30Days);
+        LifetimeTokens = FormatMetric(summary.LifetimeTokens, TokenUsageMetricAvailability.Lifetime);
+        PeakDailyTokens = FormatMetric(summary.PeakDailyTokens, TokenUsageMetricAvailability.Peak);
+        CurrentStreak = FormatDays(summary.CurrentStreak, TokenUsageMetricAvailability.CurrentStreak);
+        LongestStreak = FormatDays(summary.LongestStreak, TokenUsageMetricAvailability.LongestStreak);
 
         HeatmapCells.Clear();
         foreach (var cell in cells)
@@ -149,7 +178,8 @@ public sealed partial class TokenUsageViewModel : ObservableObject
             HeatmapCells.Add(cell);
         }
 
-        HasData = summary.LifetimeTokens > 0;
+        HasData = value.Days.Any(day => day.TotalTokens > 0)
+            || HasMetric(value, TokenUsageMetricAvailability.Lifetime) && summary.LifetimeTokens > 0;
         HasNoData = !HasData;
         HasErrorWithoutData = false;
         StatusText = HasData ? $"更新于 {value.GeneratedAtUtc.ToLocalTime():HH:mm}" : "暂无 Token 数据";
@@ -164,6 +194,47 @@ public sealed partial class TokenUsageViewModel : ObservableObject
     }
 
     private bool CanRefresh() => !IsRefreshing;
+
+    public void ClearForSourceChange()
+    {
+        Interlocked.Increment(ref sourceGeneration);
+        snapshot = null;
+        LastAttemptUtc = null;
+        IsRefreshing = false;
+        ShowLoading = false;
+        HasData = false;
+        HasNoData = false;
+        HasErrorWithoutData = false;
+        StatusText = "已切换数据来源，正在刷新…";
+        StatusTone = StatusTone.Refreshing;
+        TodayTokens = "不可用";
+        Last7DaysTokens = "不可用";
+        Last30DaysTokens = "不可用";
+        LifetimeTokens = "不可用";
+        PeakDailyTokens = "不可用";
+        CurrentStreak = "不可用";
+        LongestStreak = "不可用";
+        HeatmapCells.Clear();
+        OnPropertyChanged(nameof(HasLoaded));
+        OnPropertyChanged(nameof(ShowContent));
+        OnPropertyChanged(nameof(ShowEmpty));
+        OnPropertyChanged(nameof(ShowError));
+    }
+
+    private static string FormatMetric(long value, TokenUsageMetricAvailability metric, TokenUsageSnapshot valueSnapshot)
+        => HasMetric(valueSnapshot, metric) ? TokenUsageFormatter.Format(value) : "不可用";
+
+    private string FormatMetric(long value, TokenUsageMetricAvailability metric) =>
+        snapshot is { } valueSnapshot ? FormatMetric(value, metric, valueSnapshot) : "不可用";
+
+    private static string FormatDays(long value, TokenUsageMetricAvailability metric, TokenUsageSnapshot valueSnapshot) =>
+        HasMetric(valueSnapshot, metric) ? $"{value} 天" : "不可用";
+
+    private string FormatDays(long value, TokenUsageMetricAvailability metric) =>
+        snapshot is { } valueSnapshot ? FormatDays(value, metric, valueSnapshot) : "不可用";
+
+    private static bool HasMetric(TokenUsageSnapshot value, TokenUsageMetricAvailability metric) =>
+        (value.AvailableMetrics & metric) == metric;
 
     partial void OnHasDataChanged(bool value) => OnPropertyChanged(nameof(ShowContent));
 

@@ -93,6 +93,35 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task FakeServer_ReadsAccountAndAccountUsageShape()
+    {
+        await using var client = CreateFake("happy");
+        await client.ConnectAsync(CancellationToken.None);
+
+        var account = await client.ReadAccountAsync(CancellationToken.None);
+        var usage = await client.ReadAccountUsageAsync(CancellationToken.None);
+
+        Assert.AreEqual("chatgpt", account.AccountType);
+        Assert.AreEqual("account@example.invalid", account.Email);
+        Assert.AreEqual("plus", account.PlanType);
+        Assert.AreEqual(12_345, usage.Summary?.LifetimeTokens);
+        Assert.AreEqual(42, usage.Summary?.LongestRunningTurnSec);
+        Assert.AreEqual(2, usage.DailyUsageBuckets?.Count);
+        Assert.AreEqual(new DateOnly(2026, 8, 23), usage.DailyUsageBuckets?[0].StartDate);
+    }
+
+    [TestMethod]
+    public async Task AccountUsageMethodNotFoundIsExplicit()
+    {
+        await using var client = CreateFake("method-not-found");
+        await client.ConnectAsync(CancellationToken.None);
+
+        var error = await Assert.ThrowsAsync<CodexClientException>(
+            () => client.ReadAccountUsageAsync(CancellationToken.None));
+        Assert.AreEqual(CodexClientErrorKind.MethodNotFound, error.Kind);
+    }
+
+    [TestMethod]
     public async Task MalformedJson_IsCountedAndReaderContinues()
     {
         await using var client = CreateFake("malformed");

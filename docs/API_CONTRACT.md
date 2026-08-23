@@ -12,11 +12,13 @@ WinUI 启动 `codex app-server --stdio`，通过 UTF-8 JSONL 通信。当前 out
 
 1. `initialize` request，携带 `clientInfo`；
 2. `initialized` notification；
-3. `account/rateLimits/read` request，params 为 `null`。
+3. `account/rateLimits/read` request，params 为 `null`；
+4. 账户页或 Token 来源选择为 Codex CLI 时，`account/read`（`refreshToken=false`）和
+   `account/usage/read`（params 为 `null`）。
 
-WinUI 不发送登录、`account/read`、token refresh、购买或其他账户写请求；认证完全由本机 Codex
-CLI 管理。`initialize` 只要求非空 `platformFamily`、`platformOs`，可选 `userAgent` 仅用于提取
-版本 token。
+WinUI 不发送登录、token refresh、购买或其他账户写请求；认证完全由本机 Codex CLI 管理。
+`account/usage/read` method-not-found 是明确的“不支持”，不会静默改读 Local 文件扫描结果。
+`initialize` 只要求非空 `platformFamily`、`platformOs`，可选 `userAgent` 仅用于提取版本 token。
 
 `account/rateLimits/read` 当前消费：
 
@@ -47,6 +49,26 @@ RateLimitWindow:
 入站只消费 `account/rateLimits/updated`。稀疏通知按 ingress sequence 合并，只覆盖明确出现且非
 null 的字段；无基线、溢出或无法安全定位时完整补读。RPC error 正文、stderr 和 raw JSON 不进入
 日志或磁盘。
+
+`account/usage/read` 消费 `summary.lifetimeTokens`、`peakDailyTokens`、`currentStreakDays`、
+`longestStreakDays`、`longestRunningTurnSec` 和可选 `dailyUsageBuckets[]`。summary、桶、桶日期和
+tokens 均可缺失或 malformed；缺失保留为“不可用”，不填充业务零值。CLI 账户 usage 与 Windows
+OAuth profile usage 在同一个内部按日聚合模型中规范化，但永远不与 Local session scanner 合并。
+
+## Windows OAuth data source
+
+Windows OAuth 使用设备代码流程和 DPAPI（当前用户）保护的私有凭据文件；凭据不进入 settings、
+quota/token cache、日志或诊断文本。只读请求为：
+
+```text
+GET https://chatgpt.com/backend-api/wham/usage
+GET https://chatgpt.com/backend-api/wham/profiles/me
+GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits  # 仅可用数量大于 0 时 best effort
+```
+
+请求只使用 Bearer、`Accept`、`ChatGPT-Account-Id`（可用时）及客户端标识头；不读取 auth.json、
+浏览器 Cookie、HTML 或嵌入式浏览器。401/403 最多触发一次 refresh 后重试；失败保留 OAuth
+来源的错误状态，不回退到 CLI 或 Local。
 
 ## Android Direct HTTPS quota
 
@@ -82,14 +104,16 @@ Wi-Fi LAN 可用时才读取 `/v1/quota`。Windows 失败后仍呈现原 Direct 
 规范化数据中，但不进入 WinUI、Android 前台或小组件。没有 `codex` 时保持空/不可用语义，
 不把未知 bucket 映射或回退为 `codex`。
 
-WinUI `QuotaCacheDocument` 只保存格式版本、成功时间、套餐、最多 32 个归一化窗口以及
+WinUI `QuotaCacheDocument` 只保存格式版本、成功时间、来源、套餐、最多 32 个归一化窗口以及
 reset-credit 的可展示摘要/明细投影；`credits=null` 与 `[]` 保持可区分，并不保存完整
 reset-credit ID、账户、CLI 路径、warning/RPC 正文或 raw JSON。Windows LAN snapshot 通过同样的
 `availableCount`/`credits` 投影把只读信息传给 Android；旧 snapshot 缺少该字段时按未知处理。
 
-WinUI 可按用户设置将 `TokenUsageSnapshot` 保存为 `token-usage-cache.json`。该缓存只含 schema
+WinUI 可按用户设置将 `TokenUsageSnapshot` 按来源保存为 Local 的 `token-usage-cache.json` 或
+账户来源的独立文件。该缓存只含 schema
 版本、生成时间、时区、Token 摘要和最多 366 条按日数字聚合，不含 session ID、文件路径、账户、
-prompt、response、工具内容或原始 JSONL；关闭“保存统计缓存”后删除，读取异常时直接忽略。
+prompt、response、工具内容或原始 JSONL；来源切换不复用另一来源缓存，关闭“保存统计缓存”后删除，
+读取异常时直接忽略。
 
 Android `QuotaSnapshotStore` 保存最后成功的脱敏产品快照：套餐、quota state、数据更新时间、
 来源及窗口的 bucket、本地标识/名称、百分比、时长和重置时间，以及 reset-credit 的权威数量和

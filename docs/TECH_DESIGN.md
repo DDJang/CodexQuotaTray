@@ -6,10 +6,10 @@
 ## Windows 架构
 
 ```text
-codex app-server --stdio
-        ↓ UTF-8 JSONL
-Core/Protocol
-        ↓ normalized quota
+codex app-server --stdio        chatgpt.com read-only HTTPS
+        ↓ UTF-8 JSONL                    ↓
+Core/Protocol ──────────────── Core/Auth/OAuth
+        ↓ normalized quota/usage          ↓ same internal model
 Core/Runtime ── Core/Persistence ── Core/Alerts
         ↓
 Core/Presentation
@@ -18,8 +18,11 @@ WinUI Views / Services / Interop / Themes
 ```
 
 - `Core/Protocol` 管理 CLI 定位、子进程、JSONL transport、DTO、通知和规范化。
+- `Core/Auth` 管理 Windows OAuth 设备码、refresh、DPAPI 凭据和只读 profile/usage；它不读取
+  浏览器状态或 CLI auth 文件。
 - `Core/Runtime` 统一 Startup、Manual、Scheduled、Resume、NetworkRestored 和通知恢复刷新，保证
-  单 in-flight、有界退避和失败时保留最后有效状态。
+  单 in-flight、有界退避和失败时保留最后有效状态；额度 provider 由设置选择，切换时先清空旧
+  source projection，再加载同 source cache 并立即刷新。
 - `Core/Persistence` 只保存设置、最小归一化额度缓存、按日聚合 Token 统计缓存和提醒状态。
 - `Core/Presentation` 是 UI 的唯一产品状态入口；UI 不解析 RPC。
 - `Core/TokenUsage` 使用有界 UTF-8 缓冲流式扫描 session 文件中的 Token 计数事件，复用未变化文件并从
@@ -86,6 +89,10 @@ Android 只在 offline 类错误时发现相同 `deviceId`，401 不触发发现
 - Release 默认 Production；Debug 默认 Dev；Demo 与 isolated preview 使用 Preview。
 - Android Release 与 Debug 使用不同 application ID，因此凭据、配对和缓存自然隔离。
 - 一个身份不得删除、覆盖或关闭另一个身份的状态。
+
+来源边界：Quota provider 为 Codex CLI 或 OAuth；Token provider 为 Local、Codex CLI 或 OAuth。
+每个 provider 是唯一 source of truth；来源 cache 使用独立 identity，unsupported 或 unavailable
+不会静默 fallback。Local scanner 算法保持不变，账户 usage 只消费按日桶和可选 summary 字段。
 
 ## 持久化和并发边界
 

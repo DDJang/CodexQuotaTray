@@ -6,7 +6,7 @@
 升级时由维护者显式修改 `CODEX_VERSION`，再从仓库根目录生成：
 
 ```powershell
-$version = (Get-Content .\schemas\CODEX_VERSION -Raw).Trim()
+$version = ((Get-Content .\schemas\CODEX_VERSION -Raw).Trim() -replace '^codex-cli\s+', '')
 npx --yes "@openai/codex@$version" app-server generate-json-schema `
   --out ".\schemas\codex-$version"
 ```
