@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Net;
 using CodexQuotaTray.Core.Auth;
+using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Protocol;
 using CodexQuotaTray.Core.TokenUsage;
@@ -123,6 +124,32 @@ public sealed class AccountAndDataSourceTests
         Assert.IsNull(parsed.UsageSummary?.LifetimeTokens);
         Assert.AreEqual(3, parsed.UsageSummary?.CurrentStreakDays);
         Assert.AreEqual(256, parsed.DailyUsageBuckets?[0].Tokens);
+    }
+
+    [TestMethod]
+    public void OAuthPrimaryQuotaWindowsUseCanonicalCodexBucket()
+    {
+        using var document = JsonDocument.Parse("""
+            {
+              "plan_type": "plus",
+              "rate_limit": {
+                "primary_window": {
+                  "used_percent": 12,
+                  "limit_window_seconds": 18000
+                },
+                "secondary_window": {
+                  "used_percent": 73,
+                  "limit_window_seconds": 604800
+                }
+              }
+            }
+            """);
+
+        var parsed = OAuthClient.ParseUsage(document.RootElement);
+
+        Assert.HasCount(2, parsed.Windows);
+        Assert.IsTrue(parsed.Windows.All(window =>
+            QuotaBucketPolicy.IsCanonical(window.BucketId)));
     }
 
     [TestMethod]

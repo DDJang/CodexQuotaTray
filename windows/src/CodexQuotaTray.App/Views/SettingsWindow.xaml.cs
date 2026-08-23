@@ -326,6 +326,25 @@ public sealed partial class SettingsWindow : Window
         }
     }
 
+    private async void OnLogoutOAuthRequested(object sender, RoutedEventArgs args)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "退出 OAuth 登录？",
+            Content = "退出后将清除本机保存的 OAuth 登录信息，下次使用 OAuth 数据来源时需要重新登录。",
+            PrimaryButtonText = "退出登录",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+            RequestedTheme = SettingsRoot.ActualTheme,
+            XamlRoot = SettingsRoot.XamlRoot,
+        };
+
+        if (await TryShowDialogAsync(dialog) == ContentDialogResult.Primary)
+        {
+            await viewModel.LogoutOAuthCommand.ExecuteAsync(null);
+        }
+    }
+
     private async void OnUpdateCheckCompleted(object? sender, WindowsUpdateCheckResult result)
     {
         if (!viewModel.IsWindowsUpdateAvailable)

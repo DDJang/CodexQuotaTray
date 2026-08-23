@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Protocol;
 
 namespace CodexQuotaTray.Core.Auth;
@@ -199,8 +200,20 @@ public sealed class OAuthClient : IDisposable
         var windows = new List<OAuthQuotaWindow>();
         if (GetObject(root, "rate_limit", "rateLimit") is { } rateLimit)
         {
-            AppendRateWindow(windows, rateLimit, "primary", null, null, "primary");
-            AppendRateWindow(windows, rateLimit, "secondary", null, null, "secondary");
+            AppendRateWindow(
+                windows,
+                rateLimit,
+                "primary",
+                null,
+                null,
+                QuotaBucketPolicy.CanonicalBucketId);
+            AppendRateWindow(
+                windows,
+                rateLimit,
+                "secondary",
+                null,
+                null,
+                QuotaBucketPolicy.CanonicalBucketId);
         }
 
         if (GetArray(root, "additional_rate_limits", "additionalRateLimits") is { } additional)

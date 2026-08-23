@@ -306,6 +306,10 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(settingsWindowCode, "DefaultButton = ContentDialogButton.Close");
         StringAssert.Contains(settingsWindowCode, "RequestedTheme = SettingsRoot.ActualTheme");
         StringAssert.Contains(settingsWindowCode, "XamlRoot = SettingsRoot.XamlRoot");
+        StringAssert.Contains(settingsWindow, "Click=\"OnLogoutOAuthRequested\"");
+        StringAssert.Contains(settingsWindowCode, "Title = \"退出 OAuth 登录？\"");
+        StringAssert.Contains(settingsWindowCode, "Content = \"退出后将清除本机保存的 OAuth 登录信息，下次使用 OAuth 数据来源时需要重新登录。\"");
+        StringAssert.Contains(settingsWindowCode, "PrimaryButtonText = \"退出登录\"");
 
         var showIncoming = mainWindowCode.IndexOf("incoming.Visibility = Visibility.Visible;", StringComparison.Ordinal);
         var collapseOutgoing = mainWindowCode.IndexOf(
