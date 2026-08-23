@@ -17,6 +17,8 @@ WinUI 启动 `codex app-server --stdio`，通过 UTF-8 JSONL 通信。当前 out
    `account/usage/read`（params 为 `null`）。
 
 WinUI 不发送登录、token refresh、购买或其他账户写请求；认证完全由本机 Codex CLI 管理。
+`account/read` 的登录状态以非 null 且带有效 `type` 的 `account` 为准；`requiresOpenaiAuth` 描述认证
+要求，不能单独解释为未登录。
 `account/usage/read` method-not-found 是明确的“不支持”，不会静默改读 Local 文件扫描结果。
 `initialize` 只要求非空 `platformFamily`、`platformOs`，可选 `userAgent` 仅用于提取版本 token。
 

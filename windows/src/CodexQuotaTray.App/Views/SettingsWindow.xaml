@@ -136,7 +136,7 @@
                                 <FontIcon Glyph="&#xE71D;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="数据来源" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="分别选择额度和 Token 使用量来源" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="分别选择额度和统计来源" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             </Grid>
@@ -216,15 +216,17 @@
                     <StackPanel x:Name="AccountSettingsPanel" Spacing="8" Visibility="Collapsed">
                         <TextBlock Text="账户" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Border Style="{StaticResource SettingsItemCardStyle}">
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="Codex CLI 账户" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="{Binding CliAccountStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="刷新状态" Command="{Binding RefreshAccountStatusCommand}" Style="{StaticResource SettingsActionButtonStyle}" />
+                            </Grid>
+                        </Border>
+                        <Border Style="{StaticResource SettingsItemCardStyle}">
                             <StackPanel Spacing="8">
-                                <Grid Style="{StaticResource SettingsRowStyle}">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                        <TextBlock Text="Codex CLI 账户" Style="{StaticResource SettingsLabelStyle}" />
-                                        <TextBlock Text="{Binding CliAccountStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                                    </StackPanel>
-                                    <Button Grid.Column="1" Content="刷新状态" Command="{Binding RefreshAccountStatusCommand}" Style="{StaticResource SettingsActionButtonStyle}" />
-                                </Grid>
                                 <Grid Style="{StaticResource SettingsRowStyle}">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
@@ -232,14 +234,16 @@
                                         <TextBlock Text="{Binding OAuthAccountStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
                                     </StackPanel>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                                        <Button Content="登录 OAuth" Command="{Binding LoginOAuthCommand}" Style="{StaticResource SettingsActionButtonStyle}" />
-                                        <Button Content="退出登录" Command="{Binding LogoutOAuthCommand}" Style="{StaticResource SettingsActionButtonStyle}" />
+                                        <Button Content="登录 OAuth" Command="{Binding LoginOAuthCommand}" Style="{StaticResource SettingsActionButtonStyle}" Visibility="{Binding ShowOAuthLoginButton, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                                        <Button Content="退出登录" Command="{Binding LogoutOAuthCommand}" Style="{StaticResource SettingsActionButtonStyle}" Visibility="{Binding ShowOAuthLogoutButton, Converter={StaticResource BooleanToVisibilityConverter}}" />
                                     </StackPanel>
                                 </Grid>
-                                <TextBlock Text="{Binding OAuthUserCodeText}" Style="{StaticResource SettingsLabelStyle}" />
-                                <TextBlock Text="{Binding OAuthVerificationUrl}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
-                                <Button Content="打开设备验证页" Click="OnOpenOAuthVerificationRequested" Style="{StaticResource SettingsActionButtonStyle}" HorizontalAlignment="Left" />
-                                <TextBlock Text="设备登录会在外部浏览器完成；应用不会读取浏览器 Cookie。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
+                                <StackPanel Spacing="8" Visibility="{Binding ShowOAuthDeviceLoginDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                    <TextBlock Text="{Binding OAuthUserCodeText}" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="{Binding OAuthVerificationUrl}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
+                                    <Button Content="打开设备验证页" Click="OnOpenOAuthVerificationRequested" Style="{StaticResource SettingsActionButtonStyle}" HorizontalAlignment="Left" />
+                                    <TextBlock Text="设备登录会在外部浏览器完成；应用不会读取浏览器 Cookie。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -247,39 +251,33 @@
                     <StackPanel x:Name="DataSourcesSettingsPanel" Spacing="8" Visibility="Collapsed">
                         <TextBlock Text="数据来源" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Border Style="{StaticResource SettingsItemCardStyle}">
-                            <StackPanel Spacing="8">
-                                <Grid Style="{StaticResource SettingsRowStyle}">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                        <TextBlock Text="额度来源" Style="{StaticResource SettingsLabelStyle}" />
-                                        <TextBlock Text="{Binding SelectedQuotaDataSourceDescription}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <ComboBox Grid.Column="1" Width="176" ItemsSource="{Binding QuotaDataSources}" SelectedItem="{Binding SelectedQuotaDataSource, Mode=TwoWay}">
-                                        <ComboBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding Converter={StaticResource QuotaDataSourceDisplayConverter}}" />
-                                            </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                    </ComboBox>
-                                </Grid>
-                                <Grid Style="{StaticResource SettingsRowStyle}">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                        <TextBlock Text="Token 使用量来源" Style="{StaticResource SettingsLabelStyle}" />
-                                        <TextBlock Text="{Binding SelectedTokenUsageDataSourceDescription}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <ComboBox Grid.Column="1" Width="176" ItemsSource="{Binding TokenUsageDataSources}" SelectedItem="{Binding SelectedTokenUsageDataSource, Mode=TwoWay}">
-                                        <ComboBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding Converter={StaticResource TokenUsageDataSourceDisplayConverter}}" />
-                                            </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                    </ComboBox>
-                                </Grid>
-                                <TextBlock Text="切换来源会清除当前页面的旧来源投影，确认后立即刷新新来源。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
-                                <Button Content="应用来源" Click="OnApplyDataSourcesRequested" IsEnabled="{Binding CanEditDataSources}" Style="{StaticResource SettingsActionButtonStyle}" HorizontalAlignment="Left" />
-                            </StackPanel>
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="额度来源" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedQuotaDataSourceDescription}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <ComboBox Grid.Column="1" Width="176" SelectedIndex="{Binding SelectedQuotaDataSourceIndex, Mode=OneWay}" IsEnabled="{Binding CanEditDataSources}" SelectionChanged="OnQuotaDataSourceSelectionChanged">
+                                    <ComboBoxItem Content="OpenAI（Codex CLI）" IsEnabled="{Binding DataContext.CliAccountAvailable, ElementName=SettingsRoot}" />
+                                    <ComboBoxItem Content="OpenAI（OAuth）" IsEnabled="{Binding DataContext.OAuthAvailable, ElementName=SettingsRoot}" />
+                                </ComboBox>
+                            </Grid>
                         </Border>
+                        <Border Style="{StaticResource SettingsItemCardStyle}">
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="统计来源" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="{Binding SelectedTokenUsageDataSourceDescription}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <ComboBox Grid.Column="1" Width="176" SelectedIndex="{Binding SelectedTokenUsageDataSourceIndex, Mode=OneWay}" IsEnabled="{Binding CanEditDataSources}" SelectionChanged="OnStatisticsDataSourceSelectionChanged">
+                                    <ComboBoxItem Content="本机" />
+                                    <ComboBoxItem Content="OpenAI（Codex CLI）" IsEnabled="{Binding DataContext.CliAccountAvailable, ElementName=SettingsRoot}" />
+                                    <ComboBoxItem Content="OpenAI（OAuth）" IsEnabled="{Binding DataContext.OAuthAvailable, ElementName=SettingsRoot}" />
+                                </ComboBox>
+                            </Grid>
+                        </Border>
+                        <TextBlock Text="选择后立即切换并刷新；不同来源的数据不会互相回退或合并。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
                     </StackPanel>
 
                     <StackPanel x:Name="GeneralSettingsPanel" Spacing="8" Visibility="Collapsed">

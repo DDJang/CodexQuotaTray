@@ -111,6 +111,19 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task AccountObjectRemainsAuthenticatedWhenOpenAiAuthIsRequired()
+    {
+        await using var client = CreateFake("requires-openai-auth");
+        await client.ConnectAsync(CancellationToken.None);
+
+        var account = await client.ReadAccountAsync(CancellationToken.None);
+
+        Assert.IsTrue(account.RequiresOpenAiAuth);
+        Assert.IsTrue(account.IsAuthenticated);
+        Assert.AreEqual("chatgpt", account.AccountType);
+    }
+
+    [TestMethod]
     public async Task AccountUsageMethodNotFoundIsExplicit()
     {
         await using var client = CreateFake("method-not-found");

@@ -109,7 +109,10 @@ public sealed record AccountReadResult(
     bool RequiresOpenAiAuth,
     string? AccountType,
     string? Email,
-    string? PlanType);
+    string? PlanType)
+{
+    public bool IsAuthenticated => !string.IsNullOrWhiteSpace(AccountType);
+}
 
 public sealed record AccountUsageReadResult(
     AccountUsageSummary? Summary,

@@ -58,7 +58,7 @@ while (await Console.In.ReadLineAsync() is { } line)
                 id = id.GetInt64(),
                 result = new
                 {
-                    requiresOpenaiAuth = false,
+                    requiresOpenaiAuth = mode == "requires-openai-auth",
                     account = new { type = "chatgpt", email = "account@example.invalid", planType = "plus" },
                 },
             });

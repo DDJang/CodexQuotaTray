@@ -27,6 +27,7 @@ public sealed partial class SettingsWindow : Window
     private readonly AppWindow appWindow;
     private SettingsContentPage? currentSettingsPage;
     private bool showingSettingsHome;
+    private bool accountRefreshStarted;
     private bool exiting;
 
     public SettingsWindow(SettingsViewModel viewModel, string displayName)
@@ -48,6 +49,11 @@ public sealed partial class SettingsWindow : Window
         SettingsRoot.Loaded += (_, _) =>
         {
             ApplyBackdrop();
+            if (!accountRefreshStarted)
+            {
+                accountRefreshStarted = true;
+                _ = viewModel.RefreshAccountStatusCommand.ExecuteAsync(null);
+            }
         };
         var hwnd = WindowNative.GetWindowHandle(this);
         var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
@@ -240,30 +246,37 @@ public sealed partial class SettingsWindow : Window
         });
     }
 
-    private async void OnApplyDataSourcesRequested(object sender, RoutedEventArgs args)
+    private async void OnQuotaDataSourceSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
-        if (!viewModel.HasPendingDataSourceChanges)
-        {
-            return;
-        }
-
-        var dialog = new ContentDialog
-        {
-            XamlRoot = SettingsRoot.XamlRoot,
-            Title = "确认切换数据来源？",
-            Content = "切换后会清除当前页面的旧来源投影，并立即读取新来源。不同来源的数据不会互相回退或合并。",
-            PrimaryButtonText = "应用并刷新",
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Primary,
-        };
-        if (await TryShowDialogAsync(dialog) != ContentDialogResult.Primary)
+        if (sender is not ComboBox { SelectedIndex: >= 0 } comboBox)
         {
             return;
         }
 
         try
         {
-            await viewModel.ApplySelectedDataSourcesAsync(CancellationToken.None);
+            await viewModel.SelectQuotaDataSourceAsync(
+                (QuotaDataSource)comboBox.SelectedIndex,
+                CancellationToken.None);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            viewModel.ReportDataSourceApplyFailure();
+        }
+    }
+
+    private async void OnStatisticsDataSourceSelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (sender is not ComboBox { SelectedIndex: >= 0 } comboBox)
+        {
+            return;
+        }
+
+        try
+        {
+            await viewModel.SelectStatisticsDataSourceAsync(
+                (TokenUsageDataSource)comboBox.SelectedIndex,
+                CancellationToken.None);
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {

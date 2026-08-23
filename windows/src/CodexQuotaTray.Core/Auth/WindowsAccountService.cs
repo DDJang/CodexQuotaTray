@@ -118,7 +118,7 @@ public sealed class WindowsAccountService(
             await using var cli = cliFactory.Create();
             await cli.ConnectAsync(cancellationToken).ConfigureAwait(false);
             var account = await cli.ReadAccountAsync(cancellationToken).ConfigureAwait(false);
-            return !account.RequiresOpenAiAuth;
+            return account.IsAuthenticated;
         }
         catch (CodexClientException)
         {

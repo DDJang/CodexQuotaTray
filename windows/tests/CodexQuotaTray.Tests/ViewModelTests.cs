@@ -473,6 +473,52 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public async Task StatisticsSourceSelectionAppliesImmediately()
+    {
+        var runtime = new StubRuntimeControl(AppSettings.Defaults with
+        {
+            TokenUsageDataSource = TokenUsageDataSource.CodexCli,
+        });
+        var viewModel = new SettingsViewModel(
+            runtime,
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions());
+
+        await viewModel.SelectStatisticsDataSourceAsync(
+            TokenUsageDataSource.Local,
+            CancellationToken.None);
+
+        Assert.AreEqual(TokenUsageDataSource.Local, runtime.Settings.TokenUsageDataSource);
+        Assert.AreEqual((int)TokenUsageDataSource.Local, viewModel.SelectedTokenUsageDataSourceIndex);
+        Assert.AreEqual("统计来源已切换", viewModel.StatusText);
+    }
+
+    [TestMethod]
+    public async Task UnavailableCliStatisticsSourceIsRejectedAndSelectionRollsBack()
+    {
+        var runtime = new StubRuntimeControl(AppSettings.Defaults with
+        {
+            TokenUsageDataSource = TokenUsageDataSource.Local,
+        });
+        var viewModel = new SettingsViewModel(
+            runtime,
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions());
+        var selectionResetNotified = false;
+        viewModel.PropertyChanged += (_, args) =>
+            selectionResetNotified |= args.PropertyName == nameof(SettingsViewModel.SelectedTokenUsageDataSourceIndex);
+
+        await viewModel.SelectStatisticsDataSourceAsync(
+            TokenUsageDataSource.CodexCli,
+            CancellationToken.None);
+
+        Assert.AreEqual(TokenUsageDataSource.Local, runtime.Settings.TokenUsageDataSource);
+        Assert.AreEqual((int)TokenUsageDataSource.Local, viewModel.SelectedTokenUsageDataSourceIndex);
+        Assert.IsTrue(selectionResetNotified);
+        StringAssert.Contains(viewModel.StatusText, "请先登录可用的 Codex CLI 账户");
+    }
+
+    [TestMethod]
     public async Task RuntimeAuthoritativeProviderDoesNotReapplyReturnedSnapshot()
     {
         var returned = new AppUiState(
