@@ -28,8 +28,8 @@
 ## Android 客户端
 
 - 使用设备代码 OAuth 登录，凭据保存在 Android Keystore 保护的 App 私有存储。
-- 有 OAuth 时 Direct HTTPS usage API 永远是额度主路径；只有 Direct 网络失败、已配对 Windows 且
-  Wi-Fi LAN 可用时，才允许读取 Windows 最后成功快照。
+- 设置中的额度与 Token 数据来源优先级彼此独立；额度默认 OpenAI 优先，Token 默认 Windows 优先，
+  首选来源失败或暂不可用时读取另一来源，只有两边都不可用才失败。
 - 没有 OAuth 但用户已经配对 Windows 时，Android 可以直接读取 Windows 最后成功额度快照并刷新；
   OAuth 与 Windows pairing 都不存在时才属于没有额度数据源。
 - 额度与 Token 使用量各自支持回到前台时自动读取/同步、手动读取和独立周期 WorkManager。
@@ -44,7 +44,8 @@
   已确认的本机历史，并生成日聚合与摘要；原始 JSONL 后续移动或删除不移除已入账数据。
 - Windows 可按设置保存最小日聚合统计缓存，用于启动时快速恢复统计页；关闭后删除该缓存。
 - Android 必须由用户扫码或手动输入进行配对；LAN 只接受私人 IPv4，不跟随 redirect。
-- 配对 secret 与 OAuth 凭据分开加密；Token 缓存绑定 Windows `deviceId`。
+- 配对 secret 与 OAuth 凭据分开加密；Windows Token 缓存绑定 `deviceId`，OpenAI Account Token
+  缓存保留独立的 transport/scope，Local 与 Account 不合并或互相冒充。
 - 解除或更换配对后不能显示、提交或恢复旧设备数据。
 
 ## 非功能要求

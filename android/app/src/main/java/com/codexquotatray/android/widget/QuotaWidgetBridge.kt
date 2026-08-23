@@ -10,6 +10,7 @@ import com.codexquotatray.android.usage.TokenUsageCache
 import com.codexquotatray.android.usage.TokenUsageSummary
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.cacheIdentity
+import com.codexquotatray.android.auth.OAuthStore
 
 object QuotaWidgetBridge {
     fun publish(
@@ -47,8 +48,9 @@ object QuotaWidgetBridge {
     }
 
     private fun tokenSummary(context: Context): QuotaWidgetTokenSummary? {
-        val pairing = TokenSyncStore(context).load() ?: return null
-        return TokenUsageCache(context).load(pairing)?.summary?.let { summary ->
+        val pairing = TokenSyncStore(context).load()
+        val hasOAuth = OAuthStore(context).load() != null
+        return TokenUsageCache(context).loadForAvailableSources(pairing, hasOAuth)?.summary?.let { summary ->
             summary.toQuotaWidgetTokenSummary()
         }
     }
@@ -79,10 +81,10 @@ object QuotaWidgetBridge {
     }
 }
 
-internal fun TokenUsageSummary.toQuotaWidgetTokenSummary(): QuotaWidgetTokenSummary =
+internal fun TokenUsageSummary.toQuotaWidgetTokenSummary(): QuotaWidgetTokenSummary? =
     QuotaWidgetTokenSummary(
-        todayTokens = todayTokens,
-        last7DaysTokens = last7DaysTokens,
+        todayTokens = todayTokens ?: return null,
+        last7DaysTokens = last7DaysTokens ?: return null,
         last30DaysTokens = last30DaysTokens,
-        lifetimeTokens = lifetimeTokens,
+        lifetimeTokens = lifetimeTokens ?: return null,
     )

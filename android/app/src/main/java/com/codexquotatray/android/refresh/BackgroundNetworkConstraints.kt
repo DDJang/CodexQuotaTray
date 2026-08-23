@@ -66,13 +66,6 @@ internal data class BackgroundNetworkRequirement(
 }
 
 internal object BackgroundNetworkConstraints {
-    /** Token data exists only on the paired Windows machine, so it needs Wi-Fi but not Internet. */
-    fun token(): BackgroundNetworkRequirement = BackgroundNetworkRequirement(
-        name = "TOKEN_WIFI_LAN",
-        transports = setOf(BackgroundNetworkTransport.WIFI),
-        capabilities = setOf(BackgroundNetworkCapability.NOT_SUSPENDED),
-    )
-
     /**
      * Quota can use Direct HTTPS or a paired Windows fallback. With both sources, either
      * transport is useful and Internet must not be a hard requirement because the Wi-Fi path may

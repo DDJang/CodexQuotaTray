@@ -13,6 +13,8 @@ import org.json.JSONTokener
 import org.json.JSONObject
 import java.io.IOException
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToLong
 
@@ -33,21 +35,83 @@ class CodexUsageClient(
     private val httpClient: OkHttpClient = defaultClient(),
     private val usageUrl: String = OAuthCredentials.USAGE_URL,
     private val resetCreditsUrl: String = OAuthCredentials.RESET_CREDITS_URL,
+    private val profileUrl: String = PROFILE_URL,
 ) {
+    fun fetchTokenProfile(
+        credentials: OAuthCredentials,
+        callTimeoutMillis: Long? = null,
+        now: ZonedDateTime = ZonedDateTime.now(),
+    ): TokenUsageSnapshot {
+        val request = authenticatedRequest(profileUrl, credentials).build()
+        val response = execute(request, callTimeoutMillis)
+        if (response.code == 401 || response.code == 403) {
+            throw UsageException(UsageFailureKind.UNAUTHORIZED, "profile authentication required", response.code)
+        }
+        if (response.code !in 200..299) {
+            throw UsageException(UsageFailureKind.SERVER, "profile API returned an error", response.code)
+        }
+        val json = runCatching { JSONObject(response.body) }.getOrElse {
+            throw UsageException(UsageFailureKind.INVALID_RESPONSE, "profile response was not JSON")
+        }
+        return parseTokenProfile(json, now)
+    }
+
+    internal fun parseTokenProfile(json: JSONObject, now: ZonedDateTime = ZonedDateTime.now()): TokenUsageSnapshot {
+        val stats = sequenceOf("stats", "usage", "tokenUsage")
+            .mapNotNull { json.optJSONObject(it) }
+            .firstOrNull() ?: json
+        val summaryJson = stats.optJSONObject("summary") ?: stats
+        val summaryPresent = stats.has("summary") ||
+            summaryJson.has("lifetime_tokens") || summaryJson.has("lifetimeTokens") ||
+            summaryJson.has("peak_daily_tokens") || summaryJson.has("peakDailyTokens") ||
+            summaryJson.has("current_streak_days") || summaryJson.has("currentStreakDays") ||
+            summaryJson.has("longest_streak_days") || summaryJson.has("longestStreakDays")
+        val bucketsKey = sequenceOf("daily_usage_buckets", "dailyUsageBuckets").firstOrNull(stats::has)
+        val bucketsPresent = bucketsKey != null && stats.opt(bucketsKey) is JSONArray
+        val days = if (bucketsPresent) buildList {
+            val buckets = stats.optJSONArray(bucketsKey)!!
+            for (index in 0 until buckets.length()) {
+                val bucket = buckets.optJSONObject(index) ?: continue
+                val date = string(bucket, "start_date", "startDate")
+                    ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                val tokens = number(bucket, "tokens")?.takeIf { it >= 0L }
+                if (date != null && tokens != null) add(TokenUsageDay(date, tokens, null, null, null, null))
+            }
+        }.groupBy(TokenUsageDay::date).map { (date, values) ->
+            TokenUsageDay(date, saturatingSum(values.map(TokenUsageDay::totalTokens)), null, null, null, null)
+        }.sortedBy(TokenUsageDay::date) else emptyList()
+        val today = now.toLocalDate()
+        val todayTokens = days.firstOrNull { it.date == today }?.totalTokens
+        val last7 = if (bucketsPresent) saturatingSum(days.filter { it.date in today.minusDays(6)..today }.map(TokenUsageDay::totalTokens)) else null
+        val last30 = if (bucketsPresent) saturatingSum(days.filter { it.date in today.minusDays(29)..today }.map(TokenUsageDay::totalTokens)) else null
+        val summaryPeak = if (summaryPresent) number(summaryJson, "peak_daily_tokens", "peakDailyTokens")?.takeIf { it >= 0 } else null
+        return TokenUsageSnapshot(
+            schemaVersion = 1,
+            generatedAtUtc = now.toInstant().toString(),
+            sourceTimeZone = now.zone.id,
+            summary = TokenUsageSummary(
+                todayTokens = todayTokens,
+                last7DaysTokens = last7,
+                last30DaysTokens = last30,
+                lifetimeTokens = if (summaryPresent) number(summaryJson, "lifetime_tokens", "lifetimeTokens")?.takeIf { it >= 0 } else null,
+                peakDailyTokens = summaryPeak ?: if (bucketsPresent) days.maxOfOrNull(TokenUsageDay::totalTokens) ?: 0L else null,
+                peakDate = days.maxWithOrNull(compareBy<TokenUsageDay> { it.totalTokens }.thenBy { it.date })?.date,
+                activeDays = if (bucketsPresent) days.count { it.totalTokens > 0 } else null,
+                currentStreak = if (summaryPresent) number(summaryJson, "current_streak_days", "currentStreakDays")?.takeIf { it >= 0 }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() else null,
+                longestStreak = if (summaryPresent) number(summaryJson, "longest_streak_days", "longestStreakDays")?.takeIf { it >= 0 }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() else null,
+            ),
+            days = days,
+            transport = DataTransport.OPENAI,
+            scope = TokenUsageScope.ACCOUNT,
+            source = "OAuth",
+        )
+    }
+
     fun fetch(
         credentials: OAuthCredentials,
         callTimeoutMillis: Long? = null,
     ): DirectQuotaResult {
-        val requestBuilder = Request.Builder()
-            .url(usageUrl)
-            .get()
-            .header("Authorization", "Bearer ${credentials.accessToken}")
-            .header("Accept", "application/json")
-            .header("User-Agent", "CodexQuotaAndroid/0.1.0")
-            .header("originator", "CodexQuota Android")
-        credentials.accountId
-            ?.takeIf(String::isNotBlank)
-            ?.let { requestBuilder.header("ChatGPT-Account-Id", it) }
+        val requestBuilder = authenticatedRequest(usageUrl, credentials)
 
         val response = try {
             clientFor(callTimeoutMillis).newCall(requestBuilder.build()).execute().use { result ->
@@ -283,6 +347,33 @@ class CodexUsageClient(
 
     private data class HttpPayload(val code: Int, val body: String)
 
+    private fun authenticatedRequest(url: String, credentials: OAuthCredentials): Request.Builder =
+        Request.Builder()
+            .url(url)
+            .get()
+            .header("Authorization", "Bearer ${credentials.accessToken}")
+            .header("Accept", "application/json")
+            .header("User-Agent", "CodexQuotaAndroid/0.1.0")
+            .header("originator", "CodexQuota Android")
+            .also { builder ->
+                credentials.accountId?.takeIf(String::isNotBlank)
+                    ?.let { builder.header("ChatGPT-Account-Id", it) }
+            }
+
+    private fun execute(request: Request, callTimeoutMillis: Long?): HttpPayload = try {
+        clientFor(callTimeoutMillis).newCall(request).execute().use { result ->
+            HttpPayload(result.code, result.body?.string().orEmpty())
+        }
+    } catch (_: IOException) {
+        throw UsageException(UsageFailureKind.NETWORK, "usage network request failed")
+    }
+
+    private fun saturatingSum(values: Iterable<Long>): Long {
+        var total = 0L
+        values.forEach { value -> total = if (Long.MAX_VALUE - total < value) Long.MAX_VALUE else total + value }
+        return total
+    }
+
     internal fun clientFor(callTimeoutMillis: Long?): OkHttpClient = callTimeoutMillis
         ?.let { timeout ->
             require(timeout > 0L) { "quota call timeout must be positive" }
@@ -291,6 +382,7 @@ class CodexUsageClient(
         ?: httpClient
 
     companion object {
+        const val PROFILE_URL = "https://chatgpt.com/backend-api/wham/profiles/me"
         internal fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(QuotaNetworkTimeouts.DIRECT_CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
             .readTimeout(QuotaNetworkTimeouts.DIRECT_READ_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)

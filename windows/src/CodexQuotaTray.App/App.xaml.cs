@@ -134,7 +134,7 @@ public partial class App : Application
             };
             tokenUsageSync = new TokenUsageSyncController(
                 new TokenUsageSettingsService(jsonStore, paths),
-                tokenUsageScanner,
+                cancellationToken => tokenUsageSourceResolver.ReadAsync(cancellationToken),
                 liveRuntime.GetLastSuccessfulLanQuotaSnapshot,
                 identity.TokenSyncPort,
                 identity.TokenSyncDisplayNameSuffix,

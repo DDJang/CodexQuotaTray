@@ -1,8 +1,8 @@
 # CodexQuotaTray Android
 
-`android/` 是个人使用的独立 APK。有 OAuth 时额度主路径为 Android App 私有凭据调用 Direct HTTPS
-usage API；没有 OAuth 但已有 Windows 配对时，可以直接读取 Windows 最后成功额度快照并执行
-Windows-only 刷新。Direct 网络失败时，有 OAuth 的请求才允许使用已配对 Windows 的额度 fallback。
+`android/` 是个人使用的独立 APK。额度与 Token 各自保存 OpenAI/Windows 来源优先级，首选来源失败
+或暂不可用时读取另一来源；默认额度 OpenAI 优先、Token Windows 优先。两项最终都复用各自统一的
+Router、提交与后台刷新路径。
 协议细节见 [API_CONTRACT](../docs/API_CONTRACT.md)。
 
 ## 当前结构

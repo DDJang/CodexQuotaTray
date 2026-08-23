@@ -24,6 +24,7 @@ interface TokenSyncPairingStore {
 
 internal interface TokenUsageCacheStore {
     fun save(pairing: TokenSyncPairing, snapshot: TokenUsageSnapshot): Boolean
+    fun saveOpenAI(snapshot: TokenUsageSnapshot): Boolean = false
     fun clear(): Boolean
 }
 
@@ -126,11 +127,41 @@ class TokenUsageCache private constructor(private val file: File) : TokenUsageCa
         }
     }.getOrNull()
 
+    fun loadForAvailableSources(
+        pairing: TokenSyncPairing?,
+        hasOAuth: Boolean,
+    ): TokenUsageSnapshot? = runCatching {
+        if (!file.isFile || file.length() > MAXIMUM_BYTES) null else {
+            val root = JSONObject(file.readText(Charsets.UTF_8))
+            val snapshot = root.optJSONObject("snapshot")?.let { TokenUsageJson.parse(it.toString()) }
+            when (snapshot?.transport) {
+                DataTransport.WINDOWS -> snapshot.takeIf {
+                    pairing != null && root.optString("pairingIdentity") == pairing.cacheIdentity()
+                }
+                DataTransport.OPENAI -> snapshot.takeIf {
+                    hasOAuth && root.optString("pairingIdentity") == OPENAI_CACHE_IDENTITY
+                }
+                null -> null
+            }
+        }
+    }.getOrNull()
+
     override fun save(pairing: TokenSyncPairing, snapshot: TokenUsageSnapshot): Boolean = runCatching {
+        write(pairing.cacheIdentity(), snapshot.copy(transport = DataTransport.WINDOWS))
+    }.getOrDefault(false)
+
+    override fun saveOpenAI(snapshot: TokenUsageSnapshot): Boolean = runCatching {
+        write(
+            OPENAI_CACHE_IDENTITY,
+            snapshot.copy(transport = DataTransport.OPENAI, scope = TokenUsageScope.ACCOUNT),
+        )
+    }.getOrDefault(false)
+
+    private fun write(identity: String, snapshot: TokenUsageSnapshot): Boolean {
         file.parentFile?.mkdirs()
         val temporary = File(file.parentFile, file.name + ".tmp")
         val bytes = JSONObject()
-            .put("pairingIdentity", pairing.cacheIdentity())
+            .put("pairingIdentity", identity)
             .put("snapshot", JSONObject(TokenUsageJson.serialize(snapshot)))
             .toString()
             .toByteArray(Charsets.UTF_8)
@@ -146,13 +177,14 @@ class TokenUsageCache private constructor(private val file: File) : TokenUsageCa
             java.nio.file.StandardCopyOption.ATOMIC_MOVE,
             java.nio.file.StandardCopyOption.REPLACE_EXISTING,
         )
-        true
-    }.getOrDefault(false)
+        return true
+    }
 
     override fun clear(): Boolean = !file.exists() || file.delete()
 
     companion object {
         private const val MAXIMUM_BYTES = 512 * 1024
+        private const val OPENAI_CACHE_IDENTITY = "openai-account"
         internal fun forTest(file: File) = TokenUsageCache(file)
     }
 }

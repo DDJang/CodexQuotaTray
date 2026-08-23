@@ -130,7 +130,7 @@ class QuotaWidgetProjectionTest {
             longestStreak = 8,
         )
 
-        assertEquals(3L, summary.toQuotaWidgetTokenSummary().last30DaysTokens)
+        assertEquals(3L, summary.toQuotaWidgetTokenSummary()?.last30DaysTokens)
     }
 
     @Test

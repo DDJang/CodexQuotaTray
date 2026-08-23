@@ -37,25 +37,30 @@ WinUI Views / Services / Interop / Themes
 
 ```text
 OAuthStore ───────────────┐
-                          ├─ CodexQuotaRepository
-TokenSyncStore ───────────┘       ├─ QuotaSnapshotStore
+TokenSyncStore ───────────┴─ QuotaSourceRouter ── CodexQuotaRepository
+                                           ├─ QuotaSnapshotStore
                                   ├─ QuotaAlertEvaluator
                                   └─ QuotaRefreshWorker
 
-TokenSyncStore → TokenUsageSyncCoordinator → TokenUsageCache
-                                           └─ TokenUsageRefreshWorker
+OAuthStore ───────────────┐
+TokenSyncStore ───────────┴─ TokenUsageSourceRouter → TokenUsageSyncCoordinator → TokenUsageCache
+                                                                          └─ TokenUsageRefreshWorker
 ```
 
 - `auth` 保存最小 OAuth 状态，Keystore key 不离开 App 私有环境。
 - `protocol` 解析 Direct HTTPS usage 响应并保持动态窗口与缺失值语义。
-- `quota` 把 Direct 或 Windows fallback 的成功结果提交到同一快照、提醒和通知路径。
+- `quota` 通过独立优先级 Router 双向选择 Direct 或 Windows，并把成功结果提交到同一快照、提醒和通知路径。
 - `usage` 通过 process-local single-flight 统一前台、设置和 Worker 同步；提交前重新验证 pairing，
   先写 cache，再写成功时间与最新地址。
 - Compose 页面只消费 domain state；前台通过 refresh event 接收后台成功结果。
 
-有 OAuth 时额度 Direct 请求与 Windows LAN fallback 保持串行：只有 Direct 的 `NETWORK` 失败才尝试
-已保存地址、必要时 DNS-SD、再重试 Windows。没有 OAuth 但已有 Windows pairing 时直接读取 Windows
-额度快照。LAN 请求绑定实际 Wi-Fi network，不在移动网络等待。
+Token WorkManager 在 OAuth 或 Windows pairing 任一存在时排程，并复用 quota 的 source-aware 网络约束：
+仅 OAuth 要求 validated Internet，仅 Windows 要求 Wi-Fi LAN，两者并存时允许 Wi-Fi/cellular 且不硬要求
+Internet，以保留 LAN-only Wi-Fi fallback。
+
+额度与 Token Router 都按各自设置串行尝试 OpenAI/Windows；缺少 OAuth 或 pairing 的 provider 视为
+unavailable。Windows provider 仍复用已保存地址、必要时 DNS-SD 与 pairing invalidation，LAN 请求绑定
+实际 Wi-Fi network。OpenAI Token profile 与 Windows Account/Local 永不合并。
 
 ## LAN 服务
 
@@ -101,7 +106,8 @@ Android 只在 offline 类错误时发现相同 `deviceId`，401 不触发发现
 
 - 所有磁盘缓存都是最小产品投影，不是 raw response archive。
 - 文件提交使用临时文件/原子替换或平台原子 preferences commit。
-- Token cache 绑定当前 Windows device identity；同步期间配对改变时丢弃旧结果。
+- Token cache 保存实际 transport/scope；Windows 结果绑定当前 device identity，OpenAI Account 结果
+  绑定 OAuth 可用性，旧缓存迁移为 Windows/Local，同步期间身份改变时丢弃旧结果。
 - 同步 single-flight 必须包含完整 pairing 配置的不可逆 fingerprint，不能让换 secret 的请求共享结果。
 - 解除配对以删除凭据为强保证，缓存清理仅 best-effort。
 

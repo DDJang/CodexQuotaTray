@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using CodexQuotaTray.Core.TokenUsage;
+using CodexQuotaTray.Core.Persistence;
 
 namespace CodexQuotaTray.Tests;
 
@@ -513,6 +514,8 @@ public sealed class TokenUsageTests
         Assert.AreEqual("no-store", correct.Headers.CacheControl?.ToString());
         using var document = JsonDocument.Parse(json);
         Assert.AreEqual(1, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.AreEqual("Local", document.RootElement.GetProperty("source").GetString());
+        Assert.AreEqual("Local", document.RootElement.GetProperty("scope").GetString());
         foreach (var forbidden in new[] { "session", "path", "email", "account", "prompt", "response" })
         {
             Assert.IsFalse(json.Contains(forbidden, StringComparison.OrdinalIgnoreCase));
@@ -838,6 +841,34 @@ public sealed class TokenUsageTests
             ? $"\"total_token_usage\":{totalUsage}"
             : $"\"total_token_usage\":{totalUsage},\"last_token_usage\":{Usage(last.Value)}";
         return $"{{\"timestamp\":\"{timestamp}\",\"type\":\"event_msg\",\"payload\":{{\"type\":\"token_count\",\"info\":{{{info}}}}}}}";
+    }
+
+    [TestMethod]
+    public async Task LanTokenEndpointFollowsCurrentWindowsTokenSourceAndEmitsScope()
+    {
+        var selected = TokenUsageDataSource.Local;
+        await using var server = new TokenUsageSyncServer(
+            _ => Task.FromResult(Snapshot(42, DateTimeOffset.UtcNow) with { Source = selected }),
+            "test-secret",
+            () => null,
+            minimumScanInterval: TimeSpan.Zero);
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{server.Port}") };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-secret");
+
+        using var local = JsonDocument.Parse(await (await client.GetAsync("/v1/token-usage?refresh=force")).Content.ReadAsStringAsync());
+        selected = TokenUsageDataSource.OAuth;
+        using var account = JsonDocument.Parse(await (await client.GetAsync("/v1/token-usage?refresh=force")).Content.ReadAsStringAsync());
+        selected = TokenUsageDataSource.CodexCli;
+        using var cliAccount = JsonDocument.Parse(await (await client.GetAsync("/v1/token-usage?refresh=force")).Content.ReadAsStringAsync());
+
+        Assert.AreEqual("Local", local.RootElement.GetProperty("source").GetString());
+        Assert.AreEqual("Local", local.RootElement.GetProperty("scope").GetString());
+        Assert.AreEqual("OAuth", account.RootElement.GetProperty("source").GetString());
+        Assert.AreEqual("Account", account.RootElement.GetProperty("scope").GetString());
+        Assert.AreEqual("CodexCli", cliAccount.RootElement.GetProperty("source").GetString());
+        Assert.AreEqual("Account", cliAccount.RootElement.GetProperty("scope").GetString());
+        Assert.AreEqual(42L, account.RootElement.GetProperty("summary").GetProperty("lifetimeTokens").GetInt64());
     }
 
     private static string SessionMeta(string sessionId, string? forkedFromId = null)

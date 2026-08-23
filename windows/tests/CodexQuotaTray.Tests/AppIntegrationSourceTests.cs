@@ -186,7 +186,7 @@ public sealed class AppIntegrationSourceTests
     }
 
     [TestMethod]
-    public void UiAndLanTokenUsagePathsShareOneScannerInstance()
+    public void UiAndLanTokenUsagePathsShareOneSourceResolver()
     {
         var appSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
 
@@ -195,7 +195,7 @@ public sealed class AppIntegrationSourceTests
         Assert.IsGreaterThanOrEqualTo(0, controllerStart);
         var controllerEnd = appSource.IndexOf(");", controllerStart, StringComparison.Ordinal);
         Assert.IsGreaterThan(controllerStart, controllerEnd);
-        StringAssert.Contains(appSource[controllerStart..controllerEnd], "tokenUsageScanner,");
+        StringAssert.Contains(appSource[controllerStart..controllerEnd], "tokenUsageSourceResolver.ReadAsync(cancellationToken)");
     }
 
     [TestMethod]

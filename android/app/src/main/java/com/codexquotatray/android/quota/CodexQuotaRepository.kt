@@ -17,6 +17,8 @@ import com.codexquotatray.android.auth.OAuthLoginUpdate
 import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.auth.ProcessCredentialRefreshCoordinator
 import com.codexquotatray.android.protocol.DirectQuotaResult
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
+import com.codexquotatray.android.source.DataSourcePriorityStore
 import com.codexquotatray.android.usage.CodexUsageClient
 import com.codexquotatray.android.usage.AndroidLanDiagnosticLogger
 import com.codexquotatray.android.usage.QuotaNetworkTimeouts
@@ -69,6 +71,8 @@ class CodexQuotaRepository(
     private val tokenSyncStore: TokenSyncPairingStore = TokenSyncStore(context),
     private val lanAvailability: LanAvailability = AndroidLanAvailability(context),
     private val windowsQuotaFallback: WindowsQuotaFallback = WindowsQuotaFallbackClient(context),
+    private val sourcePriorityStore: DataSourcePriorityStore = AndroidDataSourcePriorityStore(context),
+    private val sourceRouter: QuotaSourceRouter = QuotaSourceRouter(),
 ) {
     private val appContext = context.applicationContext
     private val alertEvaluator by lazy { QuotaAlertEvaluator(alertStateStore) }
@@ -120,21 +124,39 @@ class CodexQuotaRepository(
     fun refresh(): DirectQuotaResult {
         val generation = CredentialGeneration.current()
         val loaded = credentialStore.load()
-        if (loaded == null) {
-            val resolved = fallbackResolver.fetchWindowsOnlyWithPairing()
-            return commitAndReturn(resolved.quota, resolved.pairing)
-        }
-        var credentials = currentCredentialsOrThrow(generation)
+        val pairing = tokenSyncStore.load()
+        val resolved = sourceRouter.read(
+            priority = sourcePriorityStore.load().quota,
+            hasOpenAI = loaded != null,
+            hasWindows = pairing != null,
+            openAI = {
+                var credentials = currentCredentialsOrThrow(generation)
 
-        if (credentials.needsRefresh()) {
-            credentials = refreshCredentials(
-                observed = credentials,
-                allowStaleAccess = true,
-                observedGeneration = generation,
-            )
-        }
-        val fetched = fetchWithRecovery(credentials, generation)
-        return publishAndReturn(fetched.quota, fetched.credentials, generation, fetched.pairing)
+                if (credentials.needsRefresh()) {
+                    credentials = refreshCredentials(
+                        observed = credentials,
+                        allowStaleAccess = true,
+                        observedGeneration = generation,
+                    )
+                }
+                val fetched = fetchDirectWithRecovery(
+                    credentials,
+                    generation,
+                    QuotaNetworkTimeouts.directCallTimeoutMillis(
+                        windowsPairingOnWifi = pairing != null && lanAvailability.isAvailable(),
+                    ),
+                    onCredentialsUsed = { credentials = it },
+                )
+                publishAndReturn(fetched, credentials, generation, null)
+                QuotaSourceRead(fetched)
+            },
+            windows = {
+                val fetched = fallbackResolver.fetchWindowsOnlyWithPairing()
+                commitAndReturn(fetched.quota, fetched.pairing)
+                QuotaSourceRead(fetched.quota, fetched.pairing)
+            },
+        )
+        return resolved.quota
     }
 
     fun login(onUpdate: (OAuthLoginUpdate) -> Unit = {}): OAuthCredentials {
@@ -155,24 +177,6 @@ class CodexQuotaRepository(
             saveCredentials(credentials)
         }
         return credentials
-    }
-
-    private fun fetchWithRecovery(
-        initial: OAuthCredentials,
-        initialGeneration: Long,
-    ): SuccessfulQuotaFetch {
-        var successfulCredentials = initial
-        val resolved = fallbackResolver.fetchWithPairing {
-            fetchDirectWithRecovery(
-                initial,
-                initialGeneration,
-                QuotaNetworkTimeouts.directCallTimeoutMillis(
-                    windowsPairingOnWifi = tokenSyncStore.load() != null && lanAvailability.isAvailable(),
-                ),
-                onCredentialsUsed = { successfulCredentials = it },
-            )
-        }
-        return SuccessfulQuotaFetch(resolved.quota, successfulCredentials, resolved.pairing)
     }
 
     private fun fetchDirectWithRecovery(
@@ -340,12 +344,6 @@ class CodexQuotaRepository(
         }
         return result
     }
-
-    private data class SuccessfulQuotaFetch(
-        val quota: DirectQuotaResult,
-        val credentials: OAuthCredentials,
-        val pairing: TokenSyncPairing?,
-    )
 
     private fun saveCredentials(credentials: OAuthCredentials) {
         if (!credentialStore.save(credentials)) {

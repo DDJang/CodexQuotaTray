@@ -45,6 +45,8 @@ import com.codexquotatray.android.quota.QuotaRefreshSettings
 import com.codexquotatray.android.quota.QuotaRefreshSettingsStore
 import com.codexquotatray.android.quota.QuotaSnapshotStore
 import com.codexquotatray.android.quota.ResetCreditExpiryReminderScheduler
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
+import com.codexquotatray.android.source.DataSourcePriority
 import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
@@ -75,6 +77,7 @@ private enum class SettingsDestination(val title: String) {
     ROOT("设置"),
     NOTIFICATIONS("通知"),
     SYNC("数据更新"),
+    SOURCE("数据来源"),
     THEME("显示与主题"),
     TOKEN_PAIRING("Windows 配对"),
     UPDATE("更新设置"),
@@ -87,6 +90,7 @@ class SettingsActivity : ComponentActivity() {
     private val tokenStore by lazy { TokenSyncStore(this) }
     private val tokenRefreshStore by lazy { TokenUsageRefreshSettingsStore(this) }
     private val updateSettingsStore by lazy { UpdateSettingsStore(this) }
+    private val sourcePriorityStore by lazy { AndroidDataSourcePriorityStore(this) }
     private val pairingWorker = Executors.newSingleThreadExecutor()
     private val pairingMain = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -102,6 +106,8 @@ class SettingsActivity : ComponentActivity() {
     private var tokenAutoSync by mutableStateOf(true)
     private var tokenBackgroundSync by mutableStateOf(false)
     private var tokenSyncInterval by mutableStateOf(TokenUsageRefreshSettings.DEFAULT_INTERVAL_MINUTES)
+    private var quotaSourcePriority by mutableStateOf(DataSourcePriority.OPENAI_FIRST)
+    private var tokenSourcePriority by mutableStateOf(DataSourcePriority.WINDOWS_FIRST)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var systemThemeVersion by mutableStateOf(0)
     private var pairing by mutableStateOf<TokenSyncPairing?>(null)
@@ -262,6 +268,7 @@ class SettingsActivity : ComponentActivity() {
                 SettingsDestination.ROOT -> SettingsHome()
                 SettingsDestination.NOTIFICATIONS -> NotificationSettings()
                 SettingsDestination.SYNC -> SyncSettings()
+                SettingsDestination.SOURCE -> SourceSettings()
                 SettingsDestination.THEME -> ThemeSettings()
                 SettingsDestination.TOKEN_PAIRING -> TokenPairingSettings()
                 SettingsDestination.UPDATE -> UpdateSettingsPage()
@@ -275,6 +282,10 @@ class SettingsActivity : ComponentActivity() {
             SettingsGroup {
                 SettingsNavigationRow("Codex 额度账号") {
                     startActivity(Intent(this@SettingsActivity, AccountActivity::class.java))
+                }
+                SettingsDivider()
+                SettingsNavigationRow("数据来源") {
+                    openDestination(SettingsDestination.SOURCE)
                 }
                 SettingsDivider()
                 SettingsNavigationRow(
@@ -317,6 +328,36 @@ class SettingsActivity : ComponentActivity() {
                 SettingsNavigationRow("关于") {
                     startActivity(Intent(this@SettingsActivity, AboutActivity::class.java))
                 }
+            }
+        }
+    }
+
+    @Composable
+    private fun ColumnScope.SourceSettings() {
+        SettingsSection("额度") {
+            SettingsGroup {
+                SettingsSegmentedSelector(
+                    options = listOf(
+                        SettingsSegmentOption(0, "OpenAI 优先"),
+                        SettingsSegmentOption(1, "Windows 优先"),
+                    ),
+                    selectedValue = if (quotaSourcePriority == DataSourcePriority.OPENAI_FIRST) 0 else 1,
+                    enabled = true,
+                    onSelected = { selectQuotaSourcePriority(if (it == 0) DataSourcePriority.OPENAI_FIRST else DataSourcePriority.WINDOWS_FIRST) },
+                )
+            }
+        }
+        SettingsSection("Token 统计") {
+            SettingsGroup {
+                SettingsSegmentedSelector(
+                    options = listOf(
+                        SettingsSegmentOption(0, "OpenAI 优先"),
+                        SettingsSegmentOption(1, "Windows 优先"),
+                    ),
+                    selectedValue = if (tokenSourcePriority == DataSourcePriority.OPENAI_FIRST) 0 else 1,
+                    enabled = true,
+                    onSelected = { selectTokenSourcePriority(if (it == 0) DataSourcePriority.OPENAI_FIRST else DataSourcePriority.WINDOWS_FIRST) },
+                )
             }
         }
     }
@@ -488,6 +529,10 @@ class SettingsActivity : ComponentActivity() {
             tokenBackgroundSync = tokenRefresh.backgroundSyncEnabled
             tokenSyncInterval = tokenRefresh.normalizedIntervalMinutes
         }
+        sourcePriorityStore.load().also { priorities ->
+            quotaSourcePriority = priorities.quota
+            tokenSourcePriority = priorities.token
+        }
         themeMode = themeStore.load()
         pairing = tokenStore.load()
         tokenStatus = if (pairing == null) "尚未配对 Windows" else "已配对"
@@ -561,6 +606,18 @@ class SettingsActivity : ComponentActivity() {
         tokenRefreshStore.save(tokenRefreshStore.load().copy(intervalMinutes = minutes))
         TokenUsageRefreshScheduler.schedule(this)
         AppLogStore.record(this, "Token 后台同步频率设为 $minutes 分钟")
+    }
+
+    private fun selectQuotaSourcePriority(priority: DataSourcePriority) {
+        quotaSourcePriority = priority
+        sourcePriorityStore.save(sourcePriorityStore.load().copy(quota = priority))
+        AppLogStore.record(this, "额度数据来源优先级已更新")
+    }
+
+    private fun selectTokenSourcePriority(priority: DataSourcePriority) {
+        tokenSourcePriority = priority
+        sourcePriorityStore.save(sourcePriorityStore.load().copy(token = priority))
+        AppLogStore.record(this, "Token 数据来源优先级已更新")
     }
 
     private fun selectTheme(mode: ThemeMode) {

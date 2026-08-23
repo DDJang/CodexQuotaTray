@@ -19,6 +19,8 @@ import com.codexquotatray.android.auth.OAuthCredentials
 import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import com.codexquotatray.android.quota.QuotaSnapshotStore
+import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
+import com.codexquotatray.android.usage.TokenUsageCache
 
 class AccountActivity : ComponentActivity() {
     private val oauthStore by lazy { OAuthStore(this) }
@@ -101,9 +103,11 @@ class AccountActivity : ComponentActivity() {
             oauthStore.clear()
             QuotaAlertStateStore(this).clear()
             QuotaSnapshotStore(this).clear()
+            TokenUsageCache(this).clear()
         }
         com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
         QuotaRefreshScheduler.schedule(this)
+        TokenUsageRefreshScheduler.schedule(this)
         AppLogStore.record(this, "已退出登录")
         render()
         setResult(RESULT_OK)

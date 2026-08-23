@@ -45,8 +45,8 @@ class RefreshStatusFormatterTest {
     @Test
     fun quotaAndTokenAvailabilityStatusesAreExplicit() {
         assertEquals("尚未连接额度来源", RefreshStatusFormatter.quotaNoSource())
-        assertEquals("尚未配对 Windows", RefreshStatusFormatter.tokenUnpaired())
-        assertEquals("已配对 Windows · 暂无 Token 数据", RefreshStatusFormatter.tokenPairedWithoutData())
+        assertEquals("尚未连接 Token 数据来源", RefreshStatusFormatter.tokenUnpaired())
+        assertEquals("数据来源已连接 · 暂无 Token 数据", RefreshStatusFormatter.tokenPairedWithoutData())
     }
 
     @Test

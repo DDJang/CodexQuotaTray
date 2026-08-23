@@ -69,6 +69,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import com.codexquotatray.android.usage.HeatmapBuckets
+import com.codexquotatray.android.auth.OAuthStore
+import com.codexquotatray.android.usage.DataTransport
+import com.codexquotatray.android.usage.TokenUsageScope
 import com.codexquotatray.android.usage.TokenFormatter
 import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
@@ -105,6 +108,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     private val cache by lazy { TokenUsageCache(host) }
     private val store by lazy { TokenSyncStore(host) }
     private val refreshSettings by lazy { TokenUsageRefreshSettingsStore(host) }
+    private val oauthStore by lazy { OAuthStore(host) }
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var destroyed = false
@@ -119,10 +123,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     var paired by mutableStateOf(false)
         private set
 
-    /** The last pairing configuration reconciled into this controller. */
-    private var observedPairing: TokenSyncPairing? = null
-
-    val canSync get() = !syncing && store.load() != null
+    val canSync get() = !syncing && (store.load() != null || oauthStore.load() != null)
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -139,39 +140,30 @@ internal class TokenUsagePageController(private val host: MainActivity) {
 
     fun onForeground(reason: AutomaticRefreshReason) {
         reconcilePairingState()
-        requestSync(store.load(), reason)
+        requestSync(reason)
     }
 
     /**
-     * Reconciles only local pairing/cache state. It never starts a network
+     * Reconciles only local provider/cache state. It never starts a network
      * request, so returning from Settings cannot resurrect a stale snapshot or
      * bypass the foreground refresh coordinator.
      */
     fun reconcilePairingState() {
         val currentPairing = store.load()
-        val decision = tokenPairingReconcileDecision(
-            previousPairing = observedPairing,
-            currentPairing = currentPairing,
-            currentSnapshot = snapshot,
-            cachedSnapshot = currentPairing?.let(cache::load),
-        )
-        if (decision.unpaired) {
-            observedPairing = null
+        val hasOAuth = oauthStore.load() != null
+        val cached = cache.loadForAvailableSources(currentPairing, hasOAuth)
+        if (currentPairing == null && !hasOAuth) {
             paired = false
             snapshot = null
             status = RefreshStatusFormatter.tokenUnpaired()
             return
         }
-
-        observedPairing = currentPairing
         paired = true
-        if (decision.pairingChanged) {
-            snapshot = decision.snapshotToDisplay
-            status = snapshot?.let { RefreshStatusFormatter.loaded("Windows", formatSyncTime(it.generatedAtUtc)) }
-                ?: RefreshStatusFormatter.tokenPairedWithoutData()
-        } else if (decision.snapshotToDisplay !== snapshot && decision.snapshotToDisplay != null) {
-            snapshot = decision.snapshotToDisplay
-            status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(decision.snapshotToDisplay.generatedAtUtc))
+        if (cached != null && (snapshot == null || hasNewerTokenUsageSnapshot(snapshot, cached))) {
+            snapshot = cached
+            status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(cached), formatSyncTime(cached.generatedAtUtc))
+        } else if (snapshot == null) {
+            status = RefreshStatusFormatter.tokenPairedWithoutData()
         }
     }
 
@@ -190,10 +182,10 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     }
 
     fun destroy() { onStop(); destroyed = true; worker.shutdownNow() }
-    fun requestSync() { if (canSync) requestSync(store.load(), AutomaticRefreshReason.MANUAL) }
+    fun requestSync() { if (canSync) requestSync(AutomaticRefreshReason.MANUAL) }
 
-    private fun requestSync(pairing: TokenSyncPairing?, reason: AutomaticRefreshReason) {
-        if (pairing == null || syncing || destroyed) return
+    private fun requestSync(reason: AutomaticRefreshReason) {
+        if (!canSync || destroyed) return
         val enabled = refreshSettings.load().autoSyncOnOpen
         if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.TOKEN, reason, enabled)) return
         val snapshotAtStart = snapshot
@@ -203,7 +195,6 @@ internal class TokenUsagePageController(private val host: MainActivity) {
             val result = try {
                 runCatching {
                     TokenUsageSyncCoordinator(host).sync(
-                        pairing,
                         forceRefresh = shouldForceTokenUsageRefresh(reason),
                     )
                 }
@@ -215,13 +206,12 @@ internal class TokenUsagePageController(private val host: MainActivity) {
                 syncing = false
                 result.onSuccess { synced ->
                     snapshot = synced.snapshot
-                    observedPairing = store.load() ?: synced.pairing
-                    status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(synced.snapshot.generatedAtUtc))
+                    status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(synced.snapshot), formatSyncTime(synced.snapshot.generatedAtUtc))
                 }.onFailure { error ->
                     val latestSnapshot = loadCachedSnapshot()
                     if (latestSnapshot != null && hasNewerTokenUsageSnapshot(snapshotAtStart, latestSnapshot)) {
                         snapshot = latestSnapshot
-                        status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(latestSnapshot.generatedAtUtc))
+                        status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(latestSnapshot), formatSyncTime(latestSnapshot.generatedAtUtc))
                     } else {
                         val message = tokenUsageSyncErrorMessage(error)
                         status = RefreshStatusFormatter.tokenFailure(
@@ -234,7 +224,14 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         }
     }
 
-    private fun loadCachedSnapshot(): TokenUsageSnapshot? = store.load()?.let(cache::load)
+    private fun loadCachedSnapshot(): TokenUsageSnapshot? =
+        cache.loadForAvailableSources(store.load(), oauthStore.load() != null)
+}
+
+internal fun tokenUsageSourceLabel(snapshot: TokenUsageSnapshot): String = when {
+    snapshot.transport == DataTransport.OPENAI -> "OpenAI · 账户"
+    snapshot.scope == TokenUsageScope.ACCOUNT -> "Windows · 账户"
+    else -> "Windows · 本机"
 }
 
 /** Pure local decision used by the controller and regression tests. */
@@ -290,7 +287,7 @@ internal fun TokenUsagePage(controller: TokenUsagePageController, onPairing: () 
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface))) {
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("统计", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                    Text("连接 Windows CodexQuotaTray 后，即可查看 Windows 端的 Codex Token 使用历史。", color = palette.color(palette.secondary))
+                    Text("登录 OpenAI 或连接 Windows CodexQuotaTray 后，即可查看 Token 使用历史。", color = palette.color(palette.secondary))
                     Button(onClick = rememberSystemHapticClick(onPairing), modifier = Modifier.fillMaxWidth()) { Text("扫码配对") }
                 }
             }
@@ -307,7 +304,13 @@ private fun TokenUsageStatusLine(status: String) {
 @Composable
 private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
     val first = listOf("今日 Token" to snapshot.summary.todayTokens, "7 天 Token" to snapshot.summary.last7DaysTokens, "30 天 Token" to snapshot.summary.last30DaysTokens, "累计 Token" to snapshot.summary.lifetimeTokens)
-    val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续" to snapshot.summary.currentStreak.toLong(), "最长连续" to snapshot.summary.longestStreak.toLong())
+    val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续" to snapshot.summary.currentStreak?.toLong(), "最长连续" to snapshot.summary.longestStreak?.toLong())
+    val categories = listOf(
+        "输入" to completeCategoryTotal(snapshot.days) { it.inputTokens },
+        "缓存输入" to completeCategoryTotal(snapshot.days) { it.cachedInputTokens },
+        "输出" to completeCategoryTotal(snapshot.days) { it.outputTokens },
+        "推理" to completeCategoryTotal(snapshot.days) { it.reasoningTokens },
+    )
     val tokenContentHazeState = rememberHazeState()
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
     var tooltipPresentation by remember { mutableStateOf<HeatmapTooltipPresentation?>(null) }
@@ -348,8 +351,14 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
                 .fillMaxWidth()
                 .hazeSource(tokenContentHazeState),
         ) {
+            Text(
+                tokenUsageSourceLabel(snapshot),
+                color = LocalQuotaPalette.current.color(LocalQuotaPalette.current.muted),
+                fontSize = 11.sp,
+            )
             SummaryRow(first)
             SummaryRow(second)
+            SummaryRow(categories)
             Spacer(Modifier.height(16.dp))
             TokenHeatmap(
                 days = snapshot.days,
@@ -373,13 +382,37 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
     }
 }
 
+private fun completeCategoryTotal(
+    days: List<TokenUsageDay>,
+    select: (TokenUsageDay) -> Long?,
+): Long? {
+    if (days.isEmpty() || days.any { select(it) == null }) return null
+    var total = 0L
+    days.forEach { day ->
+        val value = select(day) ?: return null
+        total = if (Long.MAX_VALUE - total < value) Long.MAX_VALUE else total + value
+    }
+    return total
+}
+
 @Composable
-private fun SummaryRow(items: List<Pair<String, Long>>) {
+private fun SummaryRow(items: List<Pair<String, Long?>>) {
     val palette = LocalQuotaPalette.current
     Row(Modifier.fillMaxWidth()) {
         items.forEach { (label, value) ->
             Column(Modifier.weight(1f).padding(vertical = 10.dp, horizontal = 3.dp)) {
-                Text(TokenFormatter.format(value), Modifier.fillMaxWidth(), color = palette.color(palette.title), fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text(
+                    when {
+                        value != null -> TokenFormatter.format(value)
+                        label == "今日 Token" -> "待同步"
+                        else -> "—"
+                    },
+                    Modifier.fillMaxWidth(),
+                    color = palette.color(palette.title),
+                    fontSize = if (value == null && label == "今日 Token") 13.sp else 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
                 Text(label, Modifier.fillMaxWidth(), color = palette.color(palette.muted), fontSize = 11.sp, textAlign = TextAlign.Center)
             }
         }

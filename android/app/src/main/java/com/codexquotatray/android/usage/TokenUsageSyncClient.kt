@@ -10,7 +10,16 @@ import java.io.IOException
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 
-enum class TokenUsageFailureKind { PAIRING_INVALID, OFFLINE, HTTP_ERROR, INVALID_RESPONSE, UNSUPPORTED }
+enum class TokenUsageFailureKind {
+    PAIRING_INVALID,
+    LOGIN_REQUIRED,
+    OFFLINE,
+    HTTP_ERROR,
+    SERVER,
+    INVALID_RESPONSE,
+    UNSUPPORTED,
+    UNAVAILABLE,
+}
 
 class TokenUsageException(val kind: TokenUsageFailureKind, override val message: String) : IOException(message)
 

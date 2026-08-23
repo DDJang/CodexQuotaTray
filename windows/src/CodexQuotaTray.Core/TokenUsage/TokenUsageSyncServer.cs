@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using CodexQuotaTray.Core.Persistence;
 
 namespace CodexQuotaTray.Core.TokenUsage;
 
@@ -58,6 +59,22 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         this.minimumScanInterval = minimumScanInterval;
         requestHeaderTimeout = TimeSpan.FromSeconds(10);
         quotaSnapshotProvider = () => null;
+        this.diagnostic = diagnostic ?? (_ => { });
+    }
+
+    public TokenUsageSyncServer(
+        Func<CancellationToken, Task<TokenUsageSnapshot>> readTokenUsageAsync,
+        string secret,
+        Func<QuotaLanSnapshot?> quotaSnapshotProvider,
+        TimeSpan? minimumScanInterval = null,
+        TimeSpan? requestHeaderTimeout = null,
+        Action<string>? diagnostic = null)
+    {
+        scanAsync = readTokenUsageAsync;
+        this.secret = secret;
+        this.minimumScanInterval = minimumScanInterval ?? TimeSpan.FromSeconds(60);
+        this.requestHeaderTimeout = requestHeaderTimeout ?? TimeSpan.FromSeconds(10);
+        this.quotaSnapshotProvider = quotaSnapshotProvider;
         this.diagnostic = diagnostic ?? (_ => { });
     }
 
@@ -311,6 +328,14 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     snapshot.SchemaVersion,
                     snapshot.GeneratedAtUtc,
                     snapshot.SourceTimeZone,
+                    Source = snapshot.Source switch
+                    {
+                        TokenUsageDataSource.Local => "Local",
+                        TokenUsageDataSource.CodexCli => "CodexCli",
+                        TokenUsageDataSource.OAuth => "OAuth",
+                        _ => "Local",
+                    },
+                    Scope = snapshot.Source == TokenUsageDataSource.Local ? "Local" : "Account",
                     snapshot.Summary,
                     snapshot.Days,
                 }, JsonOptions);

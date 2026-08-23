@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.auth.OAuthLoginUpdate
 import com.codexquotatray.android.quota.CodexQuotaRepository
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
+import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
 import java.util.concurrent.Executors
 
 class LoginActivity : ComponentActivity() {
@@ -137,6 +138,7 @@ class LoginActivity : ComponentActivity() {
                     onSuccess = {
                         AppLogStore.record(this@LoginActivity, "登录成功")
                         QuotaRefreshScheduler.schedule(this)
+                        TokenUsageRefreshScheduler.schedule(this)
                         setResult(RESULT_OK)
                         finish()
                     },

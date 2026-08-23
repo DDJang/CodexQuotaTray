@@ -90,8 +90,17 @@ ChatGPT-Account-Id: <account-id>  # 仅可靠时发送
 明细失败不影响 usage 成功，`availableCount` 仍为权威值，`credits=null` 与成功返回的 `[]`
 保持可区分。401/403 允许一次 refresh 恢复后重试；普通刷新不无条件 refresh。
 
-错误分为登录、网络、服务端和非法响应。Direct 永远优先；只有 `NETWORK`、已配对 Windows 且
-Wi-Fi LAN 可用时才读取 `/v1/quota`。Windows 失败后仍呈现原 Direct 网络错误。
+Android OpenAI Account Token provider 使用同一 OAuth/refresh coordinator 与请求头读取：
+
+```text
+GET https://chatgpt.com/backend-api/wham/profiles/me
+```
+
+只消费 nullable `summary` 与 `dailyUsageBuckets[]`。有 buckets 但缺当天 bucket 时 Today 保持不可用；
+Account 日桶没有分类字段时 input/cached/output/reasoning 保持 null，且永不与 Windows Local 相加。
+
+错误分为登录、网络、服务端和非法响应。Android 根据独立的额度优先级串行尝试 Direct 与 Windows；
+缺少对应凭据的 provider 为 unavailable，首选失败时尝试另一 provider。
 
 ## 额度规范化与持久化
 
@@ -130,8 +139,9 @@ Android `QuotaSnapshotStore` 保存最后成功的脱敏产品快照：套餐、
 时间，不替代数据更新时间。快照不含 OAuth
 凭据、HTTP body/header、账户 ID、错误正文或历史序列；退出登录会清除快照。
 
-Android Token cache 只保存 Windows 返回的聚合 schema，并绑定 pairing 的设备 identity。解除或
-替换 pairing 时清除；提交前 pairing 改变时丢弃结果。
+Android Token cache 保存实际 `transport`（OpenAI/Windows）与 `scope`（Account/Local）。Windows
+结果绑定 pairing device identity，OpenAI Account 结果只在 OAuth 仍可用时恢复；旧缓存缺少 metadata
+时迁移为 Windows/Local。不同 scope 不合并、不互相恢复。
 
 ## Windows LAN schemaVersion 1
 
@@ -145,6 +155,8 @@ Windows 只在用户启用同步后，以二维码/DNS-SD 携带的实际私人 
 schemaVersion: 1
 generatedAtUtc: ISO-8601
 sourceTimeZone: string
+source: Local | CodexCli | OAuth
+scope: Local | Account
 summary:
   todayTokens, last7DaysTokens, last30DaysTokens, lifetimeTokens
   peakDailyTokens, peakDate, activeDays, currentStreak, longestStreak
@@ -152,6 +164,9 @@ days[]:
   date, totalTokens
   inputTokens?, cachedInputTokens?, outputTokens?, reasoningTokens?
 ```
+
+Android 将该接口的 transport 固定记录为 Windows；旧 Windows payload 缺少 `source`/`scope` 时按
+Local scope 兼容。
 
 只返回最近 365 天日聚合和全历史 summary；不得包含 session ID、路径、账号、prompt、response、
 工具内容或原始 JSONL。
