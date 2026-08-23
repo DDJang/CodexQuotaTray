@@ -54,6 +54,8 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ObservableCollection<QuotaWindowView> Windows { get; } = [];
 
+    public ObservableCollection<bool> LoadingWindows { get; } = [true];
+
     public bool HasPlanBadge => !string.IsNullOrWhiteSpace(PlanBadge);
 
     public bool HasWindows => Windows.Count != 0;
@@ -75,7 +77,7 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanRefresh))]
     private async Task RefreshAsync(CancellationToken cancellationToken)
     {
-        BeginRefreshPresentation(showLoading: !HasWindows);
+        BeginRefreshPresentation(showLoading: !HasWindows, Windows.Count);
         StatusText = "正在刷新…";
         StatusTone = StatusTone.Refreshing;
         try
@@ -111,6 +113,11 @@ public sealed partial class MainViewModel : ObservableObject
     {
         if (!state.IsRefreshing && IsRefreshing)
         {
+            if (ShowLoading)
+            {
+                SetLoadingWindowCount(state.Windows.Count);
+            }
+
             pendingRefreshResult = state;
             EndRefreshPresentationAfterMinimum();
             return;
@@ -119,7 +126,7 @@ public sealed partial class MainViewModel : ObservableObject
         var startsContentLoading = state.IsRefreshing && state.Windows.Count == 0;
         if (state.IsRefreshing && (!IsRefreshing || (startsContentLoading && !ShowLoading)))
         {
-            BeginRefreshPresentation(startsContentLoading);
+            BeginRefreshPresentation(startsContentLoading, Windows.Count);
         }
 
         ApplyCore(state);
@@ -142,7 +149,7 @@ public sealed partial class MainViewModel : ObservableObject
         OnPropertyChanged(nameof(HasWindows));
     }
 
-    private void BeginRefreshPresentation(bool showLoading)
+    private void BeginRefreshPresentation(bool showLoading, int loadingWindowCount)
     {
         refreshPresentationCompletion?.Cancel();
         refreshPresentationCompletion?.Dispose();
@@ -152,6 +159,25 @@ public sealed partial class MainViewModel : ObservableObject
         refreshPresentationStartedTimestamp = Stopwatch.GetTimestamp();
         IsRefreshing = true;
         ShowLoading = showLoading;
+        if (showLoading)
+        {
+            SetLoadingWindowCount(loadingWindowCount);
+        }
+    }
+
+    private void SetLoadingWindowCount(int count)
+    {
+        count = Math.Max(1, count);
+        if (LoadingWindows.Count == count)
+        {
+            return;
+        }
+
+        LoadingWindows.Clear();
+        for (var index = 0; index < count; index++)
+        {
+            LoadingWindows.Add(true);
+        }
     }
 
     private void EndRefreshPresentationAfterMinimum()

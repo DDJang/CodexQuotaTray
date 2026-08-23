@@ -140,6 +140,7 @@ public sealed class ViewModelTests
     {
         var existingWindow = QuotaWindowView.Demo("5 小时额度", 80, "1小时后重置", "14:30");
         var replacementWindow = QuotaWindowView.Demo("7 天额度", 60, "2天后重置", "周二 14:30");
+        var secondaryWindow = QuotaWindowView.Demo("5 小时额度", 40, "3小时后重置", "17:30");
         var viewModel = new MainViewModel(
             new StubProvider(new AppUiState(
                 "Codex",
@@ -172,7 +173,7 @@ public sealed class ViewModelTests
             "Plus",
             "更新于 14:31",
             StatusTone.Success,
-            [replacementWindow],
+            [replacementWindow, secondaryWindow],
             new ResetCreditViewState(ResetCreditKind.Unavailable)));
 
         await Task.Delay(TimeSpan.FromMilliseconds(450));
@@ -181,6 +182,7 @@ public sealed class ViewModelTests
         Assert.IsTrue(viewModel.ShowLoading);
         Assert.IsFalse(viewModel.ShowContent);
         Assert.IsFalse(viewModel.HasWindows);
+        Assert.HasCount(2, viewModel.LoadingWindows);
 
         await Task.Delay(TimeSpan.FromMilliseconds(400));
 
@@ -188,6 +190,7 @@ public sealed class ViewModelTests
         Assert.IsFalse(viewModel.ShowLoading);
         Assert.IsTrue(viewModel.ShowContent);
         Assert.IsTrue(viewModel.HasWindows);
+        Assert.HasCount(2, viewModel.Windows);
         Assert.AreEqual("7 天额度", viewModel.Windows[0].Name);
     }
 
@@ -575,6 +578,28 @@ public sealed class ViewModelTests
         Assert.AreEqual(TokenUsageDataSource.Local, runtime.Settings.TokenUsageDataSource);
         Assert.AreEqual((int)TokenUsageDataSource.Local, viewModel.SelectedTokenUsageDataSourceIndex);
         Assert.AreEqual("统计来源已切换", viewModel.StatusText);
+    }
+
+    [TestMethod]
+    public void DataSourceEditingStatesAreIndependent()
+    {
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions());
+
+        viewModel.QuotaDataSourceChangeInProgress = true;
+
+        Assert.IsFalse(viewModel.CanEditQuotaDataSource);
+        Assert.IsTrue(viewModel.CanEditStatisticsDataSource);
+        Assert.IsTrue(viewModel.DataSourceChangeInProgress);
+
+        viewModel.QuotaDataSourceChangeInProgress = false;
+        viewModel.StatisticsDataSourceChangeInProgress = true;
+
+        Assert.IsTrue(viewModel.CanEditQuotaDataSource);
+        Assert.IsFalse(viewModel.CanEditStatisticsDataSource);
+        Assert.IsTrue(viewModel.DataSourceChangeInProgress);
     }
 
     [TestMethod]

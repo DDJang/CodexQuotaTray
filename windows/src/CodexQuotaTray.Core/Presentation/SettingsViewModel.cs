@@ -115,8 +115,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     private bool oauthLoginInProgress;
     private bool oauthAvailable;
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DataSourceChangeInProgress))]
     [NotifyPropertyChangedFor(nameof(CanEditDataSources))]
-    private bool dataSourceChangeInProgress;
+    [NotifyPropertyChangedFor(nameof(CanEditQuotaDataSource))]
+    private bool quotaDataSourceChangeInProgress;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DataSourceChangeInProgress))]
+    [NotifyPropertyChangedFor(nameof(CanEditDataSources))]
+    [NotifyPropertyChangedFor(nameof(CanEditStatisticsDataSource))]
+    private bool statisticsDataSourceChangeInProgress;
     [ObservableProperty] private string statusText = string.Empty;
     [ObservableProperty] private bool automaticUpdateChecksEnabled;
     [ObservableProperty] private bool updateRemindersEnabled;
@@ -312,7 +319,14 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public bool IsOAuthAvailable => OAuthAvailable;
 
+    public bool DataSourceChangeInProgress =>
+        QuotaDataSourceChangeInProgress || StatisticsDataSourceChangeInProgress;
+
     public bool CanEditDataSources => !IsBusy && !DataSourceChangeInProgress;
+
+    public bool CanEditQuotaDataSource => !QuotaDataSourceChangeInProgress;
+
+    public bool CanEditStatisticsDataSource => !StatisticsDataSourceChangeInProgress;
 
     public bool ShowOAuthLoginButton => !OAuthAvailable && !OAuthLoginInProgress;
 
@@ -450,10 +464,21 @@ public sealed partial class SettingsViewModel : ObservableObject
             return;
         }
 
-        await dataSourceGate.WaitAsync(cancellationToken);
-        DataSourceChangeInProgress = true;
+        var quotaChange = quotaSource is not null;
+        var enteredGate = false;
+        if (quotaChange)
+        {
+            QuotaDataSourceChangeInProgress = true;
+        }
+        else
+        {
+            StatisticsDataSourceChangeInProgress = true;
+        }
+
         try
         {
+            await dataSourceGate.WaitAsync(cancellationToken);
+            enteredGate = true;
             var current = runtime.Settings;
             var requestedQuota = quotaSource ?? current.QuotaDataSource;
             var requestedStatistics = statisticsSource ?? current.TokenUsageDataSource;
@@ -515,8 +540,19 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         finally
         {
-            DataSourceChangeInProgress = false;
-            dataSourceGate.Release();
+            if (enteredGate)
+            {
+                dataSourceGate.Release();
+            }
+
+            if (quotaChange)
+            {
+                QuotaDataSourceChangeInProgress = false;
+            }
+            else
+            {
+                StatisticsDataSourceChangeInProgress = false;
+            }
         }
     }
 

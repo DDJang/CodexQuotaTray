@@ -265,7 +265,7 @@
                                     <TextBlock Text="额度来源" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="{Binding SelectedQuotaDataSourceDescription}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
                                 </StackPanel>
-                                <ComboBox Grid.Column="1" Width="224" VerticalAlignment="Center" SelectedIndex="{Binding SelectedQuotaDataSourceIndex, Mode=OneWay}" IsEnabled="{Binding CanEditDataSources}" SelectionChanged="OnQuotaDataSourceSelectionChanged">
+                                <ComboBox Grid.Column="1" Width="224" VerticalAlignment="Center" SelectedIndex="{Binding SelectedQuotaDataSourceIndex, Mode=OneWay}" IsEnabled="{Binding CanEditQuotaDataSource}" SelectionChanged="OnQuotaDataSourceSelectionChanged">
                                     <ComboBoxItem Content="OpenAI（Codex CLI）" IsEnabled="{Binding DataContext.CliAccountAvailable, ElementName=SettingsRoot}" />
                                     <ComboBoxItem Content="OpenAI（OAuth）" IsEnabled="{Binding DataContext.OAuthAvailable, ElementName=SettingsRoot}" />
                                 </ComboBox>
@@ -278,7 +278,7 @@
                                     <TextBlock Text="统计来源" Style="{StaticResource SettingsLabelStyle}" />
                                     <TextBlock Text="{Binding SelectedTokenUsageDataSourceDescription}" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
                                 </StackPanel>
-                                <ComboBox Grid.Column="1" Width="224" VerticalAlignment="Center" SelectedIndex="{Binding SelectedTokenUsageDataSourceIndex, Mode=OneWay}" IsEnabled="{Binding CanEditDataSources}" SelectionChanged="OnStatisticsDataSourceSelectionChanged">
+                                <ComboBox Grid.Column="1" Width="224" VerticalAlignment="Center" SelectedIndex="{Binding SelectedTokenUsageDataSourceIndex, Mode=OneWay}" IsEnabled="{Binding CanEditStatisticsDataSource}" SelectionChanged="OnStatisticsDataSourceSelectionChanged">
                                     <ComboBoxItem Content="本机" />
                                     <ComboBoxItem Content="OpenAI（Codex CLI）" IsEnabled="{Binding DataContext.CliAccountAvailable, ElementName=SettingsRoot}" />
                                     <ComboBoxItem Content="OpenAI（OAuth）" IsEnabled="{Binding DataContext.OAuthAvailable, ElementName=SettingsRoot}" />
