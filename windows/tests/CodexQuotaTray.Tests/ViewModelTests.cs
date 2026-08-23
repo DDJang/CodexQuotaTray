@@ -104,6 +104,8 @@ public sealed class ViewModelTests
         viewModel.ApplySnapshot(refreshing);
 
         Assert.IsTrue(viewModel.IsRefreshing);
+        Assert.IsTrue(viewModel.ShowQuotaLoading);
+        Assert.IsFalse(viewModel.HasWindows);
         Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("正在刷新…", viewModel.StatusText);
 
@@ -111,16 +113,21 @@ public sealed class ViewModelTests
         {
             StatusText = "更新于 14:30",
             StatusTone = StatusTone.Success,
+            Windows = [QuotaWindowView.Demo("5 小时额度", 80, "1小时后重置", "14:30")],
             IsRefreshing = false,
         });
 
         Assert.IsTrue(viewModel.IsRefreshing);
+        Assert.IsTrue(viewModel.ShowQuotaLoading);
+        Assert.IsFalse(viewModel.HasWindows);
         Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("正在刷新…", viewModel.StatusText);
 
         await Task.Delay(RefreshPresentationPolicy.MinimumIndicatorDuration + TimeSpan.FromMilliseconds(150));
 
         Assert.IsFalse(viewModel.IsRefreshing);
+        Assert.IsFalse(viewModel.ShowQuotaLoading);
+        Assert.IsTrue(viewModel.HasWindows);
         Assert.IsTrue(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("更新于 14:30", viewModel.StatusText);
     }

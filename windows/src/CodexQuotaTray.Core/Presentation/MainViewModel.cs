@@ -33,6 +33,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
+    [NotifyPropertyChangedFor(nameof(ShowQuotaLoading))]
     private bool isRefreshing;
 
     [ObservableProperty]
@@ -53,6 +54,8 @@ public sealed partial class MainViewModel : ObservableObject
     public bool HasPlanBadge => !string.IsNullOrWhiteSpace(PlanBadge);
 
     public bool HasWindows => Windows.Count != 0;
+
+    public bool ShowQuotaLoading => IsRefreshing && !HasWindows;
 
     partial void OnPlanBadgeChanged(string? value) => OnPropertyChanged(nameof(HasPlanBadge));
 
@@ -132,6 +135,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(HasWindows));
+        OnPropertyChanged(nameof(ShowQuotaLoading));
     }
 
     private void BeginRefreshPresentation()

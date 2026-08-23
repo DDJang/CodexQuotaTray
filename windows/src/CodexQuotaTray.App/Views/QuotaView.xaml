@@ -18,7 +18,8 @@
         <ScrollViewer
             HorizontalScrollBarVisibility="Disabled"
             VerticalScrollBarVisibility="Auto"
-            VerticalScrollMode="Auto">
+            VerticalScrollMode="Auto"
+            Visibility="{Binding ShowQuotaLoading, Converter={StaticResource BooleanToVisibilityConverter}, ConverterParameter=Inverse}">
             <StackPanel Spacing="10">
                 <Border
                     Padding="18,7"
@@ -85,6 +86,21 @@
                 </Border>
             </StackPanel>
         </ScrollViewer>
+
+        <Border
+            Height="168"
+            Background="{ThemeResource CardSurfaceBrush}"
+            BorderBrush="{ThemeResource CardBorderBrush}"
+            BorderThickness="1"
+            CornerRadius="{StaticResource QuotaCornerRadius}"
+            Visibility="{Binding ShowQuotaLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <ProgressRing
+                Width="28"
+                Height="28"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                IsActive="{Binding ShowQuotaLoading}" />
+        </Border>
 
         <Grid Grid.Row="1" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
