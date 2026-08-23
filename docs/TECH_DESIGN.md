@@ -23,10 +23,12 @@ WinUI Views / Services / Interop / Themes
 - `Core/Runtime` 统一 Startup、Manual、Scheduled、Resume、NetworkRestored 和通知恢复刷新，保证
   单 in-flight、有界退避和失败时保留最后有效状态；额度 provider 由设置选择，切换时先清空旧
   source projection，再加载同 source cache 并立即刷新。
-- `Core/Persistence` 只保存设置、最小归一化额度缓存、按日聚合 Token 统计缓存和提醒状态。
+- `Core/Persistence` 保存设置、最小归一化额度缓存、按日聚合 Token 统计缓存和提醒状态；Local Token
+  的 SQLite 增量账本由 `Core/TokenUsage` 管理，并存放在同一身份隔离数据目录。
 - `Core/Presentation` 是 UI 的唯一产品状态入口；UI 不解析 RPC。
-- `Core/TokenUsage` 使用有界 UTF-8 缓冲流式扫描 session 文件中的 Token 计数事件，复用未变化文件并从
-  安全偏移增量读取追加内容；主面板与 LAN 服务共享同一个扫描 single-flight 和文件状态，不进入额度协议层。
+- `Core/TokenUsage` 使用有界 UTF-8 缓冲流式扫描 session 文件中的 Token 计数事件，复用 SQLite 中的
+  文件安全偏移增量读取追加内容；累计值按 session high-water、fork replay baseline 计算新增 delta，
+  写入持久账本后由 SQL 生成每日聚合。主面板与 LAN 服务共享同一个扫描 single-flight，不进入额度协议层。
 
 完整读取形成通知合并基线。`account/rateLimits/updated` 只覆盖实际出现的字段；无安全基线、通知
 溢出或 generation 变化时触发完整补读。
@@ -92,7 +94,8 @@ Android 只在 offline 类错误时发现相同 `deviceId`，401 不触发发现
 
 来源边界：Quota provider 为 Codex CLI 或 OAuth；Token provider 为 Local、Codex CLI 或 OAuth。
 每个 provider 是唯一 source of truth；来源 cache 使用独立 identity，unsupported 或 unavailable
-不会静默 fallback。Local scanner 算法保持不变，账户 usage 只消费按日桶和可选 summary 字段。
+不会静默 fallback。Local 只以本机 JSONL 为输入并由本机 SQLite 账本持久化，账户 usage 只消费按日桶
+和可选 summary 字段，两者不合并。
 
 ## 持久化和并发边界
 

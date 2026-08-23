@@ -117,6 +117,12 @@ WinUI 可按用户设置将 `TokenUsageSnapshot` 按来源保存为 Local 的 `t
 prompt、response、工具内容或原始 JSONL；来源切换不复用另一来源缓存，关闭“保存统计缓存”后删除，
 读取异常时直接忽略。
 
+Local 另使用身份隔离的 `token-usage.sqlite3` 作为持久账本。`file_state` 保存 JSONL 路径、owner
+session、文件元数据和安全 offset；`session_state` 保存累计 Token high-water、fork baseline 所需状态
+和最后事件；`token_events` 只保存已确认 delta、timestamp、local date 与 Token 分类数字。刷新只读取变化
+文件在安全 offset 后的追加内容，日数据由 SQLite 按 `local_date` 聚合。JSONL 移动或删除不会删除已入账
+事件；该账本不从 `account/usage/read` 或旧 summary cache 导入，也不保存对话正文、项目、模型或账户字段。
+
 Android `QuotaSnapshotStore` 保存最后成功的脱敏产品快照：套餐、quota state、数据更新时间、
 来源及窗口的 bucket、本地标识/名称、百分比、时长和重置时间，以及 reset-credit 的权威数量和
 可展示明细投影（`credits=null` 与 `[]` 保持可区分，不保存完整 reset-credit ID）。它另外保存本机

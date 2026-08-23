@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 
 namespace CodexQuotaTray.Core.TokenUsage;
 
@@ -11,24 +12,27 @@ public sealed class TokenUsageScanner
 {
     private const int ReadBufferSize = 64 * 1024;
     private const int DefaultMaximumCandidateRecordBytes = 1024 * 1024;
-    private static readonly byte[] TokenCountMarker = "\"token_count\""u8.ToArray();
-    private static readonly StringComparer PathComparer = OperatingSystem.IsWindows()
-        ? StringComparer.OrdinalIgnoreCase
-        : StringComparer.Ordinal;
+    private static readonly byte[][] RelevantMarkers =
+    [
+        "\"token_count\""u8.ToArray(),
+        "\"session_meta\""u8.ToArray(),
+        "\"task_started\""u8.ToArray(),
+    ];
 
+    private readonly string? databasePath;
     private readonly int maximumCandidateRecordBytes;
     private readonly SemaphoreSlim scanGate = new(1, 1);
-    private readonly Dictionary<string, FileScanState> fileStates = new(PathComparer);
-    private string? activeCodexHome;
 
-    public TokenUsageScanner()
-        : this(DefaultMaximumCandidateRecordBytes)
-    {
-    }
+    public TokenUsageScanner() : this(null, DefaultMaximumCandidateRecordBytes) { }
 
-    internal TokenUsageScanner(int maximumCandidateRecordBytes)
+    public TokenUsageScanner(string databasePath) : this(databasePath, DefaultMaximumCandidateRecordBytes) { }
+
+    internal TokenUsageScanner(int maximumCandidateRecordBytes) : this(null, maximumCandidateRecordBytes) { }
+
+    internal TokenUsageScanner(string? databasePath, int maximumCandidateRecordBytes)
     {
-        ArgumentOutOfRangeException.ThrowIfLessThan(maximumCandidateRecordBytes, TokenCountMarker.Length);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maximumCandidateRecordBytes, RelevantMarkers.Max(value => value.Length));
+        this.databasePath = string.IsNullOrWhiteSpace(databasePath) ? null : Path.GetFullPath(databasePath);
         this.maximumCandidateRecordBytes = maximumCandidateRecordBytes;
     }
 
@@ -53,16 +57,14 @@ public sealed class TokenUsageScanner
             var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(utcNow, sourceTimeZone).DateTime);
             var stopwatch = Stopwatch.StartNew();
             var files = EnumerateSessionFiles(codexHome).ToArray();
-
-            if (!PathComparer.Equals(activeCodexHome, codexHome))
-            {
-                fileStates.Clear();
-                activeCodexHome = codexHome;
-            }
-
-            var activePaths = new HashSet<string>(PathComparer);
+            var ledger = new TokenUsageLedger(
+                databasePath ?? Path.Combine(codexHome, ".codex-quota-tray-token-usage.sqlite3"));
+            await using var connection = await ledger.OpenAsync(cancellationToken).ConfigureAwait(false);
+            await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            var sessionStates = new Dictionary<string, SessionLedgerState?>(StringComparer.Ordinal);
             var bytesRead = 0L;
             var filesRead = 0;
+
             foreach (var file in files)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -73,65 +75,57 @@ public sealed class TokenUsageScanner
                     continue;
                 }
 
-                activePaths.Add(file);
-                if (fileStates.TryGetValue(file, out var existing)
-                    && IsUnchanged(existing, info))
+                var existing = await TokenUsageLedger.LoadFileAsync(
+                    connection, transaction, file, cancellationToken).ConfigureAwait(false);
+                if (existing is not null && IsUnchanged(existing, info))
                 {
                     continue;
                 }
 
-                FileScanState updated;
-                if (existing is not null && CanContinueFromCheckpoint(existing, info))
-                {
-                    updated = await AppendFileAsync(file, info, existing, cancellationToken).ConfigureAwait(false);
-                }
-                else
-                {
-                    updated = await ScanFileFromStartAsync(file, info, cancellationToken).ConfigureAwait(false);
-                }
-
-                fileStates[file] = updated;
-                bytesRead += updated.BytesReadOnLastUpdate;
+                var canAppend = existing is not null && CanContinueFromCheckpoint(existing, info);
+                var context = new IngestContext(
+                    connection,
+                    transaction,
+                    sessionStates,
+                    sourceTimeZone,
+                    file,
+                    existing,
+                    inheritedSessionHighWater: !canAppend);
+                var scan = await ScanSegmentAsync(
+                    file,
+                    canAppend ? existing!.Offset : 0,
+                    context,
+                    cancellationToken).ConfigureAwait(false);
+                var afterScan = new FileInfo(file);
+                afterScan.Refresh();
+                var stableLastWrite = afterScan.Exists && afterScan.Length == scan.ObservedLength
+                    ? afterScan.LastWriteTimeUtc.Ticks
+                    : DateTime.MinValue.Ticks;
+                await TokenUsageLedger.SaveFileAsync(
+                    connection,
+                    transaction,
+                    new FileLedgerState(
+                        file,
+                        context.OwnerSessionId,
+                        scan.ProcessedLength,
+                        scan.ObservedLength,
+                        stableLastWrite,
+                        info.CreationTimeUtc.Ticks,
+                        context.FileCumulative,
+                        context.ForkedFromId,
+                        context.ForkReplayActive,
+                        context.ForkSawToken),
+                    cancellationToken).ConfigureAwait(false);
+                bytesRead += scan.BytesRead;
                 filesRead++;
             }
 
-            foreach (var removed in fileStates.Keys.Where(path => !activePaths.Contains(path)).ToArray())
-            {
-                fileStates.Remove(removed);
-            }
-
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
             LastBytesRead = bytesRead;
             LastFilesRead = filesRead;
             TotalBytesRead += bytesRead;
 
-            var days = new Dictionary<DateOnly, DayAccumulator>();
-            var seenEvents = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var file in files)
-            {
-                if (!fileStates.TryGetValue(file, out var state))
-                {
-                    continue;
-                }
-
-                foreach (var value in state.Events)
-                {
-                    if (!seenEvents.Add(value.Key))
-                    {
-                        continue;
-                    }
-
-                    var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(value.Timestamp, sourceTimeZone).DateTime);
-                    if (!days.TryGetValue(localDate, out var day))
-                    {
-                        day = new DayAccumulator();
-                        days.Add(localDate, day);
-                    }
-
-                    day.Add(value.Delta);
-                }
-            }
-
-            var allDays = days.OrderBy(pair => pair.Key).Select(pair => pair.Value.ToDay(pair.Key)).ToArray();
+            var allDays = await TokenUsageLedger.QueryDaysAsync(connection, cancellationToken).ConfigureAwait(false);
             var active = allDays.Where(day => day.TotalTokens > 0).ToArray();
             var peak = active.OrderByDescending(day => day.TotalTokens).ThenBy(day => day.Date).FirstOrDefault();
             var activeDates = active.Select(day => day.Date).ToHashSet();
@@ -153,7 +147,7 @@ public sealed class TokenUsageScanner
                 TimeZoneName(sourceTimeZone),
                 summary,
                 recent,
-                activePaths.Count,
+                files.Length,
                 stopwatch.ElapsedMilliseconds,
                 active.FirstOrDefault()?.Date,
                 active.LastOrDefault()?.Date);
@@ -172,7 +166,7 @@ public sealed class TokenUsageScanner
             foreach (var file in Directory.EnumerateFiles(sessions, "*.jsonl", SearchOption.AllDirectories)
                          .Where(file => IsPartitionedSessionPath(sessions, file)))
             {
-                yield return file;
+                yield return Path.GetFullPath(file);
             }
         }
 
@@ -181,76 +175,34 @@ public sealed class TokenUsageScanner
         {
             foreach (var file in Directory.EnumerateFiles(archived, "*.jsonl", SearchOption.TopDirectoryOnly))
             {
-                yield return file;
+                yield return Path.GetFullPath(file);
             }
         }
     }
 
-    private static bool IsPartitionedSessionPath(string sessionsRoot, string file)
+    private static bool IsPartitionedSessionPath(string root, string file)
     {
-        var parts = Path.GetRelativePath(sessionsRoot, file).Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]);
+        var parts = Path.GetRelativePath(root, file).Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar]);
         return parts.Length == 4
             && parts[0].Length == 4 && parts[0].All(char.IsDigit)
             && parts[1].Length == 2 && parts[1].All(char.IsDigit)
             && parts[2].Length == 2 && parts[2].All(char.IsDigit);
     }
 
-    private static bool IsUnchanged(FileScanState state, FileInfo info) =>
-        state.ObservedLength == info.Length
-        && state.LastWriteTimeUtc == info.LastWriteTimeUtc
-        && state.CreationTimeUtc == info.CreationTimeUtc;
+    private static bool IsUnchanged(FileLedgerState state, FileInfo info) =>
+        state.Length == info.Length
+        && state.LastWriteTimeUtcTicks == info.LastWriteTimeUtc.Ticks
+        && state.CreationTimeUtcTicks == info.CreationTimeUtc.Ticks;
 
-    private static bool CanContinueFromCheckpoint(FileScanState state, FileInfo info) =>
-        state.CreationTimeUtc == info.CreationTimeUtc
-        && info.Length > state.ObservedLength
-        && info.Length >= state.ProcessedLength;
-
-    private async Task<FileScanState> ScanFileFromStartAsync(
-        string path,
-        FileInfo info,
-        CancellationToken cancellationToken)
-    {
-        var result = await ScanSegmentAsync(path, 0, previousTotal: null, cancellationToken).ConfigureAwait(false);
-        return CreateState(info, result, result.Events);
-    }
-
-    private async Task<FileScanState> AppendFileAsync(
-        string path,
-        FileInfo info,
-        FileScanState existing,
-        CancellationToken cancellationToken)
-    {
-        var result = await ScanSegmentAsync(path, existing.ProcessedLength, existing.PreviousTotal, cancellationToken).ConfigureAwait(false);
-        var events = new List<TokenUsageEvent>(existing.Events.Count + result.Events.Count);
-        events.AddRange(existing.Events);
-        events.AddRange(result.Events);
-        return CreateState(info, result, events);
-    }
-
-    private static FileScanState CreateState(
-        FileInfo beforeScan,
-        FileScanResult result,
-        IReadOnlyList<TokenUsageEvent> events)
-    {
-        var afterScan = new FileInfo(beforeScan.FullName);
-        afterScan.Refresh();
-        var stableLastWrite = afterScan.Exists && afterScan.Length == result.ObservedLength
-            ? afterScan.LastWriteTimeUtc
-            : DateTime.MinValue;
-        return new FileScanState(
-            result.ObservedLength,
-            result.ProcessedLength,
-            stableLastWrite,
-            beforeScan.CreationTimeUtc,
-            result.PreviousTotal,
-            events,
-            result.BytesRead);
-    }
+    private static bool CanContinueFromCheckpoint(FileLedgerState state, FileInfo info) =>
+        state.CreationTimeUtcTicks == info.CreationTimeUtc.Ticks
+        && info.Length > state.Length
+        && info.Length >= state.Offset;
 
     private async Task<FileScanResult> ScanSegmentAsync(
         string path,
         long startOffset,
-        TokenCounters? previousTotal,
+        IngestContext context,
         CancellationToken cancellationToken)
     {
         var readBuffer = ArrayPool<byte>.Shared.Rent(ReadBufferSize);
@@ -265,10 +217,8 @@ public sealed class TokenUsageScanner
                 ReadBufferSize,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             stream.Seek(startOffset, SeekOrigin.Begin);
-
-            var events = new List<TokenUsageEvent>();
             var buffered = 0;
-            var markerMatched = 0;
+            var markerMatches = new int[RelevantMarkers.Length];
             var containsMarker = false;
             var overflow = false;
             var lineHasContent = false;
@@ -286,18 +236,13 @@ public sealed class TokenUsageScanner
                     absoluteOffset++;
                     if (value == (byte)'\n')
                     {
-                        _ = ProcessLine(
-                            lineBuffer,
-                            buffered,
-                            containsMarker,
-                            overflow,
-                            lineStartOffset == 0,
-                            ref previousTotal,
-                            events);
+                        await ProcessLineAsync(
+                            lineBuffer, buffered, containsMarker, overflow, lineStartOffset == 0, context, cancellationToken)
+                            .ConfigureAwait(false);
                         processedLength = absoluteOffset;
                         lineStartOffset = absoluteOffset;
                         buffered = 0;
-                        markerMatched = 0;
+                        Array.Clear(markerMatches);
                         containsMarker = false;
                         overflow = false;
                         lineHasContent = false;
@@ -316,34 +261,27 @@ public sealed class TokenUsageScanner
 
                     if (!containsMarker)
                     {
-                        markerMatched = AdvanceMarker(markerMatched, value);
-                        containsMarker = markerMatched == TokenCountMarker.Length;
+                        for (var marker = 0; marker < RelevantMarkers.Length; marker++)
+                        {
+                            markerMatches[marker] = AdvanceMarker(RelevantMarkers[marker], markerMatches[marker], value);
+                            containsMarker |= markerMatches[marker] == RelevantMarkers[marker].Length;
+                        }
                     }
                 }
             }
 
             if (lineHasContent)
             {
-                var disposition = ProcessLine(
-                    lineBuffer,
-                    buffered,
-                    containsMarker,
-                    overflow,
-                    lineStartOffset == 0,
-                    ref previousTotal,
-                    events);
-                if (disposition is LineDisposition.ParsedCandidate)
+                var parsed = await ProcessLineAsync(
+                    lineBuffer, buffered, containsMarker, overflow, lineStartOffset == 0, context, cancellationToken)
+                    .ConfigureAwait(false);
+                if (parsed)
                 {
                     processedLength = absoluteOffset;
                 }
             }
 
-            return new FileScanResult(
-                absoluteOffset,
-                processedLength,
-                previousTotal,
-                events,
-                bytesRead);
+            return new FileScanResult(absoluteOffset, processedLength, bytesRead);
         }
         finally
         {
@@ -352,42 +290,31 @@ public sealed class TokenUsageScanner
         }
     }
 
-    private static int AdvanceMarker(int matched, byte value)
+    private static int AdvanceMarker(byte[] marker, int matched, byte value)
     {
-        if (value == TokenCountMarker[matched])
+        if (value == marker[matched])
         {
             return matched + 1;
         }
 
-        return value == TokenCountMarker[0] ? 1 : 0;
+        return value == marker[0] ? 1 : 0;
     }
 
-    private static LineDisposition ProcessLine(
+    private static async Task<bool> ProcessLineAsync(
         byte[] buffer,
         int length,
         bool containsMarker,
         bool overflow,
         bool firstLine,
-        ref TokenCounters? previousTotal,
-        List<TokenUsageEvent> events)
+        IngestContext context,
+        CancellationToken cancellationToken)
     {
-        if (!containsMarker)
+        if (!containsMarker || overflow)
         {
-            return LineDisposition.NonCandidate;
+            return false;
         }
 
-        if (overflow)
-        {
-            return LineDisposition.OversizedCandidate;
-        }
-
-        var offset = firstLine
-            && length >= 3
-            && buffer[0] == 0xEF
-            && buffer[1] == 0xBB
-            && buffer[2] == 0xBF
-                ? 3
-                : 0;
+        var offset = firstLine && length >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF ? 3 : 0;
         if (length > offset && buffer[length - 1] == (byte)'\r')
         {
             length--;
@@ -397,38 +324,55 @@ public sealed class TokenUsageScanner
         {
             using var document = JsonDocument.Parse(new ReadOnlyMemory<byte>(buffer, offset, length - offset));
             var root = document.RootElement;
-            if (!Text(root, "type").Equals("event_msg", StringComparison.Ordinal)
-                || !root.TryGetProperty("payload", out var payload)
-                || !Text(payload, "type").Equals("token_count", StringComparison.Ordinal)
+            var type = Text(root, "type");
+            if (type.Equals("session_meta", StringComparison.Ordinal)
+                && root.TryGetProperty("payload", out var metaPayload))
+            {
+                await context.ApplySessionMetaAsync(
+                    Text(metaPayload, "id", "session_id"),
+                    Text(metaPayload, "forked_from_id"),
+                    cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+
+            if (!type.Equals("event_msg", StringComparison.Ordinal)
+                || !root.TryGetProperty("payload", out var payload))
+            {
+                return false;
+            }
+
+            var payloadType = Text(payload, "type");
+            if (payloadType.Equals("task_started", StringComparison.Ordinal))
+            {
+                await context.EndForkReplayAsync(cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+
+            if (!payloadType.Equals("token_count", StringComparison.Ordinal)
                 || !root.TryGetProperty("timestamp", out var timestampElement)
                 || timestampElement.ValueKind != JsonValueKind.String
                 || !DateTimeOffset.TryParse(timestampElement.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var timestamp)
                 || !payload.TryGetProperty("info", out var info)
                 || info.ValueKind != JsonValueKind.Object)
             {
-                return LineDisposition.InvalidCandidate;
+                return false;
             }
 
             var total = Counters(info, "total_token_usage");
-            var last = Counters(info, "last_token_usage");
-            if (total is null && last is null)
+            if (total is null)
             {
-                return LineDisposition.InvalidCandidate;
+                return false;
             }
 
-            var eventKey = EventKey(timestampElement.GetString()!, total, last);
-            var delta = last ?? Delta(previousTotal, total!.Value);
-            if (total is not null)
-            {
-                previousTotal = total;
-            }
-
-            events.Add(new TokenUsageEvent(eventKey, timestamp, delta));
-            return LineDisposition.ParsedCandidate;
+            await context.ApplyTokenAsync(
+                timestamp.ToUniversalTime(), total.Value, Counters(info, "last_token_usage"), cancellationToken)
+                .ConfigureAwait(false);
+            return true;
         }
-        catch (JsonException)
+        catch (JsonException error)
         {
-            return LineDisposition.InvalidCandidate;
+            Debug.WriteLine($"TokenUsage scanner skipped malformed JSON: {error.GetType().Name}");
+            return false;
         }
     }
 
@@ -442,49 +386,55 @@ public sealed class TokenUsageScanner
         var input = Long(value, "input_tokens");
         var output = Long(value, "output_tokens");
         var total = Long(value, "total_tokens") ?? (input is not null && output is not null ? Add(input.Value, output.Value) : null);
-        if (total is null)
-        {
-            return null;
-        }
-
-        return new TokenCounters(
-            Math.Max(0, total.Value),
-            NonNegative(input),
-            NonNegative(Long(value, "cached_input_tokens") ?? Long(value, "cache_read_input_tokens")),
-            NonNegative(output),
-            NonNegative(Long(value, "reasoning_output_tokens")));
+        return total is null
+            ? null
+            : new TokenCounters(
+                Math.Max(0, total.Value),
+                NonNegative(input),
+                NonNegative(Long(value, "cached_input_tokens") ?? Long(value, "cache_read_input_tokens")),
+                NonNegative(output),
+                NonNegative(Long(value, "reasoning_output_tokens")));
     }
 
-    private static TokenCounters Delta(TokenCounters? previous, TokenCounters current)
+    private static TokenCounters Delta(TokenCounters previous, TokenCounters current) => new(
+        Math.Max(0, current.Total - previous.Total),
+        Difference(previous.Input, current.Input, false),
+        Difference(previous.Cached, current.Cached, false),
+        Difference(previous.Output, current.Output, false),
+        Difference(previous.Reasoning, current.Reasoning, false));
+
+    private static TokenCounters Correction(TokenCounters previous, TokenCounters current) => new(
+        0,
+        Difference(previous.Input, current.Input, true),
+        Difference(previous.Cached, current.Cached, true),
+        Difference(previous.Output, current.Output, true),
+        Difference(previous.Reasoning, current.Reasoning, true));
+
+    private static long? Difference(long? previous, long? current, bool allowNegative) =>
+        previous is not null && current is not null
+            ? allowNegative ? current.Value - previous.Value : Math.Max(0, current.Value - previous.Value)
+            : null;
+
+    private static string EventKey(string sessionId, long segment, DateTimeOffset timestamp, TokenCounters current)
     {
-        if (previous is null)
-        {
-            return current;
-        }
-
-        return new TokenCounters(
-            Difference(previous.Value.Total, current.Total),
-            Difference(previous.Value.Input, current.Input),
-            Difference(previous.Value.Cached, current.Cached),
-            Difference(previous.Value.Output, current.Output),
-            Difference(previous.Value.Reasoning, current.Reasoning));
-    }
-
-    private static long Difference(long previous, long current) => current >= previous ? current - previous : current;
-
-    private static long? Difference(long? previous, long? current) =>
-        previous is not null && current is not null ? Difference(previous.Value, current.Value) : null;
-
-    private static string EventKey(string timestamp, TokenCounters? total, TokenCounters? last)
-    {
-        var value = string.Create(CultureInfo.InvariantCulture, $"{timestamp}|{total}|{last}");
+        _ = sessionId;
+        _ = segment;
+        var value = string.Create(CultureInfo.InvariantCulture, $"{timestamp:O}|{current}");
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     }
 
-    private static string Text(JsonElement value, string name) =>
-        value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
-            ? property.GetString() ?? string.Empty
-            : string.Empty;
+    private static string Text(JsonElement value, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            if (value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String)
+            {
+                return property.GetString() ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
+    }
 
     private static long? Long(JsonElement value, string name) =>
         value.TryGetProperty(name, out var property) && property.TryGetInt64(out var result) ? result : null;
@@ -548,72 +498,194 @@ public sealed class TokenUsageScanner
     private static string TimeZoneName(TimeZoneInfo value) =>
         TimeZoneInfo.TryConvertWindowsIdToIanaId(value.Id, out var iana) ? iana : value.Id;
 
-    private enum LineDisposition
+    private sealed class IngestContext(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        Dictionary<string, SessionLedgerState?> sessionStates,
+        TimeZoneInfo sourceTimeZone,
+        string path,
+        FileLedgerState? existing,
+        bool inheritedSessionHighWater)
     {
-        NonCandidate,
-        ParsedCandidate,
-        InvalidCandidate,
-        OversizedCandidate,
-    }
+        private SessionLedgerState? session;
+        private bool sessionLoaded;
 
-    private readonly record struct TokenCounters(long Total, long? Input, long? Cached, long? Output, long? Reasoning);
+        internal string OwnerSessionId { get; private set; } = existing?.OwnerSessionId ?? string.Empty;
 
-    private sealed record TokenUsageEvent(string Key, DateTimeOffset Timestamp, TokenCounters Delta);
+        internal TokenCounters? FileCumulative { get; private set; } = existing?.Cumulative;
 
-    private sealed record FileScanState(
-        long ObservedLength,
-        long ProcessedLength,
-        DateTime LastWriteTimeUtc,
-        DateTime CreationTimeUtc,
-        TokenCounters? PreviousTotal,
-        IReadOnlyList<TokenUsageEvent> Events,
-        long BytesReadOnLastUpdate);
+        internal string? ForkedFromId { get; private set; } = existing?.ForkedFromId;
 
-    private sealed record FileScanResult(
-        long ObservedLength,
-        long ProcessedLength,
-        TokenCounters? PreviousTotal,
-        IReadOnlyList<TokenUsageEvent> Events,
-        long BytesRead);
+        internal bool ForkReplayActive { get; private set; } = existing?.ForkReplayActive ?? false;
 
-    private sealed class DayAccumulator
-    {
-        private long total;
-        private long input;
-        private long cached;
-        private long output;
-        private long reasoning;
-        private bool inputAvailable = true;
-        private bool cachedAvailable = true;
-        private bool outputAvailable = true;
-        private bool reasoningAvailable = true;
+        internal bool ForkSawToken { get; private set; } = existing?.ForkSawToken ?? false;
 
-        internal void Add(TokenCounters value)
+        internal async Task ApplySessionMetaAsync(string sessionId, string forkedFromId, CancellationToken cancellationToken)
         {
-            total = TokenUsageScanner.Add(total, value.Total);
-            inputAvailable &= AddOptional(ref input, value.Input);
-            cachedAvailable &= AddOptional(ref cached, value.Cached);
-            outputAvailable &= AddOptional(ref output, value.Output);
-            reasoningAvailable &= AddOptional(ref reasoning, value.Reasoning);
-        }
-
-        internal TokenUsageDay ToDay(DateOnly date) => new(
-            date,
-            total,
-            inputAvailable ? input : null,
-            cachedAvailable ? cached : null,
-            outputAvailable ? output : null,
-            reasoningAvailable ? reasoning : null);
-
-        private static bool AddOptional(ref long target, long? value)
-        {
-            if (value is null)
+            if (string.IsNullOrEmpty(OwnerSessionId) && !string.IsNullOrEmpty(sessionId))
             {
-                return false;
+                OwnerSessionId = sessionId;
+                ForkedFromId = string.IsNullOrEmpty(forkedFromId) ? null : forkedFromId;
+                ForkReplayActive = ForkedFromId is not null;
+                await LoadSessionAsync(cancellationToken).ConfigureAwait(false);
+                return;
             }
 
-            target = TokenUsageScanner.Add(target, value.Value);
-            return true;
+            if (ForkReplayActive
+                && ForkSawToken
+                && !string.IsNullOrEmpty(sessionId)
+                && !sessionId.Equals(OwnerSessionId, StringComparison.Ordinal))
+            {
+                await EndForkReplayAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+
+        internal async Task EndForkReplayAsync(CancellationToken cancellationToken)
+        {
+            if (!ForkReplayActive)
+            {
+                return;
+            }
+
+            await EnsureOwnerAsync(cancellationToken).ConfigureAwait(false);
+            if (FileCumulative is not null)
+            {
+                session = new SessionLedgerState(
+                    OwnerSessionId,
+                    FileCumulative.Value,
+                    ForkedFromId,
+                    session?.LastEventId,
+                    session?.Segment ?? 0);
+                await SaveSessionAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            ForkReplayActive = false;
+            inheritedSessionHighWater = false;
+        }
+
+        internal async Task ApplyTokenAsync(
+            DateTimeOffset timestamp,
+            TokenCounters current,
+            TokenCounters? last,
+            CancellationToken cancellationToken)
+        {
+            await EnsureOwnerAsync(cancellationToken).ConfigureAwait(false);
+            FileCumulative = current;
+            if (ForkReplayActive)
+            {
+                ForkSawToken = true;
+                return;
+            }
+
+            if (session is null)
+            {
+                await InsertDeltaAsync(timestamp, current, current, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            var previous = session.Cumulative;
+            if (inheritedSessionHighWater && current.Total <= previous.Total)
+            {
+                if (current.Total == previous.Total)
+                {
+                    inheritedSessionHighWater = false;
+                }
+
+                return;
+            }
+
+            if (current.Total == previous.Total)
+            {
+                if (current.Equals(previous))
+                {
+                    return;
+                }
+
+                await TokenUsageLedger.CorrectEventAsync(
+                    connection,
+                    transaction,
+                    session.LastEventId ?? string.Empty,
+                    Correction(previous, current),
+                    cancellationToken).ConfigureAwait(false);
+                session = session with { Cumulative = current };
+                await SaveSessionAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            if (current.Total > previous.Total)
+            {
+                inheritedSessionHighWater = false;
+                await InsertDeltaAsync(timestamp, Delta(previous, current), current, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            var resetDelta = last is not null && last.Value.Total <= current.Total ? last.Value : current;
+            session = session with { Segment = session.Segment + 1 };
+            await InsertDeltaAsync(timestamp, resetDelta, current, cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task EnsureOwnerAsync(CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrEmpty(OwnerSessionId))
+            {
+                OwnerSessionId = Path.GetFileNameWithoutExtension(path);
+            }
+
+            await LoadSessionAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task LoadSessionAsync(CancellationToken cancellationToken)
+        {
+            if (sessionLoaded)
+            {
+                return;
+            }
+
+            if (!sessionStates.TryGetValue(OwnerSessionId, out session))
+            {
+                session = await TokenUsageLedger.LoadSessionAsync(
+                    connection, transaction, OwnerSessionId, cancellationToken).ConfigureAwait(false);
+                sessionStates.Add(OwnerSessionId, session);
+            }
+
+            sessionLoaded = true;
+        }
+
+        private async Task InsertDeltaAsync(
+            DateTimeOffset timestamp,
+            TokenCounters delta,
+            TokenCounters cumulative,
+            CancellationToken cancellationToken)
+        {
+            var segment = session?.Segment ?? 0;
+            var eventId = EventKey(OwnerSessionId, segment, timestamp, cumulative);
+            var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timestamp, sourceTimeZone).DateTime);
+            var inserted = await TokenUsageLedger.InsertEventAsync(
+                connection,
+                transaction,
+                new LedgerTokenEvent(eventId, OwnerSessionId, timestamp, localDate, delta),
+                cancellationToken).ConfigureAwait(false);
+            session = new SessionLedgerState(
+                OwnerSessionId,
+                cumulative,
+                ForkedFromId ?? session?.ForkedFromId,
+                inserted ? eventId : session?.LastEventId,
+                segment);
+            await SaveSessionAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private async Task SaveSessionAsync(CancellationToken cancellationToken)
+        {
+            if (session is null)
+            {
+                return;
+            }
+
+            await TokenUsageLedger.SaveSessionAsync(
+                connection, transaction, session, cancellationToken).ConfigureAwait(false);
+            sessionStates[OwnerSessionId] = session;
         }
     }
+
+    private sealed record FileScanResult(long ObservedLength, long ProcessedLength, long BytesRead);
 }

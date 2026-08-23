@@ -55,6 +55,123 @@ public sealed class TokenUsageTests
     }
 
     [TestMethod]
+    public async Task RepeatedCumulativeSnapshotDoesNotDoubleCount()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live("repeated.jsonl",
+            Event("2026-08-08T01:00:00Z", 1_000, 1_000),
+            Event("2026-08-08T02:00:00Z", 1_800, 800),
+            Event("2026-08-08T03:00:00Z", 1_800, 800),
+            Event("2026-08-08T04:00:00Z", 2_500, 700));
+
+        var result = await Scan(corpus);
+
+        Assert.AreEqual(2_500L, result.Summary.LifetimeTokens);
+    }
+
+    [TestMethod]
+    public async Task RestartUsesPersistedOffsetsAndDoesNotReingestHistory()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live("restart.jsonl",
+            SessionMeta("session-restart"),
+            Event("2026-08-08T01:00:00Z", 1_000, 1_000),
+            Event("2026-08-08T02:00:00Z", 1_800, 800));
+        var database = Path.Combine(corpus.Root, "ledger.sqlite3");
+        var firstScanner = new TokenUsageScanner(database);
+        var first = await firstScanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow());
+        var restartedScanner = new TokenUsageScanner(database);
+
+        var restarted = await restartedScanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow().AddMinutes(1));
+
+        Assert.AreEqual(1_800L, first.Summary.LifetimeTokens);
+        Assert.AreEqual(1_800L, restarted.Summary.LifetimeTokens);
+        Assert.AreEqual(0L, restartedScanner.LastBytesRead);
+    }
+
+    [TestMethod]
+    public async Task SessionResumeInNewFileUsesSessionHighWater()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live("resume-a.jsonl",
+            SessionMeta("session-resume"),
+            Event("2026-08-08T01:00:00Z", 1_000),
+            Event("2026-08-08T02:00:00Z", 2_000));
+        var scanner = new TokenUsageScanner();
+        _ = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow());
+        corpus.Live("resume-b.jsonl",
+            SessionMeta("session-resume"),
+            Event("2026-08-08T03:00:00Z", 2_000),
+            Event("2026-08-08T04:00:00Z", 2_600));
+
+        var resumed = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow().AddMinutes(1));
+
+        Assert.AreEqual(2_600L, resumed.Summary.LifetimeTokens);
+    }
+
+    [TestMethod]
+    public async Task ArchiveMoveAndDeletionKeepPersistedHistory()
+    {
+        using var corpus = new TokenCorpus();
+        var live = corpus.Live("move.jsonl",
+            SessionMeta("session-move"),
+            Event("2026-08-08T01:00:00Z", 1_200));
+        var scanner = new TokenUsageScanner();
+        _ = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow());
+        var archived = Path.Combine(corpus.Root, "archived_sessions", "move.jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(archived)!);
+        File.Move(live, archived);
+
+        var moved = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow().AddMinutes(1));
+        File.Delete(archived);
+        var deleted = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow().AddMinutes(2));
+
+        Assert.AreEqual(1_200L, moved.Summary.LifetimeTokens);
+        Assert.AreEqual(1_200L, deleted.Summary.LifetimeTokens);
+    }
+
+    [TestMethod]
+    public async Task ForkReplayOnlyEstablishesChildBaseline()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live("parent.jsonl",
+            SessionMeta("parent"),
+            Event("2026-08-08T01:00:00Z", 1_000),
+            Event("2026-08-08T02:00:00Z", 5_000));
+        corpus.Live("child.jsonl",
+            SessionMeta("child", "parent"),
+            Event("2026-08-08T01:00:00Z", 1_000),
+            Event("2026-08-08T02:00:00Z", 3_000),
+            Event("2026-08-08T03:00:00Z", 5_000),
+            SessionMeta("parent"),
+            Event("2026-08-08T04:00:00Z", 5_600));
+
+        var result = await Scan(corpus);
+
+        Assert.AreEqual(5_600L, result.Summary.LifetimeTokens);
+    }
+
+    [TestMethod]
+    public async Task CategoryDeltasAndSameTotalCorrectionPreserveTotal()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live("categories.jsonl",
+            SessionMeta("categories"),
+            CategoryEvent("2026-08-08T01:00:00Z", 1_000, 700, 300, 300, 100),
+            CategoryEvent("2026-08-08T02:00:00Z", 1_500, 1_050, 450, 450, 150),
+            CategoryEvent("2026-08-08T03:00:00Z", 1_500, 1_050, 500, 450, 175));
+
+        var result = await Scan(corpus);
+        var day = result.Days.Single();
+
+        Assert.AreEqual(1_500L, day.TotalTokens);
+        Assert.AreEqual(1_050L, day.InputTokens);
+        Assert.AreEqual(500L, day.CachedInputTokens);
+        Assert.AreEqual(450L, day.OutputTokens);
+        Assert.AreEqual(175L, day.ReasoningTokens);
+    }
+
+    [TestMethod]
     public async Task ScannerUsesAuthoritativeTotalWithoutDoubleCountingBreakdowns()
     {
         using var corpus = new TokenCorpus();
@@ -276,7 +393,7 @@ public sealed class TokenUsageTests
     }
 
     [TestMethod]
-    public async Task ScannerRebuildsStateWhenAFileIsTruncatedAndRewritten()
+    public async Task ScannerKeepsLedgerHistoryWhenAFileIsTruncatedAndRewritten()
     {
         using var corpus = new TokenCorpus();
         var path = corpus.Live(
@@ -290,7 +407,7 @@ public sealed class TokenUsageTests
         var rewritten = await scanner.ScanAsync(corpus.Root, TestTimeZone(), TestNow().AddMinutes(1));
 
         Assert.AreEqual(200L, first.Summary.LifetimeTokens);
-        Assert.AreEqual(7L, rewritten.Summary.LifetimeTokens);
+        Assert.AreEqual(200L, rewritten.Summary.LifetimeTokens);
         Assert.AreEqual(new FileInfo(path).Length, scanner.LastBytesRead);
     }
 
@@ -646,6 +763,40 @@ public sealed class TokenUsageTests
             : $"\"total_token_usage\":{totalUsage},\"last_token_usage\":{Usage(last.Value)}";
         return $"{{\"timestamp\":\"{timestamp}\",\"type\":\"event_msg\",\"payload\":{{\"type\":\"token_count\",\"info\":{{{info}}}}}}}";
     }
+
+    private static string SessionMeta(string sessionId, string? forkedFromId = null)
+    {
+        var fork = forkedFromId is null ? string.Empty : $",\"forked_from_id\":\"{forkedFromId}\"";
+        return $"{{\"timestamp\":\"2026-08-08T00:00:00Z\",\"type\":\"session_meta\",\"payload\":{{\"id\":\"{sessionId}\"{fork}}}}}";
+    }
+
+    private static string CategoryEvent(
+        string timestamp,
+        long total,
+        long input,
+        long cached,
+        long output,
+        long reasoning) =>
+        JsonSerializer.Serialize(new
+        {
+            timestamp,
+            type = "event_msg",
+            payload = new
+            {
+                type = "token_count",
+                info = new
+                {
+                    total_token_usage = new
+                    {
+                        total_tokens = total,
+                        input_tokens = input,
+                        cached_input_tokens = cached,
+                        output_tokens = output,
+                        reasoning_output_tokens = reasoning,
+                    },
+                },
+            },
+        });
 
     private static string Usage(long total) =>
         $"{{\"total_tokens\":{total},\"input_tokens\":{total},\"cached_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0}}";

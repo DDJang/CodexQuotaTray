@@ -40,7 +40,8 @@
 
 ## Token 使用量同步
 
-- Windows 只扫描本机 Codex session 中的 `token_count` 事件时间戳和数字计数，生成日聚合与摘要。
+- Windows 只扫描本机 Codex session 中的 `token_count` 事件时间戳和数字计数，以 SQLite 增量账本保留
+  已确认的本机历史，并生成日聚合与摘要；原始 JSONL 后续移动或删除不移除已入账数据。
 - Windows 可按设置保存最小日聚合统计缓存，用于启动时快速恢复统计页；关闭后删除该缓存。
 - Android 必须由用户扫码或手动输入进行配对；LAN 只接受私人 IPv4，不跟随 redirect。
 - 配对 secret 与 OAuth 凭据分开加密；Token 缓存绑定 Windows `deviceId`。

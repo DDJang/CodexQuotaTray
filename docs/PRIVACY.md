@@ -17,7 +17,7 @@ CLI 管理；应用不读取 CLI token 文件。OAuth 来源使用设备码登�
 当前用户 DPAPI 加密形式保存，应用不读取浏览器 Cookie、`auth.json` 或网页内容。OAuth 只读请求
 使用 Bearer 与可用的 account ID header；401/403 最多 refresh 一次，失败不会回退到 CLI 或 Local。
 Production、Dev 和 Preview 使用相互隔离的数据目录，保存各自设置、按来源隔离的最小额度缓存、
-提醒去重状态、可选按日聚合 Token 统计缓存和可选 LAN pairing。
+提醒去重状态、Local Token SQLite 账本、可选按日聚合 Token 统计缓存和可选 LAN pairing。
 
 账户页只展示由当前 provider 返回的最小账户字段（如计划或邮箱）；这些字段不写入日志、诊断、
 额度缓存或 Token 统计缓存。OAuth profile/usage 只解析 profile、按日桶和 summary 数字，缺失字段
@@ -27,8 +27,10 @@ Production、Dev 和 Preview 使用相互隔离的数据目录，保存各自设
 `archived_sessions` 中的 JSONL，
 过滤 `token_count` 事件，并只消费事件 timestamp 与 `total_token_usage` / `last_token_usage` 的数字
 计数。它不会提取、保存、聚合或传输 prompt、response、工具内容、session 正文、项目路径或账户
-身份。用于去重的散列仅由 timestamp 与数字计数组成；可选本地缓存和 Android 都只接收日聚合
-与摘要。关闭“保存统计缓存”后会删除对应本地缓存。
+身份。身份隔离的 SQLite 账本保存 JSONL 路径、session ID、文件 offset、累计 high-water，以及由
+timestamp 和数字计数形成的增量事件；不保存其他 session metadata。用于去重的散列仅由 timestamp
+与数字计数组成；可选本地缓存和 Android 都只接收日聚合与摘要。关闭“保存统计缓存”后会删除对应
+聚合缓存，但不会删除用于防止历史缩水和重复入账的 Local 账本。
 
 Windows LAN 服务只绑定私人 IPv4。DNS-SD 公开稳定随机 deviceId、显示名和端口，不公开 secret。
 二维码包含 LAN 地址、deviceId 和独立 pairing secret，不包含 OpenAI 凭据或 Token 数据。应用不

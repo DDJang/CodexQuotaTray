@@ -135,6 +135,7 @@ public sealed class PreviewDataPaths
     public string Settings => Path.Combine(Root, "settings.json");
     public string QuotaCache => Path.Combine(Root, "quota-cache.json");
     public string TokenUsageCache => Path.Combine(Root, "token-usage-cache.json");
+    public string TokenUsageDatabase => Path.Combine(Root, "token-usage.sqlite3");
     public string AlertState => Path.Combine(Root, "alert-state.json");
     public string TokenSyncSettings => Path.Combine(Root, "token-sync.json");
     public string OAuthCredentials => Path.Combine(Root, "oauth-credentials.bin");

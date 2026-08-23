@@ -78,7 +78,7 @@ public partial class App : Application
         var startupLaunch = arguments.Any(value => string.Equals(value, "--startup", StringComparison.OrdinalIgnoreCase));
         var explicitCodex = ReadOption(arguments, "--codex-bin");
         var lanDiagnostics = new LanDiagnosticBuffer();
-        var tokenUsageScanner = new TokenUsageScanner();
+        var tokenUsageScanner = new TokenUsageScanner(paths.TokenUsageDatabase);
 
         IUiStateProvider stateProvider;
         IDiagnosticTextProvider diagnostics;
