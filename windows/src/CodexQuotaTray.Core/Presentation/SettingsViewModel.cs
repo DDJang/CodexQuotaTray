@@ -588,7 +588,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             StatusText = $"请打开 {device.VerificationUrl} 并输入设备码 {device.UserCode}";
             var credentials = await account.CompleteOAuthLoginAsync(device, null, loginCancellationSource.Token);
             OAuthAvailable = true;
-            OAuthAccountStatusText = string.IsNullOrWhiteSpace(credentials.Email) ? "已登录" : credentials.Email!;
+            OAuthAccountStatusText = FormatOAuthAccount(credentials.PlanType);
             StatusText = "OAuth 登录成功";
         }
         catch (OperationCanceledException) when (loginCancellationSource.IsCancellationRequested)
@@ -1227,9 +1227,21 @@ public sealed partial class SettingsViewModel : ObservableObject
                     : "不可用";
             OAuthAvailable = value.OAuthAvailable;
             OAuthAccountStatusText = value.OAuthAccount is { } oauth
-                ? FormatAccount(oauth)
+                ? FormatOAuthAccount(oauth.PlanType)
                 : "未登录";
         }
+    }
+
+    internal static string FormatOAuthAccount(string? planType)
+    {
+        if (string.IsNullOrWhiteSpace(planType))
+        {
+            return "已登录";
+        }
+
+        var normalized = planType.Trim();
+        normalized = char.ToUpperInvariant(normalized[0]) + normalized[1..].ToLowerInvariant();
+        return $"已登录 · {normalized}";
     }
 
     private static string FormatAccount(AccountReadResult value) =>

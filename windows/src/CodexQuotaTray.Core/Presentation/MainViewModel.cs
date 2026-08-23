@@ -113,11 +113,13 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        ApplyCore(state);
-        if (state.IsRefreshing && !IsRefreshing)
+        var startsEmptyContentRefresh = state.IsRefreshing && state.Windows.Count == 0 && HasWindows;
+        if (state.IsRefreshing && (!IsRefreshing || startsEmptyContentRefresh))
         {
             BeginRefreshPresentation();
         }
+
+        ApplyCore(state);
     }
 
     private void ApplyCore(AppUiState state)

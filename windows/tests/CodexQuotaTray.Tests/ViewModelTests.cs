@@ -133,6 +133,69 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public async Task EmptySourceRefreshRestartsMinimumLoadingPresentation()
+    {
+        var existingWindow = QuotaWindowView.Demo("5 小时额度", 80, "1小时后重置", "14:30");
+        var replacementWindow = QuotaWindowView.Demo("7 天额度", 60, "2天后重置", "周二 14:30");
+        var viewModel = new MainViewModel(
+            new StubProvider(new AppUiState(
+                "Codex",
+                "Plus",
+                "更新于 14:30",
+                StatusTone.Success,
+                [existingWindow],
+                new ResetCreditViewState(ResetCreditKind.Unavailable))),
+            new StubNavigation());
+        viewModel.ApplySnapshot(new AppUiState(
+            "Codex",
+            "Plus",
+            "正在刷新…",
+            StatusTone.Refreshing,
+            [existingWindow],
+            new ResetCreditViewState(ResetCreditKind.Unavailable),
+            IsRefreshing: true));
+
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+        viewModel.ApplySnapshot(new AppUiState(
+            "Codex",
+            null,
+            "已切换数据来源，正在刷新…",
+            StatusTone.Refreshing,
+            [],
+            new ResetCreditViewState(ResetCreditKind.Unavailable),
+            IsRefreshing: true));
+        viewModel.ApplySnapshot(new AppUiState(
+            "Codex",
+            "Plus",
+            "更新于 14:31",
+            StatusTone.Success,
+            [replacementWindow],
+            new ResetCreditViewState(ResetCreditKind.Unavailable)));
+
+        await Task.Delay(TimeSpan.FromMilliseconds(450));
+
+        Assert.IsTrue(viewModel.IsRefreshing);
+        Assert.IsTrue(viewModel.ShowQuotaLoading);
+        Assert.IsFalse(viewModel.HasWindows);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+
+        Assert.IsFalse(viewModel.IsRefreshing);
+        Assert.IsFalse(viewModel.ShowQuotaLoading);
+        Assert.IsTrue(viewModel.HasWindows);
+        Assert.AreEqual("7 天额度", viewModel.Windows[0].Name);
+    }
+
+    [DataRow("plus", "已登录 · Plus")]
+    [DataRow("TEAM", "已登录 · Team")]
+    [DataRow(null, "已登录")]
+    [TestMethod]
+    public void OAuthAccountStatusIncludesNormalizedPlan(string? planType, string expected)
+    {
+        Assert.AreEqual(expected, SettingsViewModel.FormatOAuthAccount(planType));
+    }
+
+    [TestMethod]
     public async Task SettingsPageCommands_UseInjectedExistingActions()
     {
         var runtime = new StubRuntimeControl();
