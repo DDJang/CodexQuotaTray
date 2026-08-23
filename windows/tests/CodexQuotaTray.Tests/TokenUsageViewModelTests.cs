@@ -2,6 +2,7 @@ using CodexQuotaTray.Core.Models;
 using System.Diagnostics;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
+using CodexQuotaTray.Core.Protocol;
 using CodexQuotaTray.Core.Runtime;
 using CodexQuotaTray.Core.TokenUsage;
 
@@ -87,6 +88,30 @@ public sealed class TokenUsageViewModelTests
         Assert.AreEqual("128K", viewModel.TodayTokens);
         Assert.AreEqual(snapshot.GeneratedAtUtc, viewModel.LastAttemptUtc);
         Assert.AreEqual($"更新于 {snapshot.GeneratedAtUtc.ToLocalTime():HH:mm}", viewModel.StatusText);
+    }
+
+    [TestMethod]
+    public void OfficialUsageWithoutTodayBucketShowsPendingWhileKeepingPeriodsAvailable()
+    {
+        var today = new DateOnly(2026, 8, 23);
+        var snapshot = AccountTokenUsageNormalizer.Normalize(
+            new AccountUsageReadResult(
+                null,
+                [new AccountUsageBucket(today.AddDays(-1), 128)]),
+            TokenUsageDataSource.OAuth,
+            today,
+            new DateTimeOffset(2026, 8, 23, 3, 0, 0, TimeSpan.Zero),
+            TimeZoneInfo.Utc);
+        var viewModel = new TokenUsageViewModel(_ => Task.FromResult(snapshot));
+
+        viewModel.RestoreSnapshot(snapshot);
+
+        Assert.IsFalse(snapshot.AvailableMetrics.HasFlag(TokenUsageMetricAvailability.Today));
+        Assert.IsTrue(snapshot.AvailableMetrics.HasFlag(TokenUsageMetricAvailability.Last7Days));
+        Assert.IsTrue(snapshot.AvailableMetrics.HasFlag(TokenUsageMetricAvailability.Last30Days));
+        Assert.AreEqual("待同步", viewModel.TodayTokens);
+        Assert.AreEqual("128", viewModel.Last7DaysTokens);
+        Assert.AreEqual("128", viewModel.Last30DaysTokens);
     }
 
     [TestMethod]

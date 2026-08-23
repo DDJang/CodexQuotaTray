@@ -12,4 +12,6 @@ npx --yes "@openai/codex@$version" app-server generate-json-schema `
 ```
 
 生成时不使用 `--experimental`，也不手工编辑生成 JSON。升级后必须同步审查
-[API_CONTRACT](../docs/API_CONTRACT.md)、DTO、fixture 和完整离线测试。
+[API_CONTRACT](../docs/API_CONTRACT.md)、DTO、fixture 和完整离线测试。审查完成后必须删除
+`schemas/` 下所有旧的 `codex-<version>/` 目录，只保留 `CODEX_VERSION` 指向的当前 schema，
+并通过 `git status` 确认旧版本删除已纳入本次变更。

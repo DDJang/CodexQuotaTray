@@ -36,10 +36,14 @@ public static class AccountTokenUsageNormalizer
         var last30Tokens = 0L;
         if (input.DailyUsageBuckets is not null)
         {
-            availability |= TokenUsageMetricAvailability.Today
-                | TokenUsageMetricAvailability.Last7Days
+            availability |= TokenUsageMetricAvailability.Last7Days
                 | TokenUsageMetricAvailability.Last30Days;
-            todayTokens = byDate.TryGetValue(localToday, out var todayDay) ? todayDay.TotalTokens : 0;
+            if (byDate.TryGetValue(localToday, out var todayDay))
+            {
+                availability |= TokenUsageMetricAvailability.Today;
+                todayTokens = todayDay.TotalTokens;
+            }
+
             last7Tokens = SaturatingSum(days.Where(day => day.Date >= localToday.AddDays(-6) && day.Date <= localToday).Select(day => day.TotalTokens));
             last30Tokens = SaturatingSum(days.Where(day => day.Date >= localToday.AddDays(-29) && day.Date <= localToday).Select(day => day.TotalTokens));
         }

@@ -240,7 +240,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         var cells = TokenHeatmap.Build(value.Days, localToday, HeatmapWeeks);
 
         snapshot = value;
-        TodayTokens = FormatMetric(summary.TodayTokens, TokenUsageMetricAvailability.Today);
+        TodayTokens = FormatMetric(summary.TodayTokens, TokenUsageMetricAvailability.Today, "待同步");
         Last7DaysTokens = FormatMetric(summary.Last7DaysTokens, TokenUsageMetricAvailability.Last7Days);
         Last30DaysTokens = FormatMetric(summary.Last30DaysTokens, TokenUsageMetricAvailability.Last30Days);
         LifetimeTokens = FormatMetric(summary.LifetimeTokens, TokenUsageMetricAvailability.Lifetime);
@@ -297,11 +297,20 @@ public sealed partial class TokenUsageViewModel : ObservableObject
         OnPropertyChanged(nameof(ShowError));
     }
 
-    private static string FormatMetric(long value, TokenUsageMetricAvailability metric, TokenUsageSnapshot valueSnapshot)
-        => HasMetric(valueSnapshot, metric) ? TokenUsageFormatter.Format(value) : "不可用";
+    private static string FormatMetric(
+        long value,
+        TokenUsageMetricAvailability metric,
+        TokenUsageSnapshot valueSnapshot,
+        string unavailableText = "不可用") =>
+        HasMetric(valueSnapshot, metric) ? TokenUsageFormatter.Format(value) : unavailableText;
 
-    private string FormatMetric(long value, TokenUsageMetricAvailability metric) =>
-        snapshot is { } valueSnapshot ? FormatMetric(value, metric, valueSnapshot) : "不可用";
+    private string FormatMetric(
+        long value,
+        TokenUsageMetricAvailability metric,
+        string unavailableText = "不可用") =>
+        snapshot is { } valueSnapshot
+            ? FormatMetric(value, metric, valueSnapshot, unavailableText)
+            : unavailableText;
 
     private static string FormatDays(long value, TokenUsageMetricAvailability metric, TokenUsageSnapshot valueSnapshot) =>
         HasMetric(valueSnapshot, metric) ? $"{value} 天" : "不可用";
