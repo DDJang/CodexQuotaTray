@@ -1118,6 +1118,7 @@ public sealed class QuotaRuntimeService :
         QuotaDataSource source,
         CancellationToken cancellationToken)
     {
+        SetCurrent(ConnectingState() with { StatusText = $"已切换到 {source}，正在刷新…" });
         var detached = await DetachClientAsync(expected: null).ConfigureAwait(false);
         if (detached is not null)
         {
@@ -1139,7 +1140,6 @@ public sealed class QuotaRuntimeService :
         lastAttemptUtc = null;
         lastError = null;
         coordinator.Release();
-        SetCurrent(ConnectingState() with { StatusText = $"已切换到 {source}，正在刷新…" });
         await RestoreCacheAsync(cancellationToken).ConfigureAwait(false);
     }
 

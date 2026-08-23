@@ -33,8 +33,11 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
-    [NotifyPropertyChangedFor(nameof(ShowQuotaLoading))]
     private bool isRefreshing;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowContent))]
+    private bool showLoading;
 
     [ObservableProperty]
     private bool isPrototype;
@@ -55,7 +58,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     public bool HasWindows => Windows.Count != 0;
 
-    public bool ShowQuotaLoading => IsRefreshing && !HasWindows;
+    public bool ShowContent => !ShowLoading;
 
     partial void OnPlanBadgeChanged(string? value) => OnPropertyChanged(nameof(HasPlanBadge));
 
@@ -72,7 +75,7 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanRefresh))]
     private async Task RefreshAsync(CancellationToken cancellationToken)
     {
-        BeginRefreshPresentation();
+        BeginRefreshPresentation(showLoading: !HasWindows);
         StatusText = "正在刷新…";
         StatusTone = StatusTone.Refreshing;
         try
@@ -113,10 +116,10 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
-        var startsEmptyContentRefresh = state.IsRefreshing && state.Windows.Count == 0 && HasWindows;
-        if (state.IsRefreshing && (!IsRefreshing || startsEmptyContentRefresh))
+        var startsContentLoading = state.IsRefreshing && state.Windows.Count == 0;
+        if (state.IsRefreshing && (!IsRefreshing || (startsContentLoading && !ShowLoading)))
         {
-            BeginRefreshPresentation();
+            BeginRefreshPresentation(startsContentLoading);
         }
 
         ApplyCore(state);
@@ -137,10 +140,9 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(HasWindows));
-        OnPropertyChanged(nameof(ShowQuotaLoading));
     }
 
-    private void BeginRefreshPresentation()
+    private void BeginRefreshPresentation(bool showLoading)
     {
         refreshPresentationCompletion?.Cancel();
         refreshPresentationCompletion?.Dispose();
@@ -149,6 +151,7 @@ public sealed partial class MainViewModel : ObservableObject
         Interlocked.Increment(ref refreshPresentationRevision);
         refreshPresentationStartedTimestamp = Stopwatch.GetTimestamp();
         IsRefreshing = true;
+        ShowLoading = showLoading;
     }
 
     private void EndRefreshPresentationAfterMinimum()
@@ -163,6 +166,7 @@ public sealed partial class MainViewModel : ObservableObject
         {
             ApplyPendingRefreshResult();
             IsRefreshing = false;
+            ShowLoading = false;
             return;
         }
 
@@ -184,6 +188,7 @@ public sealed partial class MainViewModel : ObservableObject
             {
                 ApplyPendingRefreshResult();
                 IsRefreshing = false;
+                ShowLoading = false;
             }
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)

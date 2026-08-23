@@ -104,7 +104,8 @@ public sealed class ViewModelTests
         viewModel.ApplySnapshot(refreshing);
 
         Assert.IsTrue(viewModel.IsRefreshing);
-        Assert.IsTrue(viewModel.ShowQuotaLoading);
+        Assert.IsTrue(viewModel.ShowLoading);
+        Assert.IsFalse(viewModel.ShowContent);
         Assert.IsFalse(viewModel.HasWindows);
         Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("正在刷新…", viewModel.StatusText);
@@ -118,7 +119,8 @@ public sealed class ViewModelTests
         });
 
         Assert.IsTrue(viewModel.IsRefreshing);
-        Assert.IsTrue(viewModel.ShowQuotaLoading);
+        Assert.IsTrue(viewModel.ShowLoading);
+        Assert.IsFalse(viewModel.ShowContent);
         Assert.IsFalse(viewModel.HasWindows);
         Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("正在刷新…", viewModel.StatusText);
@@ -126,7 +128,8 @@ public sealed class ViewModelTests
         await Task.Delay(RefreshPresentationPolicy.MinimumIndicatorDuration + TimeSpan.FromMilliseconds(150));
 
         Assert.IsFalse(viewModel.IsRefreshing);
-        Assert.IsFalse(viewModel.ShowQuotaLoading);
+        Assert.IsFalse(viewModel.ShowLoading);
+        Assert.IsTrue(viewModel.ShowContent);
         Assert.IsTrue(viewModel.HasWindows);
         Assert.IsTrue(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("更新于 14:30", viewModel.StatusText);
@@ -175,13 +178,15 @@ public sealed class ViewModelTests
         await Task.Delay(TimeSpan.FromMilliseconds(450));
 
         Assert.IsTrue(viewModel.IsRefreshing);
-        Assert.IsTrue(viewModel.ShowQuotaLoading);
+        Assert.IsTrue(viewModel.ShowLoading);
+        Assert.IsFalse(viewModel.ShowContent);
         Assert.IsFalse(viewModel.HasWindows);
 
         await Task.Delay(TimeSpan.FromMilliseconds(400));
 
         Assert.IsFalse(viewModel.IsRefreshing);
-        Assert.IsFalse(viewModel.ShowQuotaLoading);
+        Assert.IsFalse(viewModel.ShowLoading);
+        Assert.IsTrue(viewModel.ShowContent);
         Assert.IsTrue(viewModel.HasWindows);
         Assert.AreEqual("7 天额度", viewModel.Windows[0].Name);
     }
