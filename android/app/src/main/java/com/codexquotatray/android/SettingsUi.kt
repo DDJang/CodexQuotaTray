@@ -391,6 +391,7 @@ internal fun SettingsSegmentedSelector(
             .padding(
                 start = SettingsUiTokens.actionHorizontalInset,
                 end = SettingsUiTokens.actionHorizontalInset,
+                top = SettingsUiTokens.segmentedBottomInset,
                 bottom = SettingsUiTokens.segmentedBottomInset,
             )
             .height(SettingsUiTokens.segmentedHeight)

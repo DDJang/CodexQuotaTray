@@ -21,6 +21,24 @@ class TokenUsagePageStateTest {
         assertFalse(hasNewerTokenUsageSnapshot(existing, snapshot("11:59:00Z")))
     }
 
+    @Test
+    fun categoryRowIsHiddenWhenAllTotalsAreUnavailable() {
+        assertFalse(
+            shouldShowTokenCategories(
+                listOf("输入" to null, "缓存输入" to null, "输出" to null, "推理" to null),
+            ),
+        )
+    }
+
+    @Test
+    fun categoryRowRemainsVisibleWhenLocalDataProvidesAnyRealTotal() {
+        assertTrue(
+            shouldShowTokenCategories(
+                listOf("输入" to 10L, "缓存输入" to null, "输出" to 5L, "推理" to null),
+            ),
+        )
+    }
+
     private fun snapshot(time: String) = TokenUsageSnapshot(
         schemaVersion = 1,
         generatedAtUtc = "2026-08-11T$time",

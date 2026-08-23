@@ -76,12 +76,22 @@ import java.util.concurrent.Executors
 private enum class SettingsDestination(val title: String) {
     ROOT("设置"),
     NOTIFICATIONS("通知"),
-    SYNC("数据更新"),
-    SOURCE("数据来源"),
+    SYNC("数据"),
     THEME("显示与主题"),
     TOKEN_PAIRING("Windows 配对"),
     UPDATE("更新设置"),
 }
+
+internal fun sourcePriorityOptions(): List<SettingsSegmentOption> = listOf(
+    SettingsSegmentOption(0, "OpenAI 优先"),
+    SettingsSegmentOption(1, "Windows 优先"),
+)
+
+internal fun sourcePriorityValue(priority: DataSourcePriority): Int =
+    if (priority == DataSourcePriority.OPENAI_FIRST) 0 else 1
+
+internal fun sourcePriorityFromValue(value: Int): DataSourcePriority =
+    if (value == 0) DataSourcePriority.OPENAI_FIRST else DataSourcePriority.WINDOWS_FIRST
 
 class SettingsActivity : ComponentActivity() {
     private val alertStore by lazy { QuotaAlertSettingsStore(this) }
@@ -268,7 +278,6 @@ class SettingsActivity : ComponentActivity() {
                 SettingsDestination.ROOT -> SettingsHome()
                 SettingsDestination.NOTIFICATIONS -> NotificationSettings()
                 SettingsDestination.SYNC -> SyncSettings()
-                SettingsDestination.SOURCE -> SourceSettings()
                 SettingsDestination.THEME -> ThemeSettings()
                 SettingsDestination.TOKEN_PAIRING -> TokenPairingSettings()
                 SettingsDestination.UPDATE -> UpdateSettingsPage()
@@ -284,17 +293,13 @@ class SettingsActivity : ComponentActivity() {
                     startActivity(Intent(this@SettingsActivity, AccountActivity::class.java))
                 }
                 SettingsDivider()
-                SettingsNavigationRow("数据来源") {
-                    openDestination(SettingsDestination.SOURCE)
-                }
-                SettingsDivider()
                 SettingsNavigationRow(
                     title = "Windows 配对",
                     trailing = pairing?.displayName ?: "未配对",
                 ) { openDestination(SettingsDestination.TOKEN_PAIRING) }
             }
         }
-        SettingsSection("通知与数据更新") {
+        SettingsSection("通知与数据") {
             SettingsGroup {
                 if (!backgroundRefresh) {
                     SettingsWarningCaption("未开启额度后台刷新时，通知可能会延迟")
@@ -303,7 +308,7 @@ class SettingsActivity : ComponentActivity() {
                     openDestination(SettingsDestination.NOTIFICATIONS)
                 }
                 SettingsDivider()
-                SettingsNavigationRow("数据更新", if (backgroundRefresh || tokenBackgroundSync) "已开启" else "已关闭") {
+                SettingsNavigationRow("数据", if (backgroundRefresh || tokenBackgroundSync) "已开启" else "已关闭") {
                     openDestination(SettingsDestination.SYNC)
                 }
             }
@@ -328,36 +333,6 @@ class SettingsActivity : ComponentActivity() {
                 SettingsNavigationRow("关于") {
                     startActivity(Intent(this@SettingsActivity, AboutActivity::class.java))
                 }
-            }
-        }
-    }
-
-    @Composable
-    private fun ColumnScope.SourceSettings() {
-        SettingsSection("额度") {
-            SettingsGroup {
-                SettingsSegmentedSelector(
-                    options = listOf(
-                        SettingsSegmentOption(0, "OpenAI 优先"),
-                        SettingsSegmentOption(1, "Windows 优先"),
-                    ),
-                    selectedValue = if (quotaSourcePriority == DataSourcePriority.OPENAI_FIRST) 0 else 1,
-                    enabled = true,
-                    onSelected = { selectQuotaSourcePriority(if (it == 0) DataSourcePriority.OPENAI_FIRST else DataSourcePriority.WINDOWS_FIRST) },
-                )
-            }
-        }
-        SettingsSection("Token 统计") {
-            SettingsGroup {
-                SettingsSegmentedSelector(
-                    options = listOf(
-                        SettingsSegmentOption(0, "OpenAI 优先"),
-                        SettingsSegmentOption(1, "Windows 优先"),
-                    ),
-                    selectedValue = if (tokenSourcePriority == DataSourcePriority.OPENAI_FIRST) 0 else 1,
-                    enabled = true,
-                    onSelected = { selectTokenSourcePriority(if (it == 0) DataSourcePriority.OPENAI_FIRST else DataSourcePriority.WINDOWS_FIRST) },
-                )
             }
         }
     }
@@ -417,6 +392,13 @@ class SettingsActivity : ComponentActivity() {
     private fun ColumnScope.SyncSettings() {
         SettingsSection("额度") {
             SettingsGroup {
+                SettingsSegmentedSelector(
+                    options = sourcePriorityOptions(),
+                    selectedValue = sourcePriorityValue(quotaSourcePriority),
+                    enabled = true,
+                    onSelected = { selectQuotaSourcePriority(sourcePriorityFromValue(it)) },
+                )
+                SettingsDivider()
                 SettingsToggleRow("回到前台时刷新", quotaAutoRefresh, onChange = ::updateQuotaAutoRefresh)
                 SettingsDivider()
                 SettingsToggleRow("后台自动刷新", backgroundRefresh, onChange = ::updateBackgroundRefresh)
@@ -437,6 +419,13 @@ class SettingsActivity : ComponentActivity() {
         }
         SettingsSection("统计") {
             SettingsGroup {
+                SettingsSegmentedSelector(
+                    options = sourcePriorityOptions(),
+                    selectedValue = sourcePriorityValue(tokenSourcePriority),
+                    enabled = true,
+                    onSelected = { selectTokenSourcePriority(sourcePriorityFromValue(it)) },
+                )
+                SettingsDivider()
                 SettingsToggleRow("回到前台时同步", tokenAutoSync, onChange = ::updateTokenAutoSync)
                 SettingsDivider()
                 SettingsToggleRow("后台自动同步", tokenBackgroundSync, onChange = ::updateTokenBackgroundSync)

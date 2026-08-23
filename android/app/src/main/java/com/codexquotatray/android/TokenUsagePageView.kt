@@ -351,14 +351,11 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
                 .fillMaxWidth()
                 .hazeSource(tokenContentHazeState),
         ) {
-            Text(
-                tokenUsageSourceLabel(snapshot),
-                color = LocalQuotaPalette.current.color(LocalQuotaPalette.current.muted),
-                fontSize = 11.sp,
-            )
             SummaryRow(first)
             SummaryRow(second)
-            SummaryRow(categories)
+            if (shouldShowTokenCategories(categories)) {
+                SummaryRow(categories)
+            }
             Spacer(Modifier.height(16.dp))
             TokenHeatmap(
                 days = snapshot.days,
@@ -381,6 +378,9 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
         }
     }
 }
+
+internal fun shouldShowTokenCategories(categories: List<Pair<String, Long?>>): Boolean =
+    categories.any { (_, value) -> value != null }
 
 private fun completeCategoryTotal(
     days: List<TokenUsageDay>,
