@@ -152,6 +152,82 @@ public sealed class TokenUsageTests
     }
 
     [TestMethod]
+    public async Task SingleMetadataForkUsesInheritedImplicitBaseline()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live("single-meta-inherited.jsonl",
+            SessionMeta("fork-child-inherited", "parent"),
+            DetailedEvent("2026-08-08T01:00:00Z", 400, 360, 320, 40, 8, 38, 34, 30, 4, 1),
+            DetailedEvent("2026-08-08T02:00:00Z", 658, 590, 520, 68, 14, 90, 80, 70, 10, 2));
+
+        var result = await Scan(corpus);
+        var day = result.Days.Single();
+
+        Assert.AreEqual(296L, day.TotalTokens);
+        Assert.AreEqual(264L, day.InputTokens);
+        Assert.AreEqual(230L, day.CachedInputTokens);
+        Assert.AreEqual(32L, day.OutputTokens);
+        Assert.AreEqual(7L, day.ReasoningTokens);
+    }
+
+    [TestMethod]
+    public async Task SingleMetadataForkWithZeroBaselineCountsCompleteChildUsage()
+    {
+        using var corpus = new TokenCorpus();
+        corpus.Live("single-meta-zero.jsonl",
+            SessionMeta("fork-child-zero", "parent"),
+            DetailedEvent("2026-08-08T01:00:00Z", 24, 20, 10, 4, 1, 24, 20, 10, 4, 1),
+            DetailedEvent("2026-08-08T02:00:00Z", 425, 370, 300, 55, 10, 137, 120, 100, 17, 3));
+
+        var result = await Scan(corpus);
+        var day = result.Days.Single();
+
+        Assert.AreEqual(425L, day.TotalTokens);
+        Assert.AreEqual(370L, day.InputTokens);
+        Assert.AreEqual(300L, day.CachedInputTokens);
+        Assert.AreEqual(55L, day.OutputTokens);
+        Assert.AreEqual(10L, day.ReasoningTokens);
+    }
+
+    [TestMethod]
+    public async Task ModernForkWaitsForChildUuidV7TaskBoundary()
+    {
+        using var corpus = new TokenCorpus();
+        const string parentId = "019ff753-9210-7a41-9670-8f8d3a738a9d";
+        const string childId = "019ffaca-c65e-78a3-8383-70d9d427eaf3";
+        corpus.Live("modern-parent.jsonl",
+            SessionMeta(parentId),
+            DetailedEvent("2026-08-08T01:00:00Z", 300, 240, 180, 60, 10, 300, 240, 180, 60, 10));
+        corpus.Live("modern-child.jsonl",
+            SessionMeta(childId, parentId),
+            SessionMeta(parentId),
+            TaskStarted("019ff753-96f5-7ba1-9874-706a1c2e5a07"),
+            DetailedEvent("2026-08-08T01:00:00Z", 150, 120, 90, 30, 5, 150, 120, 90, 30, 5),
+            TaskStarted("019ff974-bc57-7d93-8712-3627856b327a"),
+            DetailedEvent("2026-08-08T02:00:00Z", 300, 240, 180, 60, 10, 150, 120, 90, 30, 5),
+            TaskStarted("019ffaca-cac2-7122-bd5c-e30f9b7c3715"),
+            DetailedEvent("2026-08-08T03:00:00Z", 330, 264, 198, 66, 11, 30, 24, 18, 6, 1),
+            DetailedEvent("2026-08-08T04:00:00Z", 350, 280, 210, 70, 12, 20, 16, 12, 4, 1));
+
+        var result = await Scan(corpus);
+
+        Assert.AreEqual(350L, result.Summary.LifetimeTokens);
+    }
+
+    [TestMethod]
+    public async Task StableEventIdsDoNotCollideAcrossSessions()
+    {
+        using var corpus = new TokenCorpus();
+        var sameEvent = Event("2026-08-08T01:00:00Z", 100);
+        corpus.Live("session-a.jsonl", SessionMeta("session-a"), sameEvent);
+        corpus.Live("session-b.jsonl", SessionMeta("session-b"), sameEvent);
+
+        var result = await Scan(corpus);
+
+        Assert.AreEqual(200L, result.Summary.LifetimeTokens);
+    }
+
+    [TestMethod]
     public async Task CategoryDeltasAndSameTotalCorrectionPreserveTotal()
     {
         using var corpus = new TokenCorpus();
@@ -227,9 +303,9 @@ public sealed class TokenUsageTests
         using var corpus = new TokenCorpus();
         var copied = Event("2026-08-07T01:00:00Z", 1_000, 1_000);
         var suffix = Event("2026-08-08T01:00:00Z", 1_400, 400);
-        corpus.Live("parent.jsonl", copied);
-        corpus.Live("fork.jsonl", copied, suffix);
-        corpus.Archived("parent.jsonl", copied);
+        corpus.Live("parent.jsonl", SessionMeta("parent"), copied);
+        corpus.Live("fork.jsonl", SessionMeta("child", "parent"), copied, SessionMeta("parent"), suffix);
+        corpus.Archived("parent.jsonl", SessionMeta("parent"), copied);
 
         var result = await Scan(corpus);
 
@@ -796,6 +872,55 @@ public sealed class TokenUsageTests
                     },
                 },
             },
+        });
+
+    private static string DetailedEvent(
+        string timestamp,
+        long total,
+        long input,
+        long cached,
+        long output,
+        long reasoning,
+        long lastTotal,
+        long lastInput,
+        long lastCached,
+        long lastOutput,
+        long lastReasoning) =>
+        JsonSerializer.Serialize(new
+        {
+            timestamp,
+            type = "event_msg",
+            payload = new
+            {
+                type = "token_count",
+                info = new
+                {
+                    total_token_usage = new
+                    {
+                        total_tokens = total,
+                        input_tokens = input,
+                        cached_input_tokens = cached,
+                        output_tokens = output,
+                        reasoning_output_tokens = reasoning,
+                    },
+                    last_token_usage = new
+                    {
+                        total_tokens = lastTotal,
+                        input_tokens = lastInput,
+                        cached_input_tokens = lastCached,
+                        output_tokens = lastOutput,
+                        reasoning_output_tokens = lastReasoning,
+                    },
+                },
+            },
+        });
+
+    private static string TaskStarted(string turnId) =>
+        JsonSerializer.Serialize(new
+        {
+            timestamp = "2026-08-08T00:00:00Z",
+            type = "event_msg",
+            payload = new { type = "task_started", turn_id = turnId },
         });
 
     private static string Usage(long total) =>

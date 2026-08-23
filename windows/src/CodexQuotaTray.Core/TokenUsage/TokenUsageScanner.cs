@@ -77,12 +77,42 @@ public sealed class TokenUsageScanner
 
                 var existing = await TokenUsageLedger.LoadFileAsync(
                     connection, transaction, file, cancellationToken).ConfigureAwait(false);
-                if (existing is not null && IsUnchanged(existing, info))
+                var pendingForkReplay = existing is { ForkReplayActive: true };
+                if (existing is not null && IsUnchanged(existing, info) && !pendingForkReplay)
                 {
                     continue;
                 }
 
+                RolloutInspection? inspection = null;
+                if (existing is null || pendingForkReplay)
+                {
+                    inspection = await InspectRolloutAsync(file, cancellationToken).ConfigureAwait(false);
+                    if (inspection.ForkedFromId is not null && inspection.ReplayOffset == 0)
+                    {
+                        await TokenUsageLedger.SaveFileAsync(
+                            connection,
+                            transaction,
+                            new FileLedgerState(
+                                file,
+                                inspection.OwnerSessionId,
+                                0,
+                                info.Length,
+                                info.LastWriteTimeUtc.Ticks,
+                                info.CreationTimeUtc.Ticks,
+                                null,
+                                inspection.ForkedFromId,
+                                ForkReplayActive: true,
+                                ForkSawToken: false),
+                            cancellationToken).ConfigureAwait(false);
+                        filesRead++;
+                        continue;
+                    }
+                }
+
                 var canAppend = existing is not null && CanContinueFromCheckpoint(existing, info);
+                var startOffset = inspection is { ReplayOffset: > 0 }
+                    ? inspection.ReplayOffset
+                    : canAppend ? existing!.Offset : 0;
                 var context = new IngestContext(
                     connection,
                     transaction,
@@ -90,10 +120,11 @@ public sealed class TokenUsageScanner
                     sourceTimeZone,
                     file,
                     existing,
-                    inheritedSessionHighWater: !canAppend);
+                    inspection,
+                    inheritedSessionHighWater: !canAppend || inspection is { ReplayOffset: > 0 });
                 var scan = await ScanSegmentAsync(
                     file,
-                    canAppend ? existing!.Offset : 0,
+                    startOffset,
                     context,
                     cancellationToken).ConfigureAwait(false);
                 var afterScan = new FileInfo(file);
@@ -113,8 +144,8 @@ public sealed class TokenUsageScanner
                         info.CreationTimeUtc.Ticks,
                         context.FileCumulative,
                         context.ForkedFromId,
-                        context.ForkReplayActive,
-                        context.ForkSawToken),
+                        ForkReplayActive: false,
+                        ForkSawToken: false),
                     cancellationToken).ConfigureAwait(false);
                 bytesRead += scan.BytesRead;
                 filesRead++;
@@ -300,6 +331,284 @@ public sealed class TokenUsageScanner
         return value == marker[0] ? 1 : 0;
     }
 
+    private async Task<RolloutInspection> InspectRolloutAsync(
+        string path,
+        CancellationToken cancellationToken)
+    {
+        var readBuffer = ArrayPool<byte>.Shared.Rent(ReadBufferSize);
+        var lineBuffer = ArrayPool<byte>.Shared.Rent(maximumCandidateRecordBytes);
+        try
+        {
+            await using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                ReadBufferSize,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var builder = new RolloutInspectionBuilder();
+            var buffered = 0;
+            var markerMatches = new int[RelevantMarkers.Length];
+            var containsMarker = false;
+            var overflow = false;
+            var lineHasContent = false;
+            var absoluteOffset = 0L;
+            var lineStartOffset = 0L;
+            int count;
+            while ((count = await stream.ReadAsync(readBuffer.AsMemory(0, ReadBufferSize), cancellationToken).ConfigureAwait(false)) > 0)
+            {
+                for (var index = 0; index < count; index++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var value = readBuffer[index];
+                    absoluteOffset++;
+                    if (value == (byte)'\n')
+                    {
+                        if (InspectLine(
+                                lineBuffer,
+                                buffered,
+                                containsMarker,
+                                overflow,
+                                lineStartOffset == 0,
+                                lineStartOffset,
+                                absoluteOffset,
+                                builder))
+                        {
+                            return builder.FinalizeInspection();
+                        }
+
+                        lineStartOffset = absoluteOffset;
+                        buffered = 0;
+                        Array.Clear(markerMatches);
+                        containsMarker = false;
+                        overflow = false;
+                        lineHasContent = false;
+                        continue;
+                    }
+
+                    lineHasContent = true;
+                    if (buffered < maximumCandidateRecordBytes)
+                    {
+                        lineBuffer[buffered++] = value;
+                    }
+                    else
+                    {
+                        overflow = true;
+                    }
+
+                    if (!containsMarker)
+                    {
+                        for (var marker = 0; marker < RelevantMarkers.Length; marker++)
+                        {
+                            markerMatches[marker] = AdvanceMarker(RelevantMarkers[marker], markerMatches[marker], value);
+                            containsMarker |= markerMatches[marker] == RelevantMarkers[marker].Length;
+                        }
+                    }
+                }
+            }
+
+            if (lineHasContent)
+            {
+                _ = InspectLine(
+                    lineBuffer,
+                    buffered,
+                    containsMarker,
+                    overflow,
+                    lineStartOffset == 0,
+                    lineStartOffset,
+                    absoluteOffset,
+                    builder);
+            }
+
+            return builder.FinalizeInspection();
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(lineBuffer);
+            ArrayPool<byte>.Shared.Return(readBuffer);
+        }
+    }
+
+    private static bool InspectLine(
+        byte[] buffer,
+        int length,
+        bool containsMarker,
+        bool overflow,
+        bool firstLine,
+        long recordStart,
+        long recordEnd,
+        RolloutInspectionBuilder builder)
+    {
+        if (!containsMarker || overflow)
+        {
+            return false;
+        }
+
+        var offset = firstLine && length >= 3 && buffer[0] == 0xEF && buffer[1] == 0xBB && buffer[2] == 0xBF ? 3 : 0;
+        if (length > offset && buffer[length - 1] == (byte)'\r')
+        {
+            length--;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(new ReadOnlyMemory<byte>(buffer, offset, length - offset));
+            var root = document.RootElement;
+            var type = Text(root, "type");
+            if (type.Equals("session_meta", StringComparison.Ordinal)
+                && root.TryGetProperty("payload", out var metaPayload))
+            {
+                var candidate = Text(metaPayload, "id", "session_id");
+                var forkedFromId = Text(metaPayload, "forked_from_id");
+                if (string.IsNullOrEmpty(builder.OwnerSessionId))
+                {
+                    builder.OwnerSessionId = candidate;
+                    builder.ForkedFromId = string.IsNullOrEmpty(forkedFromId) ? null : forkedFromId;
+                    return builder.ForkedFromId is null;
+                }
+
+                if (!string.IsNullOrEmpty(candidate)
+                    && !candidate.Equals(builder.OwnerSessionId, StringComparison.Ordinal)
+                    && (builder.ForkedFromId is null
+                        || candidate.Equals(builder.ForkedFromId, StringComparison.Ordinal)))
+                {
+                    if (builder.Baseline is null || builder.Baseline.Value.Total == 0)
+                    {
+                        builder.ModernPrefix = true;
+                    }
+                    else if (builder.LegacyReplayOffset == 0)
+                    {
+                        builder.LegacyReplayOffset = recordEnd;
+                        builder.LegacyBaseline = builder.Baseline;
+                    }
+                }
+
+                return false;
+            }
+
+            if (!type.Equals("event_msg", StringComparison.Ordinal)
+                || builder.ForkedFromId is null
+                || !root.TryGetProperty("payload", out var payload))
+            {
+                return false;
+            }
+
+            var payloadType = Text(payload, "type");
+            if (payloadType.Equals("task_started", StringComparison.Ordinal)
+                && UuidV7AtOrAfter(Text(payload, "turn_id"), builder.OwnerSessionId))
+            {
+                builder.ReplayOffset = recordEnd;
+                return true;
+            }
+
+            if (!payloadType.Equals("token_count", StringComparison.Ordinal)
+                || !payload.TryGetProperty("info", out var info)
+                || info.ValueKind != JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            var current = WithMissingSubsets(Counters(info, "total_token_usage"), builder.Baseline);
+            if (current is null)
+            {
+                return false;
+            }
+
+            if (!builder.HasImplicitCandidate
+                && TryImplicitForkBaseline(current.Value, Counters(info, "last_token_usage"), out var implicitBaseline))
+            {
+                builder.HasImplicitCandidate = true;
+                builder.ImplicitReplayOffset = recordStart;
+                builder.ImplicitBaseline = implicitBaseline;
+            }
+
+            builder.Baseline = current;
+            return false;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static TokenCounters? WithMissingSubsets(TokenCounters? current, TokenCounters? previous) =>
+        current is null
+            ? null
+            : new TokenCounters(
+                current.Value.Total,
+                current.Value.Input ?? previous?.Input,
+                current.Value.Cached ?? previous?.Cached,
+                current.Value.Output ?? previous?.Output,
+                current.Value.Reasoning ?? previous?.Reasoning);
+
+    private static bool TryImplicitForkBaseline(
+        TokenCounters total,
+        TokenCounters? last,
+        out TokenCounters baseline)
+    {
+        baseline = default;
+        if (last is null || !ValidTokenUsage(total) || !ValidTokenUsage(last.Value) || !MonotonicFrom(total, last.Value))
+        {
+            return false;
+        }
+
+        baseline = new TokenCounters(
+            total.Total - last.Value.Total,
+            total.Input!.Value - last.Value.Input!.Value,
+            total.Cached!.Value - last.Value.Cached!.Value,
+            total.Output!.Value - last.Value.Output!.Value,
+            total.Reasoning!.Value - last.Value.Reasoning!.Value);
+        return ValidTokenUsage(baseline);
+    }
+
+    private static bool ValidTokenUsage(TokenCounters value) =>
+        value.Total >= 0
+        && value.Input is >= 0
+        && value.Cached is >= 0
+        && value.Output is >= 0
+        && value.Reasoning is >= 0
+        && value.Cached <= value.Input
+        && value.Reasoning <= value.Output
+        && value.Input + value.Output == value.Total;
+
+    private static bool MonotonicFrom(TokenCounters current, TokenCounters previous) =>
+        current.Total >= previous.Total
+        && current.Input >= previous.Input
+        && current.Cached >= previous.Cached
+        && current.Output >= previous.Output
+        && current.Reasoning >= previous.Reasoning;
+
+    private static bool UuidV7AtOrAfter(string candidate, string owner)
+    {
+        if (candidate.Length != 36 || owner.Length != 36 || candidate[14] != '7' || owner[14] != '7')
+        {
+            return false;
+        }
+
+        foreach (var index in new[] { 8, 13, 18, 23 })
+        {
+            if (candidate[index] != '-' || owner[index] != '-')
+            {
+                return false;
+            }
+        }
+
+        for (var index = 0; index < 36; index++)
+        {
+            if (index is 8 or 13 or 18 or 23)
+            {
+                continue;
+            }
+
+            if (!Uri.IsHexDigit(candidate[index]) || !Uri.IsHexDigit(owner[index]))
+            {
+                return false;
+            }
+        }
+
+        return string.Compare(candidate, owner, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
     private static async Task<bool> ProcessLineAsync(
         byte[] buffer,
         int length,
@@ -344,7 +653,6 @@ public sealed class TokenUsageScanner
             var payloadType = Text(payload, "type");
             if (payloadType.Equals("task_started", StringComparison.Ordinal))
             {
-                await context.EndForkReplayAsync(cancellationToken).ConfigureAwait(false);
                 return true;
             }
 
@@ -415,12 +723,12 @@ public sealed class TokenUsageScanner
             ? allowNegative ? current.Value - previous.Value : Math.Max(0, current.Value - previous.Value)
             : null;
 
-    private static string EventKey(string sessionId, long segment, DateTimeOffset timestamp, TokenCounters current)
+    private static string EventKey(string sessionId, long segment, TokenCounters current)
     {
-        _ = sessionId;
-        _ = segment;
-        var value = string.Create(CultureInfo.InvariantCulture, $"{timestamp:O}|{current}");
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+        var value = string.Create(
+            CultureInfo.InvariantCulture,
+            $"jsonl\0{sessionId}\0{segment}\0{current.Input}\0{current.Cached}\0{current.Output}\0{current.Reasoning}\0{current.Total}");
+        return "jsonl:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value))).ToLowerInvariant();
     }
 
     private static string Text(JsonElement value, params string[] names)
@@ -505,20 +813,25 @@ public sealed class TokenUsageScanner
         TimeZoneInfo sourceTimeZone,
         string path,
         FileLedgerState? existing,
+        RolloutInspection? inspection,
         bool inheritedSessionHighWater)
     {
         private SessionLedgerState? session;
         private bool sessionLoaded;
 
-        internal string OwnerSessionId { get; private set; } = existing?.OwnerSessionId ?? string.Empty;
+        private readonly TokenCounters? initialBaseline = inspection is { ReplayOffset: > 0 }
+            ? inspection.Baseline
+            : existing?.ForkedFromId is not null ? existing.Cumulative : null;
 
-        internal TokenCounters? FileCumulative { get; private set; } = existing?.Cumulative;
+        internal string OwnerSessionId { get; private set; } = !string.IsNullOrEmpty(inspection?.OwnerSessionId)
+            ? inspection.OwnerSessionId
+            : existing?.OwnerSessionId ?? string.Empty;
 
-        internal string? ForkedFromId { get; private set; } = existing?.ForkedFromId;
+        internal TokenCounters? FileCumulative { get; private set; } = inspection is { ReplayOffset: > 0 }
+            ? inspection.Baseline
+            : existing?.Cumulative;
 
-        internal bool ForkReplayActive { get; private set; } = existing?.ForkReplayActive ?? false;
-
-        internal bool ForkSawToken { get; private set; } = existing?.ForkSawToken ?? false;
+        internal string? ForkedFromId { get; private set; } = inspection?.ForkedFromId ?? existing?.ForkedFromId;
 
         internal async Task ApplySessionMetaAsync(string sessionId, string forkedFromId, CancellationToken cancellationToken)
         {
@@ -526,41 +839,10 @@ public sealed class TokenUsageScanner
             {
                 OwnerSessionId = sessionId;
                 ForkedFromId = string.IsNullOrEmpty(forkedFromId) ? null : forkedFromId;
-                ForkReplayActive = ForkedFromId is not null;
                 await LoadSessionAsync(cancellationToken).ConfigureAwait(false);
                 return;
             }
 
-            if (ForkReplayActive
-                && ForkSawToken
-                && !string.IsNullOrEmpty(sessionId)
-                && !sessionId.Equals(OwnerSessionId, StringComparison.Ordinal))
-            {
-                await EndForkReplayAsync(cancellationToken).ConfigureAwait(false);
-            }
-        }
-
-        internal async Task EndForkReplayAsync(CancellationToken cancellationToken)
-        {
-            if (!ForkReplayActive)
-            {
-                return;
-            }
-
-            await EnsureOwnerAsync(cancellationToken).ConfigureAwait(false);
-            if (FileCumulative is not null)
-            {
-                session = new SessionLedgerState(
-                    OwnerSessionId,
-                    FileCumulative.Value,
-                    ForkedFromId,
-                    session?.LastEventId,
-                    session?.Segment ?? 0);
-                await SaveSessionAsync(cancellationToken).ConfigureAwait(false);
-            }
-
-            ForkReplayActive = false;
-            inheritedSessionHighWater = false;
         }
 
         internal async Task ApplyTokenAsync(
@@ -571,12 +853,6 @@ public sealed class TokenUsageScanner
         {
             await EnsureOwnerAsync(cancellationToken).ConfigureAwait(false);
             FileCumulative = current;
-            if (ForkReplayActive)
-            {
-                ForkSawToken = true;
-                return;
-            }
-
             if (session is null)
             {
                 await InsertDeltaAsync(timestamp, current, current, cancellationToken).ConfigureAwait(false);
@@ -645,6 +921,15 @@ public sealed class TokenUsageScanner
             {
                 session = await TokenUsageLedger.LoadSessionAsync(
                     connection, transaction, OwnerSessionId, cancellationToken).ConfigureAwait(false);
+                if (session is null && initialBaseline is not null)
+                {
+                    session = new SessionLedgerState(
+                        OwnerSessionId,
+                        initialBaseline.Value,
+                        ForkedFromId,
+                        LastEventId: null,
+                        Segment: 0);
+                }
                 sessionStates.Add(OwnerSessionId, session);
             }
 
@@ -658,7 +943,7 @@ public sealed class TokenUsageScanner
             CancellationToken cancellationToken)
         {
             var segment = session?.Segment ?? 0;
-            var eventId = EventKey(OwnerSessionId, segment, timestamp, cumulative);
+            var eventId = EventKey(OwnerSessionId, segment, cumulative);
             var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(timestamp, sourceTimeZone).DateTime);
             var inserted = await TokenUsageLedger.InsertEventAsync(
                 connection,
@@ -686,6 +971,55 @@ public sealed class TokenUsageScanner
             sessionStates[OwnerSessionId] = session;
         }
     }
+
+    private sealed class RolloutInspectionBuilder
+    {
+        internal string OwnerSessionId { get; set; } = string.Empty;
+
+        internal string? ForkedFromId { get; set; }
+
+        internal long ReplayOffset { get; set; }
+
+        internal TokenCounters? Baseline { get; set; }
+
+        internal bool HasImplicitCandidate { get; set; }
+
+        internal long ImplicitReplayOffset { get; set; }
+
+        internal TokenCounters ImplicitBaseline { get; set; }
+
+        internal long LegacyReplayOffset { get; set; }
+
+        internal TokenCounters? LegacyBaseline { get; set; }
+
+        internal bool ModernPrefix { get; set; }
+
+        internal RolloutInspection FinalizeInspection()
+        {
+            if (ReplayOffset == 0 && LegacyReplayOffset > 0)
+            {
+                ReplayOffset = LegacyReplayOffset;
+                Baseline = LegacyBaseline;
+            }
+            else if (ReplayOffset == 0 && ModernPrefix)
+            {
+                Baseline = null;
+            }
+            else if (ReplayOffset == 0 && ForkedFromId is not null && HasImplicitCandidate)
+            {
+                ReplayOffset = ImplicitReplayOffset;
+                Baseline = ImplicitBaseline;
+            }
+
+            return new RolloutInspection(OwnerSessionId, ForkedFromId, ReplayOffset, Baseline);
+        }
+    }
+
+    private sealed record RolloutInspection(
+        string OwnerSessionId,
+        string? ForkedFromId,
+        long ReplayOffset,
+        TokenCounters? Baseline);
 
     private sealed record FileScanResult(long ObservedLength, long ProcessedLength, long BytesRead);
 }
