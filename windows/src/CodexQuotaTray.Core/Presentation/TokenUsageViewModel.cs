@@ -128,15 +128,27 @@ public sealed partial class TokenUsageViewModel : ObservableObject
 
         var generation = Volatile.Read(ref sourceGeneration);
         var refreshPresentationStartedTimestamp = Stopwatch.GetTimestamp();
+        var loadingStatusText = string.Empty;
+        var previousStatusText = string.Empty;
+        var previousStatusTone = StatusTone.Neutral;
+        var previousHasErrorWithoutData = false;
+        var completionStatusText = string.Empty;
+        var completionStatusTone = StatusTone.Neutral;
+        var completionHasErrorWithoutData = false;
+        var hasCompletionPresentation = false;
         try
         {
             await dispatch(
                 () =>
                 {
+                    previousStatusText = StatusText;
+                    previousStatusTone = StatusTone;
+                    previousHasErrorWithoutData = HasErrorWithoutData;
+                    loadingStatusText = snapshot is null ? "正在刷新…" : "正在刷新… · 显示上次数据";
                     LastAttemptUtc = DateTimeOffset.UtcNow;
                     IsRefreshing = true;
                     ShowLoading = snapshot is null;
-                    StatusText = "正在刷新…";
+                    StatusText = loadingStatusText;
                     StatusTone = StatusTone.Refreshing;
                     HasErrorWithoutData = false;
                 },
@@ -152,6 +164,12 @@ public sealed partial class TokenUsageViewModel : ObservableObject
                             if (generation == Volatile.Read(ref sourceGeneration))
                             {
                                 Apply(value);
+                                completionStatusText = StatusText;
+                                completionStatusTone = StatusTone;
+                                completionHasErrorWithoutData = HasErrorWithoutData;
+                                hasCompletionPresentation = true;
+                                StatusText = loadingStatusText;
+                                StatusTone = StatusTone.Refreshing;
                             }
                         },
                         cancellationToken).ConfigureAwait(false);
@@ -159,6 +177,10 @@ public sealed partial class TokenUsageViewModel : ObservableObject
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                completionStatusText = previousStatusText;
+                completionStatusTone = previousStatusTone;
+                completionHasErrorWithoutData = previousHasErrorWithoutData;
+                hasCompletionPresentation = true;
             }
             catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
             {
@@ -172,9 +194,10 @@ public sealed partial class TokenUsageViewModel : ObservableObject
                                 return;
                             }
 
-                            StatusText = snapshot is null ? "刷新失败" : "刷新失败 · 显示上次数据";
-                            StatusTone = snapshot is null ? StatusTone.Error : StatusTone.Warning;
-                            HasErrorWithoutData = snapshot is null;
+                            completionStatusText = snapshot is null ? "刷新失败" : "刷新失败 · 显示上次数据";
+                            completionStatusTone = snapshot is null ? StatusTone.Error : StatusTone.Warning;
+                            completionHasErrorWithoutData = snapshot is null;
+                            hasCompletionPresentation = true;
                         },
                         CancellationToken.None).ConfigureAwait(false);
                 }
@@ -190,6 +213,13 @@ public sealed partial class TokenUsageViewModel : ObservableObject
                 await dispatch(
                     () =>
                     {
+                        if (generation == Volatile.Read(ref sourceGeneration) && hasCompletionPresentation)
+                        {
+                            StatusText = completionStatusText;
+                            StatusTone = completionStatusTone;
+                            HasErrorWithoutData = completionHasErrorWithoutData;
+                        }
+
                         IsRefreshing = false;
                         ShowLoading = false;
                     },

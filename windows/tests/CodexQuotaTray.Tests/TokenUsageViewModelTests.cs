@@ -201,7 +201,13 @@ public sealed class TokenUsageViewModelTests
         var viewModel = new TokenUsageViewModel(_ => Task.FromResult(CreateSnapshot(128_392)));
         var elapsed = Stopwatch.StartNew();
 
-        await viewModel.RefreshNowAsync(CancellationToken.None);
+        var refresh = viewModel.RefreshNowAsync(CancellationToken.None);
+
+        Assert.IsTrue(viewModel.IsRefreshing);
+        Assert.IsTrue(viewModel.ShowLoading);
+        Assert.AreEqual("正在刷新…", viewModel.StatusText);
+
+        await refresh;
 
         Assert.IsGreaterThanOrEqualTo(
             RefreshPresentationPolicy.MinimumIndicatorDuration - TimeSpan.FromMilliseconds(75),
@@ -209,6 +215,7 @@ public sealed class TokenUsageViewModelTests
         Assert.IsFalse(viewModel.IsRefreshing);
         Assert.IsFalse(viewModel.ShowLoading);
         Assert.IsTrue(viewModel.ShowContent);
+        StringAssert.StartsWith(viewModel.StatusText, "更新于 ");
     }
 
     [TestMethod]
