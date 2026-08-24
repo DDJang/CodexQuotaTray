@@ -1,5 +1,6 @@
-// Adapted from Kyant0/AndroidLiquidGlass, commit b18eb0ff12c616546a68c72e7d0097f1ab286c87.
-// Apache-2.0.
+// Adapted and modified from Kyant0/AndroidLiquidGlass.
+// Pinned commit: b18eb0ff12c616546a68c72e7d0097f1ab286c87.
+// Apache License 2.0.
 package com.codexquotatray.android.liquidglass
 
 import androidx.compose.animation.core.Animatable

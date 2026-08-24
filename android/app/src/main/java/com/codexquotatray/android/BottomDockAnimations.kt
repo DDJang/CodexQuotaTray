@@ -1,6 +1,9 @@
 /*
+ * Adapted and modified from Kyant0/AndroidLiquidGlass.
  * Adapted from Kyant0/AndroidLiquidGlass catalog utilities:
  * DampedDragAnimation.kt, DragGestureInspector.kt and InteractiveHighlight.kt.
+ * Pinned commit: b18eb0ff12c616546a68c72e7d0097f1ab286c87.
+ * Apache License 2.0.
  * Copyright Kyant0 contributors, licensed under Apache-2.0.
  */
 package com.codexquotatray.android

@@ -1,5 +1,8 @@
 /*
+ * Adapted and modified from Kyant0/AndroidLiquidGlass.
  * Adapted from Kyant0/AndroidLiquidGlass LiquidButton.
+ * Pinned commit: b18eb0ff12c616546a68c72e7d0097f1ab286c87.
+ * Apache License 2.0.
  * Copyright Kyant0 contributors, licensed under Apache-2.0.
  */
 package com.codexquotatray.android.debug

@@ -1,6 +1,9 @@
 /*
+ * Adapted and modified from Kyant0/AndroidLiquidGlass.
  * Copied from Kyant0/AndroidLiquidGlass LiquidButton.
  * Reference commit: b18eb0ff12c616546a68c72e7d0097f1ab286c87.
+ * Pinned commit: b18eb0ff12c616546a68c72e7d0097f1ab286c87.
+ * Apache License 2.0.
  * Copyright Kyant0 contributors, licensed under Apache-2.0.
  *
  * This debug-only copy intentionally keeps the upstream optical and drag

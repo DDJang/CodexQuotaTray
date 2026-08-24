@@ -162,7 +162,7 @@ class SettingsStructureTest {
         val source = sourceFile("liquidglass/LiquidSegmentedTabs.kt")
         val settings = sourceFile("SettingsUi.kt")
 
-        assertTrue(source.contains("Adapted from Kyant0/AndroidLiquidGlass"))
+        assertTrue(source.contains("Adapted and modified from Kyant0/AndroidLiquidGlass"))
         assertTrue(source.contains("SEGMENTED_SCALE = 0.75f"))
         assertTrue(source.contains("constraints.maxWidth"))
         assertTrue(source.contains("segmentedOuterHeight = 64.dp.scaledSegmented()"))

@@ -1,4 +1,7 @@
+// Adapted and modified from Kyant0/AndroidLiquidGlass.
 // Debug-only adaptation of Kyant0/AndroidLiquidGlass LiquidBottomTabs.
+// Pinned commit: b18eb0ff12c616546a68c72e7d0097f1ab286c87.
+// Apache License 2.0.
 //
 // Do not wrap the upstream component in an expanded logical width and then
 // scale it back down. Upstream translation and backdrop sampling must use the
