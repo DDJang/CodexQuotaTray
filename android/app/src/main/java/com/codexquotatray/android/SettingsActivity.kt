@@ -447,7 +447,7 @@ class SettingsActivity : ComponentActivity() {
             }
         }
         SettingsSection(stringResource(R.string.reset_credit_expiry_section)) {
-            SettingsGroup {
+            SettingsGroup(allowLiquidOverflow = true) {
                 SettingsToggleRow(
                     title = stringResource(R.string.reset_credit_expiry_toggle),
                     checked = resetCreditExpiryEnabled,
@@ -476,7 +476,7 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun ColumnScope.SyncSettings() {
         SettingsSection("额度") {
-            SettingsGroup {
+            SettingsGroup(allowLiquidOverflow = true) {
                 SettingsInlineLabel("数据来源")
                 SettingsSegmentedSelector(
                     options = sourcePriorityOptions(),
@@ -512,7 +512,7 @@ class SettingsActivity : ComponentActivity() {
             }
         }
         SettingsSection("统计") {
-            SettingsGroup {
+            SettingsGroup(allowLiquidOverflow = true) {
                 SettingsInlineLabel("数据来源")
                 SettingsSegmentedSelector(
                     options = sourcePriorityOptions(),

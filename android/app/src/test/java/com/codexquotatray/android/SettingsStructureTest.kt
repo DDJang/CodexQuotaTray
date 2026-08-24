@@ -86,6 +86,37 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun onlySegmentedSettingsGroupsAllowLiquidOverflow() {
+        val settingsUi = sourceFile("SettingsUi.kt")
+        val settingsActivity = sourceFile("SettingsActivity.kt")
+
+        assertTrue(settingsUi.contains("allowLiquidOverflow: Boolean = false"))
+        assertTrue(settingsUi.contains("if (allowLiquidOverflow)"))
+        assertTrue(settingsUi.contains("Modifier.background("))
+        assertTrue(settingsUi.contains("Card("))
+        assertEquals(
+            3,
+            Regex("SettingsGroup\\(allowLiquidOverflow = true\\)")
+                .findAll(settingsActivity)
+                .count(),
+        )
+        assertTrue(
+            Regex(
+                "SettingsSection\\(stringResource\\(R\\.string\\.reset_credit_expiry_section\\)\\)\\s*\\{\\s*" +
+                    "SettingsGroup\\(allowLiquidOverflow = true\\)",
+            ).containsMatchIn(settingsActivity),
+        )
+        assertTrue(
+            Regex("SettingsSection\\(\"额度\"\\)\\s*\\{\\s*SettingsGroup\\(allowLiquidOverflow = true\\)")
+                .containsMatchIn(settingsActivity),
+        )
+        assertTrue(
+            Regex("SettingsSection\\(\"统计\"\\)\\s*\\{\\s*SettingsGroup\\(allowLiquidOverflow = true\\)")
+                .containsMatchIn(settingsActivity),
+        )
+    }
+
+    @Test
     fun productionLiquidSegmentedTabsKeepFixtureGeometryAndGateDisabledSelection() {
         assertTrue(shouldCommitLiquidSegmentSelection(true, 0, 1))
         assertFalse(shouldCommitLiquidSegmentSelection(true, 1, 1))
@@ -421,6 +452,14 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("val sourceModifier = if (fullSlotSource)"))
         assertTrue(fixture.contains("controlHeight + verticalInset * 2"))
         assertTrue(fixture.contains("LiquidSegmentedTabs("))
+        assertTrue(fixture.contains("Ancestor clip regression · full-slot source held constant"))
+        assertTrue(fixture.contains("A · Material Card ancestor · clips"))
+        assertTrue(fixture.contains("B · rounded background ancestor · non-clipping"))
+        assertTrue(fixture.contains("materialCardAncestor = true"))
+        assertTrue(fixture.contains("materialCardAncestor = false"))
+        assertTrue(fixture.contains("CardDefaults.cardColors(containerColor = surfaceColor)"))
+        assertTrue(fixture.contains(".background(surfaceColor, groupShape)"))
+        assertTrue(fixture.contains("AncestorClipRegressionContent("))
         assertTrue(fixture.contains("SettingsSegmentedSelector("))
         assertTrue(fixture.contains("KyantLiquidSegmentedAdaptation("))
         assertTrue(fixture.contains("Kyant geometry adaptation · 0.75"))

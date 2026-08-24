@@ -19,6 +19,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,6 +38,7 @@ import com.codexquotatray.android.AppTheme
 import com.codexquotatray.android.CodexQuotaTheme
 import com.codexquotatray.android.SettingsSegmentOption
 import com.codexquotatray.android.SettingsSegmentedSelector
+import com.codexquotatray.android.SettingsUiTokens
 import com.codexquotatray.android.ThemeMode
 import com.codexquotatray.android.color
 import com.codexquotatray.android.liquidglass.LiquidSegmentedTabs
@@ -75,11 +78,15 @@ private fun LiquidSegmentedFixtureScreen() {
     val darkSurfaceBackdrop = rememberLayerBackdrop()
     val productionTopologyExactBackdrop = rememberLayerBackdrop()
     val productionTopologyFullSlotBackdrop = rememberLayerBackdrop()
+    val materialAncestorBackdrop = rememberLayerBackdrop()
+    val roundedAncestorBackdrop = rememberLayerBackdrop()
     val scrollState = rememberScrollState()
     var currentTwoSelected by remember { mutableIntStateOf(0) }
     var currentThreeSelected by remember { mutableIntStateOf(1) }
     var productionTopologyExactSelected by remember { mutableIntStateOf(0) }
     var productionTopologyFullSlotSelected by remember { mutableIntStateOf(0) }
+    var materialAncestorSelected by remember { mutableIntStateOf(0) }
+    var roundedAncestorSelected by remember { mutableIntStateOf(0) }
     var upstreamTwoSelected by remember { mutableIntStateOf(0) }
     var upstreamThreeSelected by remember { mutableIntStateOf(1) }
     var darkUpstreamTwoSelected by remember { mutableIntStateOf(1) }
@@ -140,6 +147,34 @@ private fun LiquidSegmentedFixtureScreen() {
                 backdrop = productionTopologyFullSlotBackdrop,
                 fullSlotSource = true,
                 sourceColor = palette.color(palette.surface),
+                accentColor = palette.color(palette.accent),
+                contentColor = palette.color(palette.body),
+            )
+
+            Text(
+                "Ancestor clip regression · full-slot source held constant",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            AncestorClipRegressionCase(
+                title = "A · Material Card ancestor · clips",
+                labels = resetCreditExpiryLeadLabels,
+                selectedIndex = materialAncestorSelected,
+                onSelected = { materialAncestorSelected = it },
+                backdrop = materialAncestorBackdrop,
+                materialCardAncestor = true,
+                surfaceColor = palette.color(palette.surface),
+                accentColor = palette.color(palette.accent),
+                contentColor = palette.color(palette.body),
+            )
+            AncestorClipRegressionCase(
+                title = "B · rounded background ancestor · non-clipping",
+                labels = resetCreditExpiryLeadLabels,
+                selectedIndex = roundedAncestorSelected,
+                onSelected = { roundedAncestorSelected = it },
+                backdrop = roundedAncestorBackdrop,
+                materialCardAncestor = false,
+                surfaceColor = palette.color(palette.surface),
                 accentColor = palette.color(palette.accent),
                 contentColor = palette.color(palette.body),
             )
@@ -304,6 +339,105 @@ private fun ProductionTopologyRegressionCase(
                 accentColor = accentColor,
                 contentColor = contentColor,
                 modifier = controlModifier,
+            )
+        }
+    }
+}
+
+@Composable
+private fun AncestorClipRegressionCase(
+    title: String,
+    labels: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    backdrop: LayerBackdrop,
+    materialCardAncestor: Boolean,
+    surfaceColor: Color,
+    accentColor: Color,
+    contentColor: Color,
+) {
+    val groupShape = RoundedCornerShape(SettingsUiTokens.groupCornerRadius)
+    FixtureSection(
+        title = title,
+        selectedLabel = labels[selectedIndex],
+    ) {
+        if (materialCardAncestor) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = groupShape,
+                colors = CardDefaults.cardColors(containerColor = surfaceColor),
+            ) {
+                AncestorClipRegressionContent(
+                    labels = labels,
+                    selectedIndex = selectedIndex,
+                    onSelected = onSelected,
+                    backdrop = backdrop,
+                    surfaceColor = surfaceColor,
+                    accentColor = accentColor,
+                    contentColor = contentColor,
+                )
+            }
+        } else {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .background(surfaceColor, groupShape),
+            ) {
+                AncestorClipRegressionContent(
+                    labels = labels,
+                    selectedIndex = selectedIndex,
+                    onSelected = onSelected,
+                    backdrop = backdrop,
+                    surfaceColor = surfaceColor,
+                    accentColor = accentColor,
+                    contentColor = contentColor,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AncestorClipRegressionContent(
+    labels: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    backdrop: LayerBackdrop,
+    surfaceColor: Color,
+    accentColor: Color,
+    contentColor: Color,
+) {
+    val horizontalInset = SettingsUiTokens.actionHorizontalInset
+    val verticalInset = SettingsUiTokens.segmentedBottomInset
+    val controlHeight = SettingsUiTokens.segmentedHeight
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = SettingsUiTokens.groupVerticalPadding),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(controlHeight + verticalInset * 2),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .layerBackdrop(backdrop)
+                    .background(surfaceColor),
+            )
+            LiquidSegmentedTabs(
+                labels = labels,
+                selectedIndex = selectedIndex,
+                onSelected = onSelected,
+                backdrop = backdrop,
+                accentColor = accentColor,
+                contentColor = contentColor,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .padding(horizontal = horizontalInset)
+                    .height(controlHeight),
             )
         }
     }

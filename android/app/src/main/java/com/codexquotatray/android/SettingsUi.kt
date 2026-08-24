@@ -104,20 +104,41 @@ internal fun SettingsSection(
 
 @Composable
 internal fun SettingsGroup(
+    allowLiquidOverflow: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(SettingsUiTokens.groupCornerRadius),
-        colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface)),
-    ) {
+    val groupModifier = Modifier
+        .fillMaxWidth()
+        .then(
+            if (allowLiquidOverflow) {
+                Modifier.background(
+                    color = palette.color(palette.surface),
+                    shape = RoundedCornerShape(SettingsUiTokens.groupCornerRadius),
+                )
+            } else {
+                Modifier
+            },
+        )
+    if (allowLiquidOverflow) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
+            modifier = groupModifier
                 .padding(vertical = SettingsUiTokens.groupVerticalPadding),
             content = content,
         )
+    } else {
+        Card(
+            modifier = groupModifier,
+            shape = RoundedCornerShape(SettingsUiTokens.groupCornerRadius),
+            colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface)),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = SettingsUiTokens.groupVerticalPadding),
+                content = content,
+            )
+        }
     }
 }
 
