@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -35,13 +36,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -557,11 +555,13 @@ private fun QuotaCardSurface(content: @Composable () -> Unit) {
             ),
         )
     }
-    val baseBorderColor = if (dark) {
-        Color.White.copy(alpha = 0.07f)
-    } else {
-        palette.color(palette.border).copy(alpha = 0.14f)
-    }
+    val borderBrush = Brush.linearGradient(
+        listOf(
+            if (dark) Color.White.copy(alpha = 0.20f) else palette.color(palette.border),
+            if (dark) Color.White.copy(alpha = 0.09f) else palette.color(palette.border).copy(alpha = 0.72f),
+            if (dark) Color.Black.copy(alpha = 0.26f) else palette.color(palette.border).copy(alpha = 0.56f),
+        ),
+    )
     val topLeftHighlightColor = if (dark) {
         Color.White.copy(alpha = 0.24f)
     } else {
@@ -576,71 +576,47 @@ private fun QuotaCardSurface(content: @Composable () -> Unit) {
         Modifier
             .fillMaxWidth()
             .background(cardBrush, cardShape)
+            .border(1.dp, borderBrush, cardShape)
             .drawWithCache {
                 val strokeWidth = 1.dp.toPx()
-                val inset = strokeWidth / 2f
-                val left = inset
-                val top = inset
-                val right = size.width - inset
-                val bottom = size.height - inset
-                val radius = (18.dp.toPx() - inset).coerceIn(
-                    0f,
-                    minOf(right - left, bottom - top) / 2f,
-                )
+                val radius = 18.dp.toPx()
+                val top = strokeWidth / 2f
+                val bottom = size.height - top
                 val highlightLength = size.width * 0.25f
-                val topLeftPath = Path().apply {
-                    moveTo(left, top + radius)
-                    arcTo(
-                        Rect(left, top, left + radius * 2f, top + radius * 2f),
-                        startAngleDegrees = 180f,
-                        sweepAngleDegrees = 90f,
-                        forceMoveTo = false,
-                    )
-                    lineTo(left + highlightLength, top)
-                }
-                val bottomRightPath = Path().apply {
-                    moveTo(right - highlightLength, bottom)
-                    lineTo(right - radius, bottom)
-                    arcTo(
-                        Rect(right - radius * 2f, bottom - radius * 2f, right, bottom),
-                        startAngleDegrees = 90f,
-                        sweepAngleDegrees = -90f,
-                        forceMoveTo = false,
-                    )
-                }
+                val topStart = Offset(radius, top)
+                val topEnd = Offset(highlightLength, top)
+                val bottomStart = Offset(size.width - highlightLength, bottom)
+                val bottomEnd = Offset(size.width - radius, bottom)
                 val topLeftBrush = Brush.linearGradient(
                     colors = listOf(
                         topLeftHighlightColor,
                         topLeftHighlightColor.copy(alpha = 0f),
                     ),
-                    start = Offset(left, top),
-                    end = Offset(left + highlightLength, top),
+                    start = topStart,
+                    end = topEnd,
                 )
                 val bottomRightBrush = Brush.linearGradient(
                     colors = listOf(
                         bottomRightHighlightColor.copy(alpha = 0f),
                         bottomRightHighlightColor,
                     ),
-                    start = Offset(right - highlightLength, bottom),
-                    end = Offset(right, bottom),
+                    start = bottomStart,
+                    end = bottomEnd,
                 )
                 onDrawBehind {
-                    drawRoundRect(
-                        color = baseBorderColor,
-                        topLeft = Offset(left, top),
-                        size = Size(right - left, bottom - top),
-                        cornerRadius = CornerRadius(radius),
-                        style = Stroke(width = strokeWidth),
-                    )
-                    drawPath(
-                        path = topLeftPath,
+                    drawLine(
                         brush = topLeftBrush,
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+                        start = topStart,
+                        end = topEnd,
+                        strokeWidth = strokeWidth,
+                        cap = StrokeCap.Butt,
                     )
-                    drawPath(
-                        path = bottomRightPath,
+                    drawLine(
                         brush = bottomRightBrush,
-                        style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+                        start = bottomStart,
+                        end = bottomEnd,
+                        strokeWidth = strokeWidth,
+                        cap = StrokeCap.Butt,
                     )
                 }
             }
