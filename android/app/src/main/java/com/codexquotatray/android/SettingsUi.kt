@@ -34,9 +34,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.codexquotatray.android.liquidglass.LiquidSegmentedTabs
 import com.codexquotatray.android.liquidglass.LiquidToggle
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -64,7 +63,6 @@ internal object SettingsUiTokens {
     val actionInnerInset = 4.dp
     val actionEdgeInset = 10.dp
     val segmentedHeight = 48.dp
-    val segmentedCornerRadius = 16.dp
     val segmentedBottomInset = 10.dp
 }
 
@@ -410,8 +408,12 @@ internal fun SettingsSegmentedSelector(
     enabled: Boolean,
     onSelected: (Int) -> Unit,
 ) {
+    if (options.isEmpty()) return
+
     val palette = LocalQuotaPalette.current
-    Row(
+    val selectedIndex = settingsSegmentIndex(options, selectedValue)
+    val segmentedBackdrop = rememberLayerBackdrop()
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(
@@ -420,21 +422,26 @@ internal fun SettingsSegmentedSelector(
                 top = SettingsUiTokens.segmentedBottomInset,
                 bottom = SettingsUiTokens.segmentedBottomInset,
             )
-            .height(SettingsUiTokens.segmentedHeight)
-            .clip(RoundedCornerShape(SettingsUiTokens.segmentedCornerRadius))
-            .background(palette.color(palette.secondaryButton))
-            .alpha(if (enabled) 1f else 0.45f)
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+            .height(SettingsUiTokens.segmentedHeight),
     ) {
-        options.forEach { option ->
-            SettingsSegment(
-                option = option,
-                selected = option.value == selectedValue,
-                enabled = enabled,
-                onSelected = onSelected,
-            )
-        }
+        Box(
+            Modifier
+                .fillMaxSize()
+                .layerBackdrop(segmentedBackdrop)
+                .background(palette.color(palette.surface)),
+        )
+        LiquidSegmentedTabs(
+            labels = options.map(SettingsSegmentOption::label),
+            selectedIndex = selectedIndex,
+            onSelected = { index ->
+                settingsSegmentValue(options, index)?.let(onSelected)
+            },
+            backdrop = segmentedBackdrop,
+            accentColor = palette.color(palette.accent),
+            contentColor = palette.color(palette.body),
+            enabled = enabled,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 
@@ -443,32 +450,15 @@ internal data class SettingsSegmentOption(
     val label: String,
 )
 
-@Composable
-private fun RowScope.SettingsSegment(
-    option: SettingsSegmentOption,
-    selected: Boolean,
-    enabled: Boolean,
-    onSelected: (Int) -> Unit,
-) {
-    val palette = LocalQuotaPalette.current
-    val hapticOnClick = rememberSystemHapticClick { onSelected(option.value) }
-    Box(
-        modifier = Modifier
-            .weight(1f)
-            .fillMaxHeight()
-            .clip(RoundedCornerShape(13.dp))
-            .background(if (selected) palette.color(palette.accent) else Color.Transparent)
-            .clickable(enabled = enabled, role = Role.RadioButton, onClick = hapticOnClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = option.label,
-            color = if (selected) Color.White else palette.color(palette.secondaryButtonText),
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-        )
-    }
-}
+internal fun settingsSegmentIndex(
+    options: List<SettingsSegmentOption>,
+    selectedValue: Int,
+): Int = options.indexOfFirst { it.value == selectedValue }.takeIf { it >= 0 } ?: 0
+
+internal fun settingsSegmentValue(
+    options: List<SettingsSegmentOption>,
+    selectedIndex: Int,
+): Int? = options.getOrNull(selectedIndex)?.value
 
 @Composable
 internal fun SettingsTextInput(

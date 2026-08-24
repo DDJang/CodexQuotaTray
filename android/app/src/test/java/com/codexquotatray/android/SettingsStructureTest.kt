@@ -1,6 +1,7 @@
 package com.codexquotatray.android
 
 import com.codexquotatray.android.source.DataSourcePriority
+import com.codexquotatray.android.liquidglass.shouldCommitLiquidSegmentSelection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -55,6 +56,67 @@ class SettingsStructureTest {
             .substringBefore("internal data class SettingsSegmentOption")
         assertTrue(selector.contains("top = SettingsUiTokens.segmentedBottomInset"))
         assertTrue(selector.contains("bottom = SettingsUiTokens.segmentedBottomInset"))
+    }
+
+    @Test
+    fun segmentedSelectorMapsBusinessValuesToStableIndices() {
+        val options = listOf(
+            SettingsSegmentOption(24, "1 day"),
+            SettingsSegmentOption(6, "6 hours"),
+            SettingsSegmentOption(1, "1 hour"),
+        )
+
+        assertEquals(0, settingsSegmentIndex(options, 24))
+        assertEquals(1, settingsSegmentIndex(options, 6))
+        assertEquals(2, settingsSegmentIndex(options, 1))
+        assertEquals(0, settingsSegmentIndex(options, 999))
+        assertEquals(24, settingsSegmentValue(options, 0))
+        assertEquals(1, settingsSegmentValue(options, 2))
+        assertEquals(null, settingsSegmentValue(options, 3))
+    }
+
+    @Test
+    fun productionLiquidSegmentedTabsKeepFixtureGeometryAndGateDisabledSelection() {
+        assertTrue(shouldCommitLiquidSegmentSelection(true, 0, 1))
+        assertFalse(shouldCommitLiquidSegmentSelection(true, 1, 1))
+        assertFalse(shouldCommitLiquidSegmentSelection(false, 0, 1))
+
+        val source = sourceFile("liquidglass/LiquidSegmentedTabs.kt")
+        val settings = sourceFile("SettingsUi.kt")
+
+        assertTrue(source.contains("Adapted from Kyant0/AndroidLiquidGlass"))
+        assertTrue(source.contains("SEGMENTED_SCALE = 0.75f"))
+        assertTrue(source.contains("constraints.maxWidth"))
+        assertTrue(source.contains("segmentedOuterHeight = 64.dp.scaledSegmented()"))
+        assertTrue(source.contains("segmentedSelectedHeight = 56.dp.scaledSegmented()"))
+        assertTrue(source.contains("segmentedOuterPadding = 4.dp.scaledSegmented()"))
+        assertTrue(source.contains("segmentedPanelOffset = 4.dp.scaledSegmented()"))
+        assertTrue(source.contains("segmentedBlurRadius = 8.dp.scaledSegmented()"))
+        assertTrue(source.contains("segmentedLensSize = 24.dp.scaledSegmented()"))
+        assertTrue(source.contains("segmentedSelectedLensWidth = 10.dp.scaledSegmented()"))
+        assertTrue(source.contains("segmentedSelectedLensHeight = 14.dp.scaledSegmented()"))
+        assertTrue(source.contains("segmentedInnerShadowRadius = 8.dp.scaledSegmented()"))
+        assertTrue(source.contains("segmentedOuterPressDeformation = 16.dp.scaledSegmented()"))
+        assertTrue(source.contains("fontSize = 14.sp"))
+        assertTrue(source.contains("pressedScale = 78f / 56f"))
+        assertTrue(source.contains("lerp(1f, 1.2f"))
+        assertTrue(source.contains("chromaticAberration = true"))
+        assertTrue(source.contains("enabledState"))
+        assertTrue(source.contains("if (enabled) interactiveHighlight.gestureModifier else Modifier"))
+        assertTrue(source.contains("if (enabled) dampedDragAnimation.modifier else Modifier"))
+        assertFalse(source.contains("logicalWidth"))
+        assertFalse(source.contains("requiredWidth"))
+        assertFalse(source.contains("requiredHeight"))
+        assertFalse(source.contains("TransformOrigin"))
+        assertFalse(source.contains("scaleX = SEGMENTED_SCALE"))
+
+        assertTrue(settings.contains("val segmentedBackdrop = rememberLayerBackdrop()"))
+        assertTrue(settings.contains(".layerBackdrop(segmentedBackdrop)"))
+        assertTrue(settings.contains(".background(palette.color(palette.surface))"))
+        assertTrue(settings.contains("LiquidSegmentedTabs("))
+        assertFalse(settings.contains("SettingsSegment("))
+        assertFalse(settings.contains("background(if (selected) palette.color(palette.accent)"))
+        assertFalse(settings.contains("pageBackdrop"))
     }
 
     @Test
