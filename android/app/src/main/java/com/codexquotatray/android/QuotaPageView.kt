@@ -562,16 +562,10 @@ private fun QuotaCardSurface(content: @Composable () -> Unit) {
             if (dark) Color.Black.copy(alpha = 0.26f) else palette.color(palette.border).copy(alpha = 0.56f),
         ),
     )
-    val topLeftHighlightColor = if (dark) {
-        Color.White.copy(alpha = 0.24f)
-    } else {
-        Color.White.copy(alpha = 0.18f)
-    }
-    val bottomRightHighlightColor = if (dark) {
-        Color.White.copy(alpha = 0.19f)
-    } else {
-        Color.White.copy(alpha = 0.14f)
-    }
+    val topLeftHighlightAlpha = if (dark) 0.17f else 0.13f
+    val bottomRightHighlightAlpha = if (dark) 0.13f else 0.10f
+    val topLeftHighlightColor = Color.White.copy(alpha = topLeftHighlightAlpha)
+    val bottomRightHighlightColor = Color.White.copy(alpha = bottomRightHighlightAlpha)
     Box(
         Modifier
             .fillMaxWidth()
@@ -588,17 +582,23 @@ private fun QuotaCardSurface(content: @Composable () -> Unit) {
                 val bottomStart = Offset(size.width - highlightLength, bottom)
                 val bottomEnd = Offset(size.width - radius, bottom)
                 val topLeftBrush = Brush.linearGradient(
-                    colors = listOf(
-                        topLeftHighlightColor,
-                        topLeftHighlightColor.copy(alpha = 0f),
+                    colorStops = arrayOf(
+                        0.00f to Color.Transparent,
+                        0.18f to topLeftHighlightColor.copy(alpha = topLeftHighlightAlpha * 0.45f),
+                        0.38f to topLeftHighlightColor,
+                        0.65f to topLeftHighlightColor.copy(alpha = topLeftHighlightAlpha * 0.55f),
+                        1.00f to Color.Transparent,
                     ),
                     start = topStart,
                     end = topEnd,
                 )
                 val bottomRightBrush = Brush.linearGradient(
-                    colors = listOf(
-                        bottomRightHighlightColor.copy(alpha = 0f),
-                        bottomRightHighlightColor,
+                    colorStops = arrayOf(
+                        0.00f to Color.Transparent,
+                        0.35f to bottomRightHighlightColor.copy(alpha = bottomRightHighlightAlpha * 0.55f),
+                        0.62f to bottomRightHighlightColor,
+                        0.82f to bottomRightHighlightColor.copy(alpha = bottomRightHighlightAlpha * 0.45f),
+                        1.00f to Color.Transparent,
                     ),
                     start = bottomStart,
                     end = bottomEnd,
