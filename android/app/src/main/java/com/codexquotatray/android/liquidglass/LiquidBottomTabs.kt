@@ -188,7 +188,9 @@ fun LiquidBottomTabs(
         )
 
         CompositionLocalProvider(
-            LocalLiquidBottomTabScale provides { 1f },
+            LocalLiquidBottomTabScale provides {
+                lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
+            },
         ) {
             Row(
                 Modifier

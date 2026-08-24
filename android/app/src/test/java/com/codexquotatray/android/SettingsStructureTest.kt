@@ -126,12 +126,13 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun liquidBottomTabsUseKyantTabsBackdropWithoutHiddenTabScaling() {
+    fun liquidBottomTabsUseKyantTabsBackdropWithUpstreamHiddenTabScaling() {
         val source = sourceFile("liquidglass/LiquidBottomTabs.kt")
 
         assertTrue(source.contains("val tabsBackdrop = rememberLayerBackdrop()"))
         assertTrue(source.contains("CompositionLocalProvider"))
-        assertTrue(source.contains("LocalLiquidBottomTabScale provides { 1f }"))
+        assertTrue(source.contains("lerp(1f, 1.2f, dampedDragAnimation.pressProgress)"))
+        assertFalse(source.contains("LocalLiquidBottomTabScale provides { 1f }"))
         assertTrue(source.contains(".alpha(0f)"))
         assertTrue(source.contains(".layerBackdrop(tabsBackdrop)"))
         assertTrue(source.contains("ColorFilter.tint(accentColor)"))
