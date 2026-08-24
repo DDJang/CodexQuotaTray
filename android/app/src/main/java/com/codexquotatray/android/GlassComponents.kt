@@ -59,6 +59,9 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.tanh
 
+// Keep circular glass actions equal to the short edge of the bottom navigation capsule.
+internal val glassActionButtonSize = 64.dp
+
 @Composable
 internal fun GlassSurface(
     backdrop: Backdrop,
@@ -230,8 +233,8 @@ internal fun LiquidMainDock(
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(modifier) {
-        val actionSize = 56.dp
-        val navigationHeight = 64.dp
+        val actionSize = glassActionButtonSize
+        val navigationHeight = glassActionButtonSize
         val minimumGap = 16.dp
         val preferredNavigationWidth = (maxWidth * 0.525f).coerceIn(172.dp, 217.dp)
         val navigationWidth = minOf(preferredNavigationWidth, maxWidth - actionSize - minimumGap)

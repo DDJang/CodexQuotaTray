@@ -127,6 +127,27 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun glassActionButtonsMatchTheBottomCapsuleHeight() {
+        val components = sourceFile("GlassComponents.kt")
+        val main = sourceFile("MainActivity.kt")
+        val settings = sourceFile("SettingsActivity.kt")
+        val codexUi = sourceFile("CodexUi.kt")
+        val about = sourceFile("AboutActivity.kt")
+        val dock = components.substringAfter("internal fun LiquidMainDock(")
+
+        assertTrue(components.contains("internal val glassActionButtonSize = 64.dp"))
+        assertTrue(dock.contains("val actionSize = glassActionButtonSize"))
+        assertTrue(dock.contains("val navigationHeight = glassActionButtonSize"))
+        assertTrue(main.contains("buttonSize = glassActionButtonSize"))
+        assertTrue(settings.contains("buttonSize = glassActionButtonSize"))
+        assertTrue(settings.contains("Spacer(Modifier.size(glassActionButtonSize))"))
+        assertTrue(codexUi.contains("buttonSize = glassActionButtonSize"))
+        assertTrue(codexUi.contains("Spacer(Modifier.size(glassActionButtonSize))"))
+        assertTrue(about.contains("buttonSize = glassActionButtonSize"))
+        assertTrue(about.contains("Spacer(Modifier.size(glassActionButtonSize))"))
+    }
+
+    @Test
     fun legacyLiquidDockImplementationIsRemovedAfterKyantMigration() {
         val components = sourceFile("GlassComponents.kt")
         val animations = sourceFile("BottomDockAnimations.kt")

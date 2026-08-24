@@ -198,7 +198,7 @@ class SettingsActivity : ComponentActivity() {
                             iconRes = R.drawable.ic_back,
                             description = "返回",
                             backdrop = pageBackdrop,
-                            buttonSize = 52.dp,
+                            buttonSize = glassActionButtonSize,
                             iconSize = 25.dp,
                             onClick = ::finish,
                         )
@@ -209,7 +209,7 @@ class SettingsActivity : ComponentActivity() {
                             style = CodexTypography.title,
                             textAlign = TextAlign.Center,
                         )
-                        Spacer(Modifier.size(52.dp))
+                        Spacer(Modifier.size(glassActionButtonSize))
                     }
                 }
                 if (showClearPairingDialog) {

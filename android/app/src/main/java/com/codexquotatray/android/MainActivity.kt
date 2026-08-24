@@ -146,7 +146,7 @@ class MainActivity : ComponentActivity() {
                             iconRes = R.drawable.ic_settings,
                             description = "设置",
                             backdrop = chromeBackdrop,
-                            buttonSize = 52.dp,
+                            buttonSize = glassActionButtonSize,
                             iconSize = 24.dp,
                             onClick = ::openSettings,
                         )
