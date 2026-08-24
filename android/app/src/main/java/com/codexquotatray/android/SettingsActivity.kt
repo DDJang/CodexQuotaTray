@@ -797,7 +797,7 @@ class SettingsActivity : ComponentActivity() {
                 SettingsDivider()
                 SettingsNavigationRow(
                     title = "Gitee",
-                    trailing = "暂不可用",
+                    trailing = "待后续开发",
                     enabled = false,
                 ) { }
             }
