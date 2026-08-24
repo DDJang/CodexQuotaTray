@@ -542,7 +542,7 @@ private fun LiquidTabCapsule(
             )
         }
         Box(
-            Modifier.padding(horizontal = 4.dp)
+            Modifier.padding(4.dp)
                 .graphicsLayer { translationX = if (isLtr) drag.value * tabWidth + panelOffset else size.width - (drag.value + 1f) * tabWidth + panelOffset }
                 .drawBackdrop(
                     rememberCombinedBackdrop(backdrop, tabsBackdrop), { KyantShapes.capsule() },
