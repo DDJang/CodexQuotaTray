@@ -128,6 +128,25 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun mainPageKeepsAnimatedContentOutsideTheStaticChromeBackdrop() {
+        val source = sourceFile("MainActivity.kt")
+        val chrome = source.substringAfter("val chromeBackdrop = rememberLayerBackdrop()")
+            .substringBefore("Box(Modifier.align(Alignment.TopEnd)")
+        val staticSource = chrome.substringBefore("Column(")
+        val dynamicPage = chrome.substringAfter("Column(")
+
+        assertTrue(staticSource.contains(".layerBackdrop(chromeBackdrop)"))
+        assertTrue(staticSource.contains(".background(palette.color(palette.background))"))
+        assertFalse(staticSource.contains("AnimatedContent("))
+        assertTrue(dynamicPage.contains("AnimatedContent("))
+        assertTrue(dynamicPage.contains("fadeIn(animationSpec = tween(200))"))
+        assertTrue(dynamicPage.contains("slideInHorizontally("))
+        assertTrue(dynamicPage.contains("fadeOut(animationSpec = tween(160))"))
+        assertTrue(dynamicPage.contains("slideOutHorizontally("))
+        assertTrue(source.contains("backdrop = chromeBackdrop"))
+    }
+
+    @Test
     fun liquidBottomTabsUseKyantTabsBackdropWithUpstreamHiddenTabScaling() {
         val source = sourceFile("liquidglass/LiquidBottomTabs.kt")
 
