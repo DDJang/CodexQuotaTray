@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -28,6 +29,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -43,7 +46,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.liquidglass.LiquidToggle
-import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 /** Settings-specific visual tokens. They intentionally do not affect quota cards or the dock. */
 internal object SettingsUiTokens {
@@ -177,11 +181,15 @@ internal fun SettingsToggleRow(
     checked: Boolean,
     description: String? = null,
     enabled: Boolean = true,
-    backdrop: Backdrop,
     onChange: (Boolean) -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
     val hapticOnChange = rememberSystemHapticChange(onChange)
+    val checkedState = rememberUpdatedState(checked)
+    val onChangeState = rememberUpdatedState(hapticOnChange)
+    val selectedProvider = remember { { checkedState.value } }
+    val selectionSink = remember { { value: Boolean -> onChangeState.value(value) } }
+    val toggleBackdrop = rememberLayerBackdrop()
     SettingsRow(
         enabled = enabled,
         onClick = null,
@@ -194,7 +202,7 @@ internal fun SettingsToggleRow(
                 .clickable(
                     enabled = enabled,
                     role = Role.Switch,
-                    onClick = { hapticOnChange(!checked) },
+                    onClick = { onChangeState.value(!checkedState.value) },
                 ),
             contentAlignment = Alignment.CenterStart,
         ) {
@@ -223,12 +231,24 @@ internal fun SettingsToggleRow(
                 }
             }
         }
-        LiquidToggle(
-            selected = { checked },
-            onSelect = { value -> if (enabled) hapticOnChange(value) },
-            backdrop = backdrop,
-            enabled = enabled,
-        )
+        Box(
+            modifier = Modifier.size(width = 72.dp, height = 40.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .layerBackdrop(toggleBackdrop)
+                    .background(palette.color(palette.surface)),
+            )
+            LiquidToggle(
+                selected = selectedProvider,
+                onSelect = selectionSink,
+                backdrop = toggleBackdrop,
+                accentColor = palette.color(palette.accent),
+                enabled = enabled,
+            )
+        }
     }
 }
 

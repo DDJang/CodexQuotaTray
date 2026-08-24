@@ -66,7 +66,6 @@ import com.codexquotatray.android.update.UpdateRelease
 import com.codexquotatray.android.update.UpdateSettings
 import com.codexquotatray.android.update.UpdateSettingsStore
 import com.codexquotatray.android.update.UpdateSource
-import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import java.time.Instant
@@ -175,7 +174,6 @@ class SettingsActivity : ComponentActivity() {
                     SettingsContent(
                         page = destination,
                         scrollState = scrollState,
-                        backdrop = backdrop,
                         onUpwardOverscrollChanged = { upwardOverscrollActive = it },
                         modifier = Modifier.fillMaxSize(),
                     )
@@ -269,7 +267,6 @@ class SettingsActivity : ComponentActivity() {
     private fun SettingsContent(
         page: SettingsDestination,
         scrollState: androidx.compose.foundation.ScrollState,
-        backdrop: Backdrop,
         onUpwardOverscrollChanged: (Boolean) -> Unit,
         modifier: Modifier = Modifier,
     ) {
@@ -284,11 +281,11 @@ class SettingsActivity : ComponentActivity() {
         ) {
             when (page) {
                 SettingsDestination.ROOT -> SettingsHome()
-                SettingsDestination.NOTIFICATIONS -> NotificationSettings(backdrop)
-                SettingsDestination.SYNC -> SyncSettings(backdrop)
+                SettingsDestination.NOTIFICATIONS -> NotificationSettings()
+                SettingsDestination.SYNC -> SyncSettings()
                 SettingsDestination.THEME -> ThemeSettings()
                 SettingsDestination.TOKEN_PAIRING -> TokenPairingSettings()
-                SettingsDestination.UPDATE -> UpdateSettingsPage(backdrop)
+                SettingsDestination.UPDATE -> UpdateSettingsPage()
             }
         }
     }
@@ -368,23 +365,23 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ColumnScope.NotificationSettings(backdrop: Backdrop) {
+    private fun ColumnScope.NotificationSettings() {
         SettingsSection("系统通知") {
             SettingsGroup {
-                SettingsToggleRow("系统通知", notificationEnabled, backdrop = backdrop) {
+                SettingsToggleRow("系统通知", notificationEnabled) {
                     if (it) requestNotificationPermission() else openNotificationSettings()
                 }
             }
         }
         SettingsSection("额度提醒") {
             SettingsGroup {
-                SettingsToggleRow("低额度提醒", lowQuota, enabled = notificationEnabled, backdrop = backdrop) {
+                SettingsToggleRow("低额度提醒", lowQuota, enabled = notificationEnabled) {
                     lowQuota = it
                     alertStore.save(alertStore.load().copy(lowQuotaEnabled = it))
                     AppLogStore.record(this@SettingsActivity, "低额度提醒已${if (it) "开启" else "关闭"}")
                 }
                 SettingsDivider()
-                SettingsToggleRow("额度重置提醒", resetAlert, enabled = notificationEnabled, backdrop = backdrop) {
+                SettingsToggleRow("额度重置提醒", resetAlert, enabled = notificationEnabled) {
                     resetAlert = it
                     alertStore.save(alertStore.load().copy(resetEnabled = it))
                     AppLogStore.record(this@SettingsActivity, "额度重置提醒已${if (it) "开启" else "关闭"}")
@@ -397,7 +394,6 @@ class SettingsActivity : ComponentActivity() {
                     title = stringResource(R.string.reset_credit_expiry_toggle),
                     checked = resetCreditExpiryEnabled,
                     enabled = notificationEnabled,
-                    backdrop = backdrop,
                     onChange = ::updateResetCreditExpiry,
                 )
                 SettingsDivider()
@@ -420,7 +416,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ColumnScope.SyncSettings(backdrop: Backdrop) {
+    private fun ColumnScope.SyncSettings() {
         SettingsSection("额度") {
             SettingsGroup {
                 SettingsInlineLabel("数据来源")
@@ -434,14 +430,12 @@ class SettingsActivity : ComponentActivity() {
                 SettingsToggleRow(
                     "回到前台时刷新",
                     quotaAutoRefresh,
-                    backdrop = backdrop,
                     onChange = ::updateQuotaAutoRefresh,
                 )
                 SettingsDivider()
                 SettingsToggleRow(
                     "后台自动刷新",
                     backgroundRefresh,
-                    backdrop = backdrop,
                     onChange = ::updateBackgroundRefresh,
                 )
                 SettingsDivider()
@@ -472,14 +466,12 @@ class SettingsActivity : ComponentActivity() {
                 SettingsToggleRow(
                     "回到前台时同步",
                     tokenAutoSync,
-                    backdrop = backdrop,
                     onChange = ::updateTokenAutoSync,
                 )
                 SettingsDivider()
                 SettingsToggleRow(
                     "后台自动同步",
                     tokenBackgroundSync,
-                    backdrop = backdrop,
                     onChange = ::updateTokenBackgroundSync,
                 )
                 SettingsDivider()
@@ -729,7 +721,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ColumnScope.UpdateSettingsPage(backdrop: Backdrop) {
+    private fun ColumnScope.UpdateSettingsPage() {
         val locale = LocalLocale.current.platformLocale
         SettingsSection("下载源") {
             SettingsGroup {
@@ -750,7 +742,6 @@ class SettingsActivity : ComponentActivity() {
                 SettingsToggleRow(
                     "自动检查更新",
                     automaticUpdateChecks,
-                    backdrop = backdrop,
                     onChange = ::updateAutomaticChecks,
                 )
                 SettingsDivider()
@@ -758,7 +749,6 @@ class SettingsActivity : ComponentActivity() {
                     "更新提醒",
                     updateReminders,
                     enabled = automaticUpdateChecks,
-                    backdrop = backdrop,
                     onChange = ::updateReminderSetting,
                 )
             }

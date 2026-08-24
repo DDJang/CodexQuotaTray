@@ -67,7 +67,7 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun liquidToggleSettingsPagesUseTheSharedBackdropFromTheSiblingSourceLayer() {
+    fun liquidToggleSettingsPagesUseLocalCardBackdropsAndStableStateAdapters() {
         val source = settingsSource()
         val scaffold = source.substringAfter("val backgroundColor = palette.color(palette.background)")
             .substringBefore("if (showClearPairingDialog)")
@@ -75,20 +75,29 @@ class SettingsStructureTest {
         assertTrue(scaffold.contains(".layerBackdrop(backdrop)"))
         assertTrue(scaffold.contains(".background(backgroundColor)"))
         assertTrue(scaffold.contains("SettingsContent("))
-        assertTrue(scaffold.contains("backdrop = backdrop"))
         assertFalse(scaffold.contains("Box(Modifier.fillMaxSize().layerBackdrop(backdrop))"))
         assertFalse(scaffold.contains("Box(Modifier.fillMaxSize().background(backgroundColor)) {"))
+        val settingsContentCall = scaffold.substringAfter("SettingsContent(")
+            .substringBefore("SettingsGradientBlurHeader(")
+        assertFalse(settingsContentCall.contains("backdrop = backdrop"))
 
         val notificationPage = source.substringAfter("private fun ColumnScope.NotificationSettings(")
             .substringBefore("private fun ColumnScope.SyncSettings(")
         val syncPage = source.substringAfter("private fun ColumnScope.SyncSettings(")
             .substringBefore("private fun ColumnScope.ThemeSettings(")
-        assertTrue(notificationPage.contains("backdrop: Backdrop"))
         assertTrue(notificationPage.contains("SettingsToggleRow"))
-        assertTrue(notificationPage.contains("backdrop = backdrop"))
-        assertTrue(syncPage.contains("backdrop: Backdrop"))
         assertTrue(syncPage.contains("SettingsToggleRow"))
-        assertTrue(syncPage.contains("backdrop = backdrop"))
+
+        val toggleRow = sourceFile("SettingsUi.kt")
+            .substringAfter("internal fun SettingsToggleRow(")
+            .substringBefore("internal fun SettingsSelectionRow(")
+        assertTrue(toggleRow.contains("val toggleBackdrop = rememberLayerBackdrop()"))
+        assertTrue(toggleRow.contains(".fillMaxSize()"))
+        assertTrue(toggleRow.contains(".layerBackdrop(toggleBackdrop)"))
+        assertTrue(toggleRow.contains(".background(palette.color(palette.surface))"))
+        assertTrue(toggleRow.contains("val selectedProvider = remember { { checkedState.value } }"))
+        assertTrue(toggleRow.contains("val selectionSink = remember { { value: Boolean -> onChangeState.value(value) } }"))
+        assertTrue(toggleRow.contains("accentColor = palette.color(palette.accent)"))
     }
 
     @Test
@@ -107,6 +116,36 @@ class SettingsStructureTest {
         assertTrue(dock.contains("LiquidBottomTab(onClick = { selectionSink(1) })"))
         assertFalse(dock.contains("selectedTabIndex = { selectedIndex }"))
         assertFalse(dock.contains("onTabSelected = onSelected"))
+    }
+
+    @Test
+    fun liquidBottomTabsDoNotRenderASecondTintedContentLayer() {
+        val source = sourceFile("liquidglass/LiquidBottomTabs.kt")
+
+        assertFalse(source.contains("val tabsBackdrop = rememberLayerBackdrop()"))
+        assertFalse(source.contains("CompositionLocalProvider"))
+        assertFalse(source.contains(".alpha(0f)"))
+        assertFalse(source.contains("ColorFilter.tint(accentColor)"))
+        assertFalse(source.contains("rememberCombinedBackdrop"))
+        assertTrue(source.contains("backdrop = backdrop"))
+        assertTrue(source.contains("chromaticAberration = true"))
+        assertTrue(source.contains("pressedScale = 78f / 56f"))
+    }
+
+    @Test
+    fun liquidToggleUsesTheProjectAccentAndTheWholeTrackAsItsInteractionTarget() {
+        val source = sourceFile("liquidglass/LiquidToggle.kt")
+
+        assertTrue(source.contains("accentColor: Color"))
+        assertFalse(source.contains("0xFF34C759"))
+        assertFalse(source.contains("0xFF30D158"))
+        assertTrue(
+            source.contains(
+                ".size(64f.dp, 28f.dp)\n" +
+                    "                .semantics { role = Role.Switch }\n" +
+                    "                .then(if (enabled) dampedDragAnimation.modifier else Modifier)",
+            ),
+        )
     }
 
     private fun assertOrdered(source: String, vararg markers: String) {
