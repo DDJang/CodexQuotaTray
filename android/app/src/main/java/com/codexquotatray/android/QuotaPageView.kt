@@ -636,6 +636,18 @@ private fun QuotaProgressRing(
                     size = arcSize,
                     style = arcStyle,
                 )
+                drawArc(
+                    color = Color.White.copy(alpha = 0.18f),
+                    startAngle = -90f,
+                    sweepAngle = sweep.coerceAtMost(120f),
+                    useCenter = false,
+                    topLeft = Offset(inset, inset),
+                    size = arcSize,
+                    style = Stroke(
+                        width = strokeWidth * 0.46f,
+                        cap = StrokeCap.Round,
+                    ),
+                )
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
