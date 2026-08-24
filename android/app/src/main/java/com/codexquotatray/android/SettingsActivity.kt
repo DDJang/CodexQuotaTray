@@ -165,18 +165,20 @@ class SettingsActivity : ComponentActivity() {
                 val scrollState = rememberScrollState()
                 var upwardOverscrollActive by remember { mutableStateOf(false) }
                 val backgroundColor = palette.color(palette.background)
-                Box(Modifier.fillMaxSize().background(backgroundColor)) {
-                    Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
-                        Box(Modifier.fillMaxSize().background(backgroundColor)) {
-                            SettingsContent(
-                                page = destination,
-                                scrollState = scrollState,
-                                backdrop = backdrop,
-                                onUpwardOverscrollChanged = { upwardOverscrollActive = it },
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
-                    }
+                Box(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .layerBackdrop(backdrop)
+                            .background(backgroundColor),
+                    )
+                    SettingsContent(
+                        page = destination,
+                        scrollState = scrollState,
+                        backdrop = backdrop,
+                        onUpwardOverscrollChanged = { upwardOverscrollActive = it },
+                        modifier = Modifier.fillMaxSize(),
+                    )
                     SettingsGradientBlurHeader(
                         backdrop = backdrop,
                         scrollState = scrollState,

@@ -26,7 +26,7 @@ class SettingsStructureTest {
         assertTrue(source.contains("SettingsSection(\"通知与数据\")"))
         assertTrue(source.contains("SettingsNavigationRow(\"数据\""))
 
-        val dataPage = source.substringAfter("private fun ColumnScope.SyncSettings()")
+        val dataPage = source.substringAfter("private fun ColumnScope.SyncSettings(")
             .substringBefore("private fun ColumnScope.ThemeSettings()")
         val quotaSection = dataPage.substringAfter("SettingsSection(\"额度\")")
             .substringBefore("SettingsSection(\"统计\")")
@@ -64,6 +64,49 @@ class SettingsStructureTest {
         assertTrue(source.contains("SettingsSection(\"开发者选项\")"))
         assertTrue(source.contains("title = \"Quota Ring Fixture\""))
         assertTrue(source.contains("DEBUG_QUOTA_RING_FIXTURE_ACTIVITY"))
+    }
+
+    @Test
+    fun liquidToggleSettingsPagesUseTheSharedBackdropFromTheSiblingSourceLayer() {
+        val source = settingsSource()
+        val scaffold = source.substringAfter("val backgroundColor = palette.color(palette.background)")
+            .substringBefore("if (showClearPairingDialog)")
+
+        assertTrue(scaffold.contains(".layerBackdrop(backdrop)"))
+        assertTrue(scaffold.contains(".background(backgroundColor)"))
+        assertTrue(scaffold.contains("SettingsContent("))
+        assertTrue(scaffold.contains("backdrop = backdrop"))
+        assertFalse(scaffold.contains("Box(Modifier.fillMaxSize().layerBackdrop(backdrop))"))
+        assertFalse(scaffold.contains("Box(Modifier.fillMaxSize().background(backgroundColor)) {"))
+
+        val notificationPage = source.substringAfter("private fun ColumnScope.NotificationSettings(")
+            .substringBefore("private fun ColumnScope.SyncSettings(")
+        val syncPage = source.substringAfter("private fun ColumnScope.SyncSettings(")
+            .substringBefore("private fun ColumnScope.ThemeSettings(")
+        assertTrue(notificationPage.contains("backdrop: Backdrop"))
+        assertTrue(notificationPage.contains("SettingsToggleRow"))
+        assertTrue(notificationPage.contains("backdrop = backdrop"))
+        assertTrue(syncPage.contains("backdrop: Backdrop"))
+        assertTrue(syncPage.contains("SettingsToggleRow"))
+        assertTrue(syncPage.contains("backdrop = backdrop"))
+    }
+
+    @Test
+    fun liquidMainDockUsesStableAdaptersForExternalSelectionState() {
+        val source = sourceFile("GlassComponents.kt")
+        val dock = source.substringAfter("internal fun LiquidMainDock(")
+            .substringBefore("private fun LiquidTabCapsule(")
+
+        assertTrue(dock.contains("rememberUpdatedState(selectedIndex)"))
+        assertTrue(dock.contains("rememberUpdatedState(onSelected)"))
+        assertTrue(dock.contains("val selectedIndexProvider = remember { { selectedIndexState.value } }"))
+        assertTrue(dock.contains("val selectionSink = remember { { index: Int -> onSelectedState.value(index) } }"))
+        assertTrue(dock.contains("selectedTabIndex = selectedIndexProvider"))
+        assertTrue(dock.contains("onTabSelected = selectionSink"))
+        assertTrue(dock.contains("LiquidBottomTab(onClick = { selectionSink(0) })"))
+        assertTrue(dock.contains("LiquidBottomTab(onClick = { selectionSink(1) })"))
+        assertFalse(dock.contains("selectedTabIndex = { selectedIndex }"))
+        assertFalse(dock.contains("onTabSelected = onSelected"))
     }
 
     private fun assertOrdered(source: String, vararg markers: String) {

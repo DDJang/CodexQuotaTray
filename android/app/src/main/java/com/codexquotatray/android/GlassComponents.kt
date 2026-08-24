@@ -35,6 +35,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -316,15 +317,19 @@ internal fun LiquidMainDock(
         val navigationWidth = minOf(preferredNavigationWidth, maxWidth - actionSize - minimumGap)
         val palette = LocalQuotaPalette.current
         val contentColor = palette.color(palette.body)
+        val selectedIndexState = rememberUpdatedState(selectedIndex)
+        val onSelectedState = rememberUpdatedState(onSelected)
+        val selectedIndexProvider = remember { { selectedIndexState.value } }
+        val selectionSink = remember { { index: Int -> onSelectedState.value(index) } }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             LiquidBottomTabs(
-                selectedTabIndex = { selectedIndex },
-                onTabSelected = onSelected,
+                selectedTabIndex = selectedIndexProvider,
+                onTabSelected = selectionSink,
                 backdrop = backdrop,
                 tabsCount = 2,
                 modifier = Modifier.size(width = navigationWidth, height = navigationHeight),
             ) {
-                LiquidBottomTab(onClick = { onSelected(0) }) {
+                LiquidBottomTab(onClick = { selectionSink(0) }) {
                     DockTabContent(
                         R.drawable.ic_quota_tray,
                         "额度",
@@ -333,7 +338,7 @@ internal fun LiquidMainDock(
                         iconHeight = 24.dp,
                     )
                 }
-                LiquidBottomTab(onClick = { onSelected(1) }) {
+                LiquidBottomTab(onClick = { selectionSink(1) }) {
                     DockTabContent(R.drawable.ic_usage, "统计", contentColor)
                 }
             }
