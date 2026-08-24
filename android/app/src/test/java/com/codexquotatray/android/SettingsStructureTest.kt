@@ -103,7 +103,6 @@ class SettingsStructureTest {
     fun liquidMainDockUsesStableAdaptersForExternalSelectionState() {
         val source = sourceFile("GlassComponents.kt")
         val dock = source.substringAfter("internal fun LiquidMainDock(")
-            .substringBefore("private fun LiquidTabCapsule(")
 
         assertTrue(dock.contains("rememberUpdatedState(selectedIndex)"))
         assertTrue(dock.contains("rememberUpdatedState(onSelected)"))
@@ -125,6 +124,18 @@ class SettingsStructureTest {
         assertFalse(dock.contains("onTabSelected = selectionSink"))
         assertFalse(dock.contains("LiquidBottomTab(onClick = { selectionSink(0) })"))
         assertFalse(dock.contains("LiquidBottomTab(onClick = { selectionSink(1) })"))
+    }
+
+    @Test
+    fun legacyLiquidDockImplementationIsRemovedAfterKyantMigration() {
+        val components = sourceFile("GlassComponents.kt")
+        val animations = sourceFile("BottomDockAnimations.kt")
+
+        assertFalse(components.contains("LiquidTabCapsule"))
+        assertFalse(components.contains("LocalDockTabScale"))
+        assertFalse(components.contains("BottomDockDampedDragAnimation"))
+        assertFalse(animations.contains("BottomDockDampedDragAnimation"))
+        assertFalse(animations.contains("isDockDrag"))
     }
 
     @Test
