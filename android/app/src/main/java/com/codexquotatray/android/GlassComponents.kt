@@ -326,11 +326,13 @@ internal fun LiquidMainDock(
         val requestedIndexState = rememberUpdatedState(requestedIndex)
         val selectedIndexProvider = remember { { requestedIndexState.value } }
         val selectionSink = remember { { index: Int -> onSelectedState.value(index) } }
+        val hapticFeedback = LocalHapticFeedback.current
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             LiquidBottomTabs(
                 selectedTabIndex = selectedIndexProvider,
                 onTabSelected = { index ->
                     if (selectedIndexState.value != index) {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
                         selectionSink(index)
                     }
                 },
