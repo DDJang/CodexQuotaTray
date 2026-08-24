@@ -54,12 +54,15 @@ internal fun SettingsGradientBlurHeader(
     isScrolled: Boolean = scrollState.value > 0,
     tint: Color,
     modifier: Modifier = Modifier,
+    effectProgress: Float? = null,
+    tintIntensity: Float = 0.8f,
 ) {
-    val blurAlpha by animateFloatAsState(
+    val animatedBlurAlpha by animateFloatAsState(
         targetValue = if (isScrolled) 1f else 0f,
         animationSpec = tween(durationMillis = 200),
         label = "blurAlpha",
     )
+    val blurAlpha = effectProgress?.coerceIn(0f, 1f) ?: animatedBlurAlpha
     val statusBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val overlayHeight = statusBarHeight + 96.dp
 
@@ -68,6 +71,7 @@ internal fun SettingsGradientBlurHeader(
             backdrop = backdrop,
             blurAlpha = blurAlpha,
             tint = tint,
+            tintIntensity = tintIntensity,
             modifier = modifier.fillMaxWidth().height(overlayHeight),
         )
     }
@@ -78,6 +82,7 @@ private fun RuntimeGradientBlur(
     backdrop: Backdrop,
     blurAlpha: Float,
     tint: Color,
+    tintIntensity: Float,
     modifier: Modifier,
 ) {
     val shader = remember { RuntimeShader(GRADIENT_BLUR_SHADER) }
@@ -94,7 +99,7 @@ private fun RuntimeGradientBlur(
                     blur(4.dp.toPx())
                     shader.setFloatUniform("size", size.width, size.height)
                     shader.setColorUniform("tint", tint.toArgb())
-                    shader.setFloatUniform("tintIntensity", 0.8f)
+                    shader.setFloatUniform("tintIntensity", tintIntensity)
                     effect(
                         RenderEffect
                             .createRuntimeShaderEffect(shader, "content")

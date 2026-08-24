@@ -55,6 +55,25 @@ internal fun Modifier.dampedVerticalOverscroll(
                 reboundJob = null
             }
 
+            private fun startRebound(initialVelocityY: Float = 0f) {
+                stopRebound()
+                val initialDrag = unconsumedDrag
+                reboundJob = animationScope.launch {
+                    animate(
+                        initialValue = initialDrag,
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                        initialVelocity = initialVelocityY,
+                    ) { value, _ ->
+                        updateUnconsumedDrag(value)
+                    }
+                    updateUnconsumedDrag(0f)
+                }
+            }
+
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (
                     source != NestedScrollSource.UserInput ||
@@ -89,23 +108,17 @@ internal fun Modifier.dampedVerticalOverscroll(
             }
 
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (unconsumedDrag == 0f) return Velocity.Zero
-
-                stopRebound()
-                reboundJob = animationScope.launch {
-                    animate(
-                        initialValue = unconsumedDrag,
-                        targetValue = 0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow,
-                        ),
-                    ) { value, _ ->
-                        updateUnconsumedDrag(value)
-                    }
-                    updateUnconsumedDrag(0f)
+                val remainingVelocityY = available.y
+                if (!shouldStartOverscrollRebound(unconsumedDrag, remainingVelocityY)) {
+                    return Velocity.Zero
                 }
-                return available
+
+                startRebound(initialVelocityY = remainingVelocityY)
+                return if (remainingVelocityY != 0f) {
+                    Velocity(0f, remainingVelocityY)
+                } else {
+                    Velocity.Zero
+                }
             }
         }
     }
@@ -125,3 +138,8 @@ internal fun dampedOverscrollDisplacement(
         (sqrt(1f + 2f * magnitude / resistanceDistance) - 1f)
     return dampedMagnitude * unconsumedDrag.sign
 }
+
+internal fun shouldStartOverscrollRebound(
+    unconsumedDrag: Float,
+    remainingVelocity: Float,
+): Boolean = unconsumedDrag != 0f || remainingVelocity != 0f

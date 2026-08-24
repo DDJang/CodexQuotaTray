@@ -33,6 +33,9 @@ private val ABOUT_AURORA_COLORS = listOf(
     Color(0xFFE07820),
 )
 
+internal fun aboutAmbientBaseColor(dark: Boolean): Color =
+    if (dark) Color(0xFF0A0A0A) else Color(0xFFFAFAFA)
+
 @Composable
 internal fun AboutAmbientBackground(
     dark: Boolean,
@@ -64,7 +67,7 @@ internal fun AboutAmbientBackground(
         val height = size.height
         val radius = minOf(width, height)
 
-        drawRect(color = if (dark) Color(0xFF0A0A0A) else Color(0xFFFAFAFA))
+        drawRect(color = aboutAmbientBaseColor(dark))
 
         if (!isVisible) return@Canvas
 

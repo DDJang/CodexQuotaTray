@@ -28,4 +28,12 @@ class DampedOverscrollTest {
         assertEquals(0f, dampedOverscrollDisplacement(0f, resistanceDistance), 0f)
         assertTrue(abs(first) > 0f)
     }
+
+    @Test
+    fun `rebound starts for drag or remaining fling velocity`() {
+        assertTrue(shouldStartOverscrollRebound(12f, 0f))
+        assertTrue(shouldStartOverscrollRebound(0f, 240f))
+        assertTrue(shouldStartOverscrollRebound(-12f, -240f))
+        assertTrue(!shouldStartOverscrollRebound(0f, 0f))
+    }
 }
