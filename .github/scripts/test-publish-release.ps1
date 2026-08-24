@@ -95,8 +95,8 @@ Assert-Matches -Text $main `
     -Message 'Windows release notes are not selection-gated.'
 Assert-Contains -Text $main -Needle '$targetTags = @()' `
     -Message 'Target tags must be built from the selected platform set.'
-Assert-Contains -Text $main -Needle '$mainCiWorkflows = @()' `
-    -Message 'Main CI waits must be built from the selected platform set.'
+Assert-Contains -Text $main -Needle 'Get-PostMergeReleaseResumeState -MainCommit' `
+    -Message 'Release script must verify the merged main commit before tagging.'
 Assert-Contains -Text $main -Needle 'Verify-Releases -AndroidNotes $androidNotes -WindowsNotes $windowsNotes' `
     -Message 'Release verification call is missing.'
 
@@ -335,7 +335,7 @@ if "%1"=="pr" if "%2"=="list" (
   exit /b 0
 )
 if "%1"=="run" if "%2"=="list" (
-  echo POST_MERGE_MAIN_CI_SENTINEL
+  echo POST_MERGE_RELEASE_WORKFLOW_SENTINEL
   exit /b 42
 )
 if "%1"=="pr" (
@@ -352,10 +352,10 @@ exit /b 99
     $postMergeExitCode = $LASTEXITCODE
     $postMergeText = ($postMergeOutput -join [Environment]::NewLine)
     if ($postMergeExitCode -eq 0) {
-        throw 'Post-merge resume fixture unexpectedly completed without reaching the main CI sentinel.'
+        throw 'Post-merge resume fixture unexpectedly completed without reaching the Release workflow sentinel.'
     }
-    if ($postMergeText -notmatch 'POST_MERGE_MAIN_CI_SENTINEL') {
-        throw "Post-merge resume did not reach main CI. Output: $postMergeText"
+    if ($postMergeText -notmatch 'POST_MERGE_RELEASE_WORKFLOW_SENTINEL') {
+        throw "Post-merge resume did not reach the Release workflow. Output: $postMergeText"
     }
     if ($postMergeText -match 'Current HEAD does not contain origin/main') {
         throw 'Post-merge resume still failed the origin/main ancestry preflight.'
@@ -386,7 +386,7 @@ if "%1"=="pr" if "%2"=="list" (
   exit /b 0
 )
 if "%1"=="run" if "%2"=="list" (
-  echo POST_MERGE_NEGATIVE_MAIN_CI_SENTINEL
+  echo POST_MERGE_NEGATIVE_RELEASE_SENTINEL
   exit /b 42
 )
 exit /b 99
@@ -404,8 +404,8 @@ exit /b 99
     if ($negativeText -notmatch 'Post-merge release resume could not be verified') {
         throw "Post-merge identity counterexample did not fail closed. Output: $negativeText"
     }
-    if ($negativeText -match 'POST_MERGE_NEGATIVE_MAIN_CI_SENTINEL') {
-        throw 'Post-merge identity counterexample incorrectly reached main CI.'
+    if ($negativeText -match 'POST_MERGE_NEGATIVE_RELEASE_SENTINEL') {
+        throw 'Post-merge identity counterexample incorrectly reached the Release workflow.'
     }
 } finally {
     $env:PATH = $originalPath

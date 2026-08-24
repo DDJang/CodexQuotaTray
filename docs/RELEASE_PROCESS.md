@@ -112,6 +112,8 @@ Common:  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps
 
 PR CI 是合并前验证。脚本使用 GitHub CLI 查询 PR checks 的真实状态，直到相关检查全部成功；失败、取消或错误立即停止，不执行 merge。PR CI 全通过后使用 squash merge 合并到 `main`。
 
+普通 CI 只由 PR 和显式 `workflow_dispatch` 触发；merge 到 `main` 不会再次触发重复的普通 CI。
+
 ### 9. 确认实际 main commit
 
 merge 后 fetch `origin/main`，取得 merge 后实际的 `origin/main` HEAD SHA。普通模式确认 squash/merge commit 已属于 `origin/main` 历史；post-merge resume 模式则重新确认已验证的 release main commit 仍属于 `origin/main`。随后确认选定平台的版本文件和 release notes 与本次准备状态一致。无法确认 commit、版本或 notes 时停止，不进入 tag 阶段。

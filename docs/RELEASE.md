@@ -58,6 +58,8 @@ Windows 与 Android 正式 Release 当前只支持严格的 `MAJOR.MINOR.PATCH` 
 PR CI 是合并前验证；Release workflow 是正式发布验证。发布流程不再把 merge 后的普通 main CI
 作为额外的独立发布门禁。
 
+普通 CI 由 PR 与 `workflow_dispatch` 触发；merge 到 `main` 不会再触发重复的普通 CI。
+
 Windows workflow 运行 `windows/scripts/verify-winui.ps1 -Mode Release`，再生成 portable ZIP 和 Inno installer。
 本地 `windows/scripts/publish-winui.ps1`、`windows/scripts/package-winui.ps1`、
 `windows/scripts/package-inno.ps1` 仅供显式发布输入诊断，不是

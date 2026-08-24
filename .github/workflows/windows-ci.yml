@@ -18,19 +18,6 @@ on:
       - 'scripts/publish-release.ps1'
       - '.github/scripts/test-publish-release.ps1'
       - '.github/update-manifest.seed.json'
-  push:
-    branches:
-      - main
-    paths:
-      - 'windows/**'
-      - 'global.json'
-      - '.github/workflows/windows-ci.yml'
-      - '.github/workflows/windows-release.yml'
-      - '.github/scripts/update-release-manifest.ps1'
-      - '.github/scripts/test-update-release-manifest.ps1'
-      - 'scripts/publish-release.ps1'
-      - '.github/scripts/test-publish-release.ps1'
-      - '.github/update-manifest.seed.json'
   workflow_dispatch:
     inputs:
       commit_sha:
