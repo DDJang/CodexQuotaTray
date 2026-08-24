@@ -99,10 +99,18 @@ class MainActivity : ComponentActivity() {
             val palette = rememberAnimatedThemePalette(AppTheme.palette(this, themeMode))
             CodexQuotaTheme(palette) {
                 val pageBackdrop = rememberLayerBackdrop()
-                Box(Modifier.fillMaxSize().background(palette.color(palette.background))) {
-                    Column(
-                        Modifier.fillMaxSize().layerBackdrop(pageBackdrop).statusBarsPadding(),
+                Box(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .layerBackdrop(pageBackdrop)
+                            .background(palette.color(palette.background)),
                     ) {
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .statusBarsPadding(),
+                        ) {
                         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 72.dp, top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("CodexQuota", color = palette.color(palette.title), fontSize = 28.sp, fontWeight = FontWeight.Bold)
                         }
@@ -130,6 +138,7 @@ class MainActivity : ComponentActivity() {
                             ) { pageIndex ->
                                 if (pageIndex == 0) QuotaPage(quota) else TokenUsagePage(usage, ::scanTokenPairing)
                             }
+                        }
                         }
                     }
                     Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 8.dp, end = 20.dp)) {
