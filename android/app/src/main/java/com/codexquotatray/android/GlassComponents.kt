@@ -61,6 +61,7 @@ import kotlin.math.tanh
 
 // Keep circular glass actions equal to the short edge of the bottom navigation capsule.
 internal val glassActionButtonSize = 64.dp
+internal val glassRefreshIconSize = 28.dp
 
 @Composable
 internal fun GlassSurface(
@@ -284,7 +285,7 @@ internal fun LiquidMainDock(
                 enabled = actionEnabled && !actionBusy,
                 busy = actionBusy,
                 buttonSize = actionSize,
-                iconSize = 24.dp,
+                iconSize = glassRefreshIconSize,
                 onClick = onAction,
             )
         }

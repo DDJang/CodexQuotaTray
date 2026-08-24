@@ -127,7 +127,7 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun glassActionButtonsMatchTheBottomCapsuleHeight() {
+    fun glassRefreshActionMatchesBottomCapsuleAndSecondaryButtonsKeepOriginalSize() {
         val components = sourceFile("GlassComponents.kt")
         val main = sourceFile("MainActivity.kt")
         val settings = sourceFile("SettingsActivity.kt")
@@ -136,15 +136,25 @@ class SettingsStructureTest {
         val dock = components.substringAfter("internal fun LiquidMainDock(")
 
         assertTrue(components.contains("internal val glassActionButtonSize = 64.dp"))
+        assertTrue(components.contains("internal val glassRefreshIconSize = 28.dp"))
         assertTrue(dock.contains("val actionSize = glassActionButtonSize"))
         assertTrue(dock.contains("val navigationHeight = glassActionButtonSize"))
-        assertTrue(main.contains("buttonSize = glassActionButtonSize"))
-        assertTrue(settings.contains("buttonSize = glassActionButtonSize"))
-        assertTrue(settings.contains("Spacer(Modifier.size(glassActionButtonSize))"))
-        assertTrue(codexUi.contains("buttonSize = glassActionButtonSize"))
-        assertTrue(codexUi.contains("Spacer(Modifier.size(glassActionButtonSize))"))
-        assertTrue(about.contains("buttonSize = glassActionButtonSize"))
-        assertTrue(about.contains("Spacer(Modifier.size(glassActionButtonSize))"))
+        assertTrue(dock.contains("iconSize = glassRefreshIconSize"))
+        assertTrue(main.contains("buttonSize = 52.dp"))
+        assertTrue(main.contains("iconSize = 24.dp"))
+        assertTrue(settings.contains("buttonSize = 52.dp"))
+        assertTrue(settings.contains("iconSize = 25.dp"))
+        assertTrue(settings.contains("Spacer(Modifier.size(52.dp))"))
+        assertTrue(codexUi.contains("buttonSize = 52.dp"))
+        assertTrue(codexUi.contains("iconSize = 25.dp"))
+        assertTrue(codexUi.contains("Spacer(Modifier.size(52.dp))"))
+        assertTrue(about.contains("buttonSize = 52.dp"))
+        assertTrue(about.contains("iconSize = 25.dp"))
+        assertTrue(about.contains("Spacer(Modifier.size(52.dp))"))
+        assertFalse(main.contains("glassActionButtonSize"))
+        assertFalse(settings.contains("glassActionButtonSize"))
+        assertFalse(codexUi.contains("glassActionButtonSize"))
+        assertFalse(about.contains("glassActionButtonSize"))
     }
 
     @Test

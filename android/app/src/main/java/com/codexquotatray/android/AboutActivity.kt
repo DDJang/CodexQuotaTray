@@ -113,7 +113,7 @@ class AboutActivity : ComponentActivity() {
                             iconRes = R.drawable.ic_back,
                             description = "返回",
                             backdrop = backdrop,
-                            buttonSize = glassActionButtonSize,
+                            buttonSize = 52.dp,
                             iconSize = 25.dp,
                             onClick = ::finish,
                         )
@@ -124,7 +124,7 @@ class AboutActivity : ComponentActivity() {
                             color = palette.color(palette.title),
                             textAlign = TextAlign.Center,
                         )
-                        Spacer(Modifier.size(glassActionButtonSize))
+                        Spacer(Modifier.size(52.dp))
                     }
                 }
             }
