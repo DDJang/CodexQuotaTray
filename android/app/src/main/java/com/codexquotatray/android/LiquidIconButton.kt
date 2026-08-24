@@ -17,6 +17,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -24,6 +25,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceAtMost
+import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
 import com.codexquotatray.android.liquidglass.InteractiveHighlight
 import com.kyant.backdrop.Backdrop
@@ -81,7 +83,17 @@ internal fun LiquidIconButton(
                         val scale = lerp(1f, 1f + 4f.dp.toPx() / size.height, progress)
                         val maxOffset = size.minDimension
                         val initialDerivative = 0.05f
-                        val offset = interactiveHighlight.offset
+                        val rawOffset = interactiveHighlight.offset
+                        val offset = Offset(
+                            rawOffset.x.fastCoerceIn(
+                                -maxOffset,
+                                maxOffset,
+                            ),
+                            rawOffset.y.fastCoerceIn(
+                                -maxOffset,
+                                maxOffset,
+                            ),
+                        )
                         translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
                         translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
                         val maxDragScale = 4f.dp.toPx() / size.height
