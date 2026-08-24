@@ -13,15 +13,15 @@
     "publishedAt": "2026-08-24T16:53:42Z"
   },
   "android": {
-    "version": "0.9.0",
-    "tag": "android-v0.9.0",
+    "version": "0.10.0",
+    "tag": "android-v0.10.0",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.9.0.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.9.0/CodexQuotaTray-Android-v0.9.0.apk",
-      "sha256": "7212e99629917d42dcf2d5e121f83c8b25a22c78843e4688c018e112e32cebd1",
-      "size": 26836585
+      "name": "CodexQuotaTray-Android-v0.10.0.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.10.0/CodexQuotaTray-Android-v0.10.0.apk",
+      "sha256": "d559712526d5b1f9f5a06be2f6caba4d77f2cba537170b0563552ff77bc3c115",
+      "size": 27024572
     },
-    "releaseNotes": "## Android\n\n- 新增重置额度次数卡片与临近到期提醒设置，帮助及时了解可用的重置额度。\n- 优化双窗口额度页面和桌面小组件的布局、窗口识别与多语言显示。\n- 修复 Direct WHAM 额度接口路径，并改进 OAuth 与 Windows fallback 的额度刷新和展示稳定性。\n",
-    "publishedAt": "2026-08-22T13:14:36Z"
+    "releaseNotes": "## Android\n\n### Liquid Glass 交互与视觉\n\n- 全面升级底部导航、操作按钮、分段选择器和开关的 Liquid Glass 交互，统一按压、拖拽、回弹和触感反馈。\n- 优化主页、设置页、二级页和 About 页的 backdrop 采样、滚动渐变模糊与页面过渡，提升快速滚动和回弹时的连续性。\n- 改进设置页分段选择器的尺寸、文字对齐、边缘溢出和选中状态表现，避免玻璃形变被卡片边界截断。\n- 限制操作按钮的最大拖拽形变，保留短距离拖动的液态反馈，同时避免长距离拖动无限拉伸。\n\n### 额度与 Token 数据\n\n- 新增 OpenAI 与 Windows 数据源优先级设置，支持在额度和 Token 数据之间保持一致的来源选择与回退行为。\n- 改进多数据源刷新失败时的回退判断，区分暂不可用、网络错误和服务端错误，尽量继续使用可用来源。\n- 新增 Token 使用热力图及液态 Tooltip 展示，优化选中定位、拖动浏览和弹出层与网格之间的间距。\n- 优化额度环、卡片高光和 Token 统计页面的视觉连续性。\n\n### 设置与页面细节\n\n- 优化账号与配对、更新设置及 About 页面中的状态文案和链接展示。\n- 改进页面背景录制与顶部渐变模糊，使正文、卡片和分隔线滚动经过玻璃控件时保持一致效果。\n",
+    "publishedAt": "2026-08-24T16:57:16Z"
   }
 }
