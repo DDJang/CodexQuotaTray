@@ -77,8 +77,8 @@ class SettingsStructureTest {
         val pageSource = scaffold.substringAfter(".layerBackdrop(pageBackdrop)")
             .substringBefore("SettingsGradientBlurHeader(")
         assertTrue(pageSource.contains("SettingsContent("))
+        assertTrue(pageSource.contains(".background(backgroundColor)"))
         assertTrue(scaffold.contains("backdrop = pageBackdrop"))
-        assertFalse(pageSource.contains(".background(backgroundColor)"))
 
         val notificationPage = source.substringAfter("private fun ColumnScope.NotificationSettings(")
             .substringBefore("private fun ColumnScope.SyncSettings(")
@@ -97,6 +97,20 @@ class SettingsStructureTest {
         assertTrue(toggleRow.contains("val selectedProvider = remember { { checkedState.value } }"))
         assertTrue(toggleRow.contains("val selectionSink = remember { { value: Boolean -> onChangeState.value(value) } }"))
         assertTrue(toggleRow.contains("accentColor = palette.color(palette.accent)"))
+    }
+
+    @Test
+    fun secondaryScreenBackdropSourceIncludesBackgroundAndScrollContent() {
+        val source = sourceFile("CodexUi.kt")
+        val sourceBlock = source.substringAfter("Box(modifier.fillMaxSize())")
+            .substringBefore("SettingsGradientBlurHeader(")
+
+        assertTrue(sourceBlock.contains(".layerBackdrop(backdrop)"))
+        assertTrue(sourceBlock.contains(".background(backgroundColor)"))
+        assertTrue(sourceBlock.contains(".verticalScroll(scrollState, overscrollEffect = null)"))
+        assertTrue(sourceBlock.contains("content()"))
+        assertTrue(source.contains("backdrop = backdrop"))
+        assertFalse(source.contains("Box(modifier.fillMaxSize().background(palette.color(palette.background)))"))
     }
 
     @Test

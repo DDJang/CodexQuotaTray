@@ -166,15 +166,12 @@ class SettingsActivity : ComponentActivity() {
                 val scrollState = rememberScrollState()
                 var upwardOverscrollActive by remember { mutableStateOf(false) }
                 val backgroundColor = palette.color(palette.background)
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .background(backgroundColor),
-                ) {
+                Box(Modifier.fillMaxSize()) {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .layerBackdrop(pageBackdrop),
+                            .layerBackdrop(pageBackdrop)
+                            .background(backgroundColor),
                     ) {
                         SettingsContent(
                             page = destination,
