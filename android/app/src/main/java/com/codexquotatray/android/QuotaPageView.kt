@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -607,18 +608,8 @@ internal fun QuotaProgressRing(
             val inset = strokeWidth / 2f
             val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
             val arcStyle = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-            val highlightColor = lerp(progressColor, Color.White, 0.20f)
-            val progressBrush = Brush.sweepGradient(
-                colorStops = arrayOf(
-                    0.00f to progressColor,
-                    0.52f to progressColor,
-                    0.58f to lerp(progressColor, Color.White, 0.08f),
-                    0.64f to highlightColor,
-                    0.70f to lerp(progressColor, Color.White, 0.08f),
-                    0.76f to progressColor,
-                    1.00f to progressColor,
-                ),
-            )
+            val fraction = progress.coerceIn(0f, 1f)
+            val sweep = 360f * fraction
             drawArc(
                 color = trackColor.copy(alpha = 0.58f),
                 startAngle = -90f,
@@ -628,17 +619,35 @@ internal fun QuotaProgressRing(
                 size = arcSize,
                 style = arcStyle,
             )
-            if (progress > 0f) {
-                val sweep = 360f * progress.coerceIn(0f, 1f)
-                drawArc(
-                    brush = progressBrush,
-                    startAngle = -90f,
-                    sweepAngle = sweep,
-                    useCenter = false,
-                    topLeft = Offset(inset, inset),
-                    size = arcSize,
-                    style = arcStyle,
+            if (fraction > 0f) {
+                val highlightPeak = lerp(progressColor, Color.White, 0.24f)
+                val highlightShoulder = lerp(progressColor, Color.White, 0.10f)
+                val progressBrush = Brush.sweepGradient(
+                    colorStops = arrayOf(
+                        0.00f to progressColor,
+                        fraction * 0.12f to progressColor,
+                        fraction * 0.20f to highlightShoulder,
+                        fraction * 0.30f to highlightPeak,
+                        fraction * 0.40f to highlightShoulder,
+                        fraction * 0.50f to progressColor,
+                        fraction to progressColor,
+                        1.00f to progressColor,
+                    ),
                 )
+                rotate(
+                    degrees = -90f,
+                    pivot = center,
+                ) {
+                    drawArc(
+                        brush = progressBrush,
+                        startAngle = 0f,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        topLeft = Offset(inset, inset),
+                        size = arcSize,
+                        style = arcStyle,
+                    )
+                }
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
