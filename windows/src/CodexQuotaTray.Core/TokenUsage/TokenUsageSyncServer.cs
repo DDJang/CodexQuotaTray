@@ -336,7 +336,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                         _ => "Local",
                     },
                     Scope = snapshot.Source == TokenUsageDataSource.Local ? "Local" : "Account",
-                    snapshot.Summary,
+                    Summary = ProjectSummary(snapshot),
                     snapshot.Days,
                 }, JsonOptions);
                 await WriteResponseAsync(stream, 200, "OK", body, cancellationToken).ConfigureAwait(false);
@@ -531,5 +531,35 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         }
     }
 
+    private static TokenUsageLanSummary ProjectSummary(TokenUsageSnapshot snapshot)
+    {
+        var summary = snapshot.Summary;
+        var available = snapshot.AvailableMetrics;
+        return new TokenUsageLanSummary(
+            TodayTokens: HasMetric(available, TokenUsageMetricAvailability.Today) ? summary.TodayTokens : null,
+            Last7DaysTokens: HasMetric(available, TokenUsageMetricAvailability.Last7Days) ? summary.Last7DaysTokens : null,
+            Last30DaysTokens: HasMetric(available, TokenUsageMetricAvailability.Last30Days) ? summary.Last30DaysTokens : null,
+            LifetimeTokens: HasMetric(available, TokenUsageMetricAvailability.Lifetime) ? summary.LifetimeTokens : null,
+            PeakDailyTokens: HasMetric(available, TokenUsageMetricAvailability.Peak) ? summary.PeakDailyTokens : null,
+            PeakDate: HasMetric(available, TokenUsageMetricAvailability.Peak) ? summary.PeakDate : null,
+            ActiveDays: summary.ActiveDays,
+            CurrentStreak: HasMetric(available, TokenUsageMetricAvailability.CurrentStreak) ? summary.CurrentStreak : null,
+            LongestStreak: HasMetric(available, TokenUsageMetricAvailability.LongestStreak) ? summary.LongestStreak : null);
+    }
+
+    private static bool HasMetric(TokenUsageMetricAvailability available, TokenUsageMetricAvailability metric) =>
+        (available & metric) == metric;
+
     private sealed record Request(string Method, string Path, string? Authorization, bool ForceRefresh);
+
+    private sealed record TokenUsageLanSummary(
+        long? TodayTokens,
+        long? Last7DaysTokens,
+        long? Last30DaysTokens,
+        long? LifetimeTokens,
+        long? PeakDailyTokens,
+        DateOnly? PeakDate,
+        int ActiveDays,
+        int? CurrentStreak,
+        int? LongestStreak);
 }

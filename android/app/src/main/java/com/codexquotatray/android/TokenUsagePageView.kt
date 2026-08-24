@@ -416,11 +416,7 @@ private fun SummaryRow(items: List<Pair<String, Long?>>) {
         items.forEach { (label, value) ->
             Column(Modifier.weight(1f).padding(vertical = 10.dp, horizontal = 3.dp)) {
                 Text(
-                    when {
-                        value != null -> TokenFormatter.format(value)
-                        label == "今日 Token" -> "待同步"
-                        else -> "—"
-                    },
+                    tokenSummaryValueLabel(label, value),
                     Modifier.fillMaxWidth(),
                     color = palette.color(palette.title),
                     fontSize = if (value == null && label == "今日 Token") 13.sp else 18.sp,
@@ -431,6 +427,12 @@ private fun SummaryRow(items: List<Pair<String, Long?>>) {
             }
         }
     }
+}
+
+internal fun tokenSummaryValueLabel(label: String, value: Long?): String = when {
+    value != null -> TokenFormatter.format(value)
+    label == "今日 Token" -> "待同步"
+    else -> "—"
 }
 
 private data class HeatmapVisualSelection(

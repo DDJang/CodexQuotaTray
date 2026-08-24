@@ -9,6 +9,7 @@ import java.nio.file.Files
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import com.codexquotatray.android.auth.OAuthCredentials
+import com.codexquotatray.android.tokenSummaryValueLabel
 
 class OpenAIAccountTokenUsageTest {
     private val now = ZonedDateTime.of(2026, 8, 23, 12, 0, 0, 0, ZoneId.of("Asia/Shanghai"))
@@ -80,6 +81,16 @@ class OpenAIAccountTokenUsageTest {
         assertEquals("OAuth", account.source)
     }
 
+    @Test fun windowsAccountLanZeroKeepsUnavailableDistinctFromRealZero() {
+        val unavailable = TokenUsageJson.parse(windowsAccountWire("null"))
+        assertNull(unavailable.summary.todayTokens)
+        assertEquals("待同步", tokenSummaryValueLabel("今日 Token", unavailable.summary.todayTokens))
+
+        val available = TokenUsageJson.parse(windowsAccountWire("0"))
+        assertEquals(0L, available.summary.todayTokens)
+        assertEquals("0", tokenSummaryValueLabel("今日 Token", available.summary.todayTokens))
+    }
+
     @Test fun cacheKeepsActualTransportAndNeverRestoresItForAnotherProvider() {
         val root = Files.createTempDirectory("token-source-cache").toFile()
         try {
@@ -114,6 +125,22 @@ class OpenAIAccountTokenUsageTest {
             "todayTokens":1,"last7DaysTokens":2,"last30DaysTokens":3,
             "lifetimeTokens":4,"peakDailyTokens":4,"peakDate":"2026-08-23",
             "activeDays":1,"currentStreak":1,"longestStreak":1
+          },
+          "days":[]
+        }
+    """
+
+    private fun windowsAccountWire(todayTokens: String) = """
+        {
+          "schemaVersion":1,
+          "generatedAtUtc":"2026-08-23T00:00:00Z",
+          "sourceTimeZone":"UTC",
+          "source":"OAuth",
+          "scope":"Account",
+          "summary":{
+            "todayTokens":$todayTokens,"last7DaysTokens":0,"last30DaysTokens":0,
+            "lifetimeTokens":0,"peakDailyTokens":0,"peakDate":null,
+            "activeDays":0,"currentStreak":null,"longestStreak":null
           },
           "days":[]
         }

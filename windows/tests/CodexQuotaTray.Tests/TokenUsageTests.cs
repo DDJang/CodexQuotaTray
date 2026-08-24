@@ -871,6 +871,37 @@ public sealed class TokenUsageTests
         Assert.AreEqual(42L, account.RootElement.GetProperty("summary").GetProperty("lifetimeTokens").GetInt64());
     }
 
+    [TestMethod]
+    public async Task LanTokenProjectionPreservesUnavailableAndAvailableZeroMetrics()
+    {
+        var availableToday = false;
+        await using var server = new TokenUsageSyncServer(
+            _ => Task.FromResult(
+                Snapshot(0, DateTimeOffset.UtcNow) with
+                {
+                    Source = TokenUsageDataSource.OAuth,
+                    AvailableMetrics = availableToday
+                        ? TokenUsageMetricAvailability.Today
+                        : TokenUsageMetricAvailability.None,
+                }),
+            "test-secret",
+            () => null,
+            minimumScanInterval: TimeSpan.Zero);
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{server.Port}") };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-secret");
+
+        using var unavailable = JsonDocument.Parse(
+            await (await client.GetAsync("/v1/token-usage?refresh=force")).Content.ReadAsStringAsync());
+        availableToday = true;
+        using var available = JsonDocument.Parse(
+            await (await client.GetAsync("/v1/token-usage?refresh=force")).Content.ReadAsStringAsync());
+
+        Assert.AreEqual(JsonValueKind.Null, unavailable.RootElement.GetProperty("summary").GetProperty("todayTokens").ValueKind);
+        Assert.AreEqual(JsonValueKind.Number, available.RootElement.GetProperty("summary").GetProperty("todayTokens").ValueKind);
+        Assert.AreEqual(0L, available.RootElement.GetProperty("summary").GetProperty("todayTokens").GetInt64());
+    }
+
     private static string SessionMeta(string sessionId, string? forkedFromId = null)
     {
         var fork = forkedFromId is null ? string.Empty : $",\"forked_from_id\":\"{forkedFromId}\"";
