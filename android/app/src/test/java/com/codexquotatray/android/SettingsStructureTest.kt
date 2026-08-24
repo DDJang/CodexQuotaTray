@@ -313,6 +313,41 @@ class SettingsStructureTest {
         assertTrue(upstreamTabs.contains("ColorFilter.tint(accentColor)"))
     }
 
+    @Test
+    fun allLiquidFixturesAreReachableFromDebugDeveloperOptions() {
+        val settings = settingsSource()
+        val developerOptions = settings.substringAfter("SettingsSection(\"开发者选项\")")
+            .substringBefore("private fun openDebugQuotaRingFixture")
+        assertTrue(developerOptions.contains("Quota Ring Fixture"))
+        assertTrue(developerOptions.contains("Liquid Bottom Tabs Fixture"))
+        assertTrue(developerOptions.contains("Liquid Icon Button Fixture"))
+        assertTrue(developerOptions.contains("Liquid Segmented Fixture"))
+        assertTrue(settings.contains("DEBUG_LIQUID_ICON_BUTTON_FIXTURE_ACTIVITY"))
+        assertTrue(settings.contains("DEBUG_LIQUID_SEGMENTED_FIXTURE_ACTIVITY"))
+        assertTrue(settings.contains("openDebugLiquidIconButtonFixture"))
+        assertTrue(settings.contains("openDebugLiquidSegmentedFixture"))
+
+        val manifest = debugManifestSource()
+        assertTrue(manifest.contains(".debug.LiquidIconButtonFixtureActivity"))
+        val segmentedManifestEntry = manifest
+            .substringAfter(".debug.LiquidSegmentedFixtureActivity")
+            .substringBefore("</activity>")
+        assertTrue(segmentedManifestEntry.contains("android:exported=\"false\""))
+
+        val fixture = debugSourceFile("debug/LiquidSegmentedFixtureActivity.kt")
+        assertTrue(fixture.contains("SettingsSegmentedSelector("))
+        assertTrue(fixture.contains("UpstreamLiquidBottomTabs("))
+        assertTrue(fixture.contains("UpstreamLiquidBottomTab"))
+        assertTrue(fixture.contains("sourcePriorityLabels"))
+        assertTrue(fixture.contains("refreshIntervalLabels"))
+        assertTrue(fixture.contains("remember { mutableIntStateOf(0) }"))
+        assertTrue(fixture.contains("selected = \$selectedLabel"))
+        assertTrue(fixture.contains("settingsLikeDarkSurface"))
+        assertTrue(fixture.contains(".layerBackdrop(backdrop)"))
+        assertTrue(fixture.contains(".background(Color.Black)"))
+        assertFalse(fixture.contains("LiquidSegmentedSelector"))
+    }
+
     private fun assertOrdered(source: String, vararg markers: String) {
         var previousIndex = -1
         markers.forEach { marker ->

@@ -86,6 +86,10 @@ private const val DEBUG_QUOTA_RING_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.QuotaRingFixtureActivity"
 private const val DEBUG_LIQUID_BOTTOM_TABS_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.LiquidBottomTabsFixtureActivity"
+private const val DEBUG_LIQUID_ICON_BUTTON_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.LiquidIconButtonFixtureActivity"
+private const val DEBUG_LIQUID_SEGMENTED_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.LiquidSegmentedFixtureActivity"
 
 internal fun sourcePriorityOptions(): List<SettingsSegmentOption> = listOf(
     SettingsSegmentOption(0, "OpenAI 优先"),
@@ -357,6 +361,18 @@ class SettingsActivity : ComponentActivity() {
                         trailing = "Debug",
                         onClick = ::openDebugLiquidBottomTabsFixture,
                     )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Liquid Icon Button Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugLiquidIconButtonFixture,
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Liquid Segmented Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugLiquidSegmentedFixture,
+                    )
                 }
             }
         }
@@ -379,6 +395,28 @@ class SettingsActivity : ComponentActivity() {
                 Intent().setClassName(
                     this,
                     DEBUG_LIQUID_BOTTOM_TABS_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugLiquidIconButtonFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_LIQUID_ICON_BUTTON_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugLiquidSegmentedFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_LIQUID_SEGMENTED_FIXTURE_ACTIVITY,
                 ),
             )
         }
