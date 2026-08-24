@@ -445,6 +445,7 @@ internal fun SettingsSegmentedSelector(
         Box(
             Modifier
                 .fillMaxSize()
+                .alpha(0f)
                 .layerBackdrop(segmentedBackdrop)
                 .background(palette.color(palette.surface)),
         )

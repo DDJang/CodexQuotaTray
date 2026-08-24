@@ -59,6 +59,11 @@ class SettingsStructureTest {
         assertTrue(selector.contains("val controlHeight = SettingsUiTokens.segmentedHeight"))
         assertTrue(selector.contains(".height(controlHeight + verticalInset * 2)"))
         assertTrue(selector.contains(".fillMaxSize()"))
+        assertTrue(
+            selector.contains(
+                ".fillMaxSize()\n                .alpha(0f)\n                .layerBackdrop(segmentedBackdrop)",
+            ),
+        )
         assertTrue(selector.contains(".layerBackdrop(segmentedBackdrop)"))
         assertTrue(selector.contains(".background(palette.color(palette.surface))"))
         assertTrue(selector.contains(".align(Alignment.Center)"))
