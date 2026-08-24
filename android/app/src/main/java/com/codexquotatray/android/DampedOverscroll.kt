@@ -35,11 +35,13 @@ import kotlin.math.sqrt
  */
 @Composable
 internal fun Modifier.dampedVerticalOverscroll(
-    onUpwardOverscrollChanged: (Boolean) -> Unit = {},
+    onOverscrollDisplacementChanged: (Float) -> Unit = {},
 ): Modifier {
     val resistanceDistance = with(LocalDensity.current) { 180.dp.toPx() }
     val animationScope = rememberCoroutineScope()
-    val currentOnUpwardOverscrollChanged by rememberUpdatedState(onUpwardOverscrollChanged)
+    val currentOnOverscrollDisplacementChanged by rememberUpdatedState(
+        onOverscrollDisplacementChanged,
+    )
     var unconsumedDrag by remember { mutableFloatStateOf(0f) }
     var reboundJob by remember { mutableStateOf<Job?>(null) }
 
@@ -47,7 +49,9 @@ internal fun Modifier.dampedVerticalOverscroll(
         object : NestedScrollConnection {
             private fun updateUnconsumedDrag(value: Float) {
                 unconsumedDrag = value
-                currentOnUpwardOverscrollChanged(value < 0f)
+                currentOnOverscrollDisplacementChanged(
+                    dampedOverscrollDisplacement(value, resistanceDistance),
+                )
             }
 
             private fun stopRebound() {

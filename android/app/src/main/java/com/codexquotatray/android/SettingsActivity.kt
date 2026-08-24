@@ -286,7 +286,9 @@ class SettingsActivity : ComponentActivity() {
     ) {
         Column(
             modifier
-                .dampedVerticalOverscroll(onUpwardOverscrollChanged)
+                .dampedVerticalOverscroll { displacement ->
+                    onUpwardOverscrollChanged(displacement < 0f)
+                }
                 .verticalScroll(scrollState, overscrollEffect = null)
                 .statusBarsPadding()
                 .navigationBarsPadding()

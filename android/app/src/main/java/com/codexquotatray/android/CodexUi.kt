@@ -201,7 +201,9 @@ internal fun SecondaryScreenScaffold(
             Column(
                 Modifier
                     .fillMaxSize()
-                    .dampedVerticalOverscroll { upwardOverscrollActive = it }
+                    .dampedVerticalOverscroll { displacement ->
+                        upwardOverscrollActive = displacement < 0f
+                    }
                     .verticalScroll(scrollState, overscrollEffect = null)
                     .statusBarsPadding()
                     .navigationBarsPadding()

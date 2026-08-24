@@ -36,7 +36,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
@@ -59,11 +61,13 @@ class AboutActivity : ComponentActivity() {
             val pageBackdrop = rememberLayerBackdrop()
             val headerCompositeBackdrop = rememberLayerBackdrop()
             val scrollState = rememberScrollState()
+            var overscrollY by remember { mutableFloatStateOf(0f) }
             val headerActivationDistancePx = with(LocalDensity.current) {
                 ABOUT_HEADER_ACTIVATION_DISTANCE_DP.dp.toPx()
             }
             val headerEffectProgress = aboutHeaderEffectProgress(
                 scrollOffsetPx = scrollState.value.toFloat(),
+                overscrollDisplacementPx = overscrollY,
                 activationDistancePx = headerActivationDistancePx,
             )
             val headerHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 96.dp
@@ -77,7 +81,9 @@ class AboutActivity : ComponentActivity() {
                         Column(
                             Modifier
                                 .fillMaxSize()
-                                .dampedVerticalOverscroll()
+                                .dampedVerticalOverscroll { displacement ->
+                                    overscrollY = displacement
+                                }
                                 .verticalScroll(scrollState, overscrollEffect = null)
                                 .statusBarsPadding()
                                 .navigationBarsPadding()
