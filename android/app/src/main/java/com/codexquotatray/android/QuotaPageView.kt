@@ -554,12 +554,32 @@ private fun QuotaCardSurface(content: @Composable () -> Unit) {
             ),
         )
     }
-    val borderBrush = Brush.linearGradient(
+    val darkBorder = if (dark) {
+        Color.Black.copy(alpha = 0.20f)
+    } else {
+        palette.color(palette.border).copy(alpha = 0.44f)
+    }
+    val topLeftBorder = if (dark) {
+        Color.White.copy(alpha = 0.25f)
+    } else {
+        palette.color(palette.border).copy(alpha = 0.78f)
+    }
+    val bottomRightBorder = if (dark) {
+        Color.White.copy(alpha = 0.17f)
+    } else {
+        palette.color(palette.border).copy(alpha = 0.64f)
+    }
+    val borderBrush = Brush.sweepGradient(
         colorStops = arrayOf(
-            0.0f to if (dark) Color.White.copy(alpha = 0.24f) else palette.color(palette.border).copy(alpha = 0.78f),
-            0.1f to if (dark) Color.Black.copy(alpha = 0.20f) else palette.color(palette.border).copy(alpha = 0.44f),
-            0.9f to if (dark) Color.Black.copy(alpha = 0.20f) else palette.color(palette.border).copy(alpha = 0.44f),
-            1.0f to if (dark) Color.White.copy(alpha = 0.17f) else palette.color(palette.border).copy(alpha = 0.64f),
+            0.00f to darkBorder,
+            0.05f to bottomRightBorder,
+            0.22f to bottomRightBorder,
+            0.32f to darkBorder,
+            0.50f to darkBorder,
+            0.55f to topLeftBorder,
+            0.76f to topLeftBorder,
+            0.84f to darkBorder,
+            1.00f to darkBorder,
         ),
     )
     Box(

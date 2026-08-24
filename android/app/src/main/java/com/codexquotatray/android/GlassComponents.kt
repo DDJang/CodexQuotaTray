@@ -360,7 +360,9 @@ private fun LiquidTabCapsule(
         val density = LocalDensity.current
         val touchSlop = LocalViewConfiguration.current.touchSlop
         val tabWidth = with(density) { (constraints.maxWidth.toFloat() - 8.dp.toPx()) / 2f }
-        val pressedScaleX = with(density) { (tabWidth + 22.dp.toPx()) / tabWidth }
+        val selectedBaseHeight = (constraints.maxHeight.toFloat() - with(density) { 8.dp.toPx() }).coerceAtLeast(1f)
+        val pressedScaleX = with(density) { (tabWidth + 30.dp.toPx()) / tabWidth }
+        val pressedScaleY = with(density) { (selectedBaseHeight + 22.dp.toPx()) / selectedBaseHeight }
         val offsetAnimation = remember { Animatable(0f) }
         val panelOffset by remember(density) {
             derivedStateOf {
@@ -382,7 +384,7 @@ private fun LiquidTabCapsule(
                 visibilityThreshold = 0.001f,
                 initialScale = 1f,
                 pressedScaleX = pressedScaleX,
-                pressedScaleY = 78f / 56f,
+                pressedScaleY = pressedScaleY,
                 onDragStarted = {
                     tapIndex = if (it.x < constraints.maxWidth / 2f) {
                         if (isLtr) 0 else 1
@@ -483,8 +485,8 @@ private fun LiquidTabCapsule(
                     backdrop, { KyantShapes.capsule() },
                     effects = { vibrancy(); blur(8.dp.toPx()); lens(24.dp.toPx(), 24.dp.toPx()) },
                     layerBlock = {
-                        val scale = lerp(1f, 1f + 16.dp.toPx() / size.width, drag.pressProgress)
-                        scaleX = scale; scaleY = scale
+                        val outerPressedScale = lerp(1f, 1f + 6.dp.toPx() / size.width, drag.pressProgress)
+                        scaleX = outerPressedScale; scaleY = outerPressedScale
                     },
                     onDrawSurface = { drawRect(containerColor) },
                 )
