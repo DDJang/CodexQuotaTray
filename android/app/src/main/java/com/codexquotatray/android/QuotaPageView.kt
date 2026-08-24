@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
@@ -231,6 +232,7 @@ internal class QuotaPageController(private val host: MainActivity) {
         if (!canRefresh) return
         val enabled = refreshSettings.load().autoRefreshOnOpen
         if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.QUOTA, reason, enabled)) return
+        val presentationStartedAt = SystemClock.elapsedRealtime()
         busy = true
         val previous = lastSuccessful
         val requestWindowsDeviceIdentity = currentWindowsDeviceIdentity()
@@ -241,59 +243,66 @@ internal class QuotaPageController(private val host: MainActivity) {
             } finally {
                 AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.QUOTA)
             }
+            val requestFinishedAt = SystemClock.elapsedRealtime()
             main.post {
-                busy = false
-                val currentWindowsDeviceIdentity = currentWindowsDeviceIdentity()
-                val directResultIsUsable = result.getOrNull()?.let {
-                    it.source == QuotaSource.DIRECT && it.quotaState != "unavailable"
-                } == true
-                if (requestWindowsDeviceIdentity != currentWindowsDeviceIdentity &&
-                    !directResultIsUsable
-                ) {
-                    lastWindowsDeviceIdentity = currentWindowsDeviceIdentity
-                    lastQuotaSourceAvailable = hasQuotaSource()
-                    lastSuccessful = loadLatestModel(currentWindowsDeviceIdentity)
-                    model = lastSuccessful ?: if (lastQuotaSourceAvailable == true) {
-                        quotaLoadingUiModel(null)
-                    } else {
-                        unauthenticatedQuotaUiModel()
-                    }
-                    return@post
-                }
-                model = result.fold(
-                    onSuccess = { value ->
-                        val candidate = value.toQuotaUiModel()
-                        if (candidate.status == QuotaUiStatus.LOADED) {
-                            lastSuccessful = candidate
-                            candidate
-                        } else {
-                            AppLogStore.record(host, "额度详情暂不可用", "WARN")
-                            quotaErrorUiModel(candidate.message ?: "额度详情暂不可用", previous)
-                        }
-                    },
-                    onFailure = { error ->
-                        AppLogStore.record(host, "额度读取失败：${error.message ?: "未知错误"}", "WARN")
-                        if (error is QuotaReadException && error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) {
-                            lastQuotaSourceAvailable = hasQuotaSource()
-                            if (lastQuotaSourceAvailable != true) {
-                                lastSuccessful = null
-                                snapshotStore.clear()
-                                com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
-                                QuotaRefreshScheduler.cancel(host)
-                            }
-                        }
-                        when (error) {
-                            is QuotaReadException -> if (
-                                error.kind == QuotaReadFailureKind.LOGIN_REQUIRED && lastQuotaSourceAvailable != true
-                            ) {
-                                unauthenticatedQuotaUiModel()
-                            } else {
-                                quotaErrorUiModel(error.message, previous)
-                            }
-                            else -> quotaErrorUiModel("额度读取失败", previous)
-                        }
-                    },
+                val remaining = remainingRefreshPresentationMillis(
+                    presentationStartedAt,
+                    requestFinishedAt,
                 )
+                main.postDelayed({
+                    busy = false
+                    val currentWindowsDeviceIdentity = currentWindowsDeviceIdentity()
+                    val directResultIsUsable = result.getOrNull()?.let {
+                        it.source == QuotaSource.DIRECT && it.quotaState != "unavailable"
+                    } == true
+                    if (requestWindowsDeviceIdentity != currentWindowsDeviceIdentity &&
+                        !directResultIsUsable
+                    ) {
+                        lastWindowsDeviceIdentity = currentWindowsDeviceIdentity
+                        lastQuotaSourceAvailable = hasQuotaSource()
+                        lastSuccessful = loadLatestModel(currentWindowsDeviceIdentity)
+                        model = lastSuccessful ?: if (lastQuotaSourceAvailable == true) {
+                            quotaLoadingUiModel(null)
+                        } else {
+                            unauthenticatedQuotaUiModel()
+                        }
+                        return@postDelayed
+                    }
+                    model = result.fold(
+                        onSuccess = { value ->
+                            val candidate = value.toQuotaUiModel()
+                            if (candidate.status == QuotaUiStatus.LOADED) {
+                                lastSuccessful = candidate
+                                candidate
+                            } else {
+                                AppLogStore.record(host, "额度详情暂不可用", "WARN")
+                                quotaErrorUiModel(candidate.message ?: "额度详情暂不可用", previous)
+                            }
+                        },
+                        onFailure = { error ->
+                            AppLogStore.record(host, "额度读取失败：${error.message ?: "未知错误"}", "WARN")
+                            if (error is QuotaReadException && error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) {
+                                lastQuotaSourceAvailable = hasQuotaSource()
+                                if (lastQuotaSourceAvailable != true) {
+                                    lastSuccessful = null
+                                    snapshotStore.clear()
+                                    com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
+                                    QuotaRefreshScheduler.cancel(host)
+                                }
+                            }
+                            when (error) {
+                                is QuotaReadException -> if (
+                                    error.kind == QuotaReadFailureKind.LOGIN_REQUIRED && lastQuotaSourceAvailable != true
+                                ) {
+                                    unauthenticatedQuotaUiModel()
+                                } else {
+                                    quotaErrorUiModel(error.message, previous)
+                                }
+                                else -> quotaErrorUiModel("额度读取失败", previous)
+                            }
+                        },
+                    )
+                }, remaining)
             }
         }
     }
@@ -546,10 +555,10 @@ private fun QuotaCardSurface(content: @Composable () -> Unit) {
         )
     }
     val borderBrush = Brush.linearGradient(
-        listOf(
-            if (dark) Color.White.copy(alpha = 0.20f) else palette.color(palette.border),
-            if (dark) Color.White.copy(alpha = 0.09f) else palette.color(palette.border).copy(alpha = 0.72f),
-            if (dark) Color.Black.copy(alpha = 0.26f) else palette.color(palette.border).copy(alpha = 0.56f),
+        colorStops = arrayOf(
+            0.0f to if (dark) Color.White.copy(alpha = 0.24f) else palette.color(palette.border).copy(alpha = 0.78f),
+            0.5f to if (dark) Color.Black.copy(alpha = 0.20f) else palette.color(palette.border).copy(alpha = 0.44f),
+            1.0f to if (dark) Color.White.copy(alpha = 0.17f) else palette.color(palette.border).copy(alpha = 0.64f),
         ),
     )
     Box(

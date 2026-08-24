@@ -308,15 +308,16 @@ internal fun LiquidMainDock(
 ) {
     BoxWithConstraints(modifier) {
         val actionSize = 56.dp
+        val navigationHeight = 56.dp
         val minimumGap = 16.dp
-        val preferredNavigationWidth = (maxWidth * 0.60f).coerceIn(196.dp, 248.dp)
+        val preferredNavigationWidth = (maxWidth * 0.525f).coerceIn(172.dp, 217.dp)
         val navigationWidth = minOf(preferredNavigationWidth, maxWidth - actionSize - minimumGap)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             LiquidTabCapsule(
                 selectedIndex,
                 onSelected,
                 backdrop,
-                Modifier.size(width = navigationWidth, height = 64.dp),
+                Modifier.size(width = navigationWidth, height = navigationHeight),
             )
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             GlassIconButton(
@@ -488,14 +489,14 @@ private fun LiquidTabCapsule(
                     onDrawSurface = { drawRect(containerColor) },
                 )
                 .then(interactiveHighlight.modifier)
-                .height(64.dp).fillMaxWidth().padding(4.dp),
+                .fillMaxHeight().fillMaxWidth().padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
             content = {},
         )
         Row(
             Modifier
                 .graphicsLayer { translationX = panelOffset }
-                .height(64.dp)
+                .fillMaxHeight()
                 .fillMaxWidth()
                 .padding(4.dp)
                 .drawWithContent {
@@ -534,7 +535,7 @@ private fun LiquidTabCapsule(
                         onDrawSurface = { drawRect(containerColor) },
                     )
                     .then(interactiveHighlight.modifier)
-                    .height(56.dp).fillMaxWidth().padding(horizontal = 4.dp)
+                    .fillMaxHeight().fillMaxWidth().padding(horizontal = 4.dp)
                     .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
                 verticalAlignment = Alignment.CenterVertically,
                 content = tabs,
@@ -560,7 +561,7 @@ private fun LiquidTabCapsule(
                         drawRect(Color.Black.copy(alpha = 0.03f * drag.pressProgress))
                     },
                 )
-                .height(56.dp).fillMaxWidth(0.5f),
+                .fillMaxHeight().fillMaxWidth(0.5f),
         )
         Box(
             Modifier

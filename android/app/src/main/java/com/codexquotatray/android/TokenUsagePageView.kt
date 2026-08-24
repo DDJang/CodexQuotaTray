@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -195,6 +196,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         if (!canSync || destroyed) return
         val enabled = refreshSettings.load().autoSyncOnOpen
         if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.TOKEN, reason, enabled)) return
+        val presentationStartedAt = SystemClock.elapsedRealtime()
         val snapshotAtStart = snapshot
         syncing = true
         status = RefreshStatusFormatter.tokenRefreshing(snapshot != null)
@@ -208,25 +210,32 @@ internal class TokenUsagePageController(private val host: MainActivity) {
             } finally {
                 AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.TOKEN)
             }
+            val requestFinishedAt = SystemClock.elapsedRealtime()
             main.post {
-                if (destroyed) return@post
-                syncing = false
-                result.onSuccess { synced ->
-                    snapshot = synced.snapshot
-                    status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(synced.snapshot), formatSyncTime(synced.snapshot.generatedAtUtc))
-                }.onFailure { error ->
-                    val latestSnapshot = loadCachedSnapshot()
-                    if (latestSnapshot != null && hasNewerTokenUsageSnapshot(snapshotAtStart, latestSnapshot)) {
-                        snapshot = latestSnapshot
-                        status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(latestSnapshot), formatSyncTime(latestSnapshot.generatedAtUtc))
-                    } else {
-                        val message = tokenUsageSyncErrorMessage(error)
-                        status = RefreshStatusFormatter.tokenFailure(
-                            reason = message,
-                            updatedAt = snapshot?.let { formatSyncTime(it.generatedAtUtc) },
-                        )
+                val remaining = remainingRefreshPresentationMillis(
+                    presentationStartedAt,
+                    requestFinishedAt,
+                )
+                main.postDelayed({
+                    if (destroyed) return@postDelayed
+                    syncing = false
+                    result.onSuccess { synced ->
+                        snapshot = synced.snapshot
+                        status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(synced.snapshot), formatSyncTime(synced.snapshot.generatedAtUtc))
+                    }.onFailure { error ->
+                        val latestSnapshot = loadCachedSnapshot()
+                        if (latestSnapshot != null && hasNewerTokenUsageSnapshot(snapshotAtStart, latestSnapshot)) {
+                            snapshot = latestSnapshot
+                            status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(latestSnapshot), formatSyncTime(latestSnapshot.generatedAtUtc))
+                        } else {
+                            val message = tokenUsageSyncErrorMessage(error)
+                            status = RefreshStatusFormatter.tokenFailure(
+                                reason = message,
+                                updatedAt = snapshot?.let { formatSyncTime(it.generatedAtUtc) },
+                            )
+                        }
                     }
-                }
+                }, remaining)
             }
         }
     }

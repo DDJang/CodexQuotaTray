@@ -392,6 +392,7 @@ class SettingsActivity : ComponentActivity() {
     private fun ColumnScope.SyncSettings() {
         SettingsSection("额度") {
             SettingsGroup {
+                SettingsInlineLabel("数据来源")
                 SettingsSegmentedSelector(
                     options = sourcePriorityOptions(),
                     selectedValue = sourcePriorityValue(quotaSourcePriority),
@@ -419,6 +420,7 @@ class SettingsActivity : ComponentActivity() {
         }
         SettingsSection("统计") {
             SettingsGroup {
+                SettingsInlineLabel("数据来源")
                 SettingsSegmentedSelector(
                     options = sourcePriorityOptions(),
                     selectedValue = sourcePriorityValue(tokenSourcePriority),

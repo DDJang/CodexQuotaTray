@@ -32,8 +32,20 @@ class SettingsStructureTest {
             .substringBefore("SettingsSection(\"统计\")")
         val tokenSection = dataPage.substringAfter("SettingsSection(\"统计\")")
             .substringBefore("SettingsSection(\"电池优化\")")
-        assertOrdered(quotaSection, "sourcePriorityOptions()", "SettingsDivider()", "回到前台时刷新")
-        assertOrdered(tokenSection, "sourcePriorityOptions()", "SettingsDivider()", "回到前台时同步")
+        assertOrdered(
+            quotaSection,
+            "SettingsInlineLabel(\"数据来源\")",
+            "sourcePriorityOptions()",
+            "SettingsDivider()",
+            "回到前台时刷新",
+        )
+        assertOrdered(
+            tokenSection,
+            "SettingsInlineLabel(\"数据来源\")",
+            "sourcePriorityOptions()",
+            "SettingsDivider()",
+            "回到前台时同步",
+        )
     }
 
     @Test
@@ -45,11 +57,13 @@ class SettingsStructureTest {
         assertTrue(selector.contains("bottom = SettingsUiTokens.segmentedBottomInset"))
     }
 
-    private fun assertOrdered(source: String, first: String, second: String, third: String) {
-        val firstIndex = source.indexOf(first)
-        val secondIndex = source.indexOf(second)
-        val thirdIndex = source.indexOf(third)
-        assertTrue(firstIndex >= 0 && firstIndex < secondIndex && secondIndex < thirdIndex)
+    private fun assertOrdered(source: String, vararg markers: String) {
+        var previousIndex = -1
+        markers.forEach { marker ->
+            val index = source.indexOf(marker)
+            assertTrue(index >= 0 && index > previousIndex)
+            previousIndex = index
+        }
     }
 
     private fun settingsSource(): String = sourceFile("SettingsActivity.kt")
