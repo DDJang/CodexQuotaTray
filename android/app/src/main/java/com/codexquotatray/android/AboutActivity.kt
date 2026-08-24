@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -89,12 +90,30 @@ class AboutActivity : ComponentActivity() {
                                     color = palette.color(palette.muted),
                                     fontSize = 14.sp,
                                 )
-                                Text(
-                                    PROJECT_URL,
-                                    modifier = Modifier.padding(top = 18.dp).clickable(onClick = rememberSystemHapticClick(::openProjectPage)),
-                                    color = palette.color(palette.accent),
-                                    fontSize = 14.sp,
-                                )
+                                Row(
+                                    modifier = Modifier.padding(top = 18.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = "GitHub 项目主页",
+                                        color = palette.color(palette.accent),
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        modifier = Modifier.clickable(
+                                            onClick = rememberSystemHapticClick(::openProjectPage),
+                                        ),
+                                    )
+                                    Text(
+                                        text = "开源许可证(MIT)",
+                                        color = palette.color(palette.accent),
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        modifier = Modifier.clickable(
+                                            onClick = rememberSystemHapticClick(::openLicensePage),
+                                        ),
+                                    )
+                                }
                             }
                         }
                     }
@@ -145,7 +164,12 @@ class AboutActivity : ComponentActivity() {
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT_URL))) }
     }
 
+    private fun openLicensePage() {
+        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(LICENSE_URL))) }
+    }
+
     companion object {
         private const val PROJECT_URL = "https://github.com/DDJang/CodexQuotaTray"
+        private const val LICENSE_URL = "https://github.com/DDJang/CodexQuotaTray/blob/main/LICENSE"
     }
 }

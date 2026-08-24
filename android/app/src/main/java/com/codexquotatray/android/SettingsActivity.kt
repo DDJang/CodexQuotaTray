@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.dp
 import com.codexquotatray.android.alerts.QuotaAlertSettingsStore
 import com.codexquotatray.android.alerts.QuotaNotifications
+import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import com.codexquotatray.android.quota.QuotaRefreshSettings
 import com.codexquotatray.android.quota.QuotaRefreshSettingsStore
@@ -104,6 +105,7 @@ internal fun sourcePriorityFromValue(value: Int): DataSourcePriority =
 
 class SettingsActivity : ComponentActivity() {
     private val alertStore by lazy { QuotaAlertSettingsStore(this) }
+    private val oauthStore by lazy { OAuthStore(this) }
     private val refreshStore by lazy { QuotaRefreshSettingsStore(this) }
     private val themeStore by lazy { ThemeSettingsStore(this) }
     private val tokenStore by lazy { TokenSyncStore(this) }
@@ -145,6 +147,7 @@ class SettingsActivity : ComponentActivity() {
     private var updateDownloadError by mutableStateOf<String?>(null)
     private var pendingBrowserDownloadUrl: String? = null
     private var pendingInstall by mutableStateOf<java.io.File?>(null)
+    private var codexLoggedIn by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -301,7 +304,10 @@ class SettingsActivity : ComponentActivity() {
     private fun ColumnScope.SettingsHome() {
         SettingsSection("账号与配对") {
             SettingsGroup {
-                SettingsNavigationRow("Codex 额度账号") {
+                SettingsNavigationRow(
+                    title = "Codex 额度账号",
+                    trailing = if (codexLoggedIn) "已登录" else "未登录",
+                ) {
                     startActivity(Intent(this@SettingsActivity, AccountActivity::class.java))
                 }
                 SettingsDivider()
@@ -320,7 +326,7 @@ class SettingsActivity : ComponentActivity() {
                     openDestination(SettingsDestination.NOTIFICATIONS)
                 }
                 SettingsDivider()
-                SettingsNavigationRow("数据", if (backgroundRefresh || tokenBackgroundSync) "已开启" else "已关闭") {
+                SettingsNavigationRow("数据") {
                     openDestination(SettingsDestination.SYNC)
                 }
             }
@@ -607,6 +613,7 @@ class SettingsActivity : ComponentActivity() {
 
     private fun renderState() {
         val alert = alertStore.load()
+        codexLoggedIn = oauthStore.load() != null
         val refresh = refreshStore.load()
         lowQuota = alert.lowQuotaEnabled
         resetAlert = alert.resetEnabled

@@ -50,6 +50,38 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun settingsHomeUsesOAuthPairingAndNavigationStateLabels() {
+        val source = settingsSource()
+
+        assertTrue(source.contains("private val oauthStore by lazy { OAuthStore(this) }"))
+        assertTrue(source.contains("private var codexLoggedIn by mutableStateOf(false)"))
+        assertTrue(source.contains("codexLoggedIn = oauthStore.load() != null"))
+        assertTrue(source.contains("trailing = if (codexLoggedIn) \"已登录\" else \"未登录\""))
+        assertTrue(source.contains("trailing = pairing?.displayName ?: \"未配对\""))
+        assertTrue(source.contains("SettingsNavigationRow(\"数据\")"))
+        assertFalse(source.contains("SettingsNavigationRow(\"数据\", if (backgroundRefresh || tokenBackgroundSync)"))
+    }
+
+    @Test
+    fun aboutUsesCenteredProjectAndLicenseLinksWithIndependentHaptics() {
+        val about = sourceFile("AboutActivity.kt")
+        val renderedAbout = about.substringBefore("private fun openProjectPage()")
+
+        assertTrue(renderedAbout.contains("GitHub 项目主页"))
+        assertTrue(renderedAbout.contains("开源许可证(MIT)"))
+        assertTrue(renderedAbout.contains("modifier = Modifier.padding(top = 18.dp)"))
+        assertTrue(renderedAbout.contains("horizontalArrangement = Arrangement.spacedBy(18.dp)"))
+        assertTrue(renderedAbout.contains("verticalAlignment = Alignment.CenterVertically"))
+        assertTrue(renderedAbout.contains("rememberSystemHapticClick(::openProjectPage)"))
+        assertTrue(renderedAbout.contains("rememberSystemHapticClick(::openLicensePage)"))
+        assertFalse(renderedAbout.contains("PROJECT_URL"))
+        assertTrue(about.contains("Uri.parse(PROJECT_URL)"))
+        assertTrue(about.contains("Uri.parse(LICENSE_URL)"))
+        assertTrue(about.contains("private const val PROJECT_URL = \"https://github.com/DDJang/CodexQuotaTray\""))
+        assertTrue(about.contains("private const val LICENSE_URL = \"https://github.com/DDJang/CodexQuotaTray/blob/main/LICENSE\""))
+    }
+
+    @Test
     fun segmentedSelectorUsesFullSlotBackdropWithInsetVisibleControl() {
         val source = sourceFile("SettingsUi.kt")
         val selector = source.substringAfter("internal fun SettingsSegmentedSelector(")
