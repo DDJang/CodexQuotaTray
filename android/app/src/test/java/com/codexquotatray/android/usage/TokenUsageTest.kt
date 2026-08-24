@@ -72,6 +72,7 @@ class TokenUsageTest {
         assertFalse(shouldForceTokenUsageRefresh(AutomaticRefreshReason.STARTUP))
         assertFalse(shouldForceTokenUsageRefresh(AutomaticRefreshReason.FOREGROUND))
         assertFalse(shouldForceTokenUsageRefresh(AutomaticRefreshReason.SCHEDULED))
+        assertFalse(shouldForceTokenUsageRefresh(AutomaticRefreshReason.SOURCE_CHANGED))
     }
 
     @Test fun clientClassifiesUnauthorizedMalformedUnsupportedAndOffline() {

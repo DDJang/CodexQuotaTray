@@ -79,6 +79,22 @@ class AutomaticRefreshCoordinatorTest {
     }
 
     @Test
+    fun sourceChangeBypassesAutomaticFreshnessAndDisabledSetting() {
+        val coordinator = AutomaticRefreshCoordinator { 1_000_000L }
+
+        assertTrue(coordinator.tryStart(AutomaticRefreshChannel.QUOTA, AutomaticRefreshReason.STARTUP, enabled = true))
+        coordinator.finish(AutomaticRefreshChannel.QUOTA)
+        assertTrue(
+            coordinator.tryStart(
+                AutomaticRefreshChannel.QUOTA,
+                AutomaticRefreshReason.SOURCE_CHANGED,
+                enabled = false,
+            ),
+        )
+        coordinator.finish(AutomaticRefreshChannel.QUOTA)
+    }
+
+    @Test
     fun quotaAndTokenHaveIndependentAutomaticGates() {
         val coordinator = AutomaticRefreshCoordinator { 1_000_000L }
 

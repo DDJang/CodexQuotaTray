@@ -6,13 +6,14 @@ internal enum class AutomaticRefreshChannel {
     TOKEN,
 }
 
-/** Why an operation was requested. Manual actions bypass the automatic gate. */
+/** Why an operation was requested. Manual actions and source changes bypass the automatic gate. */
 internal enum class AutomaticRefreshReason {
     STARTUP,
     FOREGROUND,
     SCHEDULED,
     RETRY,
     MANUAL,
+    SOURCE_CHANGED,
 }
 
 /**
@@ -40,10 +41,14 @@ internal class AutomaticRefreshCoordinator(
     ): Boolean {
         val state = states.getValue(channel)
         if (state.inFlight) return false
-        if (reason != AutomaticRefreshReason.MANUAL && !enabled) return false
+        if (reason !in setOf(AutomaticRefreshReason.MANUAL, AutomaticRefreshReason.SOURCE_CHANGED) && !enabled) return false
 
         val now = nowMillis()
-        if (reason !in setOf(AutomaticRefreshReason.MANUAL, AutomaticRefreshReason.RETRY) &&
+        if (reason !in setOf(
+                AutomaticRefreshReason.MANUAL,
+                AutomaticRefreshReason.RETRY,
+                AutomaticRefreshReason.SOURCE_CHANGED,
+            ) &&
             !ForegroundRefreshPolicy.shouldRunOnForeground(
                 enabled = enabled,
                 lastAttemptAtMillis = state.lastAutomaticAttemptAtMillis,
@@ -53,7 +58,12 @@ internal class AutomaticRefreshCoordinator(
             return false
         }
 
-        if (reason !in setOf(AutomaticRefreshReason.MANUAL, AutomaticRefreshReason.RETRY)) {
+        if (reason !in setOf(
+                AutomaticRefreshReason.MANUAL,
+                AutomaticRefreshReason.RETRY,
+                AutomaticRefreshReason.SOURCE_CHANGED,
+            )
+        ) {
             state.lastAutomaticAttemptAtMillis = now
         }
         state.inFlight = true

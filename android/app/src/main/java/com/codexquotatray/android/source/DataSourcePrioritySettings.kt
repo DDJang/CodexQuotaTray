@@ -7,6 +7,11 @@ enum class DataSourcePriority {
     WINDOWS_FIRST,
 }
 
+internal fun sourcePriorityChanged(
+    lastObservedPriority: DataSourcePriority?,
+    currentPriority: DataSourcePriority,
+): Boolean = lastObservedPriority != null && lastObservedPriority != currentPriority
+
 data class DataSourcePrioritySettings(
     val quota: DataSourcePriority = DataSourcePriority.OPENAI_FIRST,
     val token: DataSourcePriority = DataSourcePriority.WINDOWS_FIRST,

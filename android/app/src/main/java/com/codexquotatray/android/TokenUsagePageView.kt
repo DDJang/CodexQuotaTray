@@ -87,6 +87,9 @@ import com.codexquotatray.android.usage.TokenUsageSnapshot
 import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
 import com.codexquotatray.android.usage.tokenUsageSyncErrorMessage
 import com.codexquotatray.android.usage.shouldForceTokenUsageRefresh
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
+import com.codexquotatray.android.source.DataSourcePriority
+import com.codexquotatray.android.source.sourcePriorityChanged
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.DayOfWeek
@@ -109,6 +112,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     private val store by lazy { TokenSyncStore(host) }
     private val refreshSettings by lazy { TokenUsageRefreshSettingsStore(host) }
     private val oauthStore by lazy { OAuthStore(host) }
+    private val sourcePriorityStore by lazy { AndroidDataSourcePriorityStore(host) }
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var destroyed = false
@@ -122,6 +126,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         private set
     var paired by mutableStateOf(false)
         private set
+    private var lastObservedPriority: DataSourcePriority? = null
 
     val canSync get() = !syncing && (store.load() != null || oauthStore.load() != null)
 
@@ -139,16 +144,16 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     }
 
     fun onForeground(reason: AutomaticRefreshReason) {
-        reconcilePairingState()
-        requestSync(reason)
+        val priorityChanged = reconcilePairingState()
+        if (!priorityChanged) requestSync(reason)
     }
 
     /**
-     * Reconciles only local provider/cache state. It never starts a network
-     * request, so returning from Settings cannot resurrect a stale snapshot or
-     * bypass the foreground refresh coordinator.
+     * Reconciles local provider/cache state. A changed source priority also
+     * starts one source-change sync while retaining the current snapshot.
      */
-    fun reconcilePairingState() {
+    fun reconcilePairingState(): Boolean {
+        val priorityChanged = observeTokenPriority()
         val currentPairing = store.load()
         val hasOAuth = oauthStore.load() != null
         val cached = cache.loadForAvailableSources(currentPairing, hasOAuth)
@@ -156,7 +161,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
             paired = false
             snapshot = null
             status = RefreshStatusFormatter.tokenUnpaired()
-            return
+            return false
         }
         paired = true
         if (cached != null && (snapshot == null || hasNewerTokenUsageSnapshot(snapshot, cached))) {
@@ -165,6 +170,8 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         } else if (snapshot == null) {
             status = RefreshStatusFormatter.tokenPairedWithoutData()
         }
+        if (priorityChanged) requestSync(AutomaticRefreshReason.SOURCE_CHANGED)
+        return priorityChanged
     }
 
     fun onHidden() { visible = false }
@@ -226,6 +233,13 @@ internal class TokenUsagePageController(private val host: MainActivity) {
 
     private fun loadCachedSnapshot(): TokenUsageSnapshot? =
         cache.loadForAvailableSources(store.load(), oauthStore.load() != null)
+
+    private fun observeTokenPriority(): Boolean {
+        val currentPriority = sourcePriorityStore.load().token
+        val changed = sourcePriorityChanged(lastObservedPriority, currentPriority)
+        lastObservedPriority = currentPriority
+        return changed
+    }
 }
 
 internal fun tokenUsageSourceLabel(snapshot: TokenUsageSnapshot): String = when {
