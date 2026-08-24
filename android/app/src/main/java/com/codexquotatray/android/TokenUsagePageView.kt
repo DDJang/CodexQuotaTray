@@ -51,7 +51,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.shadow.Shadow
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -69,6 +68,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.codexquotatray.android.usage.HeatmapBuckets
 import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.usage.DataTransport
@@ -101,12 +103,6 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
-import dev.chrisbanes.haze.blur.HazeColorEffect
-import dev.chrisbanes.haze.blur.blurEffect
 
 internal class TokenUsagePageController(private val host: MainActivity) {
     private val cache by lazy { TokenUsageCache(host) }
@@ -326,6 +322,7 @@ private fun TokenUsageStatusLine(status: String) {
 
 @Composable
 private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
+    val palette = LocalQuotaPalette.current
     val first = listOf("今日 Token" to snapshot.summary.todayTokens, "7 天 Token" to snapshot.summary.last7DaysTokens, "30 天 Token" to snapshot.summary.last30DaysTokens, "累计 Token" to snapshot.summary.lifetimeTokens)
     val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续" to snapshot.summary.currentStreak?.toLong(), "最长连续" to snapshot.summary.longestStreak?.toLong())
     val categories = listOf(
@@ -334,7 +331,7 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
         "输出" to completeCategoryTotal(snapshot.days) { it.outputTokens },
         "推理" to completeCategoryTotal(snapshot.days) { it.reasoningTokens },
     )
-    val tokenContentHazeState = rememberHazeState()
+    val tokenContentBackdrop = rememberLayerBackdrop()
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
     var tooltipPresentation by remember { mutableStateOf<HeatmapTooltipPresentation?>(null) }
     val tooltipTarget = tooltipPresentation?.target
@@ -372,7 +369,8 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .hazeSource(tokenContentHazeState),
+                .layerBackdrop(tokenContentBackdrop)
+                .background(palette.color(palette.background)),
         ) {
             SummaryRow(first)
             SummaryRow(second)
@@ -389,9 +387,9 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
             )
         }
         tooltipPresentation?.let { presentation ->
-            HeatmapBlurTooltip(
+            HeatmapLiquidTooltip(
                 day = presentation.day,
-                hazeState = tokenContentHazeState,
+                backdrop = tokenContentBackdrop,
                 modifier = Modifier
                     .offset {
                         IntOffset(tooltipOffset.x.roundToInt(), tooltipOffset.y.roundToInt())
@@ -719,51 +717,33 @@ private fun HeatmapSelectedCell(
 }
 
 @Composable
-private fun HeatmapBlurTooltip(
+private fun HeatmapLiquidTooltip(
     day: TokenUsageDay,
-    hazeState: HazeState,
+    backdrop: Backdrop,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalQuotaPalette.current
     val isDark = palette.color(palette.background).luminance() < 0.35f
-    val containerColor = if (isDark) {
-        Color(0xFF121212)
-    } else {
-        palette.color(palette.surface)
-    }
-    val borderColor = if (isDark) {
-        Color.White.copy(alpha = 0.18f)
-    } else {
-        palette.color(palette.border).copy(alpha = 0.9f)
-    }
-    val shape = RoundedCornerShape(16.dp)
     val scale = remember { Animatable(0.96f) }
     LaunchedEffect(Unit) {
         scale.animateTo(1f, tween(160))
     }
-    Box(
-        modifier
+    val tooltipModifier = liquidTokenDialogSurfaceModifier(
+        modifier = modifier
             .width(HEATMAP_TOOLTIP_WIDTH)
             .height(HEATMAP_TOOLTIP_HEIGHT)
             .graphicsLayer {
                 scaleX = scale.value
                 scaleY = scale.value
                 transformOrigin = TransformOrigin.Center
-            }
-            .clip(shape)
-            .hazeEffect(hazeState) {
-                blurEffect {
-                    blurRadius = 24.dp
-                    backgroundColor = containerColor
-                    colorEffects = listOf(
-                        HazeColorEffect.tint(containerColor.copy(alpha = if (isDark) 0.65f else 0.72f)),
-                    )
-                }
-            }
-            .border(1.dp, borderColor, shape)
-            .semantics {
-                contentDescription = "${formatHeatmapTooltipDate(day.date)}，${formatHeatmapTooltipTokenCount(day.totalTokens)}"
             },
+        backdrop = backdrop,
+        isDark = isDark,
+    )
+    Box(
+        tooltipModifier.semantics {
+            contentDescription = "${formatHeatmapTooltipDate(day.date)}，${formatHeatmapTooltipTokenCount(day.totalTokens)}"
+        },
     ) {
         Column(
             Modifier.padding(horizontal = 16.dp, vertical = 10.dp),

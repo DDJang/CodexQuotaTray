@@ -83,6 +83,7 @@ import com.codexquotatray.android.formatHeatmapTooltipTokenCount
 import com.codexquotatray.android.heatmapGestureOnDown
 import com.codexquotatray.android.heatmapGestureOnMove
 import com.codexquotatray.android.heatmapGestureShouldClear
+import com.codexquotatray.android.liquidTokenDialogSurfaceModifier
 import com.codexquotatray.android.rememberSystemHapticClick
 import com.codexquotatray.android.placeHeatmapTooltip
 import com.codexquotatray.android.usage.HeatmapBuckets
@@ -90,10 +91,7 @@ import com.codexquotatray.android.usage.TokenUsageDay
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.colorControls
 import com.kyant.backdrop.effects.lens
-import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.shapes.RoundedRectangle
 import dev.chrisbanes.haze.HazeState
@@ -613,16 +611,10 @@ private fun FixtureTokenTooltip(
                 }
             }
             .border(1.dp, currentBorderColor, fixtureTooltipShape)
-        FixtureTooltipStyle.DIALOG -> baseModifier.drawBackdrop(
+        FixtureTooltipStyle.DIALOG -> liquidTokenDialogSurfaceModifier(
+            modifier = baseModifier,
             backdrop = backdrop,
-            shape = { RoundedRectangle(16.dp) },
-            effects = {
-                colorControls(brightness = 0f, saturation = 1.5f, contrast = 1f)
-                blur(8.dp.toPx())
-                lens(24.dp.toPx(), 48.dp.toPx(), depthEffect = true)
-            },
-            highlight = { Highlight.Plain },
-            onDrawSurface = { drawRect(Color(0xFF121212).copy(alpha = 0.4f)) },
+            isDark = isDark,
         )
         FixtureTooltipStyle.MAGNIFIER -> baseModifier.drawBackdrop(
             backdrop = backdrop,
