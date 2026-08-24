@@ -128,7 +128,7 @@ private data class FixtureVisualSelection(
 private val fixtureHeatmapStartDate = LocalDate.of(2026, 5, 10)
 private val fixtureTooltipWidth = 220.dp
 private val fixtureTooltipHeight = 64.dp
-private val fixtureTooltipClearance = 32.dp
+private val fixtureTooltipClearance = 8.dp
 private val fixtureHeatmapGap = 5.dp
 private val fixtureHeatmapMaxCellSize = 24.dp
 private val fixtureHeatmapCornerRadius = 3.dp
