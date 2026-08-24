@@ -305,7 +305,7 @@ private fun ScaledUpstreamSegmentedTabs(
                         Text(
                             label,
                             color = contentColor,
-                            fontSize = 15.sp,
+                            fontSize = 19.sp,
                             maxLines = 1,
                         )
                     }
