@@ -158,6 +158,55 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun liquidIconButtonsUseUpstreamPipelineAndFixtureCoversTopologyCases() {
+        val component = sourceFile("LiquidIconButton.kt")
+        val components = sourceFile("GlassComponents.kt")
+        val main = sourceFile("MainActivity.kt")
+        val settings = sourceFile("SettingsActivity.kt")
+        val codexUi = sourceFile("CodexUi.kt")
+        val fixture = debugSourceFile("debug/LiquidIconButtonFixtureActivity.kt")
+        val manifest = debugManifestSource()
+        val dock = components.substringAfter("internal fun LiquidMainDock(")
+
+        assertTrue(component.contains("shape = { Capsule() }"))
+        assertTrue(component.contains("vibrancy()"))
+        assertTrue(component.contains("blur(2f.dp.toPx())"))
+        assertTrue(component.contains("lens(12f.dp.toPx(), 24f.dp.toPx())"))
+        assertTrue(component.contains("val scale = lerp(1f, 1f + 4f.dp.toPx() / size.height, progress)"))
+        assertTrue(component.contains("val maxOffset = size.minDimension"))
+        assertTrue(component.contains("val initialDerivative = 0.05f"))
+        assertTrue(component.contains("translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)"))
+        assertTrue(component.contains("translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)"))
+        assertTrue(component.contains("onDrawSurface = {},"))
+        assertFalse(component.contains("GlassSurface("))
+        assertFalse(component.contains("Highlight.Default"))
+        assertFalse(component.contains("colorControls"))
+        assertFalse(component.contains("surfaceAlpha"))
+        assertFalse(component.contains(".clip("))
+
+        assertTrue(dock.contains("LiquidIconButton("))
+        assertFalse(dock.contains("GlassIconButton("))
+        assertTrue(main.contains("LiquidIconButton("))
+        assertFalse(main.contains("GlassIconButton("))
+        assertTrue(settings.contains("LiquidIconButton("))
+        assertFalse(settings.contains("GlassIconButton("))
+        assertTrue(codexUi.contains("LiquidIconButton("))
+        assertFalse(codexUi.contains("GlassIconButton("))
+
+        assertTrue(fixture.contains("UpstreamLiquidIconButton"))
+        assertTrue(fixture.contains("LiquidIconButton("))
+        assertTrue(fixture.contains("Case A · current Settings topology"))
+        assertTrue(fixture.contains("Case B · background enters source"))
+        assertTrue(fixture.contains("Case C · rich backdrop control"))
+        assertTrue(fixture.contains("sourceIncludesBackground = false"))
+        assertTrue(fixture.contains("sourceIncludesBackground = true"))
+        assertTrue(fixture.contains("SettingsLikeScrollContent"))
+        assertTrue(fixture.contains("账号与配对"))
+        assertTrue(fixture.contains(".layerBackdrop(backdrop)"))
+        assertTrue(manifest.contains(".debug.LiquidIconButtonFixtureActivity"))
+    }
+
+    @Test
     fun legacyLiquidDockImplementationIsRemovedAfterKyantMigration() {
         val components = sourceFile("GlassComponents.kt")
         val animations = sourceFile("BottomDockAnimations.kt")
@@ -281,5 +330,15 @@ class SettingsStructureTest {
         )
         return candidates.firstOrNull(File::isFile)?.readText()
             ?: error("$name debug source not found from ${System.getProperty("user.dir")}")
+    }
+
+    private fun debugManifestSource(): String {
+        val candidates = listOf(
+            File("android/app/src/debug/AndroidManifest.xml"),
+            File("app/src/debug/AndroidManifest.xml"),
+            File("src/debug/AndroidManifest.xml"),
+        )
+        return candidates.firstOrNull(File::isFile)?.readText()
+            ?: error("debug AndroidManifest.xml not found from ${System.getProperty("user.dir")}")
     }
 }

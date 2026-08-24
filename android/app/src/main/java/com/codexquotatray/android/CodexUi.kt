@@ -216,7 +216,7 @@ internal fun SecondaryScreenScaffold(
             Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GlassIconButton(
+            LiquidIconButton(
                 iconRes = R.drawable.ic_back,
                 description = "返回",
                 backdrop = backdrop,

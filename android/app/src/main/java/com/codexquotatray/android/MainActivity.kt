@@ -142,7 +142,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 8.dp, end = 20.dp)) {
-                        GlassIconButton(
+                        LiquidIconButton(
                             iconRes = R.drawable.ic_settings,
                             description = "设置",
                             backdrop = chromeBackdrop,

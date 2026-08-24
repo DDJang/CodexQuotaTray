@@ -59,7 +59,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.tanh
 
-// Keep circular glass actions equal to the short edge of the bottom navigation capsule.
+// Keep the refresh action equal to the short edge of the bottom navigation capsule.
 internal val glassActionButtonSize = 64.dp
 internal val glassRefreshIconSize = 28.dp
 
@@ -278,7 +278,7 @@ internal fun LiquidMainDock(
                 }
             }
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
-            GlassIconButton(
+            LiquidIconButton(
                 iconRes = R.drawable.ic_refresh,
                 description = actionDescription,
                 backdrop = backdrop,
