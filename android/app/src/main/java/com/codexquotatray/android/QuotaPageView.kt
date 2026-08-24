@@ -603,9 +603,8 @@ private fun QuotaProgressRing(
     Box(Modifier.size(116.dp), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize().padding(4.dp)) {
             val strokeWidth = 10.dp.toPx()
-            val glowWidth = 15.dp.toPx()
-            val inset = glowWidth / 2f
-            val arcSize = Size(size.width - glowWidth, size.height - glowWidth)
+            val inset = strokeWidth / 2f
+            val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
             val arcStyle = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             drawArc(
                 color = trackColor.copy(alpha = 0.58f),
@@ -619,15 +618,6 @@ private fun QuotaProgressRing(
             if (progress > 0f) {
                 val sweep = 360f * progress.coerceIn(0f, 1f)
                 drawArc(
-                    color = progressColor.copy(alpha = 0.15f),
-                    startAngle = -90f,
-                    sweepAngle = sweep,
-                    useCenter = false,
-                    topLeft = Offset(inset, inset),
-                    size = arcSize,
-                    style = Stroke(width = glowWidth, cap = StrokeCap.Round),
-                )
-                drawArc(
                     color = progressColor,
                     startAngle = -90f,
                     sweepAngle = sweep,
@@ -635,18 +625,6 @@ private fun QuotaProgressRing(
                     topLeft = Offset(inset, inset),
                     size = arcSize,
                     style = arcStyle,
-                )
-                drawArc(
-                    color = Color.White.copy(alpha = 0.18f),
-                    startAngle = -90f,
-                    sweepAngle = sweep.coerceAtMost(120f),
-                    useCenter = false,
-                    topLeft = Offset(inset, inset),
-                    size = arcSize,
-                    style = Stroke(
-                        width = strokeWidth * 0.46f,
-                        cap = StrokeCap.Round,
-                    ),
                 )
             }
         }
