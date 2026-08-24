@@ -26,8 +26,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -44,6 +42,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.codexquotatray.android.liquidglass.LiquidToggle
+import com.kyant.backdrop.Backdrop
 
 /** Settings-specific visual tokens. They intentionally do not affect quota cards or the dock. */
 internal object SettingsUiTokens {
@@ -177,51 +177,57 @@ internal fun SettingsToggleRow(
     checked: Boolean,
     description: String? = null,
     enabled: Boolean = true,
+    backdrop: Backdrop,
     onChange: (Boolean) -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
     val hapticOnChange = rememberSystemHapticChange(onChange)
     SettingsRow(
         enabled = enabled,
-        onClick = { hapticOnChange(!checked) },
+        onClick = null,
         role = Role.Switch,
     ) {
-        if (description.isNullOrBlank()) {
-            Text(
-                text = title,
-                modifier = Modifier.weight(1f),
-                color = palette.color(palette.body),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-            )
-        } else {
-            Column(modifier = Modifier.weight(1f)) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .clickable(
+                    enabled = enabled,
+                    role = Role.Switch,
+                    onClick = { hapticOnChange(!checked) },
+                ),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            if (description.isNullOrBlank()) {
                 Text(
                     text = title,
                     color = palette.color(palette.body),
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium,
                 )
-                Text(
-                    text = description,
-                    color = palette.color(palette.secondary),
-                    fontSize = 13.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            } else {
+                Column {
+                    Text(
+                        text = title,
+                        color = palette.color(palette.body),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        text = description,
+                        color = palette.color(palette.secondary),
+                        fontSize = 13.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
         }
-        Switch(
-            checked = checked,
-            onCheckedChange = if (enabled) hapticOnChange else null,
+        LiquidToggle(
+            selected = { checked },
+            onSelect = { value -> if (enabled) hapticOnChange(value) },
+            backdrop = backdrop,
             enabled = enabled,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = palette.color(palette.accent),
-                uncheckedThumbColor = Color(0xFFF1F1F1),
-                uncheckedTrackColor = Color(0xFF4A4A4A),
-                uncheckedBorderColor = Color.Transparent,
-            ),
         )
     }
 }
@@ -475,7 +481,7 @@ internal fun SettingsTextInput(
 @Composable
 private fun SettingsRow(
     enabled: Boolean = true,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)?,
     role: Role,
     content: @Composable RowScope.() -> Unit,
 ) {
@@ -483,7 +489,13 @@ private fun SettingsRow(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = SettingsUiTokens.rowMinHeight)
-            .clickable(enabled = enabled, role = role, onClick = onClick)
+            .then(
+                if (onClick == null) {
+                    Modifier
+                } else {
+                    Modifier.clickable(enabled = enabled, role = role, onClick = onClick)
+                },
+            )
             .alpha(if (enabled) 1f else 0.45f)
             .padding(horizontal = SettingsUiTokens.rowHorizontalPadding),
         verticalAlignment = Alignment.CenterVertically,

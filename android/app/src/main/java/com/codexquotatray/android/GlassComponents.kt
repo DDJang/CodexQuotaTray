@@ -77,6 +77,8 @@ import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.fastFirstOrNull
 import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
+import com.codexquotatray.android.liquidglass.LiquidBottomTab
+import com.codexquotatray.android.liquidglass.LiquidBottomTabs
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
@@ -308,17 +310,33 @@ internal fun LiquidMainDock(
 ) {
     BoxWithConstraints(modifier) {
         val actionSize = 56.dp
-        val navigationHeight = 56.dp
+        val navigationHeight = 64.dp
         val minimumGap = 16.dp
         val preferredNavigationWidth = (maxWidth * 0.525f).coerceIn(172.dp, 217.dp)
         val navigationWidth = minOf(preferredNavigationWidth, maxWidth - actionSize - minimumGap)
+        val palette = LocalQuotaPalette.current
+        val contentColor = palette.color(palette.body)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            LiquidTabCapsule(
-                selectedIndex,
-                onSelected,
-                backdrop,
-                Modifier.size(width = navigationWidth, height = navigationHeight),
-            )
+            LiquidBottomTabs(
+                selectedTabIndex = { selectedIndex },
+                onTabSelected = onSelected,
+                backdrop = backdrop,
+                tabsCount = 2,
+                modifier = Modifier.size(width = navigationWidth, height = navigationHeight),
+            ) {
+                LiquidBottomTab(onClick = { onSelected(0) }) {
+                    DockTabContent(
+                        R.drawable.ic_quota_tray,
+                        "额度",
+                        contentColor,
+                        iconWidth = 22.dp,
+                        iconHeight = 24.dp,
+                    )
+                }
+                LiquidBottomTab(onClick = { onSelected(1) }) {
+                    DockTabContent(R.drawable.ic_usage, "统计", contentColor)
+                }
+            }
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             GlassIconButton(
                 iconRes = R.drawable.ic_refresh,

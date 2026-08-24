@@ -66,6 +66,7 @@ import com.codexquotatray.android.update.UpdateRelease
 import com.codexquotatray.android.update.UpdateSettings
 import com.codexquotatray.android.update.UpdateSettingsStore
 import com.codexquotatray.android.update.UpdateSource
+import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import java.time.Instant
@@ -170,6 +171,7 @@ class SettingsActivity : ComponentActivity() {
                             SettingsContent(
                                 page = destination,
                                 scrollState = scrollState,
+                                backdrop = backdrop,
                                 onUpwardOverscrollChanged = { upwardOverscrollActive = it },
                                 modifier = Modifier.fillMaxSize(),
                             )
@@ -265,6 +267,7 @@ class SettingsActivity : ComponentActivity() {
     private fun SettingsContent(
         page: SettingsDestination,
         scrollState: androidx.compose.foundation.ScrollState,
+        backdrop: Backdrop,
         onUpwardOverscrollChanged: (Boolean) -> Unit,
         modifier: Modifier = Modifier,
     ) {
@@ -279,11 +282,11 @@ class SettingsActivity : ComponentActivity() {
         ) {
             when (page) {
                 SettingsDestination.ROOT -> SettingsHome()
-                SettingsDestination.NOTIFICATIONS -> NotificationSettings()
-                SettingsDestination.SYNC -> SyncSettings()
+                SettingsDestination.NOTIFICATIONS -> NotificationSettings(backdrop)
+                SettingsDestination.SYNC -> SyncSettings(backdrop)
                 SettingsDestination.THEME -> ThemeSettings()
                 SettingsDestination.TOKEN_PAIRING -> TokenPairingSettings()
-                SettingsDestination.UPDATE -> UpdateSettingsPage()
+                SettingsDestination.UPDATE -> UpdateSettingsPage(backdrop)
             }
         }
     }
@@ -363,23 +366,23 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ColumnScope.NotificationSettings() {
+    private fun ColumnScope.NotificationSettings(backdrop: Backdrop) {
         SettingsSection("系统通知") {
             SettingsGroup {
-                SettingsToggleRow("系统通知", notificationEnabled) {
+                SettingsToggleRow("系统通知", notificationEnabled, backdrop = backdrop) {
                     if (it) requestNotificationPermission() else openNotificationSettings()
                 }
             }
         }
         SettingsSection("额度提醒") {
             SettingsGroup {
-                SettingsToggleRow("低额度提醒", lowQuota, enabled = notificationEnabled) {
+                SettingsToggleRow("低额度提醒", lowQuota, enabled = notificationEnabled, backdrop = backdrop) {
                     lowQuota = it
                     alertStore.save(alertStore.load().copy(lowQuotaEnabled = it))
                     AppLogStore.record(this@SettingsActivity, "低额度提醒已${if (it) "开启" else "关闭"}")
                 }
                 SettingsDivider()
-                SettingsToggleRow("额度重置提醒", resetAlert, enabled = notificationEnabled) {
+                SettingsToggleRow("额度重置提醒", resetAlert, enabled = notificationEnabled, backdrop = backdrop) {
                     resetAlert = it
                     alertStore.save(alertStore.load().copy(resetEnabled = it))
                     AppLogStore.record(this@SettingsActivity, "额度重置提醒已${if (it) "开启" else "关闭"}")
@@ -392,6 +395,7 @@ class SettingsActivity : ComponentActivity() {
                     title = stringResource(R.string.reset_credit_expiry_toggle),
                     checked = resetCreditExpiryEnabled,
                     enabled = notificationEnabled,
+                    backdrop = backdrop,
                     onChange = ::updateResetCreditExpiry,
                 )
                 SettingsDivider()
@@ -414,7 +418,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ColumnScope.SyncSettings() {
+    private fun ColumnScope.SyncSettings(backdrop: Backdrop) {
         SettingsSection("额度") {
             SettingsGroup {
                 SettingsInlineLabel("数据来源")
@@ -425,9 +429,19 @@ class SettingsActivity : ComponentActivity() {
                     onSelected = { selectQuotaSourcePriority(sourcePriorityFromValue(it)) },
                 )
                 SettingsDivider()
-                SettingsToggleRow("回到前台时刷新", quotaAutoRefresh, onChange = ::updateQuotaAutoRefresh)
+                SettingsToggleRow(
+                    "回到前台时刷新",
+                    quotaAutoRefresh,
+                    backdrop = backdrop,
+                    onChange = ::updateQuotaAutoRefresh,
+                )
                 SettingsDivider()
-                SettingsToggleRow("后台自动刷新", backgroundRefresh, onChange = ::updateBackgroundRefresh)
+                SettingsToggleRow(
+                    "后台自动刷新",
+                    backgroundRefresh,
+                    backdrop = backdrop,
+                    onChange = ::updateBackgroundRefresh,
+                )
                 SettingsDivider()
                 SettingsInlineLabel("刷新频率", enabled = backgroundRefresh)
                 SettingsSegmentedSelector(
@@ -453,9 +467,19 @@ class SettingsActivity : ComponentActivity() {
                     onSelected = { selectTokenSourcePriority(sourcePriorityFromValue(it)) },
                 )
                 SettingsDivider()
-                SettingsToggleRow("回到前台时同步", tokenAutoSync, onChange = ::updateTokenAutoSync)
+                SettingsToggleRow(
+                    "回到前台时同步",
+                    tokenAutoSync,
+                    backdrop = backdrop,
+                    onChange = ::updateTokenAutoSync,
+                )
                 SettingsDivider()
-                SettingsToggleRow("后台自动同步", tokenBackgroundSync, onChange = ::updateTokenBackgroundSync)
+                SettingsToggleRow(
+                    "后台自动同步",
+                    tokenBackgroundSync,
+                    backdrop = backdrop,
+                    onChange = ::updateTokenBackgroundSync,
+                )
                 SettingsDivider()
                 SettingsInlineLabel("同步频率", enabled = tokenBackgroundSync)
                 SettingsSegmentedSelector(
@@ -703,7 +727,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun ColumnScope.UpdateSettingsPage() {
+    private fun ColumnScope.UpdateSettingsPage(backdrop: Backdrop) {
         val locale = LocalLocale.current.platformLocale
         SettingsSection("下载源") {
             SettingsGroup {
@@ -721,12 +745,18 @@ class SettingsActivity : ComponentActivity() {
         }
         SettingsSection("更新行为") {
             SettingsGroup {
-                SettingsToggleRow("自动检查更新", automaticUpdateChecks, onChange = ::updateAutomaticChecks)
+                SettingsToggleRow(
+                    "自动检查更新",
+                    automaticUpdateChecks,
+                    backdrop = backdrop,
+                    onChange = ::updateAutomaticChecks,
+                )
                 SettingsDivider()
                 SettingsToggleRow(
                     "更新提醒",
                     updateReminders,
                     enabled = automaticUpdateChecks,
+                    backdrop = backdrop,
                     onChange = ::updateReminderSetting,
                 )
             }
