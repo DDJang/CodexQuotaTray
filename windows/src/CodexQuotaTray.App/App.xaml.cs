@@ -2,6 +2,7 @@ using System.Diagnostics;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.App.Views;
 using CodexQuotaTray.Core;
+using CodexQuotaTray.Core.Auth;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Protocol;
 using CodexQuotaTray.Core.Persistence;
@@ -33,6 +34,9 @@ public partial class App : Application
     private ISettingsPageActions? settingsPageActions;
     private HostEventService? hostEvents;
     private TokenUsageSyncController? tokenUsageSync;
+    private WindowsAccountService? accountService;
+    private TokenUsageSourceResolver? tokenUsageSourceResolver;
+    private TokenUsageViewModel? tokenUsageViewModel;
     private WindowsUpdateService? windowsUpdateService;
     private AppIdentity? applicationIdentity;
     private CrashSessionLog? crashSessionLog;
@@ -74,7 +78,7 @@ public partial class App : Application
         var startupLaunch = arguments.Any(value => string.Equals(value, "--startup", StringComparison.OrdinalIgnoreCase));
         var explicitCodex = ReadOption(arguments, "--codex-bin");
         var lanDiagnostics = new LanDiagnosticBuffer();
-        var tokenUsageScanner = new TokenUsageScanner();
+        var tokenUsageScanner = new TokenUsageScanner(paths.TokenUsageDatabase);
 
         IUiStateProvider stateProvider;
         IDiagnosticTextProvider diagnostics;
@@ -95,15 +99,29 @@ public partial class App : Application
             tokenUsageSettingsTask = settingsService.LoadAsync(lifetime.Token);
             tokenUsageCacheSettingsStateTask = TokenUsageCacheSettingsState.CreateAsync(tokenUsageSettingsTask);
             var notificationSink = new TrayNotificationSink(uiDispatcher);
+            var cliFactory = new CodexAppServerClientFactory(new CodexClientOptions(ExplicitCodexBinary: explicitCodex));
+            var oauthCredentials = new OAuthCredentialManager(
+                new DpapiOAuthCredentialStore(paths.OAuthCredentials),
+                new OAuthClient());
+            var liveAccountService = new WindowsAccountService(cliFactory, oauthCredentials);
+            accountService = liveAccountService;
             var liveRuntime = new QuotaRuntimeService(
-                new CodexAppServerClientFactory(new CodexClientOptions(ExplicitCodexBinary: explicitCodex)),
+                cliFactory,
                 settingsService,
                 persistence,
-                notificationSink);
+                notificationSink,
+                clientFactoryResolver: source => source == QuotaDataSource.OAuth
+                    ? liveAccountService.OAuthFactory
+                    : cliFactory);
             runtime = new TokenUsageCacheRuntimeControl(liveRuntime, tokenUsageCacheSettingsStateTask);
             stateProvider = liveRuntime;
             diagnostics = liveRuntime;
             providerLifetime = liveRuntime;
+            tokenUsageSourceResolver = new TokenUsageSourceResolver(
+                () => runtime?.Settings.TokenUsageDataSource ?? TokenUsageDataSource.Local,
+                tokenUsageScanner,
+                liveAccountService.ReadCodexCliUsageAsync,
+                liveAccountService.ReadOAuthUsageAsync);
 
             liveRuntime.StateChanged += (_, state) =>
             {
@@ -116,7 +134,7 @@ public partial class App : Application
             };
             tokenUsageSync = new TokenUsageSyncController(
                 new TokenUsageSettingsService(jsonStore, paths),
-                tokenUsageScanner,
+                cancellationToken => tokenUsageSourceResolver.ReadAsync(cancellationToken),
                 liveRuntime.GetLastSuccessfulLanQuotaSnapshot,
                 identity.TokenSyncPort,
                 identity.TokenSyncDisplayNameSuffix,
@@ -158,10 +176,14 @@ public partial class App : Application
             stateProvider,
             new ExternalNavigation(),
             runtimeStateEventsAuthoritative);
-        var tokenUsageViewModel = new TokenUsageViewModel(
-            cancellationToken => ScanTokenUsageAsync(tokenUsageScanner, persistence, cancellationToken));
+        var presentationDispatcher = uiDispatcher
+            ?? throw new InvalidOperationException("The WinUI dispatcher is unavailable.");
+        tokenUsageViewModel = new TokenUsageViewModel(
+            cancellationToken => ScanTokenUsageAsync(tokenUsageScanner, persistence, cancellationToken),
+            (action, cancellationToken) => EnqueueAsync(presentationDispatcher, action, cancellationToken));
+        var tokenUsageViewModelLocal = tokenUsageViewModel;
         viewModelReference = viewModel;
-        mainWindow = new MainWindow(viewModel, tokenUsageViewModel, identity.DisplayName);
+        mainWindow = new MainWindow(viewModel, tokenUsageViewModelLocal, identity.DisplayName);
         mainWindow.Activated += (_, activation) =>
         {
             if (activation.WindowActivationState != WindowActivationState.Deactivated
@@ -183,11 +205,11 @@ public partial class App : Application
         if (!showDemo)
         {
             tokenUsageInitializationTask = InitializeTokenUsageAsync(
-                tokenUsageViewModel,
+                tokenUsageViewModelLocal,
                 persistence!,
                 tokenUsageSettingsTask!,
                 lifetime.Token);
-            tokenUsageRefreshTask = RunTokenUsageRefreshLoopAsync(tokenUsageViewModel, lifetime.Token);
+            tokenUsageRefreshTask = RunTokenUsageRefreshLoopAsync(tokenUsageViewModelLocal, lifetime.Token);
         }
         if (tokenUsageSync is not null)
         {
@@ -249,7 +271,7 @@ public partial class App : Application
                 _ = runtime.RequestAsync(RefreshReason.CardOpened, lifetime.Token);
             }
 
-            _ = RefreshTokenUsageOnPanelShownAsync(tokenUsageViewModel);
+            _ = RefreshTokenUsageOnPanelShownAsync(tokenUsageViewModelLocal);
         };
         if (previousCrashInfo is { } crashInfo)
         {
@@ -420,8 +442,14 @@ public partial class App : Application
 
         if (settingsWindow is null)
         {
-            var settingsViewModel = new SettingsViewModel(runtime, settingsActions, settingsPageActions, windowsUpdateService);
+            var settingsViewModel = new SettingsViewModel(
+                runtime,
+                settingsActions,
+                settingsPageActions,
+                windowsUpdateService,
+                accountService);
             settingsViewModel.ThemeSaved += OnSettingsThemeSaved;
+            settingsViewModel.DataSourcesChanged += OnSettingsDataSourcesChanged;
             settingsWindow = new SettingsWindow(
                 settingsViewModel,
                 applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName);
@@ -433,6 +461,22 @@ public partial class App : Application
         {
             _ = StartWindowsUpdateCheckAfterInitializationAsync(windowsUpdateService, lifetime.Token);
         }
+    }
+
+    private void OnSettingsDataSourcesChanged(object? sender, DataSourcesChangedEventArgs args)
+    {
+        var viewModel = tokenUsageViewModel;
+        var dispatcher = uiDispatcher;
+        if (!args.TokenUsageDataSourceChanged || viewModel is null || dispatcher is null)
+        {
+            return;
+        }
+
+        _ = dispatcher.TryEnqueue(() =>
+        {
+            viewModel.ClearForSourceChange();
+            _ = viewModel.RefreshAfterSourceChangeAsync(lifetime.Token);
+        });
     }
 
     private void OnSettingsThemeSaved(object? sender, ThemeMode mode)
@@ -565,9 +609,11 @@ public partial class App : Application
         CancellationToken cancellationToken)
     {
         var scanStopwatch = Stopwatch.StartNew();
-        var snapshot = await Task.Run(
-            () => scanner.ScanAsync(cancellationToken: cancellationToken),
-            cancellationToken);
+        var snapshot = tokenUsageSourceResolver is null
+            ? await Task.Run(
+                () => scanner.ScanAsync(cancellationToken: cancellationToken),
+                cancellationToken)
+            : await tokenUsageSourceResolver.ReadAsync(cancellationToken);
         scanStopwatch.Stop();
         Debug.WriteLine(
             $"TokenUsage diagnostics: stage=scan files={snapshot.FilesScanned} "
@@ -618,7 +664,9 @@ public partial class App : Application
             return;
         }
 
-        var snapshot = await persistence.LoadTokenUsageCacheAsync(cancellationToken);
+        var snapshot = settings.TokenUsageDataSource == TokenUsageDataSource.Local
+            ? await persistence.LoadTokenUsageCacheAsync(cancellationToken)
+            : await persistence.LoadTokenUsageCacheAsync(cancellationToken, settings.TokenUsageDataSource);
         if (snapshot is not null && uiDispatcher is not null)
         {
             await EnqueueAsync(
@@ -780,6 +828,12 @@ public partial class App : Application
         {
             await providerLifetime.DisposeAsync();
             providerLifetime = null;
+        }
+
+        if (accountService is not null)
+        {
+            await accountService.DisposeAsync();
+            accountService = null;
         }
 
         if (tokenUsageSync is not null)

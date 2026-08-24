@@ -1,6 +1,9 @@
+using System.Net;
+using CodexQuotaTray.Core.Auth;
 using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
+using CodexQuotaTray.Core.Protocol;
 using CodexQuotaTray.Core.Runtime;
 using CodexQuotaTray.Core.Updates;
 
@@ -77,7 +80,7 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
-    public void ApplySnapshot_SynchronizesAutomaticRefreshStateAndCommand()
+    public async Task ApplySnapshot_SynchronizesAutomaticRefreshStateAndCommand()
     {
         var viewModel = new MainViewModel(
             new StubProvider(new AppUiState(
@@ -101,6 +104,9 @@ public sealed class ViewModelTests
         viewModel.ApplySnapshot(refreshing);
 
         Assert.IsTrue(viewModel.IsRefreshing);
+        Assert.IsTrue(viewModel.ShowLoading);
+        Assert.IsFalse(viewModel.ShowContent);
+        Assert.IsFalse(viewModel.HasWindows);
         Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("正在刷新…", viewModel.StatusText);
 
@@ -108,12 +114,93 @@ public sealed class ViewModelTests
         {
             StatusText = "更新于 14:30",
             StatusTone = StatusTone.Success,
+            Windows = [QuotaWindowView.Demo("5 小时额度", 80, "1小时后重置", "14:30")],
             IsRefreshing = false,
         });
 
+        Assert.IsTrue(viewModel.IsRefreshing);
+        Assert.IsTrue(viewModel.ShowLoading);
+        Assert.IsFalse(viewModel.ShowContent);
+        Assert.IsFalse(viewModel.HasWindows);
+        Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
+        Assert.AreEqual("正在刷新…", viewModel.StatusText);
+
+        await Task.Delay(RefreshPresentationPolicy.MinimumIndicatorDuration + TimeSpan.FromMilliseconds(150));
+
         Assert.IsFalse(viewModel.IsRefreshing);
+        Assert.IsFalse(viewModel.ShowLoading);
+        Assert.IsTrue(viewModel.ShowContent);
+        Assert.IsTrue(viewModel.HasWindows);
         Assert.IsTrue(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("更新于 14:30", viewModel.StatusText);
+    }
+
+    [TestMethod]
+    public async Task EmptySourceRefreshRestartsMinimumLoadingPresentation()
+    {
+        var existingWindow = QuotaWindowView.Demo("5 小时额度", 80, "1小时后重置", "14:30");
+        var replacementWindow = QuotaWindowView.Demo("7 天额度", 60, "2天后重置", "周二 14:30");
+        var secondaryWindow = QuotaWindowView.Demo("5 小时额度", 40, "3小时后重置", "17:30");
+        var viewModel = new MainViewModel(
+            new StubProvider(new AppUiState(
+                "Codex",
+                "Plus",
+                "更新于 14:30",
+                StatusTone.Success,
+                [existingWindow],
+                new ResetCreditViewState(ResetCreditKind.Unavailable))),
+            new StubNavigation());
+        viewModel.ApplySnapshot(new AppUiState(
+            "Codex",
+            "Plus",
+            "正在刷新…",
+            StatusTone.Refreshing,
+            [existingWindow],
+            new ResetCreditViewState(ResetCreditKind.Unavailable),
+            IsRefreshing: true));
+
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+        viewModel.ApplySnapshot(new AppUiState(
+            "Codex",
+            null,
+            "已切换数据来源，正在刷新…",
+            StatusTone.Refreshing,
+            [],
+            new ResetCreditViewState(ResetCreditKind.Unavailable),
+            IsRefreshing: true));
+        viewModel.ApplySnapshot(new AppUiState(
+            "Codex",
+            "Plus",
+            "更新于 14:31",
+            StatusTone.Success,
+            [replacementWindow, secondaryWindow],
+            new ResetCreditViewState(ResetCreditKind.Unavailable)));
+
+        await Task.Delay(TimeSpan.FromMilliseconds(450));
+
+        Assert.IsTrue(viewModel.IsRefreshing);
+        Assert.IsTrue(viewModel.ShowLoading);
+        Assert.IsFalse(viewModel.ShowContent);
+        Assert.IsFalse(viewModel.HasWindows);
+        Assert.HasCount(2, viewModel.LoadingWindows);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(400));
+
+        Assert.IsFalse(viewModel.IsRefreshing);
+        Assert.IsFalse(viewModel.ShowLoading);
+        Assert.IsTrue(viewModel.ShowContent);
+        Assert.IsTrue(viewModel.HasWindows);
+        Assert.HasCount(2, viewModel.Windows);
+        Assert.AreEqual("7 天额度", viewModel.Windows[0].Name);
+    }
+
+    [DataRow("plus", "已登录 · Plus")]
+    [DataRow("TEAM", "已登录 · Team")]
+    [DataRow(null, "已登录")]
+    [TestMethod]
+    public void OAuthAccountStatusIncludesNormalizedPlan(string? planType, string expected)
+    {
+        Assert.AreEqual(expected, SettingsViewModel.FormatOAuthAccount(planType));
     }
 
     [TestMethod]
@@ -473,6 +560,119 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public async Task StatisticsSourceSelectionAppliesImmediately()
+    {
+        var runtime = new StubRuntimeControl(AppSettings.Defaults with
+        {
+            TokenUsageDataSource = TokenUsageDataSource.CodexCli,
+        });
+        var viewModel = new SettingsViewModel(
+            runtime,
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions());
+
+        await viewModel.SelectStatisticsDataSourceAsync(
+            TokenUsageDataSource.Local,
+            CancellationToken.None);
+
+        Assert.AreEqual(TokenUsageDataSource.Local, runtime.Settings.TokenUsageDataSource);
+        Assert.AreEqual((int)TokenUsageDataSource.Local, viewModel.SelectedTokenUsageDataSourceIndex);
+        Assert.AreEqual("统计来源已切换", viewModel.StatusText);
+    }
+
+    [TestMethod]
+    public void DataSourceEditingStatesAreIndependent()
+    {
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions());
+
+        viewModel.QuotaDataSourceChangeInProgress = true;
+
+        Assert.IsFalse(viewModel.CanEditQuotaDataSource);
+        Assert.IsTrue(viewModel.CanEditStatisticsDataSource);
+        Assert.IsTrue(viewModel.DataSourceChangeInProgress);
+
+        viewModel.QuotaDataSourceChangeInProgress = false;
+        viewModel.StatisticsDataSourceChangeInProgress = true;
+
+        Assert.IsTrue(viewModel.CanEditQuotaDataSource);
+        Assert.IsFalse(viewModel.CanEditStatisticsDataSource);
+        Assert.IsTrue(viewModel.DataSourceChangeInProgress);
+    }
+
+    [TestMethod]
+    public async Task UnavailableCliStatisticsSourceIsRejectedAndSelectionRollsBack()
+    {
+        var runtime = new StubRuntimeControl(AppSettings.Defaults with
+        {
+            TokenUsageDataSource = TokenUsageDataSource.Local,
+        });
+        var viewModel = new SettingsViewModel(
+            runtime,
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions());
+        var selectionResetNotified = false;
+        viewModel.PropertyChanged += (_, args) =>
+            selectionResetNotified |= args.PropertyName == nameof(SettingsViewModel.SelectedTokenUsageDataSourceIndex);
+
+        await viewModel.SelectStatisticsDataSourceAsync(
+            TokenUsageDataSource.CodexCli,
+            CancellationToken.None);
+
+        Assert.AreEqual(TokenUsageDataSource.Local, runtime.Settings.TokenUsageDataSource);
+        Assert.AreEqual((int)TokenUsageDataSource.Local, viewModel.SelectedTokenUsageDataSourceIndex);
+        Assert.IsTrue(selectionResetNotified);
+        StringAssert.Contains(viewModel.StatusText, "请先登录可用的 Codex CLI 账户");
+    }
+
+    [TestMethod]
+    public async Task OAuthDeviceLoginCanBeCancelledWithoutDisablingDataSources()
+    {
+        var handler = new OAuthLoginPendingHandler();
+        using var httpClient = new HttpClient(handler);
+        var credentials = new OAuthCredentialManager(
+            new EmptyOAuthCredentialStore(),
+            new OAuthClient(httpClient, "https://auth.test"));
+        await using var account = new WindowsAccountService(new UnusedCliFactory(), credentials);
+        var viewModel = new SettingsViewModel(
+            new StubRuntimeControl(),
+            new StubSettingsPlatformActions(),
+            new StubSettingsPageActions(),
+            account: account);
+
+        var login = viewModel.LoginOAuthCommand.ExecuteAsync(null);
+        Assert.IsTrue(viewModel.ShowOAuthLoginPreparing);
+        Assert.IsTrue(viewModel.ShowOAuthCancelButton);
+        Assert.IsTrue(viewModel.CanEditDataSources);
+
+        handler.ReleaseDeviceCode();
+        for (var attempt = 0; attempt < 100 && !viewModel.ShowOAuthDeviceLoginDetails; attempt++)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.IsTrue(viewModel.ShowOAuthDeviceLoginDetails);
+        Assert.IsFalse(viewModel.ShowOAuthLoginPreparing);
+        Assert.IsTrue(viewModel.ShowOAuthCancelButton);
+        Assert.IsTrue(viewModel.CanEditDataSources);
+        Assert.AreEqual("代码：ABCD-EFGH", viewModel.OAuthUserCodeDisplayText);
+        Assert.AreEqual("ABCDEFGH", viewModel.OAuthUserCodeClipboardText);
+        Assert.AreEqual("验证网址：https://auth.test/codex/device", viewModel.OAuthVerificationDisplayText);
+
+        viewModel.CancelOAuthLoginCommand.Execute(null);
+        await login;
+
+        Assert.IsFalse(viewModel.OAuthLoginInProgress);
+        Assert.IsFalse(viewModel.ShowOAuthDeviceLoginDetails);
+        Assert.IsFalse(viewModel.ShowOAuthCancelButton);
+        Assert.IsTrue(viewModel.ShowOAuthLoginButton);
+        Assert.AreEqual("未登录", viewModel.OAuthAccountStatusText);
+        Assert.AreEqual("OAuth 登录已取消", viewModel.StatusText);
+    }
+
+    [TestMethod]
     public async Task RuntimeAuthoritativeProviderDoesNotReapplyReturnedSnapshot()
     {
         var returned = new AppUiState(
@@ -527,6 +727,49 @@ public sealed class ViewModelTests
 
         public ValueTask RequestAsync(RefreshReason reason, CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
+    }
+
+    private sealed class EmptyOAuthCredentialStore : IOAuthCredentialStore
+    {
+        public Task<OAuthCredentials?> LoadAsync(CancellationToken cancellationToken) => Task.FromResult<OAuthCredentials?>(null);
+
+        public Task SaveAsync(OAuthCredentials credentials, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task ClearAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class UnusedCliFactory : ICodexAppServerClientFactory
+    {
+        public ICodexAppServerClient Create() => throw new InvalidOperationException("CLI is not used by this test.");
+    }
+
+    private sealed class OAuthLoginPendingHandler : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource deviceCodeRelease =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int requestCount;
+
+        internal void ReleaseDeviceCode() => deviceCodeRelease.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            if (Interlocked.Increment(ref requestCount) == 1)
+            {
+                await deviceCodeRelease.Task.WaitAsync(cancellationToken);
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "{\"device_auth_id\":\"device-1\",\"user_code\":\"ABCD-EFGH\",\"interval\":1}"),
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.Forbidden)
+            {
+                Content = new StringContent("{}"),
+            };
+        }
     }
 
     private sealed class StubSettingsPlatformActions(bool canConfigureStartup = true) : ISettingsPlatformActions

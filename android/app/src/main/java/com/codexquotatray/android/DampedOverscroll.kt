@@ -35,11 +35,13 @@ import kotlin.math.sqrt
  */
 @Composable
 internal fun Modifier.dampedVerticalOverscroll(
-    onUpwardOverscrollChanged: (Boolean) -> Unit = {},
+    onOverscrollDisplacementChanged: (Float) -> Unit = {},
 ): Modifier {
     val resistanceDistance = with(LocalDensity.current) { 180.dp.toPx() }
     val animationScope = rememberCoroutineScope()
-    val currentOnUpwardOverscrollChanged by rememberUpdatedState(onUpwardOverscrollChanged)
+    val currentOnOverscrollDisplacementChanged by rememberUpdatedState(
+        onOverscrollDisplacementChanged,
+    )
     var unconsumedDrag by remember { mutableFloatStateOf(0f) }
     var reboundJob by remember { mutableStateOf<Job?>(null) }
 
@@ -47,12 +49,33 @@ internal fun Modifier.dampedVerticalOverscroll(
         object : NestedScrollConnection {
             private fun updateUnconsumedDrag(value: Float) {
                 unconsumedDrag = value
-                currentOnUpwardOverscrollChanged(value < 0f)
+                currentOnOverscrollDisplacementChanged(
+                    dampedOverscrollDisplacement(value, resistanceDistance),
+                )
             }
 
             private fun stopRebound() {
                 reboundJob?.cancel()
                 reboundJob = null
+            }
+
+            private fun startRebound(initialVelocityY: Float = 0f) {
+                stopRebound()
+                val initialDrag = unconsumedDrag
+                reboundJob = animationScope.launch {
+                    animate(
+                        initialValue = initialDrag,
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                        initialVelocity = initialVelocityY,
+                    ) { value, _ ->
+                        updateUnconsumedDrag(value)
+                    }
+                    updateUnconsumedDrag(0f)
+                }
             }
 
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -89,23 +112,17 @@ internal fun Modifier.dampedVerticalOverscroll(
             }
 
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (unconsumedDrag == 0f) return Velocity.Zero
-
-                stopRebound()
-                reboundJob = animationScope.launch {
-                    animate(
-                        initialValue = unconsumedDrag,
-                        targetValue = 0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow,
-                        ),
-                    ) { value, _ ->
-                        updateUnconsumedDrag(value)
-                    }
-                    updateUnconsumedDrag(0f)
+                val remainingVelocityY = available.y
+                if (!shouldStartOverscrollRebound(unconsumedDrag, remainingVelocityY)) {
+                    return Velocity.Zero
                 }
-                return available
+
+                startRebound(initialVelocityY = remainingVelocityY)
+                return if (remainingVelocityY != 0f) {
+                    Velocity(0f, remainingVelocityY)
+                } else {
+                    Velocity.Zero
+                }
             }
         }
     }
@@ -125,3 +142,8 @@ internal fun dampedOverscrollDisplacement(
         (sqrt(1f + 2f * magnitude / resistanceDistance) - 1f)
     return dampedMagnitude * unconsumedDrag.sign
 }
+
+internal fun shouldStartOverscrollRebound(
+    unconsumedDrag: Float,
+    remainingVelocity: Float,
+): Boolean = unconsumedDrag != 0f || remainingVelocity != 0f

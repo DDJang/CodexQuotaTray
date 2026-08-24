@@ -17,16 +17,20 @@ data class TokenUsageDay(
     val reasoningTokens: Long?,
 )
 
+enum class DataTransport { OPENAI, WINDOWS }
+
+enum class TokenUsageScope { ACCOUNT, LOCAL }
+
 data class TokenUsageSummary(
-    val todayTokens: Long,
-    val last7DaysTokens: Long,
-    val last30DaysTokens: Long,
-    val lifetimeTokens: Long,
-    val peakDailyTokens: Long,
+    val todayTokens: Long?,
+    val last7DaysTokens: Long?,
+    val last30DaysTokens: Long?,
+    val lifetimeTokens: Long?,
+    val peakDailyTokens: Long?,
     val peakDate: LocalDate?,
-    val activeDays: Int,
-    val currentStreak: Int,
-    val longestStreak: Int,
+    val activeDays: Int?,
+    val currentStreak: Int?,
+    val longestStreak: Int?,
 )
 
 data class TokenUsageSnapshot(
@@ -35,6 +39,9 @@ data class TokenUsageSnapshot(
     val sourceTimeZone: String,
     val summary: TokenUsageSummary,
     val days: List<TokenUsageDay>,
+    val transport: DataTransport = DataTransport.WINDOWS,
+    val scope: TokenUsageScope = TokenUsageScope.LOCAL,
+    val source: String? = null,
 )
 
 data class TokenSyncPairing(
@@ -196,15 +203,15 @@ object TokenUsageJson {
         if (schema != 1) throw TokenUsageException(TokenUsageFailureKind.UNSUPPORTED, "不支持的 Token 数据版本")
         val summaryJson = root.optJSONObject("summary") ?: invalid()
         val summary = TokenUsageSummary(
-            summaryJson.strictLong("todayTokens"),
-            summaryJson.strictLong("last7DaysTokens"),
-            summaryJson.strictLong("last30DaysTokens"),
-            summaryJson.strictLong("lifetimeTokens"),
-            summaryJson.strictLong("peakDailyTokens"),
+            summaryJson.longOrNull("todayTokens"),
+            summaryJson.longOrNull("last7DaysTokens"),
+            summaryJson.longOrNull("last30DaysTokens"),
+            summaryJson.longOrNull("lifetimeTokens"),
+            summaryJson.longOrNull("peakDailyTokens"),
             summaryJson.stringOrNull("peakDate")?.let(::parseDate),
-            summaryJson.strictInt("activeDays"),
-            summaryJson.strictInt("currentStreak"),
-            summaryJson.strictInt("longestStreak"),
+            summaryJson.intOrNull("activeDays"),
+            summaryJson.intOrNull("currentStreak"),
+            summaryJson.intOrNull("longestStreak"),
         )
         val daysJson = root.optJSONArray("days") ?: invalid()
         val days = buildList {
@@ -226,6 +233,13 @@ object TokenUsageJson {
             root.stringOrNull("sourceTimeZone") ?: invalid(),
             summary,
             days,
+            transport = if (root.has("transport")) root.requiredEnum("transport") else DataTransport.WINDOWS,
+            scope = if (!root.has("scope") && !root.has("source")) {
+                TokenUsageScope.LOCAL
+            } else {
+                root.requiredEnum("scope")
+            },
+            source = root.stringOrNull("source"),
         )
     }
 
@@ -233,16 +247,19 @@ object TokenUsageJson {
         .put("schemaVersion", value.schemaVersion)
         .put("generatedAtUtc", value.generatedAtUtc)
         .put("sourceTimeZone", value.sourceTimeZone)
+        .put("transport", value.transport.name)
+        .put("scope", value.scope.name)
+        .put("source", value.source ?: JSONObject.NULL)
         .put("summary", JSONObject()
-            .put("todayTokens", value.summary.todayTokens)
-            .put("last7DaysTokens", value.summary.last7DaysTokens)
-            .put("last30DaysTokens", value.summary.last30DaysTokens)
-            .put("lifetimeTokens", value.summary.lifetimeTokens)
-            .put("peakDailyTokens", value.summary.peakDailyTokens)
+            .putNullable("todayTokens", value.summary.todayTokens)
+            .putNullable("last7DaysTokens", value.summary.last7DaysTokens)
+            .putNullable("last30DaysTokens", value.summary.last30DaysTokens)
+            .putNullable("lifetimeTokens", value.summary.lifetimeTokens)
+            .putNullable("peakDailyTokens", value.summary.peakDailyTokens)
             .put("peakDate", value.summary.peakDate?.toString() ?: JSONObject.NULL)
-            .put("activeDays", value.summary.activeDays)
-            .put("currentStreak", value.summary.currentStreak)
-            .put("longestStreak", value.summary.longestStreak))
+            .putNullable("activeDays", value.summary.activeDays)
+            .putNullable("currentStreak", value.summary.currentStreak)
+            .putNullable("longestStreak", value.summary.longestStreak))
         .put("days", org.json.JSONArray().apply {
             value.days.forEach { day -> put(JSONObject()
                 .put("date", day.date.toString())
@@ -298,4 +315,12 @@ private fun JSONObject.stringOrNull(key: String): String? = opt(key).takeIf { it
 private fun JSONObject.longOrNull(key: String): Long? = opt(key).takeIf { it is Number }?.let { (it as Number).toLong() }
 private fun JSONObject.strictLong(key: String): Long = longOrNull(key) ?: throw TokenUsageException(TokenUsageFailureKind.INVALID_RESPONSE, "Token 数据字段无效")
 private fun JSONObject.strictInt(key: String): Int = strictLong(key).takeIf { it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong() }?.toInt() ?: throw TokenUsageException(TokenUsageFailureKind.INVALID_RESPONSE, "Token 数据字段无效")
+private fun JSONObject.intOrNull(key: String): Int? = longOrNull(key)
+    ?.takeIf { it in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong() }
+    ?.toInt()
+private inline fun <reified T : Enum<T>> JSONObject.requiredEnum(key: String): T {
+    val raw = stringOrNull(key) ?: throw TokenUsageException(TokenUsageFailureKind.INVALID_RESPONSE, "Token 数据字段无效")
+    return enumValues<T>().firstOrNull { it.name.equals(raw, ignoreCase = true) }
+        ?: throw TokenUsageException(TokenUsageFailureKind.INVALID_RESPONSE, "Token 数据字段无效")
+}
 private fun JSONObject.putNullable(key: String, value: Any?): JSONObject = put(key, value ?: JSONObject.NULL)

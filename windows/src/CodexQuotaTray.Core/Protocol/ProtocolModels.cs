@@ -17,6 +17,10 @@ public enum CodexClientErrorKind
     Protocol,
     ShutdownFailed,
     RemoteError,
+    OAuthLoginRequired,
+    OAuthRefreshFailed,
+    OAuthNetwork,
+    OAuthProtocol,
 }
 
 public sealed class CodexClientException : Exception
@@ -52,6 +56,14 @@ public interface ICodexAppServerClient : IAsyncDisposable
     Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken);
 
     Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken);
+
+    Task<AccountReadResult> ReadAccountAsync(CancellationToken cancellationToken) =>
+        Task.FromException<AccountReadResult>(
+            new CodexClientException(CodexClientErrorKind.MethodNotFound, "当前数据源不支持账户信息读取。"));
+
+    Task<AccountUsageReadResult> ReadAccountUsageAsync(CancellationToken cancellationToken) =>
+        Task.FromException<AccountUsageReadResult>(
+            new CodexClientException(CodexClientErrorKind.MethodNotFound, "当前数据源不支持账户 Token 使用量读取。"));
 
     Task<RateLimitsReadResult> ReadRateLimitsForRecoveryAsync(CancellationToken cancellationToken) =>
         ReadRateLimitsAsync(cancellationToken);
@@ -92,6 +104,28 @@ public sealed record RateLimitsUpdatedNotification(
         }
     }
 }
+
+public sealed record AccountReadResult(
+    bool RequiresOpenAiAuth,
+    string? AccountType,
+    string? Email,
+    string? PlanType)
+{
+    public bool IsAuthenticated => !string.IsNullOrWhiteSpace(AccountType);
+}
+
+public sealed record AccountUsageReadResult(
+    AccountUsageSummary? Summary,
+    IReadOnlyList<AccountUsageBucket>? DailyUsageBuckets);
+
+public sealed record AccountUsageSummary(
+    long? LifetimeTokens = null,
+    long? PeakDailyTokens = null,
+    long? CurrentStreakDays = null,
+    long? LongestStreakDays = null,
+    long? LongestRunningTurnSec = null);
+
+public sealed record AccountUsageBucket(DateOnly? StartDate, long? Tokens);
 
 public sealed class InitializeResponse
 {

@@ -12,11 +12,15 @@ WinUI 启动 `codex app-server --stdio`，通过 UTF-8 JSONL 通信。当前 out
 
 1. `initialize` request，携带 `clientInfo`；
 2. `initialized` notification；
-3. `account/rateLimits/read` request，params 为 `null`。
+3. `account/rateLimits/read` request，params 为 `null`；
+4. 账户页或 Token 来源选择为 Codex CLI 时，`account/read`（`refreshToken=false`）和
+   `account/usage/read`（params 为 `null`）。
 
-WinUI 不发送登录、`account/read`、token refresh、购买或其他账户写请求；认证完全由本机 Codex
-CLI 管理。`initialize` 只要求非空 `platformFamily`、`platformOs`，可选 `userAgent` 仅用于提取
-版本 token。
+WinUI 不发送登录、token refresh、购买或其他账户写请求；认证完全由本机 Codex CLI 管理。
+`account/read` 的登录状态以非 null 且带有效 `type` 的 `account` 为准；`requiresOpenaiAuth` 描述认证
+要求，不能单独解释为未登录。
+`account/usage/read` method-not-found 是明确的“不支持”，不会静默改读 Local 文件扫描结果。
+`initialize` 只要求非空 `platformFamily`、`platformOs`，可选 `userAgent` 仅用于提取版本 token。
 
 `account/rateLimits/read` 当前消费：
 
@@ -48,6 +52,26 @@ RateLimitWindow:
 null 的字段；无基线、溢出或无法安全定位时完整补读。RPC error 正文、stderr 和 raw JSON 不进入
 日志或磁盘。
 
+`account/usage/read` 消费 `summary.lifetimeTokens`、`peakDailyTokens`、`currentStreakDays`、
+`longestStreakDays`、`longestRunningTurnSec` 和可选 `dailyUsageBuckets[]`。summary、桶、桶日期和
+tokens 均可缺失或 malformed；缺失保留为“不可用”，不填充业务零值。CLI 账户 usage 与 Windows
+OAuth profile usage 在同一个内部按日聚合模型中规范化，但永远不与 Local session scanner 合并。
+
+## Windows OAuth data source
+
+Windows OAuth 使用设备代码流程和 DPAPI（当前用户）保护的私有凭据文件；凭据不进入 settings、
+quota/token cache、日志或诊断文本。只读请求为：
+
+```text
+GET https://chatgpt.com/backend-api/wham/usage
+GET https://chatgpt.com/backend-api/wham/profiles/me
+GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits  # 仅可用数量大于 0 时 best effort
+```
+
+请求只使用 Bearer、`Accept`、`ChatGPT-Account-Id`（可用时）及客户端标识头；不读取 auth.json、
+浏览器 Cookie、HTML 或嵌入式浏览器。401/403 最多触发一次 refresh 后重试；失败保留 OAuth
+来源的错误状态，不回退到 CLI 或 Local。
+
 ## Android Direct HTTPS quota
 
 Android 通过设备代码 OAuth 获得 App 私有凭据，额度请求为：
@@ -66,8 +90,17 @@ ChatGPT-Account-Id: <account-id>  # 仅可靠时发送
 明细失败不影响 usage 成功，`availableCount` 仍为权威值，`credits=null` 与成功返回的 `[]`
 保持可区分。401/403 允许一次 refresh 恢复后重试；普通刷新不无条件 refresh。
 
-错误分为登录、网络、服务端和非法响应。Direct 永远优先；只有 `NETWORK`、已配对 Windows 且
-Wi-Fi LAN 可用时才读取 `/v1/quota`。Windows 失败后仍呈现原 Direct 网络错误。
+Android OpenAI Account Token provider 使用同一 OAuth/refresh coordinator 与请求头读取：
+
+```text
+GET https://chatgpt.com/backend-api/wham/profiles/me
+```
+
+只消费 nullable `summary` 与 `dailyUsageBuckets[]`。有 buckets 但缺当天 bucket 时 Today 保持不可用；
+Account 日桶没有分类字段时 input/cached/output/reasoning 保持 null，且永不与 Windows Local 相加。
+
+错误分为登录、网络、服务端和非法响应。Android 根据独立的额度优先级串行尝试 Direct 与 Windows；
+缺少对应凭据的 provider 为 unavailable，首选失败时尝试另一 provider。
 
 ## 额度规范化与持久化
 
@@ -82,14 +115,22 @@ Wi-Fi LAN 可用时才读取 `/v1/quota`。Windows 失败后仍呈现原 Direct 
 规范化数据中，但不进入 WinUI、Android 前台或小组件。没有 `codex` 时保持空/不可用语义，
 不把未知 bucket 映射或回退为 `codex`。
 
-WinUI `QuotaCacheDocument` 只保存格式版本、成功时间、套餐、最多 32 个归一化窗口以及
+WinUI `QuotaCacheDocument` 只保存格式版本、成功时间、来源、套餐、最多 32 个归一化窗口以及
 reset-credit 的可展示摘要/明细投影；`credits=null` 与 `[]` 保持可区分，并不保存完整
 reset-credit ID、账户、CLI 路径、warning/RPC 正文或 raw JSON。Windows LAN snapshot 通过同样的
 `availableCount`/`credits` 投影把只读信息传给 Android；旧 snapshot 缺少该字段时按未知处理。
 
-WinUI 可按用户设置将 `TokenUsageSnapshot` 保存为 `token-usage-cache.json`。该缓存只含 schema
+WinUI 可按用户设置将 `TokenUsageSnapshot` 按来源保存为 Local 的 `token-usage-cache.json` 或
+账户来源的独立文件。该缓存只含 schema
 版本、生成时间、时区、Token 摘要和最多 366 条按日数字聚合，不含 session ID、文件路径、账户、
-prompt、response、工具内容或原始 JSONL；关闭“保存统计缓存”后删除，读取异常时直接忽略。
+prompt、response、工具内容或原始 JSONL；来源切换不复用另一来源缓存，关闭“保存统计缓存”后删除，
+读取异常时直接忽略。
+
+Local 另使用身份隔离的 `token-usage.sqlite3` 作为持久账本。`file_state` 保存 JSONL 路径、owner
+session、文件元数据和安全 offset；`session_state` 保存累计 Token high-water、fork baseline 所需状态
+和最后事件；`token_events` 只保存已确认 delta、timestamp、local date 与 Token 分类数字。刷新只读取变化
+文件在安全 offset 后的追加内容，日数据由 SQLite 按 `local_date` 聚合。JSONL 移动或删除不会删除已入账
+事件；该账本不从 `account/usage/read` 或旧 summary cache 导入，也不保存对话正文、项目、模型或账户字段。
 
 Android `QuotaSnapshotStore` 保存最后成功的脱敏产品快照：套餐、quota state、数据更新时间、
 来源及窗口的 bucket、本地标识/名称、百分比、时长和重置时间，以及 reset-credit 的权威数量和
@@ -98,8 +139,9 @@ Android `QuotaSnapshotStore` 保存最后成功的脱敏产品快照：套餐、
 时间，不替代数据更新时间。快照不含 OAuth
 凭据、HTTP body/header、账户 ID、错误正文或历史序列；退出登录会清除快照。
 
-Android Token cache 只保存 Windows 返回的聚合 schema，并绑定 pairing 的设备 identity。解除或
-替换 pairing 时清除；提交前 pairing 改变时丢弃结果。
+Android Token cache 保存实际 `transport`（OpenAI/Windows）与 `scope`（Account/Local）。Windows
+结果绑定 pairing device identity，OpenAI Account 结果只在 OAuth 仍可用时恢复；旧缓存缺少 metadata
+时迁移为 Windows/Local。不同 scope 不合并、不互相恢复。
 
 ## Windows LAN schemaVersion 1
 
@@ -113,6 +155,8 @@ Windows 只在用户启用同步后，以二维码/DNS-SD 携带的实际私人 
 schemaVersion: 1
 generatedAtUtc: ISO-8601
 sourceTimeZone: string
+source: Local | CodexCli | OAuth
+scope: Local | Account
 summary:
   todayTokens, last7DaysTokens, last30DaysTokens, lifetimeTokens
   peakDailyTokens, peakDate, activeDays, currentStreak, longestStreak
@@ -120,6 +164,9 @@ days[]:
   date, totalTokens
   inputTokens?, cachedInputTokens?, outputTokens?, reasoningTokens?
 ```
+
+Android 将该接口的 transport 固定记录为 Windows；旧 Windows payload 缺少 `source`/`scope` 时按
+Local scope 兼容。
 
 只返回最近 365 天日聚合和全历史 summary；不得包含 session ID、路径、账号、prompt、response、
 工具内容或原始 JSONL。

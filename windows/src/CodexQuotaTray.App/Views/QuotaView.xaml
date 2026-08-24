@@ -18,7 +18,8 @@
         <ScrollViewer
             HorizontalScrollBarVisibility="Disabled"
             VerticalScrollBarVisibility="Auto"
-            VerticalScrollMode="Auto">
+            VerticalScrollMode="Auto"
+            Visibility="{Binding ShowContent, Converter={StaticResource BooleanToVisibilityConverter}}">
             <StackPanel Spacing="10">
                 <Border
                     Padding="18,7"
@@ -86,7 +87,93 @@
             </StackPanel>
         </ScrollViewer>
 
-        <Grid Grid.Row="1" ColumnSpacing="12">
+        <StackPanel
+            Spacing="10"
+            Visibility="{Binding ShowLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <ItemsRepeater ItemsSource="{Binding LoadingWindows}">
+                <ItemsRepeater.Layout>
+                    <StackLayout Spacing="10" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate>
+                        <Border
+                            Height="168"
+                            Padding="16,15"
+                            Background="{ThemeResource CardSurfaceBrush}"
+                            BorderBrush="{ThemeResource CardBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="{StaticResource QuotaCornerRadius}">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Grid>
+                                    <Border
+                                        Width="96"
+                                        Height="16"
+                                        HorizontalAlignment="Left"
+                                        Background="{ThemeResource BadgeSurfaceBrush}"
+                                        CornerRadius="4" />
+                                    <Border
+                                        Width="60"
+                                        Height="28"
+                                        HorizontalAlignment="Right"
+                                        Background="{ThemeResource BadgeSurfaceBrush}"
+                                        CornerRadius="4" />
+                                </Grid>
+                                <Border
+                                    Grid.Row="1"
+                                    Height="16"
+                                    Margin="0,20,0,0"
+                                    Background="{ThemeResource TrackBrush}"
+                                    CornerRadius="8" />
+                                <Border
+                                    Grid.Row="2"
+                                    Width="180"
+                                    Height="12"
+                                    Margin="0,16,0,0"
+                                    HorizontalAlignment="Left"
+                                    Background="{ThemeResource BadgeSurfaceBrush}"
+                                    CornerRadius="4" />
+                                <ProgressRing
+                                    Grid.RowSpan="3"
+                                    Width="28"
+                                    Height="28"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center"
+                                    IsActive="{Binding}" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
+        </StackPanel>
+
+        <Grid
+            Grid.Row="1"
+            Visibility="{Binding ShowLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Border
+                Width="170"
+                Height="10"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Center"
+                Background="{ThemeResource BadgeSurfaceBrush}"
+                CornerRadius="4" />
+            <Border
+                Width="72"
+                Height="10"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                Background="{ThemeResource BadgeSurfaceBrush}"
+                CornerRadius="4" />
+        </Grid>
+
+        <Grid
+            Grid.Row="1"
+            ColumnSpacing="12"
+            Visibility="{Binding ShowContent, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

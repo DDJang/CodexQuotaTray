@@ -1,5 +1,6 @@
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.App.Services;
+using System.Diagnostics;
 using CodexQuotaTray.Core;
 using BackdropKind = CodexQuotaTray.Core.Models.BackdropKind;
 using CodexQuotaTray.Core.Persistence;
@@ -10,6 +11,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.ApplicationModel.DataTransfer;
 using WinRT.Interop;
 using Windows.Graphics;
 
@@ -26,6 +28,7 @@ public sealed partial class SettingsWindow : Window
     private readonly AppWindow appWindow;
     private SettingsContentPage? currentSettingsPage;
     private bool showingSettingsHome;
+    private bool accountRefreshStarted;
     private bool exiting;
 
     public SettingsWindow(SettingsViewModel viewModel, string displayName)
@@ -47,6 +50,11 @@ public sealed partial class SettingsWindow : Window
         SettingsRoot.Loaded += (_, _) =>
         {
             ApplyBackdrop();
+            if (!accountRefreshStarted)
+            {
+                accountRefreshStarted = true;
+                _ = viewModel.RefreshAccountStatusCommand.ExecuteAsync(null);
+            }
         };
         var hwnd = WindowNative.GetWindowHandle(this);
         var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
@@ -155,6 +163,8 @@ public sealed partial class SettingsWindow : Window
         {
             "General" => ("常规", GeneralSettingsPanel),
             "Sync" => ("刷新与同步", SyncSettingsPanel),
+            "Account" => ("账户", AccountSettingsPanel),
+            "DataSources" => ("数据来源", DataSourcesSettingsPanel),
             "Appearance" => ("个性化", AppearanceSettingsPanel),
             "Alerts" => ("提醒", AlertSettingsPanel),
             "Updates" => ("更新", UpdateSettingsPanel),
@@ -182,6 +192,8 @@ public sealed partial class SettingsWindow : Window
     [
         GeneralSettingsPanel,
         SyncSettingsPanel,
+        AccountSettingsPanel,
+        DataSourcesSettingsPanel,
         AppearanceSettingsPanel,
         AlertSettingsPanel,
         UpdateSettingsPanel,
@@ -233,6 +245,104 @@ public sealed partial class SettingsWindow : Window
             viewModel.RefreshTokenSyncStatus();
             UpdateTokenSyncQrCode();
         });
+    }
+
+    private async void OnQuotaDataSourceSelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (sender is not ComboBox { SelectedIndex: >= 0 } comboBox)
+        {
+            return;
+        }
+
+        try
+        {
+            await viewModel.SelectQuotaDataSourceAsync(
+                (QuotaDataSource)comboBox.SelectedIndex,
+                CancellationToken.None);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            viewModel.ReportDataSourceApplyFailure();
+        }
+    }
+
+    private async void OnStatisticsDataSourceSelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (sender is not ComboBox { SelectedIndex: >= 0 } comboBox)
+        {
+            return;
+        }
+
+        try
+        {
+            await viewModel.SelectStatisticsDataSourceAsync(
+                (TokenUsageDataSource)comboBox.SelectedIndex,
+                CancellationToken.None);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            viewModel.ReportDataSourceApplyFailure();
+        }
+    }
+
+    private void OnOpenOAuthVerificationRequested(object sender, RoutedEventArgs args)
+    {
+        if (!Uri.TryCreate(viewModel.OAuthVerificationUrl, UriKind.Absolute, out var uri)
+            || !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(uri.Host, "auth.openai.com", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        try
+        {
+            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            viewModel.ReportOAuthVerificationOpenFailure();
+        }
+    }
+
+    private void OnCopyOAuthCodeRequested(object sender, RoutedEventArgs args)
+    {
+        var code = viewModel.OAuthUserCodeClipboardText;
+        if (string.IsNullOrWhiteSpace(code))
+        {
+            return;
+        }
+
+        try
+        {
+            var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+            package.SetText(code);
+            Clipboard.SetContent(package);
+            Clipboard.Flush();
+            viewModel.ReportOAuthCodeCopied();
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            viewModel.ReportOAuthCodeCopyFailure();
+        }
+    }
+
+    private async void OnLogoutOAuthRequested(object sender, RoutedEventArgs args)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "退出 OAuth 登录？",
+            Content = "退出后将清除本机保存的 OAuth 登录信息，下次使用 OAuth 数据来源时需要重新登录。",
+            PrimaryButtonText = "退出登录",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+            RequestedTheme = SettingsRoot.ActualTheme,
+            XamlRoot = SettingsRoot.XamlRoot,
+        };
+
+        if (await TryShowDialogAsync(dialog) == ContentDialogResult.Primary)
+        {
+            await viewModel.LogoutOAuthCommand.ExecuteAsync(null);
+        }
     }
 
     private async void OnUpdateCheckCompleted(object? sender, WindowsUpdateCheckResult result)

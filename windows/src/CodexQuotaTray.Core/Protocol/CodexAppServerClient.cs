@@ -188,6 +188,131 @@ public sealed class CodexAppServerClient(CodexClientOptions options) : ICodexApp
         }
     }
 
+    public async Task<AccountReadResult> ReadAccountAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        var rpc = connection ?? throw new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server is not connected.");
+        try
+        {
+            var result = await rpc.RequestAsync(
+                "account/read",
+                new { refreshToken = false },
+                options.EffectiveRequestTimeout,
+                cancellationToken).ConfigureAwait(false);
+            if (result.ValueKind != JsonValueKind.Object)
+            {
+                throw new CodexClientException(CodexClientErrorKind.Protocol, "Account result was not an object.");
+            }
+
+            var requiresAuth = result.TryGetProperty("requiresOpenaiAuth", out var requires)
+                && requires.ValueKind == JsonValueKind.True;
+            string? type = null;
+            string? email = null;
+            string? plan = null;
+            if (result.TryGetProperty("account", out var account)
+                && account.ValueKind == JsonValueKind.Object)
+            {
+                type = StringProperty(account, "type");
+                email = StringProperty(account, "email");
+                plan = StringProperty(account, "planType");
+            }
+
+            return new AccountReadResult(requiresAuth, type, email, plan);
+        }
+        catch (CodexClientException error)
+        {
+            Update(value => value with { LastError = error.Kind });
+            throw;
+        }
+    }
+
+    public async Task<AccountUsageReadResult> ReadAccountUsageAsync(CancellationToken cancellationToken)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        var rpc = connection ?? throw new CodexClientException(CodexClientErrorKind.TransportClosed, "App Server is not connected.");
+        try
+        {
+            var result = await rpc.RequestAsync(
+                "account/usage/read",
+                null,
+                options.EffectiveRequestTimeout,
+                cancellationToken).ConfigureAwait(false);
+            if (result.ValueKind != JsonValueKind.Object)
+            {
+                throw new CodexClientException(CodexClientErrorKind.Protocol, "Account usage result was not an object.");
+            }
+
+            AccountUsageSummary? summary = null;
+            if (result.TryGetProperty("summary", out var summaryElement)
+                && summaryElement.ValueKind == JsonValueKind.Object)
+            {
+                summary = new AccountUsageSummary(
+                    NullableInt64(summaryElement, "lifetimeTokens"),
+                    NullableInt64(summaryElement, "peakDailyTokens"),
+                    NullableInt64(summaryElement, "currentStreakDays"),
+                    NullableInt64(summaryElement, "longestStreakDays"),
+                    NullableInt64(summaryElement, "longestRunningTurnSec"));
+            }
+
+            IReadOnlyList<AccountUsageBucket>? buckets = null;
+            if (result.TryGetProperty("dailyUsageBuckets", out var bucketsElement))
+            {
+                if (bucketsElement.ValueKind == JsonValueKind.Array)
+                {
+                    buckets = bucketsElement.EnumerateArray()
+                        .Where(value => value.ValueKind == JsonValueKind.Object)
+                        .Select(value => new AccountUsageBucket(
+                            ParseDateOnly(value, "startDate"),
+                            NullableInt64(value, "tokens")))
+                        .ToArray();
+                }
+                else if (bucketsElement.ValueKind == JsonValueKind.Null)
+                {
+                    buckets = null;
+                }
+            }
+
+            return new AccountUsageReadResult(summary, buckets);
+        }
+        catch (CodexClientException error)
+        {
+            Update(value => value with { LastError = error.Kind });
+            throw;
+        }
+    }
+
+    private static string? StringProperty(JsonElement value, string name) =>
+        value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
+            ? property.GetString()?.Trim() is { Length: > 0 } text ? text : null
+            : null;
+
+    private static long? NullableInt64(JsonElement value, string name)
+    {
+        if (!value.TryGetProperty(name, out var property) || property.ValueKind == JsonValueKind.Null)
+        {
+            return null;
+        }
+
+        if (property.ValueKind == JsonValueKind.Number && property.TryGetInt64(out var number))
+        {
+            return number;
+        }
+
+        if (property.ValueKind == JsonValueKind.String
+            && long.TryParse(property.GetString(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out number))
+        {
+            return number;
+        }
+
+        return null;
+    }
+
+    private static DateOnly? ParseDateOnly(JsonElement value, string name) =>
+        StringProperty(value, name) is { } text
+        && DateOnly.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date)
+            ? date
+            : null;
+
     public void RecordWindowCount(int count) => Update(value => value with { WindowCount = count });
 
     public async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(

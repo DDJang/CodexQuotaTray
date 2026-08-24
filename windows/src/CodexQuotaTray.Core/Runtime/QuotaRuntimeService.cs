@@ -39,6 +39,7 @@ public sealed class QuotaRuntimeService :
     private static readonly TimeSpan CacheHeartbeat = TimeSpan.FromMinutes(5);
 
     private readonly ICodexAppServerClientFactory clientFactory;
+    private readonly Func<QuotaDataSource, ICodexAppServerClientFactory> clientFactoryResolver;
     private readonly SettingsService settingsService;
     private readonly PreviewPersistence persistence;
     private readonly IQuotaNotificationSink notificationSink;
@@ -104,9 +105,11 @@ public sealed class QuotaRuntimeService :
         PreviewPersistence persistence,
         IQuotaNotificationSink? notificationSink = null,
         TimeProvider? timeProvider = null,
-        TimeZoneInfo? timeZone = null)
+        TimeZoneInfo? timeZone = null,
+        Func<QuotaDataSource, ICodexAppServerClientFactory>? clientFactoryResolver = null)
     {
         this.clientFactory = clientFactory;
+        this.clientFactoryResolver = clientFactoryResolver ?? (_ => clientFactory);
         this.settingsService = settingsService;
         this.persistence = persistence;
         this.notificationSink = notificationSink ?? new NullQuotaNotificationSink();
@@ -325,19 +328,25 @@ public sealed class QuotaRuntimeService :
     public async Task ApplySettingsAsync(AppSettings settings, CancellationToken cancellationToken)
     {
         settings = SettingsService.Normalize(settings);
-        await settingsService.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
         var previous = Settings;
+        var sourceChanged = previous.QuotaDataSource != settings.QuotaDataSource;
+        await settingsService.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
         Settings = settings with { Notifications = settings.EffectiveNotifications };
         coordinator.SetMode(Settings.RefreshMode);
         if (previous.PersistQuotaCache && !Settings.PersistQuotaCache)
         {
-            await persistence.ClearQuotaCacheAsync().ConfigureAwait(false);
+            await persistence.ClearQuotaCacheAsync(previous.QuotaDataSource).ConfigureAwait(false);
             lastPersistedCache = null;
         }
 
         if (previous.PersistTokenUsageCache && !Settings.PersistTokenUsageCache)
         {
-            await persistence.ClearTokenUsageCacheAsync().ConfigureAwait(false);
+            await persistence.ClearTokenUsageCacheAsync(previous.TokenUsageDataSource).ConfigureAwait(false);
+        }
+
+        if (sourceChanged)
+        {
+            await SwitchQuotaDataSourceAsync(Settings.QuotaDataSource, cancellationToken).ConfigureAwait(false);
         }
 
         if (latestNormalized is not null)
@@ -368,6 +377,11 @@ public sealed class QuotaRuntimeService :
                 lastError = error.Kind;
                 SetCurrent(FailureState(current, error.Kind));
             }
+        }
+
+        if (sourceChanged && (Settings.RefreshMode != RefreshMode.ManualOnly || client is not null))
+        {
+            await RequestAsync(RefreshReason.Manual, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -459,7 +473,7 @@ public sealed class QuotaRuntimeService :
                 additionalRetired = TakeRetiredNotificationTasks();
                 if (additionalRetired.Length == 0)
                 {
-                    var created = clientFactory.Create();
+                    var created = clientFactoryResolver(Settings.QuotaDataSource).Create();
                     var generation = ++clientGeneration;
                     latestProtocol = null;
                     generationCommitGate.Release();
@@ -601,7 +615,7 @@ public sealed class QuotaRuntimeService :
 
         if (Settings.PersistQuotaCache)
         {
-            var cache = ToCache(normalized, now);
+            var cache = ToCache(normalized, now, Settings.QuotaDataSource);
             var heartbeatDue = lastPersistedCache is null
                 || now - lastPersistedCache.LastSuccessUtc >= CacheHeartbeat;
             if (lastPersistedCache is null
@@ -1100,6 +1114,35 @@ public sealed class QuotaRuntimeService :
         .Select(window => (int?)window.RemainingPercent)
         .Min();
 
+    private async Task SwitchQuotaDataSourceAsync(
+        QuotaDataSource source,
+        CancellationToken cancellationToken)
+    {
+        SetCurrent(ConnectingState() with { StatusText = $"已切换到 {source}，正在刷新…" });
+        var detached = await DetachClientAsync(expected: null).ConfigureAwait(false);
+        if (detached is not null)
+        {
+            lastDiagnostics = detached.Client.Diagnostics;
+            await DisposeDetachedClientAsync(detached.Client).ConfigureAwait(false);
+            if (detached.NotificationTask is not null)
+            {
+                await ObserveTaskAsync(detached.NotificationTask, "source switch notification loop").ConfigureAwait(false);
+            }
+
+            detached.NotificationLifetime?.Dispose();
+        }
+
+        latestProtocol = null;
+        latestNormalized = null;
+        Volatile.Write(ref latestLanQuotaSnapshot, null);
+        lastPersistedCache = null;
+        lastAppliedSuccessUtc = null;
+        lastAttemptUtc = null;
+        lastError = null;
+        coordinator.Release();
+        await RestoreCacheAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private async Task RestoreCacheAsync(CancellationToken cancellationToken)
     {
         if (!Settings.PersistQuotaCache)
@@ -1108,7 +1151,7 @@ public sealed class QuotaRuntimeService :
             return;
         }
 
-        var cache = await persistence.LoadQuotaCacheAsync(cancellationToken).ConfigureAwait(false);
+        var cache = await persistence.LoadQuotaCacheAsync(cancellationToken, Settings.QuotaDataSource).ConfigureAwait(false);
         if (cache is null)
         {
             lastPersistedCache = null;
@@ -1189,7 +1232,10 @@ public sealed class QuotaRuntimeService :
                     credit.Title,
                     credit.Description)).ToArray());
 
-    private static QuotaCacheDocument ToCache(NormalizedQuotaSnapshot snapshot, DateTimeOffset now) => new(
+    private static QuotaCacheDocument ToCache(
+        NormalizedQuotaSnapshot snapshot,
+        DateTimeOffset now,
+        QuotaDataSource source) => new(
         1,
         now,
         snapshot.PlanType,
@@ -1205,10 +1251,12 @@ public sealed class QuotaRuntimeService :
         snapshot.ResetCredits.EarliestKnownExpiry,
         snapshot.ResetCredits.Credits?
             .Select(credit => credit with { Id = null })
-            .ToArray());
+            .ToArray(),
+        source);
 
     private static bool CacheContentEquals(QuotaCacheDocument left, QuotaCacheDocument right) =>
         left.FormatVersion == right.FormatVersion
+        && left.Source == right.Source
         && string.Equals(left.PlanType, right.PlanType, StringComparison.Ordinal)
         && left.ResetCreditAvailableCount == right.ResetCreditAvailableCount
         && left.ResetCreditEarliestExpiryUtc == right.ResetCreditEarliestExpiryUtc
@@ -1435,6 +1483,10 @@ public sealed class QuotaRuntimeService :
             CodexClientErrorKind.TransportClosed => "Codex 连接已断开",
             CodexClientErrorKind.Cancelled => "操作已取消",
             CodexClientErrorKind.Protocol => "额度响应无法解析",
+            CodexClientErrorKind.OAuthLoginRequired => "OAuth 账户未登录",
+            CodexClientErrorKind.OAuthRefreshFailed => "OAuth 登录已失效",
+            CodexClientErrorKind.OAuthNetwork => "OAuth 网络请求失败",
+            CodexClientErrorKind.OAuthProtocol => "OAuth 响应无法解析",
             _ => "连接失败",
         };
         return previous with

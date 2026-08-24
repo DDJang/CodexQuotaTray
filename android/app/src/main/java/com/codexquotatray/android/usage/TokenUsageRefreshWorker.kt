@@ -9,7 +9,7 @@ import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.codexquotatray.android.AppLogStore
-import com.codexquotatray.android.quota.AndroidLanAvailability
+import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
 import com.codexquotatray.android.refresh.AutomaticRefreshChannel
 import com.codexquotatray.android.refresh.BackgroundRefreshRetryPolicy
@@ -36,32 +36,21 @@ class TokenUsageRefreshWorker(
 ) : Worker(appContext, workerParams) {
     override fun doWork(): Result {
         AppLogStore.record(applicationContext, "Token 后台任务已启动")
+        val settings = TokenUsageRefreshSettingsStore(applicationContext).load()
+        val hasOAuth = OAuthStore(applicationContext).load() != null
+        val hasWindowsPairing = TokenSyncStore(applicationContext).load() != null
         AndroidWorkerNetworkDiagnostics.record(
             applicationContext,
             "Token",
-            TokenUsageRefreshScheduler.networkRequirement(),
+            TokenUsageRefreshScheduler.networkRequirement(hasOAuth, hasWindowsPairing),
         )
-        val settings = TokenUsageRefreshSettingsStore(applicationContext).load()
-        val pairingStore = TokenSyncStore(applicationContext)
-        val pairing = pairingStore.load()
         if (!settings.backgroundSyncEnabled) {
             AppLogStore.record(applicationContext, "Token 后台任务已跳过：后台同步已关闭")
             return Result.success()
         }
-        if (pairing == null) {
-            AppLogStore.record(applicationContext, "Token 后台任务已跳过：缺少 Windows 配对", "WARN")
+        if (!hasOAuth && !hasWindowsPairing) {
+            AppLogStore.record(applicationContext, "Token 后台任务已跳过：缺少可用数据源", "WARN")
             return Result.success()
-        }
-        if (!TokenUsageRefreshScheduler.shouldRunOnWifiLan(
-                settings = settings,
-                hasPairing = true,
-                isWifiLanAvailable = AndroidLanAvailability(applicationContext).isAvailable(),
-            )
-        ) {
-            return tokenRetryResult(
-                runAttemptCount,
-                "Wi-Fi LAN 暂不可用",
-            )
         }
 
         if (!AppAutomaticRefreshCoordinator.tryStart(
@@ -75,7 +64,7 @@ class TokenUsageRefreshWorker(
         }
 
         return try {
-            runCatching { TokenUsageSyncCoordinator(applicationContext).sync(pairing) }
+            runCatching { TokenUsageSyncCoordinator(applicationContext).sync() }
                 .fold(
                     onSuccess = {
                         AppLogStore.record(applicationContext, "Token 后台同步完成")
@@ -132,18 +121,16 @@ class TokenUsageRefreshWorker(
 object TokenUsageRefreshScheduler {
     private const val WORK_NAME = "codex_token_usage_periodic_refresh"
 
-    internal fun shouldSchedule(settings: TokenUsageRefreshSettings, hasPairing: Boolean): Boolean =
-        settings.backgroundSyncEnabled && hasPairing
-
-    /** The Worker may start without validated Internet, but only syncs on a real Wi-Fi LAN. */
-    internal fun shouldRunOnWifiLan(
+    internal fun shouldSchedule(
         settings: TokenUsageRefreshSettings,
-        hasPairing: Boolean,
-        isWifiLanAvailable: Boolean,
-    ): Boolean = shouldSchedule(settings, hasPairing) && isWifiLanAvailable
+        hasOAuth: Boolean,
+        hasWindowsPairing: Boolean,
+    ): Boolean = settings.backgroundSyncEnabled && (hasOAuth || hasWindowsPairing)
 
-    /** Paired Token sync is local-only and must not wait for validated Internet. */
-    internal fun networkRequirement(): BackgroundNetworkRequirement = BackgroundNetworkConstraints.token()
+    internal fun networkRequirement(
+        hasOAuth: Boolean,
+        hasWindowsPairing: Boolean,
+    ): BackgroundNetworkRequirement = BackgroundNetworkConstraints.quota(hasOAuth, hasWindowsPairing)
 
     fun cancel(context: Context) {
         WorkManager.getInstance(context.applicationContext).cancelUniqueWork(WORK_NAME)
@@ -152,8 +139,9 @@ object TokenUsageRefreshScheduler {
     fun schedule(context: Context) {
         val appContext = context.applicationContext
         val settings = TokenUsageRefreshSettingsStore(appContext).load()
-        val hasPairing = TokenSyncStore(appContext).load() != null
-        if (!shouldSchedule(settings, hasPairing)) {
+        val hasOAuth = OAuthStore(appContext).load() != null
+        val hasWindowsPairing = TokenSyncStore(appContext).load() != null
+        if (!shouldSchedule(settings, hasOAuth, hasWindowsPairing)) {
             cancel(appContext)
             return
         }
@@ -163,7 +151,7 @@ object TokenUsageRefreshScheduler {
             TimeUnit.MINUTES,
         )
             .setConstraints(
-                networkRequirement().constraints(),
+                networkRequirement(hasOAuth, hasWindowsPairing).constraints(),
             )
             .setBackoffCriteria(
                 BackoffPolicy.EXPONENTIAL,
@@ -186,11 +174,14 @@ internal fun tokenRetryDecision(
     is TokenUsagePairingChangedException -> BackgroundRetryDecision.PERMANENT
     is TokenUsageException -> when (error.kind) {
         TokenUsageFailureKind.PAIRING_INVALID,
+        TokenUsageFailureKind.LOGIN_REQUIRED,
         TokenUsageFailureKind.INVALID_RESPONSE,
         TokenUsageFailureKind.UNSUPPORTED,
+        TokenUsageFailureKind.UNAVAILABLE,
         -> BackgroundRetryDecision.PERMANENT
         TokenUsageFailureKind.OFFLINE,
         TokenUsageFailureKind.HTTP_ERROR,
+        TokenUsageFailureKind.SERVER,
         -> BackgroundRefreshRetryPolicy.transientDecision(runAttemptCount)
     }
     else -> BackgroundRefreshRetryPolicy.transientDecision(runAttemptCount)

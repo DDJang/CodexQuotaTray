@@ -38,9 +38,9 @@ internal object RefreshStatusFormatter {
 
     fun quotaNoSource(): String = "尚未连接额度来源"
 
-    fun tokenUnpaired(): String = "尚未配对 Windows"
+    fun tokenUnpaired(): String = "尚未连接 Token 数据来源"
 
-    fun tokenPairedWithoutData(): String = "已配对 Windows · 暂无 Token 数据"
+    fun tokenPairedWithoutData(): String = "数据来源已连接 · 暂无 Token 数据"
 }
 
 internal fun refreshStatusErrorMarker(status: String): String? =

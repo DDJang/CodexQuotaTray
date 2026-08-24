@@ -11,6 +11,19 @@ public enum ThemeMode
     Dark,
 }
 
+public enum QuotaDataSource
+{
+    CodexCli,
+    OAuth,
+}
+
+public enum TokenUsageDataSource
+{
+    Local,
+    CodexCli,
+    OAuth,
+}
+
 public sealed record NotificationSettings(
     bool Remaining50 = false,
     bool Remaining20 = true,
@@ -33,7 +46,9 @@ public sealed record AppSettings(
     bool PhoneTokenSyncEnabled = false,
     RefreshMode TokenRefreshMode = RefreshMode.Every15Minutes,
     bool TokenRefreshOnPanelOpen = true,
-    bool PersistTokenUsageCache = true)
+    bool PersistTokenUsageCache = true,
+    QuotaDataSource QuotaDataSource = QuotaDataSource.CodexCli,
+    TokenUsageDataSource TokenUsageDataSource = TokenUsageDataSource.Local)
 {
     [JsonIgnore]
     public NotificationSettings EffectiveNotifications => Notifications ?? new();
@@ -48,7 +63,8 @@ public sealed record QuotaCacheDocument(
     IReadOnlyList<QuotaCacheWindow> Windows,
     long? ResetCreditAvailableCount = null,
     DateTimeOffset? ResetCreditEarliestExpiryUtc = null,
-    IReadOnlyList<ResetCreditView>? ResetCreditCredits = null);
+    IReadOnlyList<ResetCreditView>? ResetCreditCredits = null,
+    QuotaDataSource Source = QuotaDataSource.CodexCli);
 
 public sealed record QuotaCacheWindow(
     string SourceSlot,

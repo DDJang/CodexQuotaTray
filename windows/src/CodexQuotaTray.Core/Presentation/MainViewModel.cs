@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using CodexQuotaTray.Core.Models;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -10,6 +11,10 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IUiStateProvider stateProvider;
     private readonly IExternalNavigation navigation;
     private readonly bool stateEventsAuthoritative;
+    private long refreshPresentationStartedTimestamp;
+    private long refreshPresentationRevision;
+    private CancellationTokenSource? refreshPresentationCompletion;
+    private AppUiState? pendingRefreshResult;
 
     [ObservableProperty]
     private string title = "Codex";
@@ -31,6 +36,10 @@ public sealed partial class MainViewModel : ObservableObject
     private bool isRefreshing;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowContent))]
+    private bool showLoading;
+
+    [ObservableProperty]
     private bool isPrototype;
 
     public MainViewModel(
@@ -45,9 +54,13 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ObservableCollection<QuotaWindowView> Windows { get; } = [];
 
+    public ObservableCollection<bool> LoadingWindows { get; } = [true];
+
     public bool HasPlanBadge => !string.IsNullOrWhiteSpace(PlanBadge);
 
     public bool HasWindows => Windows.Count != 0;
+
+    public bool ShowContent => !ShowLoading;
 
     partial void OnPlanBadgeChanged(string? value) => OnPropertyChanged(nameof(HasPlanBadge));
 
@@ -64,7 +77,7 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanRefresh))]
     private async Task RefreshAsync(CancellationToken cancellationToken)
     {
-        IsRefreshing = true;
+        BeginRefreshPresentation(showLoading: !HasWindows, Windows.Count);
         StatusText = "正在刷新…";
         StatusTone = StatusTone.Refreshing;
         try
@@ -77,7 +90,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
         finally
         {
-            IsRefreshing = false;
+            EndRefreshPresentationAfterMinimum();
         }
     }
 
@@ -88,7 +101,7 @@ public sealed partial class MainViewModel : ObservableObject
     {
         StatusText = "刷新失败：无法启动 Codex 连接 · 点击刷新重试";
         StatusTone = StatusTone.Error;
-        IsRefreshing = false;
+        EndRefreshPresentationAfterMinimum();
         IsPrototype = false;
     }
 
@@ -98,12 +111,34 @@ public sealed partial class MainViewModel : ObservableObject
 
     private void Apply(AppUiState state)
     {
+        if (!state.IsRefreshing && IsRefreshing)
+        {
+            if (ShowLoading)
+            {
+                SetLoadingWindowCount(state.Windows.Count);
+            }
+
+            pendingRefreshResult = state;
+            EndRefreshPresentationAfterMinimum();
+            return;
+        }
+
+        var startsContentLoading = state.IsRefreshing && state.Windows.Count == 0;
+        if (state.IsRefreshing && (!IsRefreshing || (startsContentLoading && !ShowLoading)))
+        {
+            BeginRefreshPresentation(startsContentLoading, Windows.Count);
+        }
+
+        ApplyCore(state);
+    }
+
+    private void ApplyCore(AppUiState state)
+    {
         Title = state.Title;
         PlanBadge = state.PlanBadge;
         StatusText = state.StatusText;
         StatusTone = state.StatusTone;
         ResetCredits = state.ResetCredits;
-        IsRefreshing = state.IsRefreshing;
         IsPrototype = state.IsPrototype;
         Windows.Clear();
         foreach (var window in state.Windows)
@@ -112,5 +147,98 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(HasWindows));
+    }
+
+    private void BeginRefreshPresentation(bool showLoading, int loadingWindowCount)
+    {
+        refreshPresentationCompletion?.Cancel();
+        refreshPresentationCompletion?.Dispose();
+        refreshPresentationCompletion = null;
+        pendingRefreshResult = null;
+        Interlocked.Increment(ref refreshPresentationRevision);
+        refreshPresentationStartedTimestamp = Stopwatch.GetTimestamp();
+        IsRefreshing = true;
+        ShowLoading = showLoading;
+        if (showLoading)
+        {
+            SetLoadingWindowCount(loadingWindowCount);
+        }
+    }
+
+    private void SetLoadingWindowCount(int count)
+    {
+        count = Math.Max(1, count);
+        if (LoadingWindows.Count == count)
+        {
+            return;
+        }
+
+        LoadingWindows.Clear();
+        for (var index = 0; index < count; index++)
+        {
+            LoadingWindows.Add(true);
+        }
+    }
+
+    private void EndRefreshPresentationAfterMinimum()
+    {
+        if (!IsRefreshing || refreshPresentationCompletion is not null)
+        {
+            return;
+        }
+
+        var remaining = RefreshPresentationPolicy.Remaining(refreshPresentationStartedTimestamp);
+        if (remaining == TimeSpan.Zero)
+        {
+            ApplyPendingRefreshResult();
+            IsRefreshing = false;
+            ShowLoading = false;
+            return;
+        }
+
+        var revision = Interlocked.Read(ref refreshPresentationRevision);
+        var cancellation = new CancellationTokenSource();
+        refreshPresentationCompletion = cancellation;
+        _ = CompleteRefreshPresentationAsync(revision, remaining, cancellation);
+    }
+
+    private async Task CompleteRefreshPresentationAsync(
+        long revision,
+        TimeSpan delay,
+        CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await Task.Delay(delay, cancellation.Token);
+            if (revision == Interlocked.Read(ref refreshPresentationRevision))
+            {
+                ApplyPendingRefreshResult();
+                IsRefreshing = false;
+                ShowLoading = false;
+            }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            if (ReferenceEquals(refreshPresentationCompletion, cancellation))
+            {
+                refreshPresentationCompletion = null;
+            }
+
+            cancellation.Dispose();
+        }
+    }
+
+    private void ApplyPendingRefreshResult()
+    {
+        if (pendingRefreshResult is not { } result)
+        {
+            return;
+        }
+
+        pendingRefreshResult = null;
+        ApplyCore(result);
     }
 }

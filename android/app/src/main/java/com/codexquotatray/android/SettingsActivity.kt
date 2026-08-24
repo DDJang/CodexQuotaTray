@@ -40,11 +40,14 @@ import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.unit.dp
 import com.codexquotatray.android.alerts.QuotaAlertSettingsStore
 import com.codexquotatray.android.alerts.QuotaNotifications
+import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.quota.QuotaRefreshScheduler
 import com.codexquotatray.android.quota.QuotaRefreshSettings
 import com.codexquotatray.android.quota.QuotaRefreshSettingsStore
 import com.codexquotatray.android.quota.QuotaSnapshotStore
 import com.codexquotatray.android.quota.ResetCreditExpiryReminderScheduler
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
+import com.codexquotatray.android.source.DataSourcePriority
 import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
@@ -74,19 +77,45 @@ import java.util.concurrent.Executors
 private enum class SettingsDestination(val title: String) {
     ROOT("设置"),
     NOTIFICATIONS("通知"),
-    SYNC("数据更新"),
+    SYNC("数据"),
     THEME("显示与主题"),
     TOKEN_PAIRING("Windows 配对"),
     UPDATE("更新设置"),
 }
 
+private const val DEBUG_QUOTA_RING_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.QuotaRingFixtureActivity"
+private const val DEBUG_LIQUID_BOTTOM_TABS_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.LiquidBottomTabsFixtureActivity"
+private const val DEBUG_LIQUID_ICON_BUTTON_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.LiquidIconButtonFixtureActivity"
+private const val DEBUG_LIQUID_ACTION_BUTTON_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.LiquidActionButtonFixtureActivity"
+private const val DEBUG_LIQUID_SEGMENTED_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.LiquidSegmentedFixtureActivity"
+private const val DEBUG_LIQUID_TOKEN_TOOLTIP_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.LiquidTokenTooltipFixtureActivity"
+
+internal fun sourcePriorityOptions(): List<SettingsSegmentOption> = listOf(
+    SettingsSegmentOption(0, "OpenAI 优先"),
+    SettingsSegmentOption(1, "Windows 优先"),
+)
+
+internal fun sourcePriorityValue(priority: DataSourcePriority): Int =
+    if (priority == DataSourcePriority.OPENAI_FIRST) 0 else 1
+
+internal fun sourcePriorityFromValue(value: Int): DataSourcePriority =
+    if (value == 0) DataSourcePriority.OPENAI_FIRST else DataSourcePriority.WINDOWS_FIRST
+
 class SettingsActivity : ComponentActivity() {
     private val alertStore by lazy { QuotaAlertSettingsStore(this) }
+    private val oauthStore by lazy { OAuthStore(this) }
     private val refreshStore by lazy { QuotaRefreshSettingsStore(this) }
     private val themeStore by lazy { ThemeSettingsStore(this) }
     private val tokenStore by lazy { TokenSyncStore(this) }
     private val tokenRefreshStore by lazy { TokenUsageRefreshSettingsStore(this) }
     private val updateSettingsStore by lazy { UpdateSettingsStore(this) }
+    private val sourcePriorityStore by lazy { AndroidDataSourcePriorityStore(this) }
     private val pairingWorker = Executors.newSingleThreadExecutor()
     private val pairingMain = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -102,6 +131,8 @@ class SettingsActivity : ComponentActivity() {
     private var tokenAutoSync by mutableStateOf(true)
     private var tokenBackgroundSync by mutableStateOf(false)
     private var tokenSyncInterval by mutableStateOf(TokenUsageRefreshSettings.DEFAULT_INTERVAL_MINUTES)
+    private var quotaSourcePriority by mutableStateOf(DataSourcePriority.OPENAI_FIRST)
+    private var tokenSourcePriority by mutableStateOf(DataSourcePriority.WINDOWS_FIRST)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var systemThemeVersion by mutableStateOf(0)
     private var pairing by mutableStateOf<TokenSyncPairing?>(null)
@@ -120,6 +151,7 @@ class SettingsActivity : ComponentActivity() {
     private var updateDownloadError by mutableStateOf<String?>(null)
     private var pendingBrowserDownloadUrl: String? = null
     private var pendingInstall by mutableStateOf<java.io.File?>(null)
+    private var codexLoggedIn by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -141,23 +173,26 @@ class SettingsActivity : ComponentActivity() {
                 settingsPalette(AppTheme.palette(this, themeMode), effectiveTheme),
             )
             CodexQuotaTheme(palette) {
-                val backdrop = rememberLayerBackdrop()
+                val pageBackdrop = rememberLayerBackdrop()
                 val scrollState = rememberScrollState()
                 var upwardOverscrollActive by remember { mutableStateOf(false) }
                 val backgroundColor = palette.color(palette.background)
-                Box(Modifier.fillMaxSize().background(backgroundColor)) {
-                    Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) {
-                        Box(Modifier.fillMaxSize().background(backgroundColor)) {
-                            SettingsContent(
-                                page = destination,
-                                scrollState = scrollState,
-                                onUpwardOverscrollChanged = { upwardOverscrollActive = it },
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                        }
+                Box(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .layerBackdrop(pageBackdrop)
+                            .background(backgroundColor),
+                    ) {
+                        SettingsContent(
+                            page = destination,
+                            scrollState = scrollState,
+                            onUpwardOverscrollChanged = { upwardOverscrollActive = it },
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
                     SettingsGradientBlurHeader(
-                        backdrop = backdrop,
+                        backdrop = pageBackdrop,
                         scrollState = scrollState,
                         isScrolled = scrollState.value > 0 || upwardOverscrollActive,
                         tint = backgroundColor,
@@ -167,10 +202,10 @@ class SettingsActivity : ComponentActivity() {
                         Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        GlassIconButton(
+                        LiquidIconButton(
                             iconRes = R.drawable.ic_back,
                             description = "返回",
-                            backdrop = backdrop,
+                            backdrop = pageBackdrop,
                             buttonSize = 52.dp,
                             iconSize = 25.dp,
                             onClick = ::finish,
@@ -251,7 +286,9 @@ class SettingsActivity : ComponentActivity() {
     ) {
         Column(
             modifier
-                .dampedVerticalOverscroll(onUpwardOverscrollChanged)
+                .dampedVerticalOverscroll { displacement ->
+                    onUpwardOverscrollChanged(displacement < 0f)
+                }
                 .verticalScroll(scrollState, overscrollEffect = null)
                 .statusBarsPadding()
                 .navigationBarsPadding()
@@ -273,7 +310,10 @@ class SettingsActivity : ComponentActivity() {
     private fun ColumnScope.SettingsHome() {
         SettingsSection("账号与配对") {
             SettingsGroup {
-                SettingsNavigationRow("Codex 额度账号") {
+                SettingsNavigationRow(
+                    title = "Codex 额度账号",
+                    trailing = if (codexLoggedIn) "已登录" else "未登录",
+                ) {
                     startActivity(Intent(this@SettingsActivity, AccountActivity::class.java))
                 }
                 SettingsDivider()
@@ -283,7 +323,7 @@ class SettingsActivity : ComponentActivity() {
                 ) { openDestination(SettingsDestination.TOKEN_PAIRING) }
             }
         }
-        SettingsSection("通知与数据更新") {
+        SettingsSection("通知与数据") {
             SettingsGroup {
                 if (!backgroundRefresh) {
                     SettingsWarningCaption("未开启额度后台刷新时，通知可能会延迟")
@@ -292,7 +332,7 @@ class SettingsActivity : ComponentActivity() {
                     openDestination(SettingsDestination.NOTIFICATIONS)
                 }
                 SettingsDivider()
-                SettingsNavigationRow("数据更新", if (backgroundRefresh || tokenBackgroundSync) "已开启" else "已关闭") {
+                SettingsNavigationRow("数据") {
                     openDestination(SettingsDestination.SYNC)
                 }
             }
@@ -318,6 +358,113 @@ class SettingsActivity : ComponentActivity() {
                     startActivity(Intent(this@SettingsActivity, AboutActivity::class.java))
                 }
             }
+        }
+        if (BuildConfig.DEBUG) {
+            SettingsSection("开发者选项") {
+                SettingsGroup {
+                    SettingsNavigationRow(
+                        title = "Quota Ring Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugQuotaRingFixture,
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Liquid Bottom Tabs Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugLiquidBottomTabsFixture,
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Liquid Icon Button Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugLiquidIconButtonFixture,
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Liquid Action Button Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugLiquidActionButtonFixture,
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Liquid Segmented Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugLiquidSegmentedFixture,
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Liquid Token Tooltip Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugLiquidTokenTooltipFixture,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun openDebugQuotaRingFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_QUOTA_RING_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugLiquidBottomTabsFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_LIQUID_BOTTOM_TABS_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugLiquidIconButtonFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_LIQUID_ICON_BUTTON_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugLiquidActionButtonFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_LIQUID_ACTION_BUTTON_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugLiquidSegmentedFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_LIQUID_SEGMENTED_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugLiquidTokenTooltipFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_LIQUID_TOKEN_TOOLTIP_FIXTURE_ACTIVITY,
+                ),
+            )
         }
     }
 
@@ -346,7 +493,7 @@ class SettingsActivity : ComponentActivity() {
             }
         }
         SettingsSection(stringResource(R.string.reset_credit_expiry_section)) {
-            SettingsGroup {
+            SettingsGroup(allowLiquidOverflow = true) {
                 SettingsToggleRow(
                     title = stringResource(R.string.reset_credit_expiry_toggle),
                     checked = resetCreditExpiryEnabled,
@@ -375,10 +522,26 @@ class SettingsActivity : ComponentActivity() {
     @Composable
     private fun ColumnScope.SyncSettings() {
         SettingsSection("额度") {
-            SettingsGroup {
-                SettingsToggleRow("回到前台时刷新", quotaAutoRefresh, onChange = ::updateQuotaAutoRefresh)
+            SettingsGroup(allowLiquidOverflow = true) {
+                SettingsInlineLabel("数据来源")
+                SettingsSegmentedSelector(
+                    options = sourcePriorityOptions(),
+                    selectedValue = sourcePriorityValue(quotaSourcePriority),
+                    enabled = true,
+                    onSelected = { selectQuotaSourcePriority(sourcePriorityFromValue(it)) },
+                )
                 SettingsDivider()
-                SettingsToggleRow("后台自动刷新", backgroundRefresh, onChange = ::updateBackgroundRefresh)
+                SettingsToggleRow(
+                    "回到前台时刷新",
+                    quotaAutoRefresh,
+                    onChange = ::updateQuotaAutoRefresh,
+                )
+                SettingsDivider()
+                SettingsToggleRow(
+                    "后台自动刷新",
+                    backgroundRefresh,
+                    onChange = ::updateBackgroundRefresh,
+                )
                 SettingsDivider()
                 SettingsInlineLabel("刷新频率", enabled = backgroundRefresh)
                 SettingsSegmentedSelector(
@@ -395,10 +558,26 @@ class SettingsActivity : ComponentActivity() {
             }
         }
         SettingsSection("统计") {
-            SettingsGroup {
-                SettingsToggleRow("回到前台时同步", tokenAutoSync, onChange = ::updateTokenAutoSync)
+            SettingsGroup(allowLiquidOverflow = true) {
+                SettingsInlineLabel("数据来源")
+                SettingsSegmentedSelector(
+                    options = sourcePriorityOptions(),
+                    selectedValue = sourcePriorityValue(tokenSourcePriority),
+                    enabled = true,
+                    onSelected = { selectTokenSourcePriority(sourcePriorityFromValue(it)) },
+                )
                 SettingsDivider()
-                SettingsToggleRow("后台自动同步", tokenBackgroundSync, onChange = ::updateTokenBackgroundSync)
+                SettingsToggleRow(
+                    "回到前台时同步",
+                    tokenAutoSync,
+                    onChange = ::updateTokenAutoSync,
+                )
+                SettingsDivider()
+                SettingsToggleRow(
+                    "后台自动同步",
+                    tokenBackgroundSync,
+                    onChange = ::updateTokenBackgroundSync,
+                )
                 SettingsDivider()
                 SettingsInlineLabel("同步频率", enabled = tokenBackgroundSync)
                 SettingsSegmentedSelector(
@@ -474,6 +653,7 @@ class SettingsActivity : ComponentActivity() {
 
     private fun renderState() {
         val alert = alertStore.load()
+        codexLoggedIn = oauthStore.load() != null
         val refresh = refreshStore.load()
         lowQuota = alert.lowQuotaEnabled
         resetAlert = alert.resetEnabled
@@ -487,6 +667,10 @@ class SettingsActivity : ComponentActivity() {
             tokenAutoSync = tokenRefresh.autoSyncOnOpen
             tokenBackgroundSync = tokenRefresh.backgroundSyncEnabled
             tokenSyncInterval = tokenRefresh.normalizedIntervalMinutes
+        }
+        sourcePriorityStore.load().also { priorities ->
+            quotaSourcePriority = priorities.quota
+            tokenSourcePriority = priorities.token
         }
         themeMode = themeStore.load()
         pairing = tokenStore.load()
@@ -561,6 +745,18 @@ class SettingsActivity : ComponentActivity() {
         tokenRefreshStore.save(tokenRefreshStore.load().copy(intervalMinutes = minutes))
         TokenUsageRefreshScheduler.schedule(this)
         AppLogStore.record(this, "Token 后台同步频率设为 $minutes 分钟")
+    }
+
+    private fun selectQuotaSourcePriority(priority: DataSourcePriority) {
+        quotaSourcePriority = priority
+        sourcePriorityStore.save(sourcePriorityStore.load().copy(quota = priority))
+        AppLogStore.record(this, "额度数据来源优先级已更新")
+    }
+
+    private fun selectTokenSourcePriority(priority: DataSourcePriority) {
+        tokenSourcePriority = priority
+        sourcePriorityStore.save(sourcePriorityStore.load().copy(token = priority))
+        AppLogStore.record(this, "Token 数据来源优先级已更新")
     }
 
     private fun selectTheme(mode: ThemeMode) {
@@ -641,14 +837,18 @@ class SettingsActivity : ComponentActivity() {
                 SettingsDivider()
                 SettingsNavigationRow(
                     title = "Gitee",
-                    trailing = "暂不可用",
+                    trailing = "待后续开发",
                     enabled = false,
                 ) { }
             }
         }
         SettingsSection("更新行为") {
             SettingsGroup {
-                SettingsToggleRow("自动检查更新", automaticUpdateChecks, onChange = ::updateAutomaticChecks)
+                SettingsToggleRow(
+                    "自动检查更新",
+                    automaticUpdateChecks,
+                    onChange = ::updateAutomaticChecks,
+                )
                 SettingsDivider()
                 SettingsToggleRow(
                     "更新提醒",

@@ -32,6 +32,8 @@ internal sealed partial class TrayContextMenuWindow : Window, IDisposable
     private bool disposed;
     private bool menuRootLoaded;
     private bool layoutResizeQueued;
+    private bool firstPresentationCompleted;
+    private bool firstPresentationCloaked;
     private Rectangle? pendingAnchor;
     private int focusedItemIndex;
 
@@ -92,17 +94,22 @@ internal sealed partial class TrayContextMenuWindow : Window, IDisposable
 
         ApplyTheme(themeMode);
         pendingAnchor = anchor ?? CursorAnchor();
-        appWindow.Move(new PointInt32(pendingAnchor.Value.Left, pendingAnchor.Value.Top));
+        PositionNearAnchor(pendingAnchor.Value);
         if (presenter is not null)
         {
             presenter.IsAlwaysOnTop = true;
         }
 
+        firstPresentationCloaked = !firstPresentationCompleted && SetCloaked(true);
         activationPending = true;
         visible = true;
         appWindow.Show();
-        Activate();
-        _ = NativeMethods.SetForegroundWindow(hwnd);
+        if (!firstPresentationCloaked)
+        {
+            firstPresentationCompleted = true;
+            Activate();
+            _ = NativeMethods.SetForegroundWindow(hwnd);
+        }
         QueueLayoutResize();
     }
 
@@ -116,6 +123,7 @@ internal sealed partial class TrayContextMenuWindow : Window, IDisposable
         visible = false;
         activationPending = false;
         pendingAnchor = null;
+        ReleaseFirstPresentationCloak(activate: false);
         if (presenter is not null)
         {
             presenter.IsAlwaysOnTop = false;
@@ -177,6 +185,7 @@ internal sealed partial class TrayContextMenuWindow : Window, IDisposable
             layoutResizeQueued = false;
             if (!visible)
             {
+                ReleaseFirstPresentationCloak(activate: false);
                 return;
             }
 
@@ -185,10 +194,12 @@ internal sealed partial class TrayContextMenuWindow : Window, IDisposable
             focusedItemIndex = 0;
             _ = OpenButton.Focus(FocusState.Programmatic);
             activationPending = false;
+            ReleaseFirstPresentationCloak(activate: true);
         }))
         {
             layoutResizeQueued = false;
             activationPending = false;
+            ReleaseFirstPresentationCloak(activate: true);
         }
     }
 
@@ -233,6 +244,35 @@ internal sealed partial class TrayContextMenuWindow : Window, IDisposable
         MenuRoot.Arrange(new Windows.Foundation.Rect(0, 0, MenuWidthDips, desiredHeight));
         MenuRoot.UpdateLayout();
         return desiredHeight;
+    }
+
+    private bool SetCloaked(bool value)
+    {
+        var enabled = value ? 1 : 0;
+        return NativeMethods.DwmSetWindowAttribute(
+            hwnd,
+            NativeMethods.DwmwaCloak,
+            ref enabled,
+            sizeof(int)) == 0;
+    }
+
+    private void ReleaseFirstPresentationCloak(bool activate)
+    {
+        if (!firstPresentationCloaked)
+        {
+            return;
+        }
+
+        _ = SetCloaked(false);
+        firstPresentationCloaked = false;
+        if (!activate || !visible)
+        {
+            return;
+        }
+
+        firstPresentationCompleted = true;
+        Activate();
+        _ = NativeMethods.SetForegroundWindow(hwnd);
     }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)

@@ -191,19 +191,27 @@ internal fun SecondaryScreenScaffold(
     val scrollState = rememberScrollState()
     var upwardOverscrollActive by remember { mutableStateOf(false) }
     val backgroundColor = palette.color(palette.background)
-    Box(modifier.fillMaxSize().background(palette.color(palette.background))) {
-        Column(
+    Box(modifier.fillMaxSize()) {
+        Box(
             Modifier
                 .fillMaxSize()
                 .layerBackdrop(backdrop)
-                .dampedVerticalOverscroll { upwardOverscrollActive = it }
-                .verticalScroll(scrollState, overscrollEffect = null)
-                .statusBarsPadding()
-                .navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, top = 86.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(28.dp),
+                .background(backgroundColor),
         ) {
-            content()
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .dampedVerticalOverscroll { displacement ->
+                        upwardOverscrollActive = displacement < 0f
+                    }
+                    .verticalScroll(scrollState, overscrollEffect = null)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, top = 86.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(28.dp),
+            ) {
+                content()
+            }
         }
         SettingsGradientBlurHeader(
             backdrop = backdrop,
@@ -216,7 +224,7 @@ internal fun SecondaryScreenScaffold(
             Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 18.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            GlassIconButton(
+            LiquidIconButton(
                 iconRes = R.drawable.ic_back,
                 description = "返回",
                 backdrop = backdrop,

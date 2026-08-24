@@ -10,21 +10,23 @@ import org.junit.Test
 
 class TokenUsageRefreshSettingsTest {
     @Test
-    fun tokenBackgroundSchedulingRequiresBothItsOwnSettingAndAPairing() {
+    fun tokenBackgroundSchedulingAcceptsEitherOAuthOrWindowsPairing() {
         val enabled = TokenUsageRefreshSettings(backgroundSyncEnabled = true, intervalMinutes = 30)
-        assertTrue(TokenUsageRefreshScheduler.shouldSchedule(enabled, hasPairing = true))
-        assertFalse(TokenUsageRefreshScheduler.shouldSchedule(enabled, hasPairing = false))
+        assertTrue(TokenUsageRefreshScheduler.shouldSchedule(enabled, hasOAuth = true, hasWindowsPairing = false))
+        assertTrue(TokenUsageRefreshScheduler.shouldSchedule(enabled, hasOAuth = false, hasWindowsPairing = true))
+        assertFalse(TokenUsageRefreshScheduler.shouldSchedule(enabled, hasOAuth = false, hasWindowsPairing = false))
         assertFalse(
             TokenUsageRefreshScheduler.shouldSchedule(
                 enabled.copy(backgroundSyncEnabled = false),
-                hasPairing = true,
+                hasOAuth = true,
+                hasWindowsPairing = true,
             ),
         )
     }
 
     @Test
     fun pairedLanSyncRequiresWifiWithoutValidatedInternet() {
-        val requirement = TokenUsageRefreshScheduler.networkRequirement()
+        val requirement = TokenUsageRefreshScheduler.networkRequirement(hasOAuth = false, hasWindowsPairing = true)
 
         assertEquals(setOf(BackgroundNetworkTransport.WIFI), requirement.transports)
         assertTrue(requirement.capabilities.contains(BackgroundNetworkCapability.NOT_SUSPENDED))
@@ -34,23 +36,14 @@ class TokenUsageRefreshSettingsTest {
     }
 
     @Test
-    fun tokenBackgroundWorkerSkipsWhenWifiLanIsUnavailable() {
-        val enabled = TokenUsageRefreshSettings(backgroundSyncEnabled = true)
+    fun oauthOnlyRequiresValidatedInternetAndCombinedSourcesAllowLanOnlyWifi() {
+        val oauthOnly = TokenUsageRefreshScheduler.networkRequirement(hasOAuth = true, hasWindowsPairing = false)
+        assertTrue(oauthOnly.capabilities.contains(BackgroundNetworkCapability.INTERNET))
+        assertTrue(oauthOnly.capabilities.contains(BackgroundNetworkCapability.VALIDATED))
 
-        assertFalse(
-            TokenUsageRefreshScheduler.shouldRunOnWifiLan(
-                settings = enabled,
-                hasPairing = true,
-                isWifiLanAvailable = false,
-            ),
-        )
-        assertTrue(
-            TokenUsageRefreshScheduler.shouldRunOnWifiLan(
-                settings = enabled,
-                hasPairing = true,
-                isWifiLanAvailable = true,
-            ),
-        )
+        val combined = TokenUsageRefreshScheduler.networkRequirement(hasOAuth = true, hasWindowsPairing = true)
+        assertEquals(setOf(BackgroundNetworkTransport.WIFI, BackgroundNetworkTransport.CELLULAR), combined.transports)
+        assertFalse(combined.capabilities.contains(BackgroundNetworkCapability.INTERNET))
     }
 
     @Test
@@ -59,7 +52,7 @@ class TokenUsageRefreshSettingsTest {
         val tokenBackgroundEnabled = TokenUsageRefreshSettings(backgroundSyncEnabled = true)
 
         assertFalse(quotaBackgroundDisabled.enabled)
-        assertTrue(TokenUsageRefreshScheduler.shouldSchedule(tokenBackgroundEnabled, hasPairing = true))
+        assertTrue(TokenUsageRefreshScheduler.shouldSchedule(tokenBackgroundEnabled, hasOAuth = true, hasWindowsPairing = false))
     }
 
     @Test

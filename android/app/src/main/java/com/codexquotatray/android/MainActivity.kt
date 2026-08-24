@@ -98,10 +98,19 @@ class MainActivity : ComponentActivity() {
             systemThemeVersion
             val palette = rememberAnimatedThemePalette(AppTheme.palette(this, themeMode))
             CodexQuotaTheme(palette) {
-                val pageBackdrop = rememberLayerBackdrop()
-                Box(Modifier.fillMaxSize().background(palette.color(palette.background))) {
+                val chromeBackdrop = rememberLayerBackdrop()
+                Box(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .layerBackdrop(chromeBackdrop)
+                            .background(palette.color(palette.background)),
+                    ) {
+                    }
                     Column(
-                        Modifier.fillMaxSize().layerBackdrop(pageBackdrop).statusBarsPadding(),
+                        Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding(),
                     ) {
                         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 72.dp, top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("CodexQuota", color = palette.color(palette.title), fontSize = 28.sp, fontWeight = FontWeight.Bold)
@@ -133,10 +142,10 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 8.dp, end = 20.dp)) {
-                        GlassIconButton(
+                        LiquidIconButton(
                             iconRes = R.drawable.ic_settings,
                             description = "设置",
-                            backdrop = pageBackdrop,
+                            backdrop = chromeBackdrop,
                             buttonSize = 52.dp,
                             iconSize = 24.dp,
                             onClick = ::openSettings,
@@ -145,7 +154,7 @@ class MainActivity : ComponentActivity() {
                     LiquidMainDock(
                         selectedIndex = selectedIndex,
                         onSelected = ::selectTab,
-                        backdrop = pageBackdrop,
+                        backdrop = chromeBackdrop,
                         actionEnabled = if (selectedIndex == 0) quota.canRefresh else usage.canSync,
                         actionBusy = if (selectedIndex == 0) quota.busy else usage.syncing,
                         actionDescription = if (selectedIndex == 0) "刷新额度" else "同步统计",

@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -50,7 +51,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.shadow.Shadow
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -68,7 +68,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.codexquotatray.android.usage.HeatmapBuckets
+import com.codexquotatray.android.auth.OAuthStore
+import com.codexquotatray.android.usage.DataTransport
+import com.codexquotatray.android.usage.TokenUsageScope
 import com.codexquotatray.android.usage.TokenFormatter
 import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.TokenSyncStore
@@ -84,6 +90,9 @@ import com.codexquotatray.android.usage.TokenUsageSnapshot
 import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
 import com.codexquotatray.android.usage.tokenUsageSyncErrorMessage
 import com.codexquotatray.android.usage.shouldForceTokenUsageRefresh
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
+import com.codexquotatray.android.source.DataSourcePriority
+import com.codexquotatray.android.source.sourcePriorityChanged
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.DayOfWeek
@@ -94,17 +103,13 @@ import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
-import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.rememberHazeState
-import dev.chrisbanes.haze.blur.HazeColorEffect
-import dev.chrisbanes.haze.blur.blurEffect
 
 internal class TokenUsagePageController(private val host: MainActivity) {
     private val cache by lazy { TokenUsageCache(host) }
     private val store by lazy { TokenSyncStore(host) }
     private val refreshSettings by lazy { TokenUsageRefreshSettingsStore(host) }
+    private val oauthStore by lazy { OAuthStore(host) }
+    private val sourcePriorityStore by lazy { AndroidDataSourcePriorityStore(host) }
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var destroyed = false
@@ -118,11 +123,9 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         private set
     var paired by mutableStateOf(false)
         private set
+    private var lastObservedPriority: DataSourcePriority? = null
 
-    /** The last pairing configuration reconciled into this controller. */
-    private var observedPairing: TokenSyncPairing? = null
-
-    val canSync get() = !syncing && store.load() != null
+    val canSync get() = !syncing && (store.load() != null || oauthStore.load() != null)
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -138,41 +141,34 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     }
 
     fun onForeground(reason: AutomaticRefreshReason) {
-        reconcilePairingState()
-        requestSync(store.load(), reason)
+        val priorityChanged = reconcilePairingState()
+        if (!priorityChanged) requestSync(reason)
     }
 
     /**
-     * Reconciles only local pairing/cache state. It never starts a network
-     * request, so returning from Settings cannot resurrect a stale snapshot or
-     * bypass the foreground refresh coordinator.
+     * Reconciles local provider/cache state. A changed source priority also
+     * starts one source-change sync while retaining the current snapshot.
      */
-    fun reconcilePairingState() {
+    fun reconcilePairingState(): Boolean {
+        val priorityChanged = observeTokenPriority()
         val currentPairing = store.load()
-        val decision = tokenPairingReconcileDecision(
-            previousPairing = observedPairing,
-            currentPairing = currentPairing,
-            currentSnapshot = snapshot,
-            cachedSnapshot = currentPairing?.let(cache::load),
-        )
-        if (decision.unpaired) {
-            observedPairing = null
+        val hasOAuth = oauthStore.load() != null
+        val cached = cache.loadForAvailableSources(currentPairing, hasOAuth)
+        if (currentPairing == null && !hasOAuth) {
             paired = false
             snapshot = null
             status = RefreshStatusFormatter.tokenUnpaired()
-            return
+            return false
         }
-
-        observedPairing = currentPairing
         paired = true
-        if (decision.pairingChanged) {
-            snapshot = decision.snapshotToDisplay
-            status = snapshot?.let { RefreshStatusFormatter.loaded("Windows", formatSyncTime(it.generatedAtUtc)) }
-                ?: RefreshStatusFormatter.tokenPairedWithoutData()
-        } else if (decision.snapshotToDisplay !== snapshot && decision.snapshotToDisplay != null) {
-            snapshot = decision.snapshotToDisplay
-            status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(decision.snapshotToDisplay.generatedAtUtc))
+        if (cached != null && (snapshot == null || hasNewerTokenUsageSnapshot(snapshot, cached))) {
+            snapshot = cached
+            status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(cached), formatSyncTime(cached.generatedAtUtc))
+        } else if (snapshot == null) {
+            status = RefreshStatusFormatter.tokenPairedWithoutData()
         }
+        if (priorityChanged) requestSync(AutomaticRefreshReason.SOURCE_CHANGED)
+        return priorityChanged
     }
 
     fun onHidden() { visible = false }
@@ -190,12 +186,13 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     }
 
     fun destroy() { onStop(); destroyed = true; worker.shutdownNow() }
-    fun requestSync() { if (canSync) requestSync(store.load(), AutomaticRefreshReason.MANUAL) }
+    fun requestSync() { if (canSync) requestSync(AutomaticRefreshReason.MANUAL) }
 
-    private fun requestSync(pairing: TokenSyncPairing?, reason: AutomaticRefreshReason) {
-        if (pairing == null || syncing || destroyed) return
+    private fun requestSync(reason: AutomaticRefreshReason) {
+        if (!canSync || destroyed) return
         val enabled = refreshSettings.load().autoSyncOnOpen
         if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.TOKEN, reason, enabled)) return
+        val presentationStartedAt = SystemClock.elapsedRealtime()
         val snapshotAtStart = snapshot
         syncing = true
         status = RefreshStatusFormatter.tokenRefreshing(snapshot != null)
@@ -203,38 +200,57 @@ internal class TokenUsagePageController(private val host: MainActivity) {
             val result = try {
                 runCatching {
                     TokenUsageSyncCoordinator(host).sync(
-                        pairing,
                         forceRefresh = shouldForceTokenUsageRefresh(reason),
                     )
                 }
             } finally {
                 AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.TOKEN)
             }
+            val requestFinishedAt = SystemClock.elapsedRealtime()
             main.post {
-                if (destroyed) return@post
-                syncing = false
-                result.onSuccess { synced ->
-                    snapshot = synced.snapshot
-                    observedPairing = store.load() ?: synced.pairing
-                    status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(synced.snapshot.generatedAtUtc))
-                }.onFailure { error ->
-                    val latestSnapshot = loadCachedSnapshot()
-                    if (latestSnapshot != null && hasNewerTokenUsageSnapshot(snapshotAtStart, latestSnapshot)) {
-                        snapshot = latestSnapshot
-                        status = RefreshStatusFormatter.loaded("Windows", formatSyncTime(latestSnapshot.generatedAtUtc))
-                    } else {
-                        val message = tokenUsageSyncErrorMessage(error)
-                        status = RefreshStatusFormatter.tokenFailure(
-                            reason = message,
-                            updatedAt = snapshot?.let { formatSyncTime(it.generatedAtUtc) },
-                        )
+                val remaining = remainingRefreshPresentationMillis(
+                    presentationStartedAt,
+                    requestFinishedAt,
+                )
+                main.postDelayed({
+                    if (destroyed) return@postDelayed
+                    syncing = false
+                    result.onSuccess { synced ->
+                        snapshot = synced.snapshot
+                        status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(synced.snapshot), formatSyncTime(synced.snapshot.generatedAtUtc))
+                    }.onFailure { error ->
+                        val latestSnapshot = loadCachedSnapshot()
+                        if (latestSnapshot != null && hasNewerTokenUsageSnapshot(snapshotAtStart, latestSnapshot)) {
+                            snapshot = latestSnapshot
+                            status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(latestSnapshot), formatSyncTime(latestSnapshot.generatedAtUtc))
+                        } else {
+                            val message = tokenUsageSyncErrorMessage(error)
+                            status = RefreshStatusFormatter.tokenFailure(
+                                reason = message,
+                                updatedAt = snapshot?.let { formatSyncTime(it.generatedAtUtc) },
+                            )
+                        }
                     }
-                }
+                }, remaining)
             }
         }
     }
 
-    private fun loadCachedSnapshot(): TokenUsageSnapshot? = store.load()?.let(cache::load)
+    private fun loadCachedSnapshot(): TokenUsageSnapshot? =
+        cache.loadForAvailableSources(store.load(), oauthStore.load() != null)
+
+    private fun observeTokenPriority(): Boolean {
+        val currentPriority = sourcePriorityStore.load().token
+        val changed = sourcePriorityChanged(lastObservedPriority, currentPriority)
+        lastObservedPriority = currentPriority
+        return changed
+    }
+}
+
+internal fun tokenUsageSourceLabel(snapshot: TokenUsageSnapshot): String = when {
+    snapshot.transport == DataTransport.OPENAI -> "OpenAI · 账户"
+    snapshot.scope == TokenUsageScope.ACCOUNT -> "Windows · 账户"
+    else -> "Windows · 本机"
 }
 
 /** Pure local decision used by the controller and regression tests. */
@@ -290,7 +306,7 @@ internal fun TokenUsagePage(controller: TokenUsagePageController, onPairing: () 
             Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface))) {
                 Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("统计", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                    Text("连接 Windows CodexQuotaTray 后，即可查看 Windows 端的 Codex Token 使用历史。", color = palette.color(palette.secondary))
+                    Text("登录 OpenAI 或连接 Windows CodexQuotaTray 后，即可查看 Token 使用历史。", color = palette.color(palette.secondary))
                     Button(onClick = rememberSystemHapticClick(onPairing), modifier = Modifier.fillMaxWidth()) { Text("扫码配对") }
                 }
             }
@@ -306,9 +322,16 @@ private fun TokenUsageStatusLine(status: String) {
 
 @Composable
 private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
+    val palette = LocalQuotaPalette.current
     val first = listOf("今日 Token" to snapshot.summary.todayTokens, "7 天 Token" to snapshot.summary.last7DaysTokens, "30 天 Token" to snapshot.summary.last30DaysTokens, "累计 Token" to snapshot.summary.lifetimeTokens)
-    val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续" to snapshot.summary.currentStreak.toLong(), "最长连续" to snapshot.summary.longestStreak.toLong())
-    val tokenContentHazeState = rememberHazeState()
+    val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续" to snapshot.summary.currentStreak?.toLong(), "最长连续" to snapshot.summary.longestStreak?.toLong())
+    val categories = listOf(
+        "输入" to completeCategoryTotal(snapshot.days) { it.inputTokens },
+        "缓存输入" to completeCategoryTotal(snapshot.days) { it.cachedInputTokens },
+        "输出" to completeCategoryTotal(snapshot.days) { it.outputTokens },
+        "推理" to completeCategoryTotal(snapshot.days) { it.reasoningTokens },
+    )
+    val tokenContentBackdrop = rememberLayerBackdrop()
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
     var tooltipPresentation by remember { mutableStateOf<HeatmapTooltipPresentation?>(null) }
     val tooltipTarget = tooltipPresentation?.target
@@ -346,10 +369,14 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .hazeSource(tokenContentHazeState),
+                .layerBackdrop(tokenContentBackdrop)
+                .background(palette.color(palette.background)),
         ) {
             SummaryRow(first)
             SummaryRow(second)
+            if (shouldShowTokenCategories(categories)) {
+                SummaryRow(categories)
+            }
             Spacer(Modifier.height(16.dp))
             TokenHeatmap(
                 days = snapshot.days,
@@ -360,9 +387,9 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
             )
         }
         tooltipPresentation?.let { presentation ->
-            HeatmapBlurTooltip(
+            HeatmapLiquidTooltip(
                 day = presentation.day,
-                hazeState = tokenContentHazeState,
+                backdrop = tokenContentBackdrop,
                 modifier = Modifier
                     .offset {
                         IntOffset(tooltipOffset.x.roundToInt(), tooltipOffset.y.roundToInt())
@@ -373,17 +400,46 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
     }
 }
 
+internal fun shouldShowTokenCategories(categories: List<Pair<String, Long?>>): Boolean =
+    categories.any { (_, value) -> value != null }
+
+private fun completeCategoryTotal(
+    days: List<TokenUsageDay>,
+    select: (TokenUsageDay) -> Long?,
+): Long? {
+    if (days.isEmpty() || days.any { select(it) == null }) return null
+    var total = 0L
+    days.forEach { day ->
+        val value = select(day) ?: return null
+        total = if (Long.MAX_VALUE - total < value) Long.MAX_VALUE else total + value
+    }
+    return total
+}
+
 @Composable
-private fun SummaryRow(items: List<Pair<String, Long>>) {
+private fun SummaryRow(items: List<Pair<String, Long?>>) {
     val palette = LocalQuotaPalette.current
     Row(Modifier.fillMaxWidth()) {
         items.forEach { (label, value) ->
             Column(Modifier.weight(1f).padding(vertical = 10.dp, horizontal = 3.dp)) {
-                Text(TokenFormatter.format(value), Modifier.fillMaxWidth(), color = palette.color(palette.title), fontSize = 18.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text(
+                    tokenSummaryValueLabel(label, value),
+                    Modifier.fillMaxWidth(),
+                    color = palette.color(palette.title),
+                    fontSize = if (value == null && label == "今日 Token") 13.sp else 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
                 Text(label, Modifier.fillMaxWidth(), color = palette.color(palette.muted), fontSize = 11.sp, textAlign = TextAlign.Center)
             }
         }
     }
+}
+
+internal fun tokenSummaryValueLabel(label: String, value: Long?): String = when {
+    value != null -> TokenFormatter.format(value)
+    label == "今日 Token" -> "待同步"
+    else -> "—"
 }
 
 private data class HeatmapVisualSelection(
@@ -661,51 +717,33 @@ private fun HeatmapSelectedCell(
 }
 
 @Composable
-private fun HeatmapBlurTooltip(
+private fun HeatmapLiquidTooltip(
     day: TokenUsageDay,
-    hazeState: HazeState,
+    backdrop: Backdrop,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalQuotaPalette.current
     val isDark = palette.color(palette.background).luminance() < 0.35f
-    val containerColor = if (isDark) {
-        Color(0xFF121212)
-    } else {
-        palette.color(palette.surface)
-    }
-    val borderColor = if (isDark) {
-        Color.White.copy(alpha = 0.18f)
-    } else {
-        palette.color(palette.border).copy(alpha = 0.9f)
-    }
-    val shape = RoundedCornerShape(16.dp)
     val scale = remember { Animatable(0.96f) }
     LaunchedEffect(Unit) {
         scale.animateTo(1f, tween(160))
     }
-    Box(
-        modifier
+    val tooltipModifier = liquidTokenDialogSurfaceModifier(
+        modifier = modifier
             .width(HEATMAP_TOOLTIP_WIDTH)
             .height(HEATMAP_TOOLTIP_HEIGHT)
             .graphicsLayer {
                 scaleX = scale.value
                 scaleY = scale.value
                 transformOrigin = TransformOrigin.Center
-            }
-            .clip(shape)
-            .hazeEffect(hazeState) {
-                blurEffect {
-                    blurRadius = 24.dp
-                    backgroundColor = containerColor
-                    colorEffects = listOf(
-                        HazeColorEffect.tint(containerColor.copy(alpha = if (isDark) 0.65f else 0.72f)),
-                    )
-                }
-            }
-            .border(1.dp, borderColor, shape)
-            .semantics {
-                contentDescription = "${formatHeatmapTooltipDate(day.date)}，${formatHeatmapTooltipTokenCount(day.totalTokens)}"
             },
+        backdrop = backdrop,
+        isDark = isDark,
+    )
+    Box(
+        tooltipModifier.semantics {
+            contentDescription = "${formatHeatmapTooltipDate(day.date)}，${formatHeatmapTooltipTokenCount(day.totalTokens)}"
+        },
     ) {
         Column(
             Modifier.padding(horizontal = 16.dp, vertical = 10.dp),

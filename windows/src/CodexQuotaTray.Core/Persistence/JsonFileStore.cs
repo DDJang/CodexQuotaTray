@@ -135,6 +135,23 @@ public sealed class PreviewDataPaths
     public string Settings => Path.Combine(Root, "settings.json");
     public string QuotaCache => Path.Combine(Root, "quota-cache.json");
     public string TokenUsageCache => Path.Combine(Root, "token-usage-cache.json");
+    public string TokenUsageDatabase => Path.Combine(Root, "token-usage.sqlite3");
     public string AlertState => Path.Combine(Root, "alert-state.json");
     public string TokenSyncSettings => Path.Combine(Root, "token-sync.json");
+    public string OAuthCredentials => Path.Combine(Root, "oauth-credentials.bin");
+
+    public string QuotaCacheFor(QuotaDataSource source) => source switch
+    {
+        QuotaDataSource.CodexCli => QuotaCache,
+        QuotaDataSource.OAuth => Path.Combine(Root, "quota-cache-oauth.json"),
+        _ => QuotaCache,
+    };
+
+    public string TokenUsageCacheFor(TokenUsageDataSource source) => source switch
+    {
+        TokenUsageDataSource.Local => TokenUsageCache,
+        TokenUsageDataSource.CodexCli => Path.Combine(Root, "token-usage-cache-codex-cli.json"),
+        TokenUsageDataSource.OAuth => Path.Combine(Root, "token-usage-cache-oauth.json"),
+        _ => TokenUsageCache,
+    };
 }

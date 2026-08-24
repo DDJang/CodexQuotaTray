@@ -25,6 +25,7 @@ internal class TokenUsageSyncCoordinator(
     private val pairingStore: TokenSyncPairingStore,
     private val notifyCompleted: () -> Unit = {},
     private val diagnostics: LanDiagnosticLogger = NoOpLanDiagnosticLogger,
+    private val sourceRouter: TokenUsageSourceRouter? = null,
 ) {
     constructor(context: Context) : this(
         transport = TokenUsageSyncClient(context),
@@ -32,7 +33,39 @@ internal class TokenUsageSyncCoordinator(
         pairingStore = TokenSyncStore(context),
         notifyCompleted = { TokenUsageRefreshEvents.notifyCompleted(context.applicationContext) },
         diagnostics = AndroidLanDiagnosticLogger(context),
+        sourceRouter = TokenUsageSourceRouter(context),
     )
+
+    fun sync(forceRefresh: Boolean = false): TokenUsageRefreshResult {
+        val router = checkNotNull(sourceRouter) { "A routed Token coordinator is required" }
+        return TokenUsageSyncSingleFlight.runRefresh(router.singleFlightIdentity(forceRefresh)) {
+            val read = router.read(forceRefresh)
+            TokenUsagePairingLifecycle.withLock {
+                if (!read.identityStillCurrent()) throw TokenUsageCommitException()
+                val committed = when (read.snapshot.transport) {
+                    DataTransport.OPENAI -> cache.saveOpenAI(read.snapshot)
+                    DataTransport.WINDOWS -> {
+                        val expected = read.expectedPairing ?: throw TokenUsagePairingChangedException()
+                        val resolved = read.pairing ?: throw TokenUsagePairingChangedException()
+                        val current = pairingStore.load()
+                        if (current == null || !current.matchesConfiguration(expected)) {
+                            throw TokenUsagePairingChangedException()
+                        }
+                        if (!resolved.deviceId.equals(expected.deviceId, ignoreCase = true)) {
+                            throw TokenUsagePairingChangedException()
+                        }
+                        if (!cache.save(expected, read.snapshot)) throw TokenUsageCommitException()
+                        val updated = TokenSyncEndpoint.markSynced(resolved, read.snapshot)
+                        if (!pairingStore.saveIfCurrent(expected, updated)) throw TokenUsageCommitException()
+                        true
+                    }
+                }
+                if (!committed) throw TokenUsageCommitException()
+                notifyCompleted()
+                TokenUsageRefreshResult(read.snapshot, read.pairing)
+            }
+        }
+    }
 
     fun sync(pairing: TokenSyncPairing, forceRefresh: Boolean = false): TokenUsageSyncResult =
         TokenUsageSyncSingleFlight.run(
@@ -67,6 +100,11 @@ internal class TokenUsageSyncCoordinator(
     }
 }
 
+internal data class TokenUsageRefreshResult(
+    val snapshot: TokenUsageSnapshot,
+    val pairing: TokenSyncPairing?,
+)
+
 internal class TokenUsageCommitException : IOException("Token 同步数据保存失败")
 internal class TokenUsagePairingChangedException : IOException("Windows 配对已变更，已丢弃旧 Token 同步结果")
 
@@ -74,7 +112,7 @@ internal fun tokenUsageSyncErrorMessage(error: Throwable): String = when (error)
     is TokenUsageCommitException -> "Token 同步数据保存失败"
     is TokenUsagePairingChangedException -> error.message ?: "Windows 配对已变更，已丢弃旧 Token 同步结果"
     is TokenUsageException -> error.message
-    else -> "Windows 当前不可用"
+    else -> "Token 数据来源当前不可用"
 }
 
 /** Shares a concurrent request's completed result instead of opening a second LAN call. */
@@ -112,8 +150,38 @@ private object TokenUsageSyncSingleFlight {
         return result.getOrThrow()
     }
 
+    private val refreshMonitor = Object()
+    private val refreshFlights = mutableMapOf<String, RefreshFlight>()
+
+    fun runRefresh(identity: String, block: () -> TokenUsageRefreshResult): TokenUsageRefreshResult {
+        val flight: RefreshFlight
+        synchronized(refreshMonitor) {
+            val existing = refreshFlights[identity]
+            if (existing != null) {
+                flight = existing
+                while (!flight.completed) refreshMonitor.wait()
+                return flight.result!!.getOrThrow()
+            }
+            flight = RefreshFlight()
+            refreshFlights[identity] = flight
+        }
+        val result = runCatching(block)
+        synchronized(refreshMonitor) {
+            flight.result = result
+            flight.completed = true
+            refreshFlights.remove(identity, flight)
+            refreshMonitor.notifyAll()
+        }
+        return result.getOrThrow()
+    }
+
     private class Flight {
         var completed = false
         var result: Result<TokenUsageSyncResult>? = null
+    }
+
+    private class RefreshFlight {
+        var completed = false
+        var result: Result<TokenUsageRefreshResult>? = null
     }
 }

@@ -6,10 +6,10 @@
 ## Windows 架构
 
 ```text
-codex app-server --stdio
-        ↓ UTF-8 JSONL
-Core/Protocol
-        ↓ normalized quota
+codex app-server --stdio        chatgpt.com read-only HTTPS
+        ↓ UTF-8 JSONL                    ↓
+Core/Protocol ──────────────── Core/Auth/OAuth
+        ↓ normalized quota/usage          ↓ same internal model
 Core/Runtime ── Core/Persistence ── Core/Alerts
         ↓
 Core/Presentation
@@ -18,12 +18,17 @@ WinUI Views / Services / Interop / Themes
 ```
 
 - `Core/Protocol` 管理 CLI 定位、子进程、JSONL transport、DTO、通知和规范化。
+- `Core/Auth` 管理 Windows OAuth 设备码、refresh、DPAPI 凭据和只读 profile/usage；它不读取
+  浏览器状态或 CLI auth 文件。
 - `Core/Runtime` 统一 Startup、Manual、Scheduled、Resume、NetworkRestored 和通知恢复刷新，保证
-  单 in-flight、有界退避和失败时保留最后有效状态。
-- `Core/Persistence` 只保存设置、最小归一化额度缓存、按日聚合 Token 统计缓存和提醒状态。
+  单 in-flight、有界退避和失败时保留最后有效状态；额度 provider 由设置选择，切换时先清空旧
+  source projection，再加载同 source cache 并立即刷新。
+- `Core/Persistence` 保存设置、最小归一化额度缓存、按日聚合 Token 统计缓存和提醒状态；Local Token
+  的 SQLite 增量账本由 `Core/TokenUsage` 管理，并存放在同一身份隔离数据目录。
 - `Core/Presentation` 是 UI 的唯一产品状态入口；UI 不解析 RPC。
-- `Core/TokenUsage` 使用有界 UTF-8 缓冲流式扫描 session 文件中的 Token 计数事件，复用未变化文件并从
-  安全偏移增量读取追加内容；主面板与 LAN 服务共享同一个扫描 single-flight 和文件状态，不进入额度协议层。
+- `Core/TokenUsage` 使用有界 UTF-8 缓冲流式扫描 session 文件中的 Token 计数事件，复用 SQLite 中的
+  文件安全偏移增量读取追加内容；累计值按 session high-water、fork replay baseline 计算新增 delta，
+  写入持久账本后由 SQL 生成每日聚合。主面板与 LAN 服务共享同一个扫描 single-flight，不进入额度协议层。
 
 完整读取形成通知合并基线。`account/rateLimits/updated` 只覆盖实际出现的字段；无安全基线、通知
 溢出或 generation 变化时触发完整补读。
@@ -32,25 +37,30 @@ WinUI Views / Services / Interop / Themes
 
 ```text
 OAuthStore ───────────────┐
-                          ├─ CodexQuotaRepository
-TokenSyncStore ───────────┘       ├─ QuotaSnapshotStore
+TokenSyncStore ───────────┴─ QuotaSourceRouter ── CodexQuotaRepository
+                                           ├─ QuotaSnapshotStore
                                   ├─ QuotaAlertEvaluator
                                   └─ QuotaRefreshWorker
 
-TokenSyncStore → TokenUsageSyncCoordinator → TokenUsageCache
-                                           └─ TokenUsageRefreshWorker
+OAuthStore ───────────────┐
+TokenSyncStore ───────────┴─ TokenUsageSourceRouter → TokenUsageSyncCoordinator → TokenUsageCache
+                                                                          └─ TokenUsageRefreshWorker
 ```
 
 - `auth` 保存最小 OAuth 状态，Keystore key 不离开 App 私有环境。
 - `protocol` 解析 Direct HTTPS usage 响应并保持动态窗口与缺失值语义。
-- `quota` 把 Direct 或 Windows fallback 的成功结果提交到同一快照、提醒和通知路径。
+- `quota` 通过独立优先级 Router 双向选择 Direct 或 Windows，并把成功结果提交到同一快照、提醒和通知路径。
 - `usage` 通过 process-local single-flight 统一前台、设置和 Worker 同步；提交前重新验证 pairing，
   先写 cache，再写成功时间与最新地址。
 - Compose 页面只消费 domain state；前台通过 refresh event 接收后台成功结果。
 
-有 OAuth 时额度 Direct 请求与 Windows LAN fallback 保持串行：只有 Direct 的 `NETWORK` 失败才尝试
-已保存地址、必要时 DNS-SD、再重试 Windows。没有 OAuth 但已有 Windows pairing 时直接读取 Windows
-额度快照。LAN 请求绑定实际 Wi-Fi network，不在移动网络等待。
+Token WorkManager 在 OAuth 或 Windows pairing 任一存在时排程，并复用 quota 的 source-aware 网络约束：
+仅 OAuth 要求 validated Internet，仅 Windows 要求 Wi-Fi LAN，两者并存时允许 Wi-Fi/cellular 且不硬要求
+Internet，以保留 LAN-only Wi-Fi fallback。
+
+额度与 Token Router 都按各自设置串行尝试 OpenAI/Windows；缺少 OAuth 或 pairing 的 provider 视为
+unavailable。Windows provider 仍复用已保存地址、必要时 DNS-SD 与 pairing invalidation，LAN 请求绑定
+实际 Wi-Fi network。OpenAI Token profile 与 Windows Account/Local 永不合并。
 
 ## LAN 服务
 
@@ -87,11 +97,17 @@ Android 只在 offline 类错误时发现相同 `deviceId`，401 不触发发现
 - Android Release 与 Debug 使用不同 application ID，因此凭据、配对和缓存自然隔离。
 - 一个身份不得删除、覆盖或关闭另一个身份的状态。
 
+来源边界：Quota provider 为 Codex CLI 或 OAuth；Token provider 为 Local、Codex CLI 或 OAuth。
+每个 provider 是唯一 source of truth；来源 cache 使用独立 identity，unsupported 或 unavailable
+不会静默 fallback。Local 只以本机 JSONL 为输入并由本机 SQLite 账本持久化，账户 usage 只消费按日桶
+和可选 summary 字段，两者不合并。
+
 ## 持久化和并发边界
 
 - 所有磁盘缓存都是最小产品投影，不是 raw response archive。
 - 文件提交使用临时文件/原子替换或平台原子 preferences commit。
-- Token cache 绑定当前 Windows device identity；同步期间配对改变时丢弃旧结果。
+- Token cache 保存实际 transport/scope；Windows 结果绑定当前 device identity，OpenAI Account 结果
+  绑定 OAuth 可用性，旧缓存迁移为 Windows/Local，同步期间身份改变时丢弃旧结果。
 - 同步 single-flight 必须包含完整 pairing 配置的不可逆 fingerprint，不能让换 secret 的请求共享结果。
 - 解除配对以删除凭据为强保证，缓存清理仅 best-effort。
 

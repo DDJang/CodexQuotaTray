@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
@@ -39,8 +40,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -57,6 +60,9 @@ import com.codexquotatray.android.quota.QuotaSnapshotStore
 import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
 import com.codexquotatray.android.refresh.AutomaticRefreshChannel
 import com.codexquotatray.android.refresh.AutomaticRefreshReason
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
+import com.codexquotatray.android.source.DataSourcePriority
+import com.codexquotatray.android.source.sourcePriorityChanged
 import com.codexquotatray.android.ui.QuotaCardModel
 import com.codexquotatray.android.ui.ResetCreditDetailState
 import com.codexquotatray.android.ui.ResetCreditUiModel
@@ -114,6 +120,7 @@ internal class QuotaPageController(private val host: MainActivity) {
     private val refreshSettings by lazy { QuotaRefreshSettingsStore(host) }
     private val snapshotStore by lazy { QuotaSnapshotStore(host) }
     private val pairingStore by lazy { TokenSyncStore(host) }
+    private val sourcePriorityStore by lazy { AndroidDataSourcePriorityStore(host) }
     var model by mutableStateOf(unauthenticatedQuotaUiModel())
         private set
     var busy by mutableStateOf(false)
@@ -121,6 +128,7 @@ internal class QuotaPageController(private val host: MainActivity) {
     private var lastSuccessful: QuotaUiModel? = null
     private var lastQuotaSourceAvailable: Boolean? = null
     private var lastWindowsDeviceIdentity: String? = null
+    private var lastObservedPriority: DataSourcePriority? = null
     private var registered = false
     private var initialized = false
     private var visible = false
@@ -138,6 +146,7 @@ internal class QuotaPageController(private val host: MainActivity) {
         initialized = true
         lastQuotaSourceAvailable = hasQuotaSource()
         lastWindowsDeviceIdentity = currentWindowsDeviceIdentity()
+        lastObservedPriority = currentQuotaPriority()
         QuotaRefreshScheduler.schedule(host)
         if (lastQuotaSourceAvailable == true) {
             lastSuccessful = loadLatestModel(lastWindowsDeviceIdentity)
@@ -149,6 +158,7 @@ internal class QuotaPageController(private val host: MainActivity) {
         visible = true
         val sourceAvailable = hasQuotaSource()
         val windowsDeviceIdentity = currentWindowsDeviceIdentity()
+        val priorityChanged = observeQuotaPriority()
         val sourceChanged = lastQuotaSourceAvailable != sourceAvailable
         val pairingChanged = lastWindowsDeviceIdentity != windowsDeviceIdentity
         if (sourceChanged || pairingChanged) {
@@ -165,6 +175,7 @@ internal class QuotaPageController(private val host: MainActivity) {
             if (!busy || pairingChanged) model = lastSuccessful ?: quotaLoadingUiModel(null)
             QuotaRefreshScheduler.schedule(host)
         }
+        if (sourceAvailable && priorityChanged) requestRefresh(AutomaticRefreshReason.SOURCE_CHANGED)
         if (sourceAvailable && !busy) renderLatestSnapshot()
     }
 
@@ -188,6 +199,7 @@ internal class QuotaPageController(private val host: MainActivity) {
     fun onForeground(reason: AutomaticRefreshReason) {
         val sourceAvailable = hasQuotaSource()
         val windowsDeviceIdentity = currentWindowsDeviceIdentity()
+        val priorityChanged = observeQuotaPriority()
         val sourceChanged = lastQuotaSourceAvailable != sourceAvailable
         val pairingChanged = lastWindowsDeviceIdentity != windowsDeviceIdentity
         if (sourceChanged || pairingChanged) {
@@ -206,7 +218,7 @@ internal class QuotaPageController(private val host: MainActivity) {
         }
         if (!sourceAvailable || busy) return
         renderLatestSnapshot()
-        requestRefresh(reason)
+        requestRefresh(if (priorityChanged) AutomaticRefreshReason.SOURCE_CHANGED else reason)
     }
 
     fun onLoginResult(requestCode: Int, resultCode: Int) {
@@ -222,6 +234,7 @@ internal class QuotaPageController(private val host: MainActivity) {
         if (!canRefresh) return
         val enabled = refreshSettings.load().autoRefreshOnOpen
         if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.QUOTA, reason, enabled)) return
+        val presentationStartedAt = SystemClock.elapsedRealtime()
         busy = true
         val previous = lastSuccessful
         val requestWindowsDeviceIdentity = currentWindowsDeviceIdentity()
@@ -232,59 +245,66 @@ internal class QuotaPageController(private val host: MainActivity) {
             } finally {
                 AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.QUOTA)
             }
+            val requestFinishedAt = SystemClock.elapsedRealtime()
             main.post {
-                busy = false
-                val currentWindowsDeviceIdentity = currentWindowsDeviceIdentity()
-                val directResultIsUsable = result.getOrNull()?.let {
-                    it.source == QuotaSource.DIRECT && it.quotaState != "unavailable"
-                } == true
-                if (requestWindowsDeviceIdentity != currentWindowsDeviceIdentity &&
-                    !directResultIsUsable
-                ) {
-                    lastWindowsDeviceIdentity = currentWindowsDeviceIdentity
-                    lastQuotaSourceAvailable = hasQuotaSource()
-                    lastSuccessful = loadLatestModel(currentWindowsDeviceIdentity)
-                    model = lastSuccessful ?: if (lastQuotaSourceAvailable == true) {
-                        quotaLoadingUiModel(null)
-                    } else {
-                        unauthenticatedQuotaUiModel()
-                    }
-                    return@post
-                }
-                model = result.fold(
-                    onSuccess = { value ->
-                        val candidate = value.toQuotaUiModel()
-                        if (candidate.status == QuotaUiStatus.LOADED) {
-                            lastSuccessful = candidate
-                            candidate
-                        } else {
-                            AppLogStore.record(host, "额度详情暂不可用", "WARN")
-                            quotaErrorUiModel(candidate.message ?: "额度详情暂不可用", previous)
-                        }
-                    },
-                    onFailure = { error ->
-                        AppLogStore.record(host, "额度读取失败：${error.message ?: "未知错误"}", "WARN")
-                        if (error is QuotaReadException && error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) {
-                            lastQuotaSourceAvailable = hasQuotaSource()
-                            if (lastQuotaSourceAvailable != true) {
-                                lastSuccessful = null
-                                snapshotStore.clear()
-                                com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
-                                QuotaRefreshScheduler.cancel(host)
-                            }
-                        }
-                        when (error) {
-                            is QuotaReadException -> if (
-                                error.kind == QuotaReadFailureKind.LOGIN_REQUIRED && lastQuotaSourceAvailable != true
-                            ) {
-                                unauthenticatedQuotaUiModel()
-                            } else {
-                                quotaErrorUiModel(error.message, previous)
-                            }
-                            else -> quotaErrorUiModel("额度读取失败", previous)
-                        }
-                    },
+                val remaining = remainingRefreshPresentationMillis(
+                    presentationStartedAt,
+                    requestFinishedAt,
                 )
+                main.postDelayed({
+                    busy = false
+                    val currentWindowsDeviceIdentity = currentWindowsDeviceIdentity()
+                    val directResultIsUsable = result.getOrNull()?.let {
+                        it.source == QuotaSource.DIRECT && it.quotaState != "unavailable"
+                    } == true
+                    if (requestWindowsDeviceIdentity != currentWindowsDeviceIdentity &&
+                        !directResultIsUsable
+                    ) {
+                        lastWindowsDeviceIdentity = currentWindowsDeviceIdentity
+                        lastQuotaSourceAvailable = hasQuotaSource()
+                        lastSuccessful = loadLatestModel(currentWindowsDeviceIdentity)
+                        model = lastSuccessful ?: if (lastQuotaSourceAvailable == true) {
+                            quotaLoadingUiModel(null)
+                        } else {
+                            unauthenticatedQuotaUiModel()
+                        }
+                        return@postDelayed
+                    }
+                    model = result.fold(
+                        onSuccess = { value ->
+                            val candidate = value.toQuotaUiModel()
+                            if (candidate.status == QuotaUiStatus.LOADED) {
+                                lastSuccessful = candidate
+                                candidate
+                            } else {
+                                AppLogStore.record(host, "额度详情暂不可用", "WARN")
+                                quotaErrorUiModel(candidate.message ?: "额度详情暂不可用", previous)
+                            }
+                        },
+                        onFailure = { error ->
+                            AppLogStore.record(host, "额度读取失败：${error.message ?: "未知错误"}", "WARN")
+                            if (error is QuotaReadException && error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) {
+                                lastQuotaSourceAvailable = hasQuotaSource()
+                                if (lastQuotaSourceAvailable != true) {
+                                    lastSuccessful = null
+                                    snapshotStore.clear()
+                                    com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
+                                    QuotaRefreshScheduler.cancel(host)
+                                }
+                            }
+                            when (error) {
+                                is QuotaReadException -> if (
+                                    error.kind == QuotaReadFailureKind.LOGIN_REQUIRED && lastQuotaSourceAvailable != true
+                                ) {
+                                    unauthenticatedQuotaUiModel()
+                                } else {
+                                    quotaErrorUiModel(error.message, previous)
+                                }
+                                else -> quotaErrorUiModel("额度读取失败", previous)
+                            }
+                        },
+                    )
+                }, remaining)
             }
         }
     }
@@ -297,6 +317,15 @@ internal class QuotaPageController(private val host: MainActivity) {
     fun openLogin() = host.startActivityForResult(Intent(host, LoginActivity::class.java), LOGIN_REQUEST_CODE)
 
     private fun currentWindowsDeviceIdentity(): String? = pairingStore.load()?.cacheIdentity()
+
+    private fun currentQuotaPriority(): DataSourcePriority = sourcePriorityStore.load().quota
+
+    private fun observeQuotaPriority(): Boolean {
+        val currentPriority = currentQuotaPriority()
+        val changed = sourcePriorityChanged(lastObservedPriority, currentPriority)
+        lastObservedPriority = currentPriority
+        return changed
+    }
 
     private fun loadLatestModel(windowsDeviceIdentity: String? = currentWindowsDeviceIdentity()) = snapshotStore.load(windowsDeviceIdentity)
         ?.takeIf { it.quotaState != "unavailable" }
@@ -527,11 +556,32 @@ private fun QuotaCardSurface(content: @Composable () -> Unit) {
             ),
         )
     }
-    val borderBrush = Brush.linearGradient(
-        listOf(
-            if (dark) Color.White.copy(alpha = 0.20f) else palette.color(palette.border),
-            if (dark) Color.White.copy(alpha = 0.09f) else palette.color(palette.border).copy(alpha = 0.72f),
-            if (dark) Color.Black.copy(alpha = 0.26f) else palette.color(palette.border).copy(alpha = 0.56f),
+    val darkBorder = if (dark) {
+        Color.Black.copy(alpha = 0.20f)
+    } else {
+        palette.color(palette.border).copy(alpha = 0.44f)
+    }
+    val topLeftBorder = if (dark) {
+        Color.White.copy(alpha = 0.25f)
+    } else {
+        palette.color(palette.border).copy(alpha = 0.78f)
+    }
+    val bottomRightBorder = if (dark) {
+        Color.White.copy(alpha = 0.17f)
+    } else {
+        palette.color(palette.border).copy(alpha = 0.64f)
+    }
+    val borderBrush = Brush.sweepGradient(
+        colorStops = arrayOf(
+            0.00f to darkBorder,
+            0.05f to bottomRightBorder,
+            0.12f to bottomRightBorder,
+            0.18f to darkBorder,
+            0.50f to darkBorder,
+            0.55f to topLeftBorder,
+            0.62f to topLeftBorder,
+            0.68f to darkBorder,
+            1.00f to darkBorder,
         ),
     )
     Box(
@@ -546,7 +596,7 @@ private fun QuotaCardSurface(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun QuotaProgressRing(
+internal fun QuotaProgressRing(
     progress: Float,
     progressColor: Color,
     trackColor: Color,
@@ -555,10 +605,11 @@ private fun QuotaProgressRing(
     Box(Modifier.size(116.dp), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize().padding(4.dp)) {
             val strokeWidth = 10.dp.toPx()
-            val glowWidth = 15.dp.toPx()
-            val inset = glowWidth / 2f
-            val arcSize = Size(size.width - glowWidth, size.height - glowWidth)
+            val inset = strokeWidth / 2f
+            val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
             val arcStyle = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+            val fraction = progress.coerceIn(0f, 1f)
+            val sweep = 360f * fraction
             drawArc(
                 color = trackColor.copy(alpha = 0.58f),
                 startAngle = -90f,
@@ -568,26 +619,35 @@ private fun QuotaProgressRing(
                 size = arcSize,
                 style = arcStyle,
             )
-            if (progress > 0f) {
-                val sweep = 360f * progress.coerceIn(0f, 1f)
-                drawArc(
-                    color = progressColor.copy(alpha = 0.15f),
-                    startAngle = -90f,
-                    sweepAngle = sweep,
-                    useCenter = false,
-                    topLeft = Offset(inset, inset),
-                    size = arcSize,
-                    style = Stroke(width = glowWidth, cap = StrokeCap.Round),
+            if (fraction > 0f) {
+                val highlightPeak = lerp(progressColor, Color.White, 0.24f)
+                val highlightShoulder = lerp(progressColor, Color.White, 0.10f)
+                val progressBrush = Brush.sweepGradient(
+                    colorStops = arrayOf(
+                        0.00f to progressColor,
+                        fraction * 0.12f to progressColor,
+                        fraction * 0.20f to highlightShoulder,
+                        fraction * 0.30f to highlightPeak,
+                        fraction * 0.40f to highlightShoulder,
+                        fraction * 0.50f to progressColor,
+                        fraction to progressColor,
+                        1.00f to progressColor,
+                    ),
                 )
-                drawArc(
-                    color = progressColor,
-                    startAngle = -90f,
-                    sweepAngle = sweep,
-                    useCenter = false,
-                    topLeft = Offset(inset, inset),
-                    size = arcSize,
-                    style = arcStyle,
-                )
+                rotate(
+                    degrees = -90f,
+                    pivot = center,
+                ) {
+                    drawArc(
+                        brush = progressBrush,
+                        startAngle = 0f,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        topLeft = Offset(inset, inset),
+                        size = arcSize,
+                        style = arcStyle,
+                    )
+                }
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {

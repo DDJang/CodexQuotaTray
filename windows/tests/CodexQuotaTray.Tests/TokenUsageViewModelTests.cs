@@ -1,5 +1,8 @@
 using CodexQuotaTray.Core.Models;
+using System.Diagnostics;
+using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
+using CodexQuotaTray.Core.Protocol;
 using CodexQuotaTray.Core.Runtime;
 using CodexQuotaTray.Core.TokenUsage;
 
@@ -85,6 +88,30 @@ public sealed class TokenUsageViewModelTests
         Assert.AreEqual("128K", viewModel.TodayTokens);
         Assert.AreEqual(snapshot.GeneratedAtUtc, viewModel.LastAttemptUtc);
         Assert.AreEqual($"更新于 {snapshot.GeneratedAtUtc.ToLocalTime():HH:mm}", viewModel.StatusText);
+    }
+
+    [TestMethod]
+    public void OfficialUsageWithoutTodayBucketShowsPendingWhileKeepingPeriodsAvailable()
+    {
+        var today = new DateOnly(2026, 8, 23);
+        var snapshot = AccountTokenUsageNormalizer.Normalize(
+            new AccountUsageReadResult(
+                null,
+                [new AccountUsageBucket(today.AddDays(-1), 128)]),
+            TokenUsageDataSource.OAuth,
+            today,
+            new DateTimeOffset(2026, 8, 23, 3, 0, 0, TimeSpan.Zero),
+            TimeZoneInfo.Utc);
+        var viewModel = new TokenUsageViewModel(_ => Task.FromResult(snapshot));
+
+        viewModel.RestoreSnapshot(snapshot);
+
+        Assert.IsFalse(snapshot.AvailableMetrics.HasFlag(TokenUsageMetricAvailability.Today));
+        Assert.IsTrue(snapshot.AvailableMetrics.HasFlag(TokenUsageMetricAvailability.Last7Days));
+        Assert.IsTrue(snapshot.AvailableMetrics.HasFlag(TokenUsageMetricAvailability.Last30Days));
+        Assert.AreEqual("待同步", viewModel.TodayTokens);
+        Assert.AreEqual("128", viewModel.Last7DaysTokens);
+        Assert.AreEqual("128", viewModel.Last30DaysTokens);
     }
 
     [TestMethod]
@@ -191,6 +218,109 @@ public sealed class TokenUsageViewModelTests
 
         releaseScan.SetResult();
         await refresh;
+    }
+
+    [TestMethod]
+    public async Task FastRefreshKeepsLoadingPresentationVisibleForMinimumDuration()
+    {
+        var viewModel = new TokenUsageViewModel(_ => Task.FromResult(CreateSnapshot(128_392)));
+        var elapsed = Stopwatch.StartNew();
+
+        var refresh = viewModel.RefreshNowAsync(CancellationToken.None);
+
+        Assert.IsTrue(viewModel.IsRefreshing);
+        Assert.IsTrue(viewModel.ShowLoading);
+        Assert.AreEqual("正在刷新…", viewModel.StatusText);
+
+        await refresh;
+
+        Assert.IsGreaterThanOrEqualTo(
+            RefreshPresentationPolicy.MinimumIndicatorDuration - TimeSpan.FromMilliseconds(75),
+            elapsed.Elapsed);
+        Assert.IsFalse(viewModel.IsRefreshing);
+        Assert.IsFalse(viewModel.ShowLoading);
+        Assert.IsTrue(viewModel.ShowContent);
+        StringAssert.StartsWith(viewModel.StatusText, "更新于 ");
+    }
+
+    [TestMethod]
+    public async Task SourceChangeDoesNotProjectAnOlderRefreshResult()
+    {
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = CreateSnapshot(111);
+        var second = CreateSnapshot(222) with { Source = TokenUsageDataSource.OAuth };
+        var calls = 0;
+        var viewModel = new TokenUsageViewModel(async _ =>
+        {
+            if (Interlocked.Increment(ref calls) == 1)
+            {
+                firstStarted.SetResult();
+                await releaseFirst.Task;
+                return first;
+            }
+
+            return second;
+        });
+
+        var firstRefresh = viewModel.RefreshNowAsync(CancellationToken.None);
+        await firstStarted.Task;
+        viewModel.ClearForSourceChange();
+        var secondRefresh = viewModel.RefreshAfterSourceChangeAsync(CancellationToken.None);
+
+        Assert.IsFalse(secondRefresh.IsCompleted);
+        releaseFirst.SetResult();
+        await Task.WhenAll(firstRefresh, secondRefresh);
+
+        Assert.AreEqual("222", viewModel.TodayTokens);
+        Assert.IsTrue(viewModel.HasData);
+    }
+
+    [TestMethod]
+    public async Task RefreshCommitsBoundStateThroughTheConfiguredDispatcher()
+    {
+        var insideDispatcher = false;
+        var mutationsOutsideDispatcher = new List<string>();
+        var snapshot = CreateSnapshot(128_392) with { Source = TokenUsageDataSource.CodexCli };
+        var viewModel = new TokenUsageViewModel(
+            async _ =>
+            {
+                await Task.Yield();
+                return snapshot;
+            },
+            (action, _) =>
+            {
+                insideDispatcher = true;
+                try
+                {
+                    action();
+                }
+                finally
+                {
+                    insideDispatcher = false;
+                }
+
+                return Task.CompletedTask;
+            });
+        viewModel.PropertyChanged += (_, args) =>
+        {
+            if (!insideDispatcher)
+            {
+                mutationsOutsideDispatcher.Add(args.PropertyName ?? "(unknown property)");
+            }
+        };
+        viewModel.HeatmapCells.CollectionChanged += (_, _) =>
+        {
+            if (!insideDispatcher)
+            {
+                mutationsOutsideDispatcher.Add(nameof(viewModel.HeatmapCells));
+            }
+        };
+
+        await viewModel.RefreshNowAsync(CancellationToken.None);
+
+        Assert.IsEmpty(mutationsOutsideDispatcher);
+        Assert.HasCount(119, viewModel.HeatmapCells);
     }
 
     [TestMethod]

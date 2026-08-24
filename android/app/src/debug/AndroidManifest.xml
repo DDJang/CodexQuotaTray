@@ -1,0 +1,45 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <activity
+            android:name=".debug.QuotaRingFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="true"
+            android:label="Quota Ring Fixture"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".debug.LiquidBottomTabsFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Liquid Bottom Tabs Fixture"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".debug.LiquidIconButtonFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="true"
+            android:label="Liquid Icon Button Fixture"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".debug.LiquidActionButtonFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Liquid Action Button Fixture"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".debug.LiquidSegmentedFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Liquid Segmented Fixture"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".debug.LiquidTokenTooltipFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Liquid Token Tooltip Fixture"
+            android:screenOrientation="portrait" />
+    </application>
+</manifest>

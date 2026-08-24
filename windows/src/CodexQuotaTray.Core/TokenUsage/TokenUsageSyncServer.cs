@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using CodexQuotaTray.Core.Persistence;
 
 namespace CodexQuotaTray.Core.TokenUsage;
 
@@ -58,6 +59,22 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         this.minimumScanInterval = minimumScanInterval;
         requestHeaderTimeout = TimeSpan.FromSeconds(10);
         quotaSnapshotProvider = () => null;
+        this.diagnostic = diagnostic ?? (_ => { });
+    }
+
+    public TokenUsageSyncServer(
+        Func<CancellationToken, Task<TokenUsageSnapshot>> readTokenUsageAsync,
+        string secret,
+        Func<QuotaLanSnapshot?> quotaSnapshotProvider,
+        TimeSpan? minimumScanInterval = null,
+        TimeSpan? requestHeaderTimeout = null,
+        Action<string>? diagnostic = null)
+    {
+        scanAsync = readTokenUsageAsync;
+        this.secret = secret;
+        this.minimumScanInterval = minimumScanInterval ?? TimeSpan.FromSeconds(60);
+        this.requestHeaderTimeout = requestHeaderTimeout ?? TimeSpan.FromSeconds(10);
+        this.quotaSnapshotProvider = quotaSnapshotProvider;
         this.diagnostic = diagnostic ?? (_ => { });
     }
 
@@ -311,7 +328,15 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     snapshot.SchemaVersion,
                     snapshot.GeneratedAtUtc,
                     snapshot.SourceTimeZone,
-                    snapshot.Summary,
+                    Source = snapshot.Source switch
+                    {
+                        TokenUsageDataSource.Local => "Local",
+                        TokenUsageDataSource.CodexCli => "CodexCli",
+                        TokenUsageDataSource.OAuth => "OAuth",
+                        _ => "Local",
+                    },
+                    Scope = snapshot.Source == TokenUsageDataSource.Local ? "Local" : "Account",
+                    Summary = ProjectSummary(snapshot),
                     snapshot.Days,
                 }, JsonOptions);
                 await WriteResponseAsync(stream, 200, "OK", body, cancellationToken).ConfigureAwait(false);
@@ -506,5 +531,35 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         }
     }
 
+    private static TokenUsageLanSummary ProjectSummary(TokenUsageSnapshot snapshot)
+    {
+        var summary = snapshot.Summary;
+        var available = snapshot.AvailableMetrics;
+        return new TokenUsageLanSummary(
+            TodayTokens: HasMetric(available, TokenUsageMetricAvailability.Today) ? summary.TodayTokens : null,
+            Last7DaysTokens: HasMetric(available, TokenUsageMetricAvailability.Last7Days) ? summary.Last7DaysTokens : null,
+            Last30DaysTokens: HasMetric(available, TokenUsageMetricAvailability.Last30Days) ? summary.Last30DaysTokens : null,
+            LifetimeTokens: HasMetric(available, TokenUsageMetricAvailability.Lifetime) ? summary.LifetimeTokens : null,
+            PeakDailyTokens: HasMetric(available, TokenUsageMetricAvailability.Peak) ? summary.PeakDailyTokens : null,
+            PeakDate: HasMetric(available, TokenUsageMetricAvailability.Peak) ? summary.PeakDate : null,
+            ActiveDays: summary.ActiveDays,
+            CurrentStreak: HasMetric(available, TokenUsageMetricAvailability.CurrentStreak) ? summary.CurrentStreak : null,
+            LongestStreak: HasMetric(available, TokenUsageMetricAvailability.LongestStreak) ? summary.LongestStreak : null);
+    }
+
+    private static bool HasMetric(TokenUsageMetricAvailability available, TokenUsageMetricAvailability metric) =>
+        (available & metric) == metric;
+
     private sealed record Request(string Method, string Path, string? Authorization, bool ForceRefresh);
+
+    private sealed record TokenUsageLanSummary(
+        long? TodayTokens,
+        long? Last7DaysTokens,
+        long? Last30DaysTokens,
+        long? LifetimeTokens,
+        long? PeakDailyTokens,
+        DateOnly? PeakDate,
+        int ActiveDays,
+        int? CurrentStreak,
+        int? LongestStreak);
 }
