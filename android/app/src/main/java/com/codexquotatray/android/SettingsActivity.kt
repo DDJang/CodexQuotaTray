@@ -82,6 +82,9 @@ private enum class SettingsDestination(val title: String) {
     UPDATE("更新设置"),
 }
 
+private const val DEBUG_QUOTA_RING_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.QuotaRingFixtureActivity"
+
 internal fun sourcePriorityOptions(): List<SettingsSegmentOption> = listOf(
     SettingsSegmentOption(0, "OpenAI 优先"),
     SettingsSegmentOption(1, "Windows 优先"),
@@ -334,6 +337,28 @@ class SettingsActivity : ComponentActivity() {
                     startActivity(Intent(this@SettingsActivity, AboutActivity::class.java))
                 }
             }
+        }
+        if (BuildConfig.DEBUG) {
+            SettingsSection("开发者选项") {
+                SettingsGroup {
+                    SettingsNavigationRow(
+                        title = "Quota Ring Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugQuotaRingFixture,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun openDebugQuotaRingFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_QUOTA_RING_FIXTURE_ACTIVITY,
+                ),
+            )
         }
     }
 

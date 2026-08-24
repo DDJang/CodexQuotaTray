@@ -57,6 +57,15 @@ class SettingsStructureTest {
         assertTrue(selector.contains("bottom = SettingsUiTokens.segmentedBottomInset"))
     }
 
+    @Test
+    fun quotaRingFixtureEntryIsDebugOnly() {
+        val source = settingsSource()
+        assertTrue(source.contains("if (BuildConfig.DEBUG)"))
+        assertTrue(source.contains("SettingsSection(\"开发者选项\")"))
+        assertTrue(source.contains("title = \"Quota Ring Fixture\""))
+        assertTrue(source.contains("DEBUG_QUOTA_RING_FIXTURE_ACTIVITY"))
+    }
+
     private fun assertOrdered(source: String, vararg markers: String) {
         var previousIndex = -1
         markers.forEach { marker ->
