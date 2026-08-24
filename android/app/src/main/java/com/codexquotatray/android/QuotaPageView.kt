@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalLocale
@@ -606,6 +607,18 @@ private fun QuotaProgressRing(
             val inset = strokeWidth / 2f
             val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
             val arcStyle = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+            val highlightColor = lerp(progressColor, Color.White, 0.20f)
+            val progressBrush = Brush.sweepGradient(
+                colorStops = arrayOf(
+                    0.00f to progressColor,
+                    0.52f to progressColor,
+                    0.58f to lerp(progressColor, Color.White, 0.08f),
+                    0.64f to highlightColor,
+                    0.70f to lerp(progressColor, Color.White, 0.08f),
+                    0.76f to progressColor,
+                    1.00f to progressColor,
+                ),
+            )
             drawArc(
                 color = trackColor.copy(alpha = 0.58f),
                 startAngle = -90f,
@@ -618,7 +631,7 @@ private fun QuotaProgressRing(
             if (progress > 0f) {
                 val sweep = 360f * progress.coerceIn(0f, 1f)
                 drawArc(
-                    color = progressColor,
+                    brush = progressBrush,
                     startAngle = -90f,
                     sweepAngle = sweep,
                     useCenter = false,
