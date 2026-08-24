@@ -413,16 +413,13 @@ internal fun SettingsSegmentedSelector(
     val palette = LocalQuotaPalette.current
     val selectedIndex = settingsSegmentIndex(options, selectedValue)
     val segmentedBackdrop = rememberLayerBackdrop()
+    val horizontalInset = SettingsUiTokens.actionHorizontalInset
+    val verticalInset = SettingsUiTokens.segmentedBottomInset
+    val controlHeight = SettingsUiTokens.segmentedHeight
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                start = SettingsUiTokens.actionHorizontalInset,
-                end = SettingsUiTokens.actionHorizontalInset,
-                top = SettingsUiTokens.segmentedBottomInset,
-                bottom = SettingsUiTokens.segmentedBottomInset,
-            )
-            .height(SettingsUiTokens.segmentedHeight),
+            .height(controlHeight + verticalInset * 2),
     ) {
         Box(
             Modifier
@@ -440,7 +437,11 @@ internal fun SettingsSegmentedSelector(
             accentColor = palette.color(palette.accent),
             contentColor = palette.color(palette.body),
             enabled = enabled,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = horizontalInset)
+                .height(controlHeight),
         )
     }
 }

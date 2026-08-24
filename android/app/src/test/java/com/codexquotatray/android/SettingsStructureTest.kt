@@ -50,12 +50,22 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun segmentedSelectorUsesMatchingTopAndBottomInsets() {
+    fun segmentedSelectorUsesFullSlotBackdropWithInsetVisibleControl() {
         val source = sourceFile("SettingsUi.kt")
         val selector = source.substringAfter("internal fun SettingsSegmentedSelector(")
             .substringBefore("internal data class SettingsSegmentOption")
-        assertTrue(selector.contains("top = SettingsUiTokens.segmentedBottomInset"))
-        assertTrue(selector.contains("bottom = SettingsUiTokens.segmentedBottomInset"))
+        assertTrue(selector.contains("val horizontalInset = SettingsUiTokens.actionHorizontalInset"))
+        assertTrue(selector.contains("val verticalInset = SettingsUiTokens.segmentedBottomInset"))
+        assertTrue(selector.contains("val controlHeight = SettingsUiTokens.segmentedHeight"))
+        assertTrue(selector.contains(".height(controlHeight + verticalInset * 2)"))
+        assertTrue(selector.contains(".fillMaxSize()"))
+        assertTrue(selector.contains(".layerBackdrop(segmentedBackdrop)"))
+        assertTrue(selector.contains(".background(palette.color(palette.surface))"))
+        assertTrue(selector.contains(".align(Alignment.Center)"))
+        assertTrue(selector.contains(".padding(horizontal = horizontalInset)"))
+        assertTrue(selector.contains(".height(controlHeight)"))
+        assertFalse(selector.contains("top = SettingsUiTokens.segmentedBottomInset"))
+        assertFalse(selector.contains("bottom = SettingsUiTokens.segmentedBottomInset"))
     }
 
     @Test
@@ -398,6 +408,19 @@ class SettingsStructureTest {
 
         val fixture = debugSourceFile("debug/LiquidSegmentedFixtureActivity.kt")
         val adaptation = debugSourceFile("debug/KyantLiquidSegmentedAdaptation.kt")
+        assertTrue(fixture.contains("Production topology regression · source bounds only"))
+        assertTrue(fixture.contains("A · exact-bounds local source"))
+        assertTrue(fixture.contains("B · full-slot local source"))
+        assertTrue(
+            fixture.contains(
+                "private val resetCreditExpiryLeadLabels = listOf(\"1 天\", \"6 小时\", \"1 小时\")",
+            ),
+        )
+        assertTrue(fixture.contains("fullSlotSource = false"))
+        assertTrue(fixture.contains("fullSlotSource = true"))
+        assertTrue(fixture.contains("val sourceModifier = if (fullSlotSource)"))
+        assertTrue(fixture.contains("controlHeight + verticalInset * 2"))
+        assertTrue(fixture.contains("LiquidSegmentedTabs("))
         assertTrue(fixture.contains("SettingsSegmentedSelector("))
         assertTrue(fixture.contains("KyantLiquidSegmentedAdaptation("))
         assertTrue(fixture.contains("Kyant geometry adaptation · 0.75"))

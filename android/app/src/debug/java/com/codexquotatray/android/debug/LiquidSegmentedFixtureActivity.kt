@@ -38,11 +38,14 @@ import com.codexquotatray.android.SettingsSegmentOption
 import com.codexquotatray.android.SettingsSegmentedSelector
 import com.codexquotatray.android.ThemeMode
 import com.codexquotatray.android.color
+import com.codexquotatray.android.liquidglass.LiquidSegmentedTabs
+import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 private val sourcePriorityLabels = listOf("OpenAI 优先", "Windows 优先")
 private val refreshIntervalLabels = listOf("15 分", "30 分", "1 小时")
+private val resetCreditExpiryLeadLabels = listOf("1 天", "6 小时", "1 小时")
 private val settingsLikeDarkSurface = Color(0xFF252525)
 
 class LiquidSegmentedFixtureActivity : ComponentActivity() {
@@ -70,9 +73,13 @@ class LiquidSegmentedFixtureActivity : ComponentActivity() {
 private fun LiquidSegmentedFixtureScreen() {
     val backdrop = rememberLayerBackdrop()
     val darkSurfaceBackdrop = rememberLayerBackdrop()
+    val productionTopologyExactBackdrop = rememberLayerBackdrop()
+    val productionTopologyFullSlotBackdrop = rememberLayerBackdrop()
     val scrollState = rememberScrollState()
     var currentTwoSelected by remember { mutableIntStateOf(0) }
     var currentThreeSelected by remember { mutableIntStateOf(1) }
+    var productionTopologyExactSelected by remember { mutableIntStateOf(0) }
+    var productionTopologyFullSlotSelected by remember { mutableIntStateOf(0) }
     var upstreamTwoSelected by remember { mutableIntStateOf(0) }
     var upstreamThreeSelected by remember { mutableIntStateOf(1) }
     var darkUpstreamTwoSelected by remember { mutableIntStateOf(1) }
@@ -107,6 +114,34 @@ private fun LiquidSegmentedFixtureScreen() {
                 "Local state only · tap, hold, drag · Kyant upstream parameters unchanged",
                 color = Color.White.copy(alpha = 0.72f),
                 style = MaterialTheme.typography.bodyMedium,
+            )
+
+            Text(
+                "Production topology regression · source bounds only",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+            )
+            ProductionTopologyRegressionCase(
+                title = "A · exact-bounds local source · expected edge artifact",
+                labels = resetCreditExpiryLeadLabels,
+                selectedIndex = productionTopologyExactSelected,
+                onSelected = { productionTopologyExactSelected = it },
+                backdrop = productionTopologyExactBackdrop,
+                fullSlotSource = false,
+                sourceColor = palette.color(palette.surface),
+                accentColor = palette.color(palette.accent),
+                contentColor = palette.color(palette.body),
+            )
+            ProductionTopologyRegressionCase(
+                title = "B · full-slot local source · expected clean edges",
+                labels = resetCreditExpiryLeadLabels,
+                selectedIndex = productionTopologyFullSlotSelected,
+                onSelected = { productionTopologyFullSlotSelected = it },
+                backdrop = productionTopologyFullSlotBackdrop,
+                fullSlotSource = true,
+                sourceColor = palette.color(palette.surface),
+                accentColor = palette.color(palette.accent),
+                contentColor = palette.color(palette.body),
             )
 
             FixtureSection(
@@ -214,6 +249,61 @@ private fun LiquidSegmentedFixtureScreen() {
                 "All upstream 2/3 option controls share one opaque page backdrop. No quota, token, OAuth, LAN, worker, or network access.",
                 color = Color.White.copy(alpha = 0.72f),
                 style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProductionTopologyRegressionCase(
+    title: String,
+    labels: List<String>,
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    backdrop: LayerBackdrop,
+    fullSlotSource: Boolean,
+    sourceColor: Color,
+    accentColor: Color,
+    contentColor: Color,
+) {
+    val horizontalInset = 12.dp
+    val verticalInset = 10.dp
+    val controlHeight = 48.dp
+
+    FixtureSection(
+        title = title,
+        selectedLabel = labels[selectedIndex],
+        titleColor = Color.White,
+        selectedColor = Color.White.copy(alpha = 0.7f),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(controlHeight + verticalInset * 2),
+        ) {
+            val controlModifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = horizontalInset)
+                .height(controlHeight)
+            val sourceModifier = if (fullSlotSource) {
+                Modifier.fillMaxSize()
+            } else {
+                controlModifier
+            }
+            Box(
+                sourceModifier
+                    .layerBackdrop(backdrop)
+                    .background(sourceColor),
+            )
+            LiquidSegmentedTabs(
+                labels = labels,
+                selectedIndex = selectedIndex,
+                onSelected = onSelected,
+                backdrop = backdrop,
+                accentColor = accentColor,
+                contentColor = contentColor,
+                modifier = controlModifier,
             )
         }
     }
