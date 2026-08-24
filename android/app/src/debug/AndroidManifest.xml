@@ -11,5 +11,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".debug.LiquidBottomTabsFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Liquid Bottom Tabs Fixture"
+            android:screenOrientation="portrait" />
     </application>
 </manifest>

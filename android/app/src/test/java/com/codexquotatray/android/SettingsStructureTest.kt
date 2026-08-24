@@ -107,14 +107,22 @@ class SettingsStructureTest {
 
         assertTrue(dock.contains("rememberUpdatedState(selectedIndex)"))
         assertTrue(dock.contains("rememberUpdatedState(onSelected)"))
-        assertTrue(dock.contains("val selectedIndexProvider = remember { { selectedIndexState.value } }"))
+        assertTrue(dock.contains("var requestedIndex by remember { mutableIntStateOf(selectedIndex) }"))
+        assertTrue(dock.contains("LaunchedEffect(selectedIndex)"))
+        assertTrue(dock.contains("requestedIndex = selectedIndex"))
+        assertTrue(dock.contains("val requestedIndexState = rememberUpdatedState(requestedIndex)"))
+        assertTrue(dock.contains("val selectedIndexProvider = remember { { requestedIndexState.value } }"))
         assertTrue(dock.contains("val selectionSink = remember { { index: Int -> onSelectedState.value(index) } }"))
         assertTrue(dock.contains("selectedTabIndex = selectedIndexProvider"))
-        assertTrue(dock.contains("onTabSelected = selectionSink"))
-        assertTrue(dock.contains("LiquidBottomTab(onClick = { selectionSink(0) })"))
-        assertTrue(dock.contains("LiquidBottomTab(onClick = { selectionSink(1) })"))
+        assertTrue(dock.contains("onTabSelected = { index ->"))
+        assertTrue(dock.contains("if (selectedIndexState.value != index)"))
+        assertTrue(dock.contains("selectionSink(index)"))
+        assertTrue(dock.contains("LiquidBottomTab(onClick = { requestedIndex = 0 })"))
+        assertTrue(dock.contains("LiquidBottomTab(onClick = { requestedIndex = 1 })"))
         assertFalse(dock.contains("selectedTabIndex = { selectedIndex }"))
-        assertFalse(dock.contains("onTabSelected = onSelected"))
+        assertFalse(dock.contains("onTabSelected = selectionSink"))
+        assertFalse(dock.contains("LiquidBottomTab(onClick = { selectionSink(0) })"))
+        assertFalse(dock.contains("LiquidBottomTab(onClick = { selectionSink(1) })"))
     }
 
     @Test
@@ -150,6 +158,34 @@ class SettingsStructureTest {
         )
     }
 
+    @Test
+    fun liquidBottomTabsFixtureIsDebugOnlyAndContainsAllThreeComparisons() {
+        val settings = settingsSource()
+        assertTrue(settings.contains("Liquid Bottom Tabs Fixture"))
+        assertTrue(settings.contains("DEBUG_LIQUID_BOTTOM_TABS_FIXTURE_ACTIVITY"))
+
+        val manifest = listOf(
+            File("android/app/src/debug/AndroidManifest.xml"),
+            File("app/src/debug/AndroidManifest.xml"),
+            File("src/debug/AndroidManifest.xml"),
+        ).firstOrNull(File::isFile)?.readText()
+            ?: error("debug AndroidManifest.xml not found from ${System.getProperty("user.dir")}")
+        assertTrue(manifest.contains(".debug.LiquidBottomTabsFixtureActivity"))
+
+        val fixture = debugSourceFile("debug/LiquidBottomTabsFixtureActivity.kt")
+        assertTrue(fixture.contains("val backdrop = rememberLayerBackdrop()"))
+        assertTrue(fixture.contains(".layerBackdrop(backdrop)"))
+        assertTrue(fixture.contains("UpstreamLiquidBottomTabs"))
+        assertTrue(fixture.contains("LiquidBottomTabs("))
+        assertTrue(fixture.contains("tabsCount = 3"))
+        assertTrue(fixture.contains("tabsCount = 2"))
+
+        val upstreamTabs = debugSourceFile("liquidglass/UpstreamLiquidBottomTabs.kt")
+        assertTrue(upstreamTabs.contains("lerp(1f, 1.2f, dampedDragAnimation.pressProgress)"))
+        assertTrue(upstreamTabs.contains("rememberCombinedBackdrop(backdrop, tabsBackdrop)"))
+        assertTrue(upstreamTabs.contains("ColorFilter.tint(accentColor)"))
+    }
+
     private fun assertOrdered(source: String, vararg markers: String) {
         var previousIndex = -1
         markers.forEach { marker ->
@@ -170,5 +206,16 @@ class SettingsStructureTest {
         )
         return candidates.firstOrNull(File::isFile)?.readText()
             ?: error("$name source not found from ${System.getProperty("user.dir")}")
+    }
+
+    private fun debugSourceFile(name: String): String {
+        val relative = "com/codexquotatray/android/$name"
+        val candidates = listOf(
+            File("android/app/src/debug/java/$relative"),
+            File("app/src/debug/java/$relative"),
+            File("src/debug/java/$relative"),
+        )
+        return candidates.firstOrNull(File::isFile)?.readText()
+            ?: error("$name debug source not found from ${System.getProperty("user.dir")}")
     }
 }

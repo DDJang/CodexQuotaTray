@@ -319,17 +319,26 @@ internal fun LiquidMainDock(
         val contentColor = palette.color(palette.body)
         val selectedIndexState = rememberUpdatedState(selectedIndex)
         val onSelectedState = rememberUpdatedState(onSelected)
-        val selectedIndexProvider = remember { { selectedIndexState.value } }
+        var requestedIndex by remember { mutableIntStateOf(selectedIndex) }
+        LaunchedEffect(selectedIndex) {
+            requestedIndex = selectedIndex
+        }
+        val requestedIndexState = rememberUpdatedState(requestedIndex)
+        val selectedIndexProvider = remember { { requestedIndexState.value } }
         val selectionSink = remember { { index: Int -> onSelectedState.value(index) } }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             LiquidBottomTabs(
                 selectedTabIndex = selectedIndexProvider,
-                onTabSelected = selectionSink,
+                onTabSelected = { index ->
+                    if (selectedIndexState.value != index) {
+                        selectionSink(index)
+                    }
+                },
                 backdrop = backdrop,
                 tabsCount = 2,
                 modifier = Modifier.size(width = navigationWidth, height = navigationHeight),
             ) {
-                LiquidBottomTab(onClick = { selectionSink(0) }) {
+                LiquidBottomTab(onClick = { requestedIndex = 0 }) {
                     DockTabContent(
                         R.drawable.ic_quota_tray,
                         "额度",
@@ -338,7 +347,7 @@ internal fun LiquidMainDock(
                         iconHeight = 24.dp,
                     )
                 }
-                LiquidBottomTab(onClick = { selectionSink(1) }) {
+                LiquidBottomTab(onClick = { requestedIndex = 1 }) {
                     DockTabContent(R.drawable.ic_usage, "统计", contentColor)
                 }
             }

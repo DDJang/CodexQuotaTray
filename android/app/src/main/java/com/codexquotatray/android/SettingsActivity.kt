@@ -84,6 +84,8 @@ private enum class SettingsDestination(val title: String) {
 
 private const val DEBUG_QUOTA_RING_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.QuotaRingFixtureActivity"
+private const val DEBUG_LIQUID_BOTTOM_TABS_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.LiquidBottomTabsFixtureActivity"
 
 internal fun sourcePriorityOptions(): List<SettingsSegmentOption> = listOf(
     SettingsSegmentOption(0, "OpenAI 优先"),
@@ -352,6 +354,12 @@ class SettingsActivity : ComponentActivity() {
                         trailing = "Debug",
                         onClick = ::openDebugQuotaRingFixture,
                     )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Liquid Bottom Tabs Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugLiquidBottomTabsFixture,
+                    )
                 }
             }
         }
@@ -363,6 +371,17 @@ class SettingsActivity : ComponentActivity() {
                 Intent().setClassName(
                     this,
                     DEBUG_QUOTA_RING_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugLiquidBottomTabsFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_LIQUID_BOTTOM_TABS_FIXTURE_ACTIVITY,
                 ),
             )
         }
