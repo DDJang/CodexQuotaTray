@@ -535,6 +535,60 @@ class SettingsStructureTest {
         assertFalse(adaptation.contains("TransformOrigin"))
     }
 
+    @Test
+    fun liquidTokenTooltipFixtureKeepsProductionInteractionAndComparesThreeSurfaces() {
+        val settings = settingsSource()
+        val developerOptions = settings.substringAfter("SettingsSection(\"开发者选项\")")
+            .substringBefore("private fun openDebugQuotaRingFixture")
+        assertTrue(developerOptions.contains("Liquid Token Tooltip Fixture"))
+        assertTrue(settings.contains("DEBUG_LIQUID_TOKEN_TOOLTIP_FIXTURE_ACTIVITY"))
+        assertTrue(settings.contains("openDebugLiquidTokenTooltipFixture"))
+
+        val manifest = debugManifestSource()
+        val manifestEntry = manifest
+            .substringAfter(".debug.LiquidTokenTooltipFixtureActivity")
+            .substringBefore("</activity>")
+        assertTrue(manifestEntry.contains("android:exported=\"false\""))
+        assertFalse(manifestEntry.contains("intent-filter"))
+
+        val fixture = debugSourceFile("debug/LiquidTokenTooltipFixtureActivity.kt")
+        assertTrue(fixture.contains("class LiquidTokenTooltipFixtureActivity"))
+        assertEquals(1, Regex("rememberLayerBackdrop\\(\\)").findAll(fixture).count())
+        assertTrue(fixture.contains(".layerBackdrop(backdrop)"))
+        assertTrue(fixture.contains(".background(pageBackground)"))
+        assertTrue(fixture.contains(".hazeSource(hazeState)"))
+        assertTrue(fixture.contains("TOKEN_HEATMAP_COLUMNS * TOKEN_HEATMAP_ROWS"))
+        assertTrue(fixture.contains("detectTokenHeatmapGestures"))
+        assertTrue(fixture.contains("heatmapGestureOnDown"))
+        assertTrue(fixture.contains("heatmapGestureOnMove"))
+        assertTrue(fixture.contains("heatmapGestureShouldClear"))
+        assertTrue(fixture.contains("placeHeatmapTooltip"))
+        assertTrue(fixture.contains("FixtureTooltipStyle.CURRENT"))
+        assertTrue(fixture.contains("FixtureTooltipStyle.DIALOG"))
+        assertTrue(fixture.contains("FixtureTooltipStyle.MAGNIFIER"))
+        assertTrue(fixture.contains("rememberFixtureTooltipOffset(tooltipPresentation?.target)"))
+        assertTrue(fixture.contains("positionAnimation.snapTo(target)"))
+        assertTrue(fixture.contains("dampingRatio = 0.5f"))
+        assertTrue(fixture.contains("stiffness = 300f"))
+        assertTrue(fixture.contains("appearanceScale.animateTo(1f, tween(160))"))
+        assertTrue(fixture.contains("colorControls(brightness = 0f, saturation = 1.5f, contrast = 1f)"))
+        assertTrue(fixture.contains("blur(8.dp.toPx())"))
+        assertTrue(fixture.contains("lens(24.dp.toPx(), 48.dp.toPx(), depthEffect = true)"))
+        assertTrue(fixture.contains("Highlight.Plain"))
+        assertTrue(fixture.contains("Color(0xFF121212).copy(alpha = 0.4f)"))
+        assertTrue(fixture.contains("lens(\n                    8.dp.toPx(),\n                    24.dp.toPx(),"))
+        assertTrue(fixture.contains("chromaticAberration = true"))
+        assertTrue(fixture.contains("InnerShadow(radius = 16.dp)"))
+        assertFalse(fixture.contains("scale(1.5f, 1.5f)"))
+        assertFalse(fixture.contains("translate(top ="))
+
+        val production = sourceFile("TokenUsagePageView.kt")
+        val interaction = sourceFile("TokenHeatmapInteraction.kt")
+        assertTrue(production.contains("HeatmapBlurTooltip"))
+        assertTrue(production.contains("hazeSource(tokenContentHazeState)"))
+        assertTrue(interaction.contains("detectTokenHeatmapGestures"))
+    }
+
     private fun assertOrdered(source: String, vararg markers: String) {
         var previousIndex = -1
         markers.forEach { marker ->

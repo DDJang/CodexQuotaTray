@@ -91,6 +91,8 @@ private const val DEBUG_LIQUID_ICON_BUTTON_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.LiquidIconButtonFixtureActivity"
 private const val DEBUG_LIQUID_SEGMENTED_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.LiquidSegmentedFixtureActivity"
+private const val DEBUG_LIQUID_TOKEN_TOOLTIP_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.LiquidTokenTooltipFixtureActivity"
 
 internal fun sourcePriorityOptions(): List<SettingsSegmentOption> = listOf(
     SettingsSegmentOption(0, "OpenAI 优先"),
@@ -379,6 +381,12 @@ class SettingsActivity : ComponentActivity() {
                         trailing = "Debug",
                         onClick = ::openDebugLiquidSegmentedFixture,
                     )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Liquid Token Tooltip Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugLiquidTokenTooltipFixture,
+                    )
                 }
             }
         }
@@ -423,6 +431,17 @@ class SettingsActivity : ComponentActivity() {
                 Intent().setClassName(
                     this,
                     DEBUG_LIQUID_SEGMENTED_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugLiquidTokenTooltipFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_LIQUID_TOKEN_TOOLTIP_FIXTURE_ACTIVITY,
                 ),
             )
         }
