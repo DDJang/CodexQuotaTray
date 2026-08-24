@@ -35,7 +35,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
@@ -555,71 +554,39 @@ private fun QuotaCardSurface(content: @Composable () -> Unit) {
             ),
         )
     }
-    val borderBrush = Brush.linearGradient(
-        listOf(
-            if (dark) Color.White.copy(alpha = 0.20f) else palette.color(palette.border),
-            if (dark) Color.White.copy(alpha = 0.09f) else palette.color(palette.border).copy(alpha = 0.72f),
-            if (dark) Color.Black.copy(alpha = 0.26f) else palette.color(palette.border).copy(alpha = 0.56f),
+    val darkBorder = if (dark) {
+        Color.Black.copy(alpha = 0.20f)
+    } else {
+        palette.color(palette.border).copy(alpha = 0.44f)
+    }
+    val topLeftBorder = if (dark) {
+        Color.White.copy(alpha = 0.25f)
+    } else {
+        palette.color(palette.border).copy(alpha = 0.78f)
+    }
+    val bottomRightBorder = if (dark) {
+        Color.White.copy(alpha = 0.17f)
+    } else {
+        palette.color(palette.border).copy(alpha = 0.64f)
+    }
+    val borderBrush = Brush.sweepGradient(
+        colorStops = arrayOf(
+            0.00f to darkBorder,
+            0.05f to bottomRightBorder,
+            0.12f to bottomRightBorder,
+            0.18f to darkBorder,
+            0.50f to darkBorder,
+            0.55f to topLeftBorder,
+            0.62f to topLeftBorder,
+            0.68f to darkBorder,
+            1.00f to darkBorder,
         ),
     )
-    val topLeftHighlightAlpha = if (dark) 0.17f else 0.13f
-    val bottomRightHighlightAlpha = if (dark) 0.13f else 0.10f
-    val topLeftHighlightColor = Color.White.copy(alpha = topLeftHighlightAlpha)
-    val bottomRightHighlightColor = Color.White.copy(alpha = bottomRightHighlightAlpha)
     Box(
         Modifier
             .fillMaxWidth()
             .background(cardBrush, cardShape)
             .border(1.dp, borderBrush, cardShape)
-            .drawWithCache {
-                val strokeWidth = 1.dp.toPx()
-                val radius = 18.dp.toPx()
-                val top = strokeWidth / 2f
-                val bottom = size.height - top
-                val highlightLength = size.width * 0.25f
-                val topStart = Offset(radius, top)
-                val topEnd = Offset(highlightLength, top)
-                val bottomStart = Offset(size.width - highlightLength, bottom)
-                val bottomEnd = Offset(size.width - radius, bottom)
-                val topLeftBrush = Brush.linearGradient(
-                    colorStops = arrayOf(
-                        0.00f to Color.Transparent,
-                        0.18f to topLeftHighlightColor.copy(alpha = topLeftHighlightAlpha * 0.45f),
-                        0.38f to topLeftHighlightColor,
-                        0.65f to topLeftHighlightColor.copy(alpha = topLeftHighlightAlpha * 0.55f),
-                        1.00f to Color.Transparent,
-                    ),
-                    start = topStart,
-                    end = topEnd,
-                )
-                val bottomRightBrush = Brush.linearGradient(
-                    colorStops = arrayOf(
-                        0.00f to Color.Transparent,
-                        0.35f to bottomRightHighlightColor.copy(alpha = bottomRightHighlightAlpha * 0.55f),
-                        0.62f to bottomRightHighlightColor,
-                        0.82f to bottomRightHighlightColor.copy(alpha = bottomRightHighlightAlpha * 0.45f),
-                        1.00f to Color.Transparent,
-                    ),
-                    start = bottomStart,
-                    end = bottomEnd,
-                )
-                onDrawBehind {
-                    drawLine(
-                        brush = topLeftBrush,
-                        start = topStart,
-                        end = topEnd,
-                        strokeWidth = strokeWidth,
-                        cap = StrokeCap.Butt,
-                    )
-                    drawLine(
-                        brush = bottomRightBrush,
-                        start = bottomStart,
-                        end = bottomEnd,
-                        strokeWidth = strokeWidth,
-                        cap = StrokeCap.Butt,
-                    )
-                }
-            }
             .padding(16.dp),
     ) {
         content()
