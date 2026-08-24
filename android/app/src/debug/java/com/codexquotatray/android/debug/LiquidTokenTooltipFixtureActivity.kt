@@ -56,7 +56,7 @@ import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.contentDescription
@@ -128,7 +128,7 @@ private data class FixtureVisualSelection(
 private val fixtureHeatmapStartDate = LocalDate.of(2026, 5, 10)
 private val fixtureTooltipWidth = 220.dp
 private val fixtureTooltipHeight = 64.dp
-private val fixtureTooltipClearance = 8.dp
+private val fixtureTooltipClearance = 32.dp
 private val fixtureHeatmapGap = 5.dp
 private val fixtureHeatmapMaxCellSize = 24.dp
 private val fixtureHeatmapCornerRadius = 3.dp
@@ -351,13 +351,15 @@ private fun FixtureTokenHeatmap(
     val latestSelectedDate = rememberUpdatedState(selectedDate)
     val values = remember(days) { days.associateBy { it.date } }
     val nonZero = remember(days) { days.map { it.totalTokens }.filter { it > 0L } }
-    var heatmapOriginInParent by remember { mutableStateOf(Offset.Zero) }
+    // Tooltip offset is applied by the outer Root Box, so convert the heatmap
+    // origin to the same Compose-root coordinate space before placing it.
+    var heatmapOriginInRoot by remember { mutableStateOf(Offset.Zero) }
 
     BoxWithConstraints(
         Modifier
             .fillMaxWidth()
             .onGloballyPositioned { coordinates ->
-                heatmapOriginInParent = coordinates.positionInParent()
+                heatmapOriginInRoot = coordinates.positionInRoot()
             },
     ) {
         val viewportWidthPx = with(density) { maxWidth.toPx() }
@@ -416,15 +418,15 @@ private fun FixtureTokenHeatmap(
         val tooltipWidthPx = with(density) { fixtureTooltipWidth.toPx() }
         val tooltipHeightPx = with(density) { fixtureTooltipHeight.toPx() }
         val tooltipClearancePx = with(density) { fixtureTooltipClearance.toPx() }
-        val selectedBoundsInParent = selectedBounds?.let { bounds ->
+        val selectedBoundsInRoot = selectedBounds?.let { bounds ->
             Rect(
-                left = bounds.left + heatmapOriginInParent.x,
-                top = bounds.top + heatmapOriginInParent.y,
-                right = bounds.right + heatmapOriginInParent.x,
-                bottom = bounds.bottom + heatmapOriginInParent.y,
+                left = bounds.left + heatmapOriginInRoot.x,
+                top = bounds.top + heatmapOriginInRoot.y,
+                right = bounds.right + heatmapOriginInRoot.x,
+                bottom = bounds.bottom + heatmapOriginInRoot.y,
             )
         }
-        val tooltipPlacement = selectedBoundsInParent?.let { bounds ->
+        val tooltipPlacement = selectedBoundsInRoot?.let { bounds ->
             placeHeatmapTooltip(
                 viewportWidthPx = viewportWidthPx,
                 cellBounds = bounds,
