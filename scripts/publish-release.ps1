@@ -1156,9 +1156,9 @@ if (Test-PlatformSelected -Name 'Windows') {
 }
 Write-Host "Tags: $($targetTags -join ', ')"
 if ($script:PostMergeResume) {
-    Write-Host "Post-merge resume will continue with selected main CI, tag, Release workflow, and update-manifest verification at $($script:MainSha); preparation and PR stages are already complete."
+    Write-Host "Post-merge resume will confirm the main commit, create the selected tag, and verify the Release workflow and update-manifest at $($script:MainSha); preparation and PR stages are already complete."
 } else {
-    Write-Host "Formal run will validate $script:ReleaseScope, commit only selected platform files, push, create or reuse a PR, wait for selected CI, push selected annotated tag(s), then verify selected Release(s) and manifest node(s)."
+    Write-Host "Formal run will validate $script:ReleaseScope, commit only selected platform files, push, create or reuse a PR, wait for PR CI, confirm the merged main commit, push selected annotated tag(s), then verify selected Release(s) and manifest node(s)."
 }
 
 if ($DryRun) {
@@ -1212,7 +1212,7 @@ Invoke-External -FilePath $script:Git -Arguments @('push', 'origin', $script:Bra
 Write-Step 'Creating or reusing the release PR.'
 $pr = Get-OpenReleasePr
 if ($null -eq $pr) {
-    $body = "Prepare $script:ReleaseScope $Version. Release notes, validation, tags, Releases, and update-manifest verification are limited to the selected platform(s); the release process will wait for merged main CI before tagging."
+    $body = "Prepare $script:ReleaseScope $Version. Release notes, validation, tags, Releases, and update-manifest verification are limited to the selected platform(s); PR CI runs before merge and the Release workflow performs final validation after tagging."
     $prUrl = Read-ExternalText -FilePath $script:Gh -Arguments @(
         'pr', 'create', '--base', 'main', '--head', $script:Branch,
         '--title', $releaseSubject, '--body', $body
@@ -1233,32 +1233,22 @@ Invoke-External -FilePath $script:Gh -Arguments @(
 )
 }
 
-Write-Step 'Resolving the merged main commit and waiting for main CI.'
+Write-Step 'Confirming the merged main commit.'
 Invoke-External -FilePath $script:Git -Arguments @(
     'fetch', 'origin', 'refs/heads/main:refs/remotes/origin/main'
 )
 $script:MainSha = (Read-ExternalText -FilePath $script:Git -Arguments @(
     'rev-parse', 'refs/remotes/origin/main'
 )).Trim()
-if ($script:PostMergeResume) {
-    $refreshedMainContainsHead = Test-Ancestor -Ancestor $script:MainSha -Descendant $script:HeadSha
-    $refreshedPostMergeState = Get-PostMergeReleaseResumeState -MainCommit $script:MainSha -MainContainsHead $refreshedMainContainsHead -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject
-    if ($refreshedPostMergeState.Status -ne 'Valid' -or
-        $refreshedPostMergeState.Commit -cne $script:ReleaseMainSha) {
-        throw 'Post-merge release resume state changed before main CI; refusing to continue.'
-    }
-    $script:MainSha = $refreshedPostMergeState.Commit
+$refreshedMainContainsHead = Test-Ancestor -Ancestor $script:MainSha -Descendant $script:HeadSha
+$refreshedPostMergeState = Get-PostMergeReleaseResumeState -MainCommit $script:MainSha -MainContainsHead $refreshedMainContainsHead -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject
+if ($refreshedPostMergeState.Status -ne 'Valid') {
+    throw "Merged release preparation could not be verified in origin/main: $($refreshedPostMergeState.Reason)"
 }
-$mainCiWorkflows = @()
-if (Test-PlatformSelected -Name 'Android') {
-    $mainCiWorkflows += 'android-ci.yml'
+if ($script:PostMergeResume -and $refreshedPostMergeState.Commit -cne $script:ReleaseMainSha) {
+    throw 'Post-merge release resume state changed before tag creation; refusing to continue.'
 }
-if (Test-PlatformSelected -Name 'Windows') {
-    $mainCiWorkflows += 'windows-ci.yml'
-}
-foreach ($workflow in $mainCiWorkflows) {
-    Wait-WorkflowSuccess -Workflow $workflow -Commit $script:MainSha | Out-Null
-}
+$script:MainSha = $refreshedPostMergeState.Commit
 
 Write-Step 'Creating and pushing annotated selected platform tag(s).'
 $tagsToPush = [System.Collections.Generic.List[string]]::new()

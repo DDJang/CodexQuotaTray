@@ -47,11 +47,18 @@ Windows 与 Android 正式 Release 当前只支持严格的 `MAJOR.MINOR.PATCH` 
 
 ## 正式发布步骤
 
-1. 在开发分支完成测试和审查，将目标提交 fast-forward/merge 到 `main` 并 push。
-2. 确认项目版本正确；Android `versionCode` 必须大于既有 `android-v*` tag 历史中的最大值。
-3. 在目标 `main` commit 创建对应平台 tag 并 push。
-4. Workflow 重新验证版本与 ancestry、运行平台测试、构建产物、生成该平台专属 SHA-256，再创建
-   GitHub Release。任何校验、签名或构建失败都不得发布。
+1. 在开发分支完成开发、review 和 PR CI。
+2. PR CI 通过后 merge 到 `main` 并 push。
+3. 确认 `main` 上的实际目标 commit、项目版本和 release notes 正确；Android `versionCode`
+   必须大于既有 `android-v*` tag 历史中的最大值。
+4. 在该 `main` commit 创建对应平台 tag 并 push。
+5. Release workflow 执行正式测试、Release build、签名验证、产物校验、SHA-256 校验、release
+   notes 和 `update-manifest` 验证，再创建 GitHub Release。任何校验、签名或构建失败都不得发布。
+
+PR CI 是合并前验证；Release workflow 是正式发布验证。发布流程不再把 merge 后的普通 main CI
+作为额外的独立发布门禁。
+
+普通 CI 由 PR 与 `workflow_dispatch` 触发；merge 到 `main` 不会再触发重复的普通 CI。
 
 Windows workflow 运行 `windows/scripts/verify-winui.ps1 -Mode Release`，再生成 portable ZIP 和 Inno installer。
 本地 `windows/scripts/publish-winui.ps1`、`windows/scripts/package-winui.ps1`、

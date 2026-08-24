@@ -14,7 +14,7 @@
 进入 GitHub 发布流程，平台 All，版本号 X.Y.Z
 ```
 
-这类明确表述授权完成选定平台的版本修改、release notes、commit、push、PR 创建或复用、等待 CI、
+这类明确表述授权完成选定平台的版本修改、release notes、commit、push、PR 创建或复用、等待 PR CI、
 merge、tag、Release workflow 监控和发布结果验证。没有明确授权时，普通开发、测试或审查任务不自动进入发布流程。
 
 ### 发布 PR 合并策略
@@ -41,7 +41,7 @@ Codex 在调用脚本前只为选定平台准备对应 notes，并将 notes 写�
 
 ## 隔离合同
 
-| 选择 | 版本文件 | release notes | 本地/主分支验证 | tag 与 Release | manifest 验证 |
+| 选择 | 版本文件 | release notes | 本地验证 | tag 与 Release | manifest 验证 |
 | --- | --- | --- | --- | --- | --- |
 | Windows | Windows App `Version` | Windows notes | Windows 验证 | `windows-vX.Y.Z` 与 Windows Release | 仅 `windows` 节点 |
 | Android | Android `versionName`/`versionCode` | Android notes | Android 验证 | `android-vX.Y.Z` 与 Android Release | 仅 `android` 节点 |
@@ -102,7 +102,7 @@ Common:  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps
 
 如果脚本在 release preparation commit 已经存在后重跑，只有在当前 HEAD 的提交 subject、选定平台版本文件、选定平台 notes、提交改动范围和 clean worktree 都与本次目标一致时，才会跳过 commit（不创建空 commit），push 当前分支并继续查询/复用已有 PR；状态不完整时仍会停止。
 
-如果 release preparation PR 已经 squash/merge 到 `main`，脚本必须同时验证 main 历史中的对应 squash commit，或包含当前 release branch tip 的 merge commit，并确认选定平台版本和 notes 与当前准备状态一致。squash 的身份优先由 GitHub merged PR 元数据确认：merged PR 的 `headRefOid` 必须精确等于当前 release branch HEAD，`mergeCommit` 必须属于 `origin/main` 历史；squash commit 可以同时包含本次产品代码和测试改动，不要求 changed paths 只包含 release metadata。普通 merge 继续使用 parent/ancestry 校验。验证通过后跳过 preparation、PR 和 PR CI，使用已确认的 release main commit 继续 main CI、tag、Release workflow 和 `update-manifest`；无法唯一确认时停止，不因 `origin/main` 前进而放宽 ancestry 或 SHA 校验。
+如果 release preparation PR 已经 squash/merge 到 `main`，脚本必须同时验证 main 历史中的对应 squash commit，或包含当前 release branch tip 的 merge commit，并确认选定平台版本和 notes 与当前准备状态一致。squash 的身份优先由 GitHub merged PR 元数据确认：merged PR 的 `headRefOid` 必须精确等于当前 release branch HEAD，`mergeCommit` 必须属于 `origin/main` 历史；squash commit 可以同时包含本次产品代码和测试改动，不要求 changed paths 只包含 release metadata。普通 merge 继续使用 parent/ancestry 校验。验证通过后跳过 preparation、PR 和 PR CI，使用已确认的 release main commit 继续 tag、Release workflow 和 `update-manifest`；无法唯一确认时停止，不因 `origin/main` 前进而放宽 ancestry 或 SHA 校验。
 
 ### 7. 创建或复用 PR
 
@@ -110,15 +110,19 @@ Common:  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps
 
 ### 8. 等待 PR CI 与 merge
 
-脚本使用 GitHub CLI 查询 PR checks 的真实状态，直到相关检查全部成功；失败、取消或错误立即停止，不执行 merge。CI 全通过后使用 squash merge 合并到 `main`。
+PR CI 是合并前验证。脚本使用 GitHub CLI 查询 PR checks 的真实状态，直到相关检查全部成功；失败、取消或错误立即停止，不执行 merge。PR CI 全通过后使用 squash merge 合并到 `main`。
 
-### 9. 等待选定平台的 main CI
+普通 CI 只由 PR 和显式 `workflow_dispatch` 触发；merge 到 `main` 不会再次触发重复的普通 CI。
 
-普通模式在 merge 后 fetch `origin/main`，取得 merge 后实际的 `origin/main` HEAD SHA；post-merge resume 模式则重新确认已验证的 release main commit 仍属于 `origin/main`，并使用该 SHA。Windows-only 只等待 Windows CI，Android-only 只等待 Android CI，All 等待两者；找不到对应 run、run 失败、取消或超时，都不进入 tag 阶段。PR CI 成功不能替代 merge 后的 main CI。
+### 9. 确认实际 main commit
+
+merge 后 fetch `origin/main`，取得 merge 后实际的 `origin/main` HEAD SHA。普通模式确认 squash/merge commit 已属于 `origin/main` 历史；post-merge resume 模式则重新确认已验证的 release main commit 仍属于 `origin/main`。随后确认选定平台的版本文件和 release notes 与本次准备状态一致。无法确认 commit、版本或 notes 时停止，不进入 tag 阶段。
+
+这里不再等待独立的 merge 后 CI：PR CI 负责合并前验证，Release workflow 负责正式发布验证。
 
 ### 10. 创建并 push 选定平台 tag
 
-main CI 全部成功后，只确认选定平台的目标 tag 不存在，或已正确指向同一个已验证的 main SHA。当前仓库平台 tag 是 annotated tag，因此默认创建 annotated tag；All 会先准备两个 tag，再优先使用一次 atomic push：
+确认实际的 main SHA、版本和 notes 后，只确认选定平台的目标 tag 不存在，或已正确指向同一个已验证的 main SHA。当前仓库平台 tag 是 annotated tag，因此默认创建 annotated tag；All 会先准备两个 tag，再优先使用一次 atomic push：
 
 ```text
 Windows: git push --atomic origin refs/tags/windows-vX.Y.Z
@@ -152,7 +156,7 @@ Release workflow 仍共用 `update-manifest-publish` concurrency group，且 `ca
 .\scripts\publish-release.ps1 -Platform All -Version 0.8.8 -DryRun
 ```
 
-DryRun 会真实读取并报告当前 branch、HEAD、`main` 关系、工作区、`gh` 认证状态、远端仓库、选定平台的 ancestor tag、目标版本、notes 路径、目标 tag 冲突、预期版本和 Android `versionCode`（如适用）、将运行的本地验证、后续 PR/CI、tag、Release 和 manifest 阶段的计划。DryRun 在查询或创建 PR 前退出，不会报告具体 PR 的复用或创建结果。
+DryRun 会真实读取并报告当前 branch、HEAD、`main` 关系、工作区、`gh` 认证状态、远端仓库、选定平台的 ancestor tag、目标版本、notes 路径、目标 tag 冲突、预期版本和 Android `versionCode`（如适用）、将运行的本地验证、后续 PR CI、merge、tag、Release workflow 和 manifest 阶段的计划。DryRun 在查询或创建 PR 前退出，不会报告具体 PR 的复用或创建结果。
 
 DryRun 不执行版本写入、fetch 写 refs、构建、commit、push、PR 查询或 create、merge、tag、Release 或 manifest 写入。选定平台的 release notes 缺失会明确显示为正式运行的阻塞项，但不会为了展示计划而修改工作区。
 
