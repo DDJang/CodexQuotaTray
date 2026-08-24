@@ -595,7 +595,7 @@ private fun QuotaCardSurface(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun QuotaProgressRing(
+internal fun QuotaProgressRing(
     progress: Float,
     progressColor: Color,
     trackColor: Color,
