@@ -160,25 +160,29 @@ class SettingsActivity : ComponentActivity() {
                 settingsPalette(AppTheme.palette(this, themeMode), effectiveTheme),
             )
             CodexQuotaTheme(palette) {
-                val backdrop = rememberLayerBackdrop()
+                val pageBackdrop = rememberLayerBackdrop()
                 val scrollState = rememberScrollState()
                 var upwardOverscrollActive by remember { mutableStateOf(false) }
                 val backgroundColor = palette.color(palette.background)
-                Box(Modifier.fillMaxSize()) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(backgroundColor),
+                ) {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .layerBackdrop(backdrop)
-                            .background(backgroundColor),
-                    )
-                    SettingsContent(
-                        page = destination,
-                        scrollState = scrollState,
-                        onUpwardOverscrollChanged = { upwardOverscrollActive = it },
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                            .layerBackdrop(pageBackdrop),
+                    ) {
+                        SettingsContent(
+                            page = destination,
+                            scrollState = scrollState,
+                            onUpwardOverscrollChanged = { upwardOverscrollActive = it },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
                     SettingsGradientBlurHeader(
-                        backdrop = backdrop,
+                        backdrop = pageBackdrop,
                         scrollState = scrollState,
                         isScrolled = scrollState.value > 0 || upwardOverscrollActive,
                         tint = backgroundColor,
@@ -191,7 +195,7 @@ class SettingsActivity : ComponentActivity() {
                         GlassIconButton(
                             iconRes = R.drawable.ic_back,
                             description = "返回",
-                            backdrop = backdrop,
+                            backdrop = pageBackdrop,
                             buttonSize = 52.dp,
                             iconSize = 25.dp,
                             onClick = ::finish,

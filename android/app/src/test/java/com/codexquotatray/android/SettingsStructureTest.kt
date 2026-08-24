@@ -72,14 +72,13 @@ class SettingsStructureTest {
         val scaffold = source.substringAfter("val backgroundColor = palette.color(palette.background)")
             .substringBefore("if (showClearPairingDialog)")
 
-        assertTrue(scaffold.contains(".layerBackdrop(backdrop)"))
+        assertTrue(scaffold.contains(".layerBackdrop(pageBackdrop)"))
         assertTrue(scaffold.contains(".background(backgroundColor)"))
-        assertTrue(scaffold.contains("SettingsContent("))
-        assertFalse(scaffold.contains("Box(Modifier.fillMaxSize().layerBackdrop(backdrop))"))
-        assertFalse(scaffold.contains("Box(Modifier.fillMaxSize().background(backgroundColor)) {"))
-        val settingsContentCall = scaffold.substringAfter("SettingsContent(")
+        val pageSource = scaffold.substringAfter(".layerBackdrop(pageBackdrop)")
             .substringBefore("SettingsGradientBlurHeader(")
-        assertFalse(settingsContentCall.contains("backdrop = backdrop"))
+        assertTrue(pageSource.contains("SettingsContent("))
+        assertTrue(scaffold.contains("backdrop = pageBackdrop"))
+        assertFalse(pageSource.contains(".background(backgroundColor)"))
 
         val notificationPage = source.substringAfter("private fun ColumnScope.NotificationSettings(")
             .substringBefore("private fun ColumnScope.SyncSettings(")
@@ -119,14 +118,17 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun liquidBottomTabsDoNotRenderASecondTintedContentLayer() {
+    fun liquidBottomTabsUseKyantTabsBackdropWithoutHiddenTabScaling() {
         val source = sourceFile("liquidglass/LiquidBottomTabs.kt")
 
-        assertFalse(source.contains("val tabsBackdrop = rememberLayerBackdrop()"))
-        assertFalse(source.contains("CompositionLocalProvider"))
-        assertFalse(source.contains(".alpha(0f)"))
-        assertFalse(source.contains("ColorFilter.tint(accentColor)"))
-        assertFalse(source.contains("rememberCombinedBackdrop"))
+        assertTrue(source.contains("val tabsBackdrop = rememberLayerBackdrop()"))
+        assertTrue(source.contains("CompositionLocalProvider"))
+        assertTrue(source.contains("LocalLiquidBottomTabScale provides { 1f }"))
+        assertTrue(source.contains(".alpha(0f)"))
+        assertTrue(source.contains(".layerBackdrop(tabsBackdrop)"))
+        assertTrue(source.contains("ColorFilter.tint(accentColor)"))
+        assertTrue(source.contains("backdrop = rememberCombinedBackdrop("))
+        assertTrue(source.contains("tabsBackdrop"))
         assertTrue(source.contains("backdrop = backdrop"))
         assertTrue(source.contains("chromaticAberration = true"))
         assertTrue(source.contains("pressedScale = 78f / 56f"))
