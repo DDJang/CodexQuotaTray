@@ -28,6 +28,44 @@ class TokenUsageSourceRouterTest {
         assertThrows(TokenUsageException::class.java) { none.read(false) }
     }
 
+    @Test fun retryableTokenFailureWinsOverPermanentFailureInEitherOrder() {
+        listOf(
+            DataSourcePriority.OPENAI_FIRST,
+            DataSourcePriority.WINDOWS_FIRST,
+        ).forEach { priority ->
+            assertFailure(priority, TokenUsageFailureKind.LOGIN_REQUIRED, TokenUsageFailureKind.OFFLINE)
+            assertFailure(priority, TokenUsageFailureKind.OFFLINE, TokenUsageFailureKind.LOGIN_REQUIRED)
+        }
+    }
+
+    @Test fun allTokenRetryableFailureKindsArePreferred() {
+        listOf(
+            TokenUsageFailureKind.OFFLINE,
+            TokenUsageFailureKind.HTTP_ERROR,
+            TokenUsageFailureKind.SERVER,
+        ).forEach { retryable ->
+            val error = assertThrows(TokenUsageException::class.java) {
+                failureRouter(
+                    DataSourcePriority.OPENAI_FIRST,
+                    first = TokenUsageFailureKind.LOGIN_REQUIRED,
+                    second = retryable,
+                ).read(false)
+            }
+            assertEquals(retryable, error.kind)
+        }
+    }
+
+    @Test fun permanentTokenFailuresKeepProviderOrder() {
+        val error = assertThrows(TokenUsageException::class.java) {
+            failureRouter(
+                DataSourcePriority.OPENAI_FIRST,
+                first = TokenUsageFailureKind.LOGIN_REQUIRED,
+                second = TokenUsageFailureKind.INVALID_RESPONSE,
+            ).read(false)
+        }
+        assertEquals(TokenUsageFailureKind.LOGIN_REQUIRED, error.kind)
+    }
+
     private fun router(
         priority: DataSourcePriority,
         failPreferred: Boolean,
@@ -55,6 +93,38 @@ class TokenUsageSourceRouterTest {
     }
 
     private fun failure() = TokenUsageException(TokenUsageFailureKind.OFFLINE, "offline")
+
+    private fun assertFailure(
+        priority: DataSourcePriority,
+        first: TokenUsageFailureKind,
+        second: TokenUsageFailureKind,
+    ) {
+        val error = assertThrows(TokenUsageException::class.java) {
+            failureRouter(priority, first, second).read(false)
+        }
+        assertEquals(TokenUsageFailureKind.OFFLINE, error.kind)
+    }
+
+    private fun failureRouter(
+        priority: DataSourcePriority,
+        first: TokenUsageFailureKind,
+        second: TokenUsageFailureKind,
+    ): TokenUsageSourceRouter {
+        val firstProvider = TokenUsageProvider { throw TokenUsageException(first, first.name) }
+        val secondProvider = TokenUsageProvider { throw TokenUsageException(second, second.name) }
+        val openAI = if (priority == DataSourcePriority.OPENAI_FIRST) firstProvider else secondProvider
+        val windows = if (priority == DataSourcePriority.OPENAI_FIRST) secondProvider else firstProvider
+        return TokenUsageSourceRouter(
+            priorityStore = object : DataSourcePriorityStore {
+                override fun load() = DataSourcePrioritySettings(token = priority)
+                override fun save(value: DataSourcePrioritySettings) = true
+            },
+            hasOpenAI = { true },
+            hasWindows = { true },
+            openAI = openAI,
+            windows = windows,
+        )
+    }
 }
 
 internal fun snapshot(

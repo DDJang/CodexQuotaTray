@@ -21,18 +21,32 @@ class QuotaSourceRouter {
             DataSourcePriority.OPENAI_FIRST -> listOf(hasOpenAI to openAI, hasWindows to windows)
             DataSourcePriority.WINDOWS_FIRST -> listOf(hasWindows to windows, hasOpenAI to openAI)
         }
-        var firstFailure: Throwable? = null
+        var firstUnavailable: QuotaSourceRead? = null
+        var firstFailure: Exception? = null
+        var firstRetryableFailure: Exception? = null
         providers.forEach { (available, provider) ->
             if (!available) return@forEach
             try {
-                return provider()
+                val result = provider()
+                if (result.quota.quotaState != "unavailable") return result
+                firstUnavailable = firstUnavailable ?: result
             } catch (failure: Exception) {
                 firstFailure = firstFailure ?: failure
+                if (failure is QuotaReadException && failure.kind in RETRYABLE_QUOTA_FAILURES) {
+                    firstRetryableFailure = firstRetryableFailure ?: failure
+                }
             }
         }
+        firstRetryableFailure?.let { throw it }
+        firstUnavailable?.let { return it }
         throw firstFailure ?: QuotaReadException(
             QuotaReadFailureKind.LOGIN_REQUIRED,
             "尚未配置可用的额度数据来源",
         )
     }
 }
+
+private val RETRYABLE_QUOTA_FAILURES = setOf(
+    QuotaReadFailureKind.NETWORK,
+    QuotaReadFailureKind.SERVER,
+)

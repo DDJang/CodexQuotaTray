@@ -55,20 +55,30 @@ internal class TokenUsageSourceRouter(
             DataSourcePriority.WINDOWS_FIRST -> listOf(hasWindows() to windows, hasOpenAI() to openAI)
         }
         var firstFailure: Exception? = null
+        var firstRetryableFailure: Exception? = null
         providers.forEach { (available, provider) ->
             if (!available) return@forEach
             try {
                 return provider.read(forceRefresh)
             } catch (failure: Exception) {
                 firstFailure = firstFailure ?: failure
+                if (failure is TokenUsageException && failure.kind in RETRYABLE_TOKEN_FAILURES) {
+                    firstRetryableFailure = firstRetryableFailure ?: failure
+                }
             }
         }
-        throw firstFailure ?: TokenUsageException(
+        throw firstRetryableFailure ?: firstFailure ?: TokenUsageException(
             TokenUsageFailureKind.UNAVAILABLE,
             "尚未配置可用的 Token 数据来源",
         )
     }
 }
+
+private val RETRYABLE_TOKEN_FAILURES = setOf(
+    TokenUsageFailureKind.OFFLINE,
+    TokenUsageFailureKind.HTTP_ERROR,
+    TokenUsageFailureKind.SERVER,
+)
 
 internal class WindowsTokenUsageProvider(
     private val pairingStore: TokenSyncPairingStore,
