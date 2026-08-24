@@ -89,6 +89,8 @@ private const val DEBUG_LIQUID_BOTTOM_TABS_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.LiquidBottomTabsFixtureActivity"
 private const val DEBUG_LIQUID_ICON_BUTTON_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.LiquidIconButtonFixtureActivity"
+private const val DEBUG_LIQUID_ACTION_BUTTON_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.LiquidActionButtonFixtureActivity"
 private const val DEBUG_LIQUID_SEGMENTED_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.LiquidSegmentedFixtureActivity"
 private const val DEBUG_LIQUID_TOKEN_TOOLTIP_FIXTURE_ACTIVITY =
@@ -377,6 +379,12 @@ class SettingsActivity : ComponentActivity() {
                     )
                     SettingsDivider()
                     SettingsNavigationRow(
+                        title = "Liquid Action Button Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugLiquidActionButtonFixture,
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
                         title = "Liquid Segmented Fixture",
                         trailing = "Debug",
                         onClick = ::openDebugLiquidSegmentedFixture,
@@ -420,6 +428,17 @@ class SettingsActivity : ComponentActivity() {
                 Intent().setClassName(
                     this,
                     DEBUG_LIQUID_ICON_BUTTON_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugLiquidActionButtonFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_LIQUID_ACTION_BUTTON_FIXTURE_ACTIVITY,
                 ),
             )
         }

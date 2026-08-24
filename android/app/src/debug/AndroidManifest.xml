@@ -24,6 +24,12 @@
             android:label="Liquid Icon Button Fixture"
             android:screenOrientation="portrait" />
         <activity
+            android:name=".debug.LiquidActionButtonFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Liquid Action Button Fixture"
+            android:screenOrientation="portrait" />
+        <activity
             android:name=".debug.LiquidSegmentedFixtureActivity"
             android:configChanges="uiMode"
             android:exported="false"
