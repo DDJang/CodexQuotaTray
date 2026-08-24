@@ -41,18 +41,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.paint
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.GraphicsLayerScope
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -367,7 +362,7 @@ private fun LiquidTabCapsule(
         val tabWidth = with(density) { (constraints.maxWidth.toFloat() - 8.dp.toPx()) / 2f }
         val selectedBaseHeight = (constraints.maxHeight.toFloat() - with(density) { 8.dp.toPx() }).coerceAtLeast(1f)
         val pressedScaleX = with(density) { (tabWidth + 30.dp.toPx()) / tabWidth }
-        val pressedScaleY = with(density) { (selectedBaseHeight + 12.dp.toPx()) / selectedBaseHeight }
+        val pressedScaleY = with(density) { (selectedBaseHeight + 22.dp.toPx()) / selectedBaseHeight }
         val offsetAnimation = remember { Animatable(0f) }
         val panelOffset by remember(density) {
             derivedStateOf {
@@ -543,7 +538,7 @@ private fun LiquidTabCapsule(
                     )
                     .then(interactiveHighlight.modifier)
                     .fillMaxHeight().fillMaxWidth().padding(horizontal = 4.dp)
-                    .graphicsLayer(colorFilter = ColorFilter.tint(accentColor.copy(alpha = 0.22f))),
+                    .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
                 verticalAlignment = Alignment.CenterVertically,
                 content = tabs,
             )
@@ -553,7 +548,7 @@ private fun LiquidTabCapsule(
                 .graphicsLayer { translationX = if (isLtr) drag.value * tabWidth + panelOffset else size.width - (drag.value + 1f) * tabWidth + panelOffset }
                 .drawBackdrop(
                     rememberCombinedBackdrop(backdrop, tabsBackdrop), { KyantShapes.capsule() },
-                    effects = { lens(8.dp.toPx() * drag.pressProgress, 10.dp.toPx() * drag.pressProgress, chromaticAberration = true) },
+                    effects = { lens(10.dp.toPx() * drag.pressProgress, 14.dp.toPx() * drag.pressProgress, chromaticAberration = true) },
                     highlight = { Highlight.Default.copy(alpha = drag.pressProgress) },
                     shadow = { Shadow(alpha = drag.pressProgress) },
                     innerShadow = { InnerShadow(8.dp * drag.pressProgress, alpha = drag.pressProgress) },
@@ -568,48 +563,6 @@ private fun LiquidTabCapsule(
                         drawRect(Color.Black.copy(alpha = 0.03f * drag.pressProgress))
                     },
                 )
-                .fillMaxHeight().fillMaxWidth(0.5f),
-        )
-        Box(
-            Modifier
-                .padding(4.dp)
-                .graphicsLayer {
-                    translationX = if (isLtr) drag.value * tabWidth + panelOffset else size.width - (drag.value + 1f) * tabWidth + panelOffset
-                    scaleX = drag.scaleX
-                    scaleY = drag.scaleY
-                    val velocity = drag.velocity / 10f
-                    scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
-                    scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
-                }
-                .drawWithCache {
-                    val strokeWidth = 1.75.dp.toPx()
-                    val fringeBrush = Brush.sweepGradient(
-                        colorStops = arrayOf(
-                            0.00f to Color.Transparent,
-                            0.10f to Color.Transparent,
-                            0.22f to Color(0xFF6DE7C1).copy(alpha = 0.11f),
-                            0.38f to Color(0xFFFFB15C).copy(alpha = 0.14f),
-                            0.52f to Color(0xFF5B8DFF).copy(alpha = 0.16f),
-                            0.70f to Color(0xFFB878FF).copy(alpha = 0.13f),
-                            0.84f to Color(0xFF68D7FF).copy(alpha = 0.10f),
-                            0.94f to Color.Transparent,
-                            1.00f to Color.Transparent,
-                        ),
-                    )
-                    val inset = strokeWidth / 2f
-                    val borderSize = Size(size.width - strokeWidth, size.height - strokeWidth)
-                    val cornerRadius = CornerRadius(borderSize.height / 2f)
-                    onDrawBehind {
-                        drawRoundRect(
-                            brush = fringeBrush,
-                            topLeft = Offset(inset, inset),
-                            size = borderSize,
-                            cornerRadius = cornerRadius,
-                            style = Stroke(width = strokeWidth),
-                            alpha = drag.pressProgress,
-                        )
-                    }
-                }
                 .fillMaxHeight().fillMaxWidth(0.5f),
         )
         Box(
