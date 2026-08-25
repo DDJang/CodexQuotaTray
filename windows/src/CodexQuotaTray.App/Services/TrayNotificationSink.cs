@@ -14,22 +14,30 @@ internal sealed class TrayNotificationSink(DispatcherQueue dispatcher) : IQuotaN
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!dispatcher.TryEnqueue(() =>
             {
-                try
-                {
-                    var tray = Tray
-                        ?? throw new InvalidOperationException("The tray notification service is unavailable.");
-                    tray.ShowQuotaAlert(alert);
-                    completion.TrySetResult();
-                }
-                catch (Exception error)
-                {
-                    completion.TrySetException(error);
-                }
+                _ = DeliverAsync(alert, cancellationToken, completion);
             }))
         {
             completion.TrySetException(new InvalidOperationException("UI dispatcher is unavailable."));
         }
 
         return completion.Task;
+    }
+
+    private async Task DeliverAsync(
+        QuotaAlert alert,
+        CancellationToken cancellationToken,
+        TaskCompletionSource completion)
+    {
+        try
+        {
+            var tray = Tray
+                ?? throw new InvalidOperationException("The tray notification service is unavailable.");
+            await tray.ShowQuotaAlertAsync(alert, cancellationToken).ConfigureAwait(false);
+            completion.TrySetResult();
+        }
+        catch (Exception error)
+        {
+            completion.TrySetException(error);
+        }
     }
 }

@@ -587,10 +587,19 @@ public sealed class AppServerPhase2Tests
 
         _ = await service.GetSnapshotAsync(CancellationToken.None);
         _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
         sink.Throw = true;
         _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        var afterFailedDelivery = await new PreviewPersistence(store, paths).LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterFailedDelivery);
+        Assert.AreEqual(8, afterFailedDelivery!.Windows.Values.Single().LastReliableRemaining);
         sink.Throw = false;
         _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        var afterSuccessfulDelivery = await new PreviewPersistence(store, paths).LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterSuccessfulDelivery);
+        Assert.AreEqual(100, afterSuccessfulDelivery!.Windows.Values.Single().LastReliableRemaining);
 
         Assert.AreEqual(2, sink.Attempts);
     }
@@ -613,10 +622,139 @@ public sealed class AppServerPhase2Tests
 
         _ = await service.GetSnapshotAsync(CancellationToken.None);
         _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
         _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
 
         Assert.HasCount(1, sink.Alerts);
         Assert.AreEqual(QuotaAlertKind.Reset, sink.Alerts[0].Kind);
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_SurfaceSuccessfulSinkConsumesResetWithoutRetry()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            CancellationToken.None);
+        var sink = new RecordingNotificationSink();
+        var persistence = new PreviewPersistence(store, paths);
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(new ResetRecoveryClient()),
+            new SettingsService(store, paths),
+            persistence,
+            sink);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+
+        // The fake sink's normal return represents a trusted delivery
+        // acknowledgement. The committed state records the Reset as consumed
+        // only after that acknowledgement, before a later refresh can observe
+        // the same snapshot again.
+        Assert.HasCount(1, sink.Alerts);
+        Assert.AreEqual(QuotaAlertKind.Reset, sink.Alerts[0].Kind);
+        var committed = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(committed);
+        var committedWindow = committed!.Windows.Values.Single();
+        Assert.AreEqual(100, committedWindow.LastReliableRemaining);
+        Assert.IsNotNull(committedWindow.LastResetAlertCycleUtc);
+        Assert.IsTrue(committedWindow.ResetAlertCycleConsumed);
+
+        _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+
+        Assert.HasCount(1, sink.Alerts);
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_NetworkRestoreAfterFailuresAndEmptySnapshotsEmitsOneResetAlert()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            CancellationToken.None);
+        var clock = new ManualTimeProvider();
+        var factory = new ResetRecoveryReconnectFactory();
+        var persistence = new PreviewPersistence(store, paths);
+        var sink = new RecordingNotificationSink();
+        await using var service = new QuotaRuntimeService(
+            factory,
+            new SettingsService(store, paths),
+            persistence,
+            sink,
+            clock);
+
+        _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        await factory.First.NotificationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await clock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(1));
+
+        var beforeDisconnect = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(beforeDisconnect);
+        var oldWindow = beforeDisconnect!.Windows.Values.Single();
+        Assert.AreEqual(8, oldWindow.LastReliableRemaining);
+
+        factory.First.TriggerDisconnect();
+        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        clock.Advance(TimeSpan.FromSeconds(11));
+        await service.RequestAsync(RefreshReason.NetworkRestored, CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        var afterFirstEmpty = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterFirstEmpty);
+        Assert.AreEqual(oldWindow.PseudonymousKey, afterFirstEmpty!.Windows.Values.Single().PseudonymousKey);
+        Assert.AreEqual(oldWindow.LastReliableRemaining, afterFirstEmpty.Windows.Values.Single().LastReliableRemaining);
+        Assert.IsEmpty(sink.Alerts);
+
+        clock.Advance(TimeSpan.FromSeconds(11));
+        _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        var afterFailedRefresh = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterFailedRefresh);
+        Assert.AreEqual(oldWindow.LastReliableRemaining, afterFailedRefresh!.Windows.Values.Single().LastReliableRemaining);
+
+        clock.Advance(TimeSpan.FromSeconds(11));
+        await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        var afterSecondEmpty = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterSecondEmpty);
+        Assert.AreEqual(oldWindow.LastReliableRemaining, afterSecondEmpty!.Windows.Values.Single().LastReliableRemaining);
+        Assert.IsEmpty(sink.Alerts);
+
+        clock.Advance(TimeSpan.FromSeconds(11));
+        await service.RequestAsync(RefreshReason.NetworkRestored, CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        var recovered = await service.GetSnapshotAsync(CancellationToken.None);
+        var recoveredWindow = recovered.Windows.Single();
+        var expectedResetAt = ResetRecoveryReconnectClient.NewResetAtUtc;
+        Assert.AreEqual(100, recoveredWindow.RemainingPercent);
+        Assert.AreEqual(expectedResetAt, recoveredWindow.ResetAtUtc);
+        Assert.AreEqual(1, factory.Second.FailedReadCount);
+        Assert.AreEqual(4, factory.Second.ReadCount);
+
+        Assert.HasCount(1, sink.Alerts);
+        Assert.AreEqual(QuotaAlertKind.Reset, sink.Alerts[0].Kind);
+        Assert.AreEqual(expectedResetAt, sink.Alerts[0].ResetWindows.Single().ResetAtUtc);
+
+        var afterRecovery = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterRecovery);
+        var newWindow = afterRecovery!.Windows.Values.Single();
+        Assert.AreEqual(oldWindow.PseudonymousKey, newWindow.PseudonymousKey);
+        Assert.AreEqual(expectedResetAt, newWindow.ResetAtUtc);
+        Assert.AreEqual(100, newWindow.LastReliableRemaining);
+
+        clock.Advance(TimeSpan.FromSeconds(11));
+        _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        Assert.HasCount(1, sink.Alerts);
     }
 
     [TestMethod]
@@ -675,6 +813,7 @@ public sealed class AppServerPhase2Tests
             IngressAcknowledgement: () => factory.Client.BufferedNotificationAcknowledged.TrySetResult()));
         factory.Client.ReleaseRecovery.TrySetResult();
         await factory.Client.BufferedNotificationAcknowledged.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await service.WaitForAlertEvaluationsAsync();
 
         Assert.AreEqual(12, factory.Client.RecoveryIngressSequence);
         var cache = await File.ReadAllTextAsync(paths.QuotaCache);
@@ -836,7 +975,7 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
-    public async Task QuotaRuntime_GenerationCommitRejectsStaleAlertStateBeforeReplacement()
+    public async Task QuotaRuntime_AcknowledgedAlertCommitSurvivesReconnectWithoutRollback()
     {
         using var directory = new TemporaryDirectory();
         var paths = new PreviewDataPaths(directory.Path);
@@ -850,6 +989,7 @@ public sealed class AppServerPhase2Tests
             sink);
 
         _ = await service.GetSnapshotAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
         persistence.BlockNextAlertState();
         var oldRefresh = service.RefreshAsync(CancellationToken.None).AsTask();
         await factory.First.LateReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
@@ -861,17 +1001,18 @@ public sealed class AppServerPhase2Tests
         persistence.ReleaseAlert.TrySetResult();
         await oldRefresh.WaitAsync(TimeSpan.FromSeconds(2));
         await service.RefreshAsync(CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+        await service.WaitForAlertEvaluationsAsync();
 
         var state = await persistence.LoadAlertStateAsync(CancellationToken.None);
         Assert.IsNotNull(state);
-        Assert.IsFalse(state!.Windows.Values.Any(window => window.LastReliableRemaining == 10));
-        Assert.IsTrue(persistence.AlertCommitRejected);
-        Assert.IsEmpty(sink.Alerts);
+        Assert.HasCount(2, sink.Alerts);
+        Assert.AreEqual(QuotaAlertKind.Threshold, sink.Alerts[0].Kind);
+        Assert.IsFalse(persistence.AlertCommitRejected);
         Assert.IsEmpty(Directory.GetFiles(paths.Root, "alert-state.json.*.tmp"));
     }
 
     [TestMethod]
-    public async Task QuotaRuntime_GenerationCommitSerializesBlockingNotification()
+    public async Task QuotaRuntime_NotificationWaitDoesNotBlockReconnect()
     {
         using var directory = new TemporaryDirectory();
         var paths = new PreviewDataPaths(directory.Path);
@@ -891,13 +1032,15 @@ public sealed class AppServerPhase2Tests
         await sink.Started.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         factory.First.TriggerDisconnect();
-        await Task.Delay(50);
-        Assert.IsFalse(factory.First.Disposed.Task.IsCompleted);
+        // The notification wait is outside generationCommitGate, so detach
+        // completes deterministically before the sink is released.
+        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.IsTrue(factory.First.Disposed.Task.IsCompleted);
 
         sink.Release.TrySetResult();
-        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
         await oldRefresh.WaitAsync(TimeSpan.FromSeconds(2));
         await service.RefreshAsync(CancellationToken.None).AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+        await service.WaitForAlertEvaluationsAsync();
     }
 
     [TestMethod]
@@ -1094,13 +1237,13 @@ public sealed class AppServerPhase2Tests
 
         var refresh = service.RefreshAsync(CancellationToken.None).AsTask();
         await client.SecondReadStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
-        await Task.Delay(50);
+        await refresh.WaitAsync(TimeSpan.FromSeconds(1));
         Assert.IsNotNull(observed);
-        Assert.AreEqual(10, observed!.Windows[0].RemainingPercent);
+        Assert.AreEqual(70, observed!.Windows[0].RemainingPercent);
 
         sink.Release.TrySetResult();
-        await refresh;
-        Assert.AreEqual(70, observed!.Windows[0].RemainingPercent);
+        await service.WaitForAlertEvaluationsAsync();
+        Assert.AreEqual(70, observed.Windows[0].RemainingPercent);
     }
 
     [TestMethod]
@@ -1422,6 +1565,111 @@ public sealed class AppServerPhase2Tests
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class ResetRecoveryReconnectFactory : ICodexAppServerClientFactory
+    {
+        public ResetRecoveryReconnectClient First { get; } = new(first: true);
+        public ResetRecoveryReconnectClient Second { get; } = new(first: false);
+        private int createCount;
+
+        public ICodexAppServerClient Create() =>
+            Interlocked.Increment(ref createCount) == 1 ? First : Second;
+    }
+
+    private sealed class ResetRecoveryReconnectClient(bool first) : ICodexAppServerClient
+    {
+        private const long OldResetAt = 1_000_000;
+        private const long NewResetAt = OldResetAt + 18_000;
+        private readonly TaskCompletionSource disconnect = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int disposed;
+        private int readCount;
+        private int failedReadCount;
+
+        public static DateTimeOffset NewResetAtUtc => DateTimeOffset.FromUnixTimeSeconds(NewResetAt);
+
+        public TaskCompletionSource NotificationStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int ReadCount => Volatile.Read(ref readCount);
+        public int FailedReadCount => Volatile.Read(ref failedReadCount);
+        public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
+
+        public Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new CodexSessionInfo("9.99.0", "9.99.0"));
+
+        public Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
+        {
+            var currentRead = Interlocked.Increment(ref readCount);
+            if (first)
+            {
+                return Task.FromResult(Snapshot(92, OldResetAt));
+            }
+
+            return currentRead switch
+            {
+                1 => Task.FromResult(EmptySnapshot()),
+                2 => FailedRead(),
+                3 => Task.FromResult(EmptySnapshot()),
+                _ => Task.FromResult(Snapshot(0, NewResetAt)),
+            };
+        }
+
+        public async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            NotificationStarted.TrySetResult();
+            if (first)
+            {
+                await disconnect.Task.WaitAsync(cancellationToken);
+                throw new ChannelClosedException(new CodexClientException(
+                    CodexClientErrorKind.TransportClosed,
+                    "synthetic network restore test disconnect"));
+            }
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            yield break;
+        }
+
+        public void TriggerDisconnect() => disconnect.TrySetResult();
+
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                disconnect.TrySetResult();
+                Disposed.TrySetResult();
+            }
+
+            return ValueTask.CompletedTask;
+        }
+
+        private Task<RateLimitsReadResult> FailedRead()
+        {
+            Interlocked.Increment(ref failedReadCount);
+            return Task.FromException<RateLimitsReadResult>(new CodexClientException(
+                CodexClientErrorKind.RequestTimeout,
+                "synthetic network restore test read failure"));
+        }
+
+        private static RateLimitsReadResult EmptySnapshot() =>
+            new(new RateLimitsResponse(), false);
+
+        private static RateLimitsReadResult Snapshot(long usedPercent, long resetAt) =>
+            new(
+                new RateLimitsResponse
+                {
+                    RateLimits = new RateLimitSnapshot
+                    {
+                        LimitId = "reconnect-reset-window",
+                        Primary = new RateLimitWindow
+                        {
+                            UsedPercent = usedPercent,
+                            WindowDurationMinutes = 300,
+                            ResetsAt = resetAt,
+                        },
+                    },
+                },
+                false);
     }
 
     private sealed class OverflowRecoveryFactory : ICodexAppServerClientFactory

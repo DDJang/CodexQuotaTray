@@ -17,6 +17,8 @@ namespace CodexQuotaTray.App.Services;
 internal sealed class TrayIconService : IDisposable
 {
     private const uint TrayId = 0x51435452;
+    internal static readonly TimeSpan BalloonShowAcknowledgementTimeout = TimeSpan.FromSeconds(2);
+    internal static readonly TimeSpan BalloonCallbackDrainTimeout = BalloonShowAcknowledgementTimeout;
     private static readonly Dictionary<IntPtr, TrayIconService> Instances = [];
     private static readonly NativeMethods.WindowProcedure SharedWindowProcedure = WindowProcedure;
     private readonly DispatcherQueue dispatcher;
@@ -28,6 +30,9 @@ internal sealed class TrayIconService : IDisposable
     private readonly Action exitApplication;
     private readonly Func<PersistenceThemeMode> themeProvider;
     private readonly TrayIconIdentity identity;
+    private readonly SemaphoreSlim balloonDeliveryGate = new(1, 1);
+    private readonly TrayBalloonAttemptGate balloonAttemptGate = new();
+    private readonly object deferredWindowsUpdateGate = new();
     private const string TrayCallbackWindowClassName = "CodexQuotaTray.Tray.CallbackWindow";
     private const string TrayBroadcastWindowClassName = "CodexQuotaTray.Tray.BroadcastWindow";
     private IntPtr instance;
@@ -45,6 +50,7 @@ internal sealed class TrayIconService : IDisposable
     private int registrationAttempt;
     private int lastExplorerResult;
     private bool explorerConfirmed;
+    private WindowsUpdateRelease? deferredWindowsUpdate;
 
     internal TrayRegistrationState RegistrationState { get; private set; } = TrayRegistrationState.NotStarted;
 
@@ -439,6 +445,7 @@ internal sealed class TrayIconService : IDisposable
 
         if (hwnd == broadcastWindow && message == taskbarCreatedMessage)
         {
+            FailPendingBalloon(new InvalidOperationException("Explorer restarted while showing a notification."));
             TaskbarCreatedObserved = true;
             added = false;
             explorerConfirmed = false;
@@ -456,7 +463,18 @@ internal sealed class TrayIconService : IDisposable
         }
 
         var trayEvent = unchecked((uint)lParam.ToInt64()) & 0xffff;
-        if (trayEvent == NativeMethods.WmLButtonUp)
+        if (trayEvent == NativeMethods.NinBalloonShow)
+        {
+            _ = balloonAttemptGate.Handle(TrayBalloonCallback.Show);
+        }
+        else if (trayEvent is NativeMethods.NinBalloonHide or NativeMethods.NinBalloonTimeout)
+        {
+            _ = balloonAttemptGate.Handle(
+                trayEvent == NativeMethods.NinBalloonHide
+                    ? TrayBalloonCallback.Hide
+                    : TrayBalloonCallback.Timeout);
+        }
+        else if (trayEvent == NativeMethods.WmLButtonUp)
         {
             _ = dispatcher.TryEnqueue(() => toggleWindow());
         }
@@ -486,40 +504,94 @@ internal sealed class TrayIconService : IDisposable
         return TryGetIconRect();
     }
 
-    internal void ShowQuotaAlert(QuotaAlert alert)
+    internal async Task ShowQuotaAlertAsync(QuotaAlert alert, CancellationToken cancellationToken)
     {
-        if (!added)
+        await balloonDeliveryGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var attempt = balloonAttemptGate.Begin();
+        var shellRequestSubmitted = false;
+        try
         {
-            throw new InvalidOperationException("The tray icon is unavailable.");
-        }
+            if (!added)
+            {
+                throw new InvalidOperationException("The tray icon is unavailable.");
+            }
 
-        var data = CreateData();
-        data.Flags |= NativeMethods.NifInfo;
-        data.InfoTitle = alert.Kind == QuotaAlertKind.ResetCreditExpiry
-            ? ResetCreditExpiryTitle()
-            : "Codex 额度提醒";
-        var quotaMessage = alert.Kind switch
+            var data = CreateData();
+            data.Flags |= NativeMethods.NifInfo | NativeMethods.NifRealtime;
+            data.InfoTitle = alert.Kind == QuotaAlertKind.ResetCreditExpiry
+                ? ResetCreditExpiryTitle()
+                : "Codex 额度提醒";
+            var quotaMessage = alert.Kind switch
+            {
+                QuotaAlertKind.Reset => FormatResetAlert(alert.ResetWindows),
+                QuotaAlertKind.ResetCreditExpiry => FormatResetCreditExpiryAlert(alert.ResetCreditExpiryWindows),
+                QuotaAlertKind.Composite => FormatCompositeAlert(alert),
+                _ => alert.ThresholdWindows.Count > 0
+                    ? FormatThresholdAlert(alert.ThresholdWindows)
+                    : $"{alert.WindowName}剩余 {alert.RemainingPercent}%",
+            };
+            data.Info = quotaMessage
+                + (alert.ResetCreditExpiryWindows.Count > 0
+                    && alert.Kind is not (QuotaAlertKind.Composite or QuotaAlertKind.ResetCreditExpiry)
+                    ? Environment.NewLine + FormatResetCreditExpiryAlert(alert.ResetCreditExpiryWindows)
+                    : string.Empty);
+            data.InfoFlags = NativeMethods.NiifInfo;
+            if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
+            {
+                throw LastWin32("show quota notification");
+            }
+            shellRequestSubmitted = true;
+
+            await attempt.ShowCompletion.Task.WaitAsync(
+                BalloonShowAcknowledgementTimeout,
+                cancellationToken).ConfigureAwait(false);
+        }
+        catch
         {
-            QuotaAlertKind.Reset => FormatResetAlert(alert.ResetWindows),
-            QuotaAlertKind.ResetCreditExpiry => FormatResetCreditExpiryAlert(alert.ResetCreditExpiryWindows),
-            QuotaAlertKind.Composite => FormatCompositeAlert(alert),
-            _ => alert.ThresholdWindows.Count > 0
-                ? FormatThresholdAlert(alert.ThresholdWindows)
-                : $"{alert.WindowName}剩余 {alert.RemainingPercent}%",
-        };
-        data.Info = quotaMessage
-            + (alert.ResetCreditExpiryWindows.Count > 0
-                && alert.Kind is not (QuotaAlertKind.Composite or QuotaAlertKind.ResetCreditExpiry)
-                ? Environment.NewLine + FormatResetCreditExpiryAlert(alert.ResetCreditExpiryWindows)
-                : string.Empty);
-        data.InfoFlags = NativeMethods.NiifInfo;
-        if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
+            if (shellRequestSubmitted)
+            {
+                balloonAttemptGate.BeginDrain(attempt);
+                DismissPendingBalloon(attempt);
+                try
+                {
+                    // Dismissal is expected to produce a terminal Shell
+                    // callback, but the callback contract has no delivery
+                    // guarantee. Keep the gate closed only for this bounded,
+                    // event-driven drain window before allowing a retry.
+                    await attempt.DrainCompletion.Task.WaitAsync(
+                        BalloonCallbackDrainTimeout).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                }
+            }
+
+            throw;
+        }
+        finally
         {
-            throw LastWin32("show quota notification");
+            balloonAttemptGate.End(attempt);
+            balloonDeliveryGate.Release();
+            FlushDeferredWindowsUpdate();
         }
     }
 
     internal void ShowWindowsUpdateAvailable(WindowsUpdateRelease release)
+    {
+        if (balloonAttemptGate.HasCurrent)
+        {
+            lock (deferredWindowsUpdateGate)
+            {
+                deferredWindowsUpdate = release;
+            }
+
+            return;
+        }
+
+        ShowWindowsUpdateAvailableCore(release);
+    }
+
+    private void ShowWindowsUpdateAvailableCore(WindowsUpdateRelease release)
     {
         if (!added)
         {
@@ -535,6 +607,55 @@ internal sealed class TrayIconService : IDisposable
         {
             throw LastWin32("show update notification");
         }
+    }
+
+    private void FlushDeferredWindowsUpdate()
+    {
+        WindowsUpdateRelease? release;
+        lock (deferredWindowsUpdateGate)
+        {
+            release = deferredWindowsUpdate;
+            deferredWindowsUpdate = null;
+        }
+
+        if (release is null || disposed || !added)
+        {
+            return;
+        }
+
+        try
+        {
+            ShowWindowsUpdateAvailableCore(release);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Update notification failed: {error.GetType().Name}");
+        }
+    }
+
+    private void FailPendingBalloon(Exception error)
+    {
+        balloonAttemptGate.FailCurrent(error);
+    }
+
+    private void DismissPendingBalloon(TrayBalloonAttemptGate.Attempt attempt)
+    {
+        if (!balloonAttemptGate.IsCurrent(attempt))
+        {
+            return;
+        }
+
+        if (!added)
+        {
+            return;
+        }
+
+        var data = CreateData();
+        data.Flags |= NativeMethods.NifInfo | NativeMethods.NifRealtime;
+        data.Info = string.Empty;
+        data.InfoTitle = string.Empty;
+        data.InfoFlags = NativeMethods.NiifInfo;
+        _ = NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data);
     }
 
     private static string FormatResetAlert(IReadOnlyList<QuotaResetWindow> windows) =>
@@ -638,6 +759,7 @@ internal sealed class TrayIconService : IDisposable
         }
 
         disposed = true;
+        FailPendingBalloon(new ObjectDisposedException(nameof(TrayIconService)));
         retryLifetime.Cancel();
         registrationGeneration++;
         contextMenu?.Dispose();
