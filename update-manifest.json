@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.10.0",
-    "tag": "windows-v0.10.0",
+    "version": "0.10.1",
+    "tag": "windows-v0.10.1",
     "installer": {
-      "name": "CodexQuotaTray-0.10.0-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.10.0/CodexQuotaTray-0.10.0-setup.exe",
-      "sha256": "70d979d6f7355347703a0c0aa7994015b56931ed98798e64e5745d84fe88b92a",
-      "size": 63996295
+      "name": "CodexQuotaTray-0.10.1-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.10.1/CodexQuotaTray-0.10.1-setup.exe",
+      "sha256": "7bec43df2567cc8f00192f71ce43b235e47d2feebafc9d0e324e383b27543c77",
+      "size": 64023933
     },
-    "releaseNotes": "## Windows\r\n\r\n### 账号与数据源\r\n\r\n- 新增账号与数据源选择能力，支持在不同额度来源之间切换并清晰展示当前来源状态。\r\n- 优化 OAuth 额度展示、账号状态反馈和退出登录确认流程。\r\n- 改进设置中的来源交互和状态同步，减少切换后界面状态滞后的情况。\r\n\r\n### 刷新与额度一致性\r\n\r\n- 优化数据源切换后的额度重新加载和刷新协调，确保切换后能及时得到对应来源的数据。\r\n- 改进刷新状态反馈、额度窗口加载和统计页面之间的一致性。\r\n- 保留待处理的官方用量数据，提升刷新过程中额度与统计信息的稳定性。\r\n\r\n### Token 统计\r\n\r\n- 持久化本地 Token 使用记录，提升重启和后续查看时的统计连续性。\r\n- 改进分叉会话的 Token 计量回放，并在局域网数据暂不可用时保留已有统计信息。\r\n",
-    "publishedAt": "2026-08-24T16:53:42Z"
+    "releaseNotes": "## Windows\r\n\r\n- 修复额度服务重连、limit ID 变化或协议返回形状变化后，Windows quota Reset 通知可能漏报的问题。\r\n- 改进额度窗口身份不确定时的 Reset 识别：优先依据可靠的周期变化和恢复证据提醒，同时避免同一 Reset 周期重复通知。\r\n- 保留既有 threshold 提醒历史隔离与旧版提醒状态兼容，减少升级后误报或漏报。\r\n",
+    "publishedAt": "2026-08-25T10:15:54Z"
   },
   "android": {
     "version": "0.10.0",
