@@ -1,7 +1,8 @@
 # Code signing policy
 
-This policy describes the code-signing responsibilities for CodexQuotaTray. It is
-prepared for the SignPath Foundation application; it does not enable SignPath,
+This policy describes the code-signing responsibilities for CodexQuotaTray. The
+SignPath Foundation application has been submitted, but integration is still
+pending and not integrated. This policy does not enable signing capability,
 change the current GitHub Actions workflows, or imply that existing releases are
 signed.
 
@@ -81,6 +82,8 @@ are operational steps outside this repository change.
 
 ## Current integration status
 
-SignPath is not currently connected to this repository. This document is a
-pre-application policy only: no SignPath API call, secret, certificate, workflow
-step, or release behavior is added by this change.
+The SignPath Foundation application has been submitted, but integration remains
+pending/not integrated. SignPath is not connected to this repository: no SignPath
+workflow, secret, certificate, or signing capability is configured, and existing
+releases are not represented as signed. No SignPath API call or release behavior
+is added by this change.
