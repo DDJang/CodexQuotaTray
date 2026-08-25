@@ -22,8 +22,10 @@ public sealed class AppIntegrationSourceTests
 
         StringAssert.Contains(source, "if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))");
         StringAssert.Contains(source, "throw LastWin32(\"show quota notification\")");
-        StringAssert.Contains(source, "await pending.Completion.Task.WaitAsync");
+        StringAssert.Contains(source, "await attempt.ShowCompletion.Task.WaitAsync");
         StringAssert.Contains(source, "BalloonShowAcknowledgementTimeout");
+        StringAssert.Contains(source, "BalloonCallbackDrainTimeout");
+        StringAssert.Contains(source, "DrainCompletion.Task.WaitAsync");
         StringAssert.Contains(source, "NativeMethods.NifRealtime");
     }
 
@@ -40,7 +42,18 @@ public sealed class AppIntegrationSourceTests
         StringAssert.Contains(nativeSource, "NinBalloonTimeout = 0x0404");
         StringAssert.Contains(source, "trayEvent == NativeMethods.NinBalloonShow");
         StringAssert.Contains(source, "NativeMethods.NinBalloonHide or NativeMethods.NinBalloonTimeout");
+        StringAssert.Contains(source, "balloonAttemptGate.Handle");
+        StringAssert.Contains(source, "balloonAttemptGate.BeginDrain");
         StringAssert.Contains(source, "FailPendingBalloon");
+
+        var drainStart = source.IndexOf("balloonAttemptGate.BeginDrain(attempt)", StringComparison.Ordinal);
+        var dismiss = source.IndexOf("DismissPendingBalloon(attempt)", drainStart, StringComparison.Ordinal);
+        var drainWait = source.IndexOf("attempt.DrainCompletion.Task.WaitAsync", dismiss, StringComparison.Ordinal);
+        var end = source.IndexOf("balloonAttemptGate.End(attempt)", drainWait, StringComparison.Ordinal);
+        Assert.IsTrue(drainStart >= 0);
+        Assert.IsTrue(dismiss > drainStart);
+        Assert.IsTrue(drainWait > dismiss);
+        Assert.IsTrue(end > drainWait);
     }
 
     [TestMethod]

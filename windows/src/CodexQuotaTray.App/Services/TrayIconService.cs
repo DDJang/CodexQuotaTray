@@ -18,6 +18,7 @@ internal sealed class TrayIconService : IDisposable
 {
     private const uint TrayId = 0x51435452;
     internal static readonly TimeSpan BalloonShowAcknowledgementTimeout = TimeSpan.FromSeconds(2);
+    internal static readonly TimeSpan BalloonCallbackDrainTimeout = BalloonShowAcknowledgementTimeout;
     private static readonly Dictionary<IntPtr, TrayIconService> Instances = [];
     private static readonly NativeMethods.WindowProcedure SharedWindowProcedure = WindowProcedure;
     private readonly DispatcherQueue dispatcher;
@@ -30,7 +31,8 @@ internal sealed class TrayIconService : IDisposable
     private readonly Func<PersistenceThemeMode> themeProvider;
     private readonly TrayIconIdentity identity;
     private readonly SemaphoreSlim balloonDeliveryGate = new(1, 1);
-    private readonly object balloonStateGate = new();
+    private readonly TrayBalloonAttemptGate balloonAttemptGate = new();
+    private readonly object deferredWindowsUpdateGate = new();
     private const string TrayCallbackWindowClassName = "CodexQuotaTray.Tray.CallbackWindow";
     private const string TrayBroadcastWindowClassName = "CodexQuotaTray.Tray.BroadcastWindow";
     private IntPtr instance;
@@ -48,13 +50,7 @@ internal sealed class TrayIconService : IDisposable
     private int registrationAttempt;
     private int lastExplorerResult;
     private bool explorerConfirmed;
-    private PendingBalloon? pendingBalloon;
     private WindowsUpdateRelease? deferredWindowsUpdate;
-
-    private sealed class PendingBalloon
-    {
-        internal TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    }
 
     internal TrayRegistrationState RegistrationState { get; private set; } = TrayRegistrationState.NotStarted;
 
@@ -469,18 +465,14 @@ internal sealed class TrayIconService : IDisposable
         var trayEvent = unchecked((uint)lParam.ToInt64()) & 0xffff;
         if (trayEvent == NativeMethods.NinBalloonShow)
         {
-            lock (balloonStateGate)
-            {
-                pendingBalloon?.Completion.TrySetResult();
-            }
+            _ = balloonAttemptGate.Handle(TrayBalloonCallback.Show);
         }
         else if (trayEvent is NativeMethods.NinBalloonHide or NativeMethods.NinBalloonTimeout)
         {
-            lock (balloonStateGate)
-            {
-                pendingBalloon?.Completion.TrySetException(
-                    new InvalidOperationException("Windows Shell did not keep the quota notification visible."));
-            }
+            _ = balloonAttemptGate.Handle(
+                trayEvent == NativeMethods.NinBalloonHide
+                    ? TrayBalloonCallback.Hide
+                    : TrayBalloonCallback.Timeout);
         }
         else if (trayEvent == NativeMethods.WmLButtonUp)
         {
@@ -515,17 +507,13 @@ internal sealed class TrayIconService : IDisposable
     internal async Task ShowQuotaAlertAsync(QuotaAlert alert, CancellationToken cancellationToken)
     {
         await balloonDeliveryGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        var pending = new PendingBalloon();
+        var attempt = balloonAttemptGate.Begin();
+        var shellRequestSubmitted = false;
         try
         {
             if (!added)
             {
                 throw new InvalidOperationException("The tray icon is unavailable.");
-            }
-
-            lock (balloonStateGate)
-            {
-                pendingBalloon = pending;
             }
 
             var data = CreateData();
@@ -552,26 +540,37 @@ internal sealed class TrayIconService : IDisposable
             {
                 throw LastWin32("show quota notification");
             }
+            shellRequestSubmitted = true;
 
-            await pending.Completion.Task.WaitAsync(
+            await attempt.ShowCompletion.Task.WaitAsync(
                 BalloonShowAcknowledgementTimeout,
                 cancellationToken).ConfigureAwait(false);
         }
         catch
         {
-            DismissPendingBalloon(pending);
+            if (shellRequestSubmitted)
+            {
+                balloonAttemptGate.BeginDrain(attempt);
+                DismissPendingBalloon(attempt);
+                try
+                {
+                    // Dismissal is expected to produce a terminal Shell
+                    // callback, but the callback contract has no delivery
+                    // guarantee. Keep the gate closed only for this bounded,
+                    // event-driven drain window before allowing a retry.
+                    await attempt.DrainCompletion.Task.WaitAsync(
+                        BalloonCallbackDrainTimeout).ConfigureAwait(false);
+                }
+                catch (TimeoutException)
+                {
+                }
+            }
+
             throw;
         }
         finally
         {
-            lock (balloonStateGate)
-            {
-                if (ReferenceEquals(pendingBalloon, pending))
-                {
-                    pendingBalloon = null;
-                }
-            }
-
+            balloonAttemptGate.End(attempt);
             balloonDeliveryGate.Release();
             FlushDeferredWindowsUpdate();
         }
@@ -579,13 +578,14 @@ internal sealed class TrayIconService : IDisposable
 
     internal void ShowWindowsUpdateAvailable(WindowsUpdateRelease release)
     {
-        lock (balloonStateGate)
+        if (balloonAttemptGate.HasCurrent)
         {
-            if (pendingBalloon is not null)
+            lock (deferredWindowsUpdateGate)
             {
                 deferredWindowsUpdate = release;
-                return;
             }
+
+            return;
         }
 
         ShowWindowsUpdateAvailableCore(release);
@@ -612,7 +612,7 @@ internal sealed class TrayIconService : IDisposable
     private void FlushDeferredWindowsUpdate()
     {
         WindowsUpdateRelease? release;
-        lock (balloonStateGate)
+        lock (deferredWindowsUpdateGate)
         {
             release = deferredWindowsUpdate;
             deferredWindowsUpdate = null;
@@ -635,20 +635,14 @@ internal sealed class TrayIconService : IDisposable
 
     private void FailPendingBalloon(Exception error)
     {
-        lock (balloonStateGate)
-        {
-            pendingBalloon?.Completion.TrySetException(error);
-        }
+        balloonAttemptGate.FailCurrent(error);
     }
 
-    private void DismissPendingBalloon(PendingBalloon pending)
+    private void DismissPendingBalloon(TrayBalloonAttemptGate.Attempt attempt)
     {
-        lock (balloonStateGate)
+        if (!balloonAttemptGate.IsCurrent(attempt))
         {
-            if (!ReferenceEquals(pendingBalloon, pending))
-            {
-                return;
-            }
+            return;
         }
 
         if (!added)
