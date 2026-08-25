@@ -35,7 +35,7 @@ Android 与 Windows 客户端都从固定地址
 
 两个 workflow 都会 fetch `origin/main`，并拒绝不属于 `main` 历史的 tagged commit。Tag 版本必须
 与对应项目版本完全一致。平台更新器只能识别自身平台的 tag 前缀，不能依赖 GitHub “latest release”。
-Windows 与 Android 正式 Release 当前只支持严格的 `MAJOR.MINOR.PATCH` 版本，例如 `0.8.0`；
+Windows 与 Android 正式 Release 当前只支持严格的 `MAJOR.MINOR.PATCH` 版本，例如 `0.10.0`；
 `preview`、`alpha`、`beta` 和 `rc` 后缀不属于当前发布合同。
 
 ## 日常开发边界

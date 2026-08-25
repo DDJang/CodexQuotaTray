@@ -5,7 +5,8 @@
 CodexQuotaTray 有两个独立、只读的客户端：
 
 - `windows/`：Windows 10/11 的 C# + WinUI 3 正式客户端；
-- `android/`：个人使用的 Kotlin + Jetpack Compose APK，额度主路径为 OAuth + Direct HTTPS。
+- `android/`：个人使用的 Kotlin + Jetpack Compose APK；额度与 Token 分别在 OpenAI（OAuth + Direct
+  HTTPS）和已配对 Windows LAN 之间按独立优先级选择。
 
 除非任务明确要求跨平台修改，Android 工作不得改变 WinUI 行为，WinUI 工作不得改变 Android
 行为。旧 Rust/Win32 与 Android runtime/Bridge 实验只保留在 Git history，不参与当前仓库构建。
@@ -51,8 +52,8 @@ Android：
 
 - `auth`：OAuth 与 Keystore 持久化；
 - `protocol`：Direct HTTPS DTO 与解析；
-- `quota`：额度仓库、快照、提醒提交、WorkManager 与 Windows fallback；
-- `usage`：Windows 配对、LAN 同步、缓存和后台 Worker；
+- `quota`：额度仓库、快照、提醒提交、独立 OpenAI/Windows Router、WorkManager 与 LAN fallback；
+- `usage`：独立 Token Router、Windows 配对、LAN 同步、缓存和后台 Worker；
 - Activity / Compose 文件：产品投影，不解析原始网络响应；
 - `app/src/test`：匿名、离线回归测试。
 
@@ -64,8 +65,9 @@ UI 不得直接解析 raw JSON/RPC。前后台读取必须复用同一数据提�
 - 不把 `primary` / `secondary` 固定解释为五小时或七天；按时长、名称和标识识别窗口。
 - 刷新失败保留最后有效状态，并区分 refreshing、stale、offline、unauthenticated 与 unavailable。
 - WinUI reset-credit 数量只接受 `availableCount`。
-- Android 有 OAuth 时 Direct HTTPS 永远优先，只有网络失败才允许 Windows LAN fallback；无 OAuth 但有
-  Windows pairing 时可以直接读取 Windows-only quota。
+- Android 的额度与 Token 来源优先级彼此独立；默认额度 OpenAI 优先、Token Windows 优先。各自 Router
+  按设置顺序尝试 OpenAI 与 Windows，首选来源失败或不可用时尝试另一来源；缺少 OAuth 或 Windows
+  pairing 的 provider 视为 unavailable。
 - 重试、超时、进程恢复和局域网发现必须有界。
 
 ## Build identities
@@ -148,7 +150,8 @@ Release workflow、Release 和 `update-manifest` manifest 节点；只有 `All` 
 发布流程仍必须遵守：
 
 - 发布前先阅读 `docs/RELEASE_PROCESS.md`；
-- 选定平台的任一 PR 或 `main` CI 失败立即停止，选定平台的 `main` CI 全部通过前不得 push release tag；
+- 选定平台的 PR CI 失败、取消或错误时立即停止，不得 merge；merge 后确认目标 commit 已进入
+  `origin/main`，普通 `main` push 不作为额外发布门禁；
 - 不 force push、不移动或删除已有 tag、不跳过 CI、不修改测试来绕过失败；
 - 选定平台的 release notes 比较该平台上一 Release tag 到待发布 HEAD 的用户可感知变化，并在调用脚本前提交到当前 HEAD；调用脚本时工作区必须 clean；
 - Windows/Android 单平台只要求对应 Release workflow 和 manifest 节点成功；只有 `All` 才要求两套 Release workflow 和两个 manifest 节点都成功；

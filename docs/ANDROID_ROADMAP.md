@@ -27,6 +27,7 @@
 
 - JDK 17、Android SDK 35、仓库 Gradle Wrapper。
 - Kotlin/协议/持久化/UI 改动运行 `:app:testDebugUnitTest` 与 `:app:assembleDebug`。
-- PR 与 `main` 的 Android 相关改动由无 Release secret 的 Android CI 验证 Debug。
+- PR 中的 Android 相关改动由无 Release secret 的 Android CI 验证 Debug；merge 到 `main` 不再触发
+  重复的普通 Android CI。
 - ADB、OAuth、通知、网络切换和电池策略属于按任务授权的真机 smoke。
 - 正式签名和 Release 只按 [统一发布流程](RELEASE.md) 执行。

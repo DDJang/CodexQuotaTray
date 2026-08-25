@@ -151,9 +151,9 @@ Release workflow 仍共用 `update-manifest-publish` concurrency group，且 `ca
 ## DryRun
 
 ```powershell
-.\scripts\publish-release.ps1 -Platform Windows -Version 0.8.8 -DryRun
-.\scripts\publish-release.ps1 -Platform Android -Version 0.8.8 -DryRun
-.\scripts\publish-release.ps1 -Platform All -Version 0.8.8 -DryRun
+.\scripts\publish-release.ps1 -Platform Windows -Version 0.10.0 -DryRun
+.\scripts\publish-release.ps1 -Platform Android -Version 0.10.0 -DryRun
+.\scripts\publish-release.ps1 -Platform All -Version 0.10.0 -DryRun
 ```
 
 DryRun 会真实读取并报告当前 branch、HEAD、`main` 关系、工作区、`gh` 认证状态、远端仓库、选定平台的 ancestor tag、目标版本、notes 路径、目标 tag 冲突、预期版本和 Android `versionCode`（如适用）、将运行的本地验证、后续 PR CI、merge、tag、Release workflow 和 manifest 阶段的计划。DryRun 在查询或创建 PR 前退出，不会报告具体 PR 的复用或创建结果。
