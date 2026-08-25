@@ -963,7 +963,8 @@ public sealed class QuotaRuntimeService :
                 window.PercentageReliable,
                 window.WindowDurationMinutes,
                 window.ResetAtUtc,
-                window.LegacyAlertKey))
+                window.LegacyAlertKey,
+                window.SemanticIdentity))
             .ToArray();
         var resetCreditInputs = snapshot.ResetCredits.AvailableCount == 0
             ? null
@@ -1229,7 +1230,8 @@ public sealed class QuotaRuntimeService :
             window.PercentageReliable,
             window.WindowDurationMinutes,
             window.ResetAtUtc,
-            window.BucketId)).ToArray();
+            window.BucketId,
+            QuotaBucketPolicy.CreateSemanticIdentity(window.BucketId, window.WindowDurationMinutes))).ToArray();
         latestNormalized = new NormalizedQuotaSnapshot(
             windows,
             cache.ResetCreditAvailableCount is null
@@ -1351,7 +1353,9 @@ public sealed class QuotaRuntimeService :
             && entry.Value.HandledThresholds.SequenceEqual(other.HandledThresholds)
             && entry.Value.LastResetAlertCycleUtc == other.LastResetAlertCycleUtc
             && entry.Value.ResetAlertCycleConsumed == other.ResetAlertCycleConsumed
-            && entry.Value.ResetAlertAwaitingCycleMetadata == other.ResetAlertAwaitingCycleMetadata))
+            && entry.Value.ResetAlertAwaitingCycleMetadata == other.ResetAlertAwaitingCycleMetadata
+            && entry.Value.SemanticIdentity == other.SemanticIdentity
+            && entry.Value.LastResetAlertCycleFingerprint == other.LastResetAlertCycleFingerprint))
         {
             return false;
         }

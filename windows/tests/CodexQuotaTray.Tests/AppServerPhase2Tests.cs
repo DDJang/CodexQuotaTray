@@ -758,6 +758,52 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_ReconnectLimitIdAppearingUsesSemanticBaselineAndEmitsReset()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            CancellationToken.None);
+        var factory = new IdentityReconnectFactory();
+        var persistence = new PreviewPersistence(store, paths);
+        var sink = new RecordingNotificationSink();
+        await using var service = new QuotaRuntimeService(
+            factory,
+            new SettingsService(store, paths),
+            persistence,
+            sink);
+
+        _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        await factory.First.NotificationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        var beforeDisconnect = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(beforeDisconnect);
+        var oldWindow = beforeDisconnect!.Windows.Values.Single();
+        Assert.AreEqual(8, oldWindow.LastReliableRemaining);
+
+        factory.First.TriggerDisconnect();
+        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        await factory.Second.NotificationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.HasCount(1, sink.Alerts);
+        Assert.AreEqual(QuotaAlertKind.Reset, sink.Alerts[0].Kind);
+        var afterReconnect = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterReconnect);
+        var newWindow = afterReconnect!.Windows.Values.Single();
+        Assert.AreNotEqual(oldWindow.PseudonymousKey, newWindow.PseudonymousKey);
+        Assert.AreEqual(100, newWindow.LastReliableRemaining);
+        Assert.AreEqual(IdentityReconnectClient.NewResetAtUtc, newWindow.ResetAtUtc);
+
+        _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        Assert.HasCount(1, sink.Alerts);
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_OverflowRecoveryTransportClosedDoesNotSelfAwaitAndNextRefreshRecreatesClient()
     {
         using var directory = new TemporaryDirectory();
@@ -1670,6 +1716,80 @@ public sealed class AppServerPhase2Tests
                     },
                 },
                 false);
+    }
+
+    private sealed class IdentityReconnectFactory : ICodexAppServerClientFactory
+    {
+        public IdentityReconnectClient First { get; } = new(first: true);
+        public IdentityReconnectClient Second { get; } = new(first: false);
+        private int createCount;
+
+        public ICodexAppServerClient Create() =>
+            Interlocked.Increment(ref createCount) == 1 ? First : Second;
+    }
+
+    private sealed class IdentityReconnectClient(bool first) : ICodexAppServerClient
+    {
+        private const long OldResetAt = 1_000_000;
+        private const long NewResetAt = OldResetAt + 18_000;
+        private readonly TaskCompletionSource disconnect = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int disposed;
+
+        public static DateTimeOffset NewResetAtUtc => DateTimeOffset.FromUnixTimeSeconds(NewResetAt);
+
+        public TaskCompletionSource NotificationStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
+
+        public Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new CodexSessionInfo("9.99.0", "9.99.0"));
+
+        public Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(
+                new RateLimitsReadResult(
+                    new RateLimitsResponse
+                    {
+                        RateLimits = new RateLimitSnapshot
+                        {
+                            LimitId = first ? null : "codex",
+                            Primary = new RateLimitWindow
+                            {
+                                UsedPercent = first ? 92 : 0,
+                                WindowDurationMinutes = 300,
+                                ResetsAt = first ? OldResetAt : NewResetAt,
+                            },
+                        },
+                    },
+                    false));
+
+        public async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            NotificationStarted.TrySetResult();
+            if (first)
+            {
+                await disconnect.Task.WaitAsync(cancellationToken);
+                throw new ChannelClosedException(new CodexClientException(
+                    CodexClientErrorKind.TransportClosed,
+                    "synthetic identity reconnect disconnect"));
+            }
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            yield break;
+        }
+
+        public void TriggerDisconnect() => disconnect.TrySetResult();
+
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                disconnect.TrySetResult();
+                Disposed.TrySetResult();
+            }
+
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class OverflowRecoveryFactory : ICodexAppServerClientFactory
