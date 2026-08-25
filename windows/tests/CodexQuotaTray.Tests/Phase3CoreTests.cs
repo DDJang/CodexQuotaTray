@@ -439,6 +439,240 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public void SemanticIdentity_LegacyWithoutLimitIdThenLimitIdAppearsStillAlertsReset()
+    {
+        var before = LegacySnapshot(null, Window(92, 300, 1_900_000_000));
+        var after = LegacySnapshot("codex", Window(0, 300, 1_900_018_000));
+        var beforeWindow = QuotaNormalizer.Normalize(new RateLimitsReadResult(before, false)).Windows.Single();
+        var afterWindow = QuotaNormalizer.Normalize(new RateLimitsReadResult(after, false)).Windows.Single();
+
+        Assert.AreNotEqual(beforeWindow.AlertKey, afterWindow.AlertKey);
+        Assert.AreEqual(beforeWindow.SemanticIdentity, afterWindow.SemanticIdentity);
+        var reduction = ReduceIdentityTransition(before, after);
+
+        Assert.AreEqual(QuotaAlertKind.Reset, reduction.Alert!.Kind);
+        Assert.HasCount(1, reduction.Alert.ResetWindows);
+    }
+
+    [TestMethod]
+    public void SemanticIdentity_LimitIdRenameStillAlertsReset()
+    {
+        var before = LegacySnapshot("codex-old", Window(92, 300, 1_900_000_000));
+        var after = LegacySnapshot("codex-renamed", Window(0, 300, 1_900_018_000));
+
+        var reduction = ReduceIdentityTransition(before, after);
+
+        Assert.AreEqual(QuotaAlertKind.Reset, reduction.Alert!.Kind);
+        Assert.HasCount(1, reduction.Alert.ResetWindows);
+    }
+
+    [TestMethod]
+    public void SemanticIdentity_LegacyAndBucketCollectionShapeChangeStillAlertsReset()
+    {
+        var before = LegacySnapshot("legacy-limit", Window(92, 300, 1_900_000_000));
+        var after = BucketSnapshot("codex", null, Window(0, 300, 1_900_018_000));
+
+        var reduction = ReduceIdentityTransition(before, after);
+
+        Assert.AreEqual(QuotaAlertKind.Reset, reduction.Alert!.Kind);
+    }
+
+    [TestMethod]
+    public void SemanticIdentity_BucketBackedToLegacyFallbackStillAlertsReset()
+    {
+        var before = BucketSnapshot("codex", null, Window(92, 300, 1_900_000_000));
+        var after = LegacySnapshot(null, Window(0, 300, 1_900_018_000));
+
+        Assert.AreEqual(QuotaAlertKind.Reset, ReduceIdentityTransition(before, after).Alert!.Kind);
+    }
+
+    [TestMethod]
+    public void SemanticIdentity_FallbackOrdinalChangeStillAlertsReset()
+    {
+        var oldResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_000_000);
+        var newResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_018_000);
+        var first = QuotaAlertReducer.Reduce(
+            null,
+            [new AlertInput("fallback:primary:300:0", "5 小时额度", 8, true, 300, oldResetAt)],
+            new NotificationSettings());
+        var next = QuotaAlertReducer.Reduce(
+            first.State,
+            [new AlertInput("fallback:primary:300:4", "5 小时额度", 100, true, 300, newResetAt)],
+            new NotificationSettings());
+
+        Assert.AreEqual(QuotaAlertKind.Reset, next.Alert!.Kind);
+    }
+
+    [TestMethod]
+    public void SemanticIdentity_PrimaryToSecondaryStillAlertsWhenDurationMatches()
+    {
+        var before = LegacySnapshot(
+            "primary-limit",
+            primary: Window(92, 10_080, 1_900_000_000));
+        var after = LegacySnapshot(
+            "secondary-limit",
+            secondary: Window(0, 10_080, 1_900_604_800));
+
+        var beforeWindow = QuotaNormalizer.Normalize(new RateLimitsReadResult(before, false)).Windows.Single();
+        var afterWindow = QuotaNormalizer.Normalize(new RateLimitsReadResult(after, false)).Windows.Single();
+        Assert.AreNotEqual(beforeWindow.AlertKey, afterWindow.AlertKey);
+        Assert.AreEqual(beforeWindow.SemanticIdentity, afterWindow.SemanticIdentity);
+        Assert.AreEqual(QuotaAlertKind.Reset, ReduceIdentityTransition(before, after).Alert!.Kind);
+    }
+
+    [TestMethod]
+    public void AmbiguousSemanticIdentity_UsesResetEvidenceWithoutMigratingThresholdHistory()
+    {
+        var oldResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_000_000);
+        var newResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_018_000);
+        var previous = new AlertStateDocument(
+            1,
+            [50, 20, 10],
+            new Dictionary<string, AlertWindowState>
+            {
+                ["old-a"] = new("old-a", 300, oldResetAt, 10, [50, 20, 10]),
+                ["old-b"] = new("old-b", 300, oldResetAt, 70, [50, 20]),
+            },
+            true);
+        var current = new AlertInput(
+            "new-identity",
+            "5 小时额度",
+            100,
+            true,
+            300,
+            newResetAt);
+
+        var reduction = QuotaAlertReducer.Reduce(
+            previous,
+            [current],
+            new NotificationSettings(true, true, true));
+
+        Assert.AreEqual(QuotaAlertKind.Reset, reduction.Alert!.Kind);
+        Assert.HasCount(3, reduction.State.Windows);
+        Assert.IsEmpty(reduction.State.Windows["new-identity"].HandledThresholds);
+        CollectionAssert.AreEquivalent(
+            new[] { 50, 20, 10 },
+            reduction.State.Windows["old-a"].HandledThresholds.ToArray());
+        CollectionAssert.AreEquivalent(
+            new[] { 50, 20 },
+            reduction.State.Windows["old-b"].HandledThresholds.ToArray());
+    }
+
+    [TestMethod]
+    public void IdentityChangeWithStrongRecoveryAndResetAtAdvanceEmitsReset()
+    {
+        var oldResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_000_000);
+        var newResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_018_000);
+        var first = QuotaAlertReducer.Reduce(
+            null,
+            [new AlertInput("old-identity", "5 小时额度", 10, true, 300, oldResetAt)],
+            new NotificationSettings());
+        var next = QuotaAlertReducer.Reduce(
+            first.State,
+            [new AlertInput("completely-new-identity", "5 小时额度", 100, true, 300, newResetAt)],
+            new NotificationSettings());
+
+        Assert.AreEqual(QuotaAlertKind.Reset, next.Alert!.Kind);
+    }
+
+    [TestMethod]
+    public void IdentityChangeWithoutResetEvidenceDoesNotEmitReset()
+    {
+        var resetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_000_000);
+        var first = QuotaAlertReducer.Reduce(
+            null,
+            [new AlertInput("old-identity", "5 小时额度", 40, true, 300, resetAt)],
+            new NotificationSettings());
+        var next = QuotaAlertReducer.Reduce(
+            first.State,
+            [new AlertInput("new-identity", "5 小时额度", 45, true, 300, resetAt)],
+            new NotificationSettings());
+
+        Assert.IsNull(next.Alert);
+    }
+
+    [TestMethod]
+    public void IdentityChangesWithinOneResetCycleEmitAtMostOneReset()
+    {
+        var oldResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_000_000);
+        var resetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_018_000);
+        var settings = new NotificationSettings();
+        var baseline = QuotaAlertReducer.Reduce(
+            null,
+            [new AlertInput("old-identity", "5 小时额度", 10, true, 300, oldResetAt)],
+            settings);
+        var firstReset = QuotaAlertReducer.Reduce(
+            baseline.State,
+            [new AlertInput("new-identity", "5 小时额度", 100, true, 300, resetAt)],
+            settings);
+        var usedAgain = QuotaAlertReducer.Reduce(
+            firstReset.State,
+            [new AlertInput("new-identity", "5 小时额度", 10, true, 300, resetAt)],
+            settings);
+        var secondIdentity = QuotaAlertReducer.Reduce(
+            usedAgain.State,
+            [new AlertInput("third-identity", "5 小时额度", 100, true, 300, resetAt)],
+            settings);
+        var usedAgainAfterJitter = QuotaAlertReducer.Reduce(
+            secondIdentity.State,
+            [new AlertInput("third-identity", "5 小时额度", 10, true, 300, resetAt)],
+            settings);
+        var thirdIdentity = QuotaAlertReducer.Reduce(
+            usedAgainAfterJitter.State,
+            [new AlertInput("fourth-identity", "5 小时额度", 100, true, 300, resetAt)],
+            settings);
+
+        Assert.AreEqual(QuotaAlertKind.Reset, firstReset.Alert!.Kind);
+        Assert.IsNull(secondIdentity.Alert);
+        Assert.IsNull(thirdIdentity.Alert);
+        Assert.IsTrue(thirdIdentity.State.Windows["fourth-identity"].ResetAlertCycleConsumed);
+    }
+
+    [TestMethod]
+    public async Task OldAlertStateLoadsWithoutStartupAlertAndAlertsNextRealReset()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var persistence = new PreviewPersistence(new JsonFileStore(), paths);
+        var oldResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_000_000);
+        var newResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_018_000);
+        Directory.CreateDirectory(directory.Path);
+        await File.WriteAllTextAsync(
+            paths.AlertState,
+            $$"""
+            {
+              "schemaVersion": 1,
+              "baselineThresholds": [50, 20, 10],
+              "resetAlertBaselineEstablished": true,
+              "windows": {
+                "legacy": {
+                  "pseudonymousKey": "legacy",
+                  "windowDurationMinutes": 300,
+                  "resetAtUtc": "{{oldResetAt:O}}",
+                  "lastReliableRemaining": 40,
+                  "handledThresholds": [20, 10]
+                }
+              }
+            }
+            """);
+
+        var restored = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(restored);
+        var startup = QuotaAlertReducer.Reduce(
+            restored,
+            [new AlertInput("legacy", "5 小时额度", 40, true, 300, oldResetAt)],
+            new NotificationSettings());
+        var nextReset = QuotaAlertReducer.Reduce(
+            startup.State,
+            [new AlertInput("new-limit-id", "5 小时额度", 100, true, 300, newResetAt)],
+            new NotificationSettings());
+
+        Assert.IsNull(startup.Alert);
+        Assert.AreEqual(QuotaAlertKind.Reset, nextReset.Alert!.Kind);
+        Assert.IsNotNull(nextReset.State.Windows["new-limit-id"].SemanticIdentity);
+    }
+
+    [TestMethod]
     public void FirstAlertSnapshotEstablishesBaselineWithoutNotification()
     {
         var input = Input(19);
@@ -1056,6 +1290,73 @@ public sealed class Phase3CoreTests
         true,
         10_080,
         null);
+
+    private static AlertReduction ReduceIdentityTransition(
+        RateLimitsResponse before,
+        RateLimitsResponse after)
+    {
+        var initialSnapshot = QuotaNormalizer.Normalize(new RateLimitsReadResult(before, false));
+        var nextSnapshot = QuotaNormalizer.Normalize(new RateLimitsReadResult(after, false));
+        var initial = QuotaAlertReducer.Reduce(
+            null,
+            ToAlertInputs(initialSnapshot.Windows),
+            new NotificationSettings());
+        return QuotaAlertReducer.Reduce(
+            initial.State,
+            ToAlertInputs(nextSnapshot.Windows),
+            new NotificationSettings());
+    }
+
+    private static AlertInput[] ToAlertInputs(IReadOnlyList<NormalizedQuotaWindow> windows) => windows
+        .Select(window => new AlertInput(
+            window.AlertKey,
+            window.SourceSlot,
+            (int)window.RemainingPercent,
+            window.PercentageReliable,
+            window.WindowDurationMinutes,
+            window.ResetAtUtc,
+            window.LegacyAlertKey,
+            window.SemanticIdentity))
+        .ToArray();
+
+    private static RateLimitsResponse LegacySnapshot(
+        string? limitId,
+        RateLimitWindow? primary = null,
+        RateLimitWindow? secondary = null) =>
+        new()
+        {
+            RateLimits = new RateLimitSnapshot
+            {
+                LimitId = limitId,
+                Primary = primary,
+                Secondary = secondary,
+            },
+        };
+
+    private static RateLimitsResponse BucketSnapshot(
+        string bucket,
+        string? limitId,
+        RateLimitWindow primary,
+        RateLimitWindow? secondary = null) =>
+        new()
+        {
+            RateLimitsByLimitId = new Dictionary<string, RateLimitSnapshot>(StringComparer.Ordinal)
+            {
+                [bucket] = new RateLimitSnapshot
+                {
+                    LimitId = limitId,
+                    Primary = primary,
+                    Secondary = secondary,
+                },
+            },
+        };
+
+    private static RateLimitWindow Window(long usedPercent, long durationMinutes, long resetsAt) => new()
+    {
+        UsedPercent = usedPercent,
+        WindowDurationMinutes = durationMinutes,
+        ResetsAt = resetsAt,
+    };
 
     private static RateLimitWindow CompleteWindow(long usedPercent, long durationMinutes, long resetsAt) => new()
     {

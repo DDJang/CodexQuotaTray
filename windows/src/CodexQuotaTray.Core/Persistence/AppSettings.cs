@@ -90,7 +90,9 @@ public sealed record AlertWindowState(
     IReadOnlyList<int> HandledThresholds,
     DateTimeOffset? LastResetAlertCycleUtc = null,
     bool? ResetAlertCycleConsumed = null,
-    bool ResetAlertAwaitingCycleMetadata = false);
+    bool ResetAlertAwaitingCycleMetadata = false,
+    string? SemanticIdentity = null,
+    string? LastResetAlertCycleFingerprint = null);
 
 public sealed record ResetCreditAlertState(
     DateTimeOffset? LastSeenUtc = null,

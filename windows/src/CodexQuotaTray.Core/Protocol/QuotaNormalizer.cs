@@ -17,7 +17,8 @@ public sealed record NormalizedQuotaWindow(
     bool PercentageReliable,
     long? WindowDurationMinutes,
     DateTimeOffset? ResetAtUtc,
-    string? BucketId = null);
+    string? BucketId = null,
+    string? SemanticIdentity = null);
 
 public sealed record NormalizedQuotaSnapshot(
     IReadOnlyList<NormalizedQuotaWindow> Windows,
@@ -144,7 +145,10 @@ public static class QuotaNormalizer
             reliable,
             window.WindowDurationMinutes,
             ParseUnixSeconds(window.ResetsAt),
-            bucket ?? QuotaBucketPolicy.CanonicalBucketId));
+            bucket ?? QuotaBucketPolicy.CanonicalBucketId,
+            QuotaBucketPolicy.CreateSemanticIdentity(
+                bucket ?? QuotaBucketPolicy.CanonicalBucketId,
+                window.WindowDurationMinutes)));
     }
 
     private static (ResetCreditViewState State, long? AvailableCount, int? DetailCount) NormalizeResetCredits(
