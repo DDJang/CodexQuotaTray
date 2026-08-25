@@ -13,17 +13,8 @@ CodexQuotaTray 是一组轻量、只读的 Codex 额度客户端，不使用 Ele
 
 > **只读边界：** 两端只读取额度、Token 使用量和重置时间，不消费 reset credit，也不执行账户写操作。
 
-Windows 的本机会话来源只读取 Codex `token_count` 事件所需的数字字段和时间戳，并保存按日聚合结果。
-Codex CLI 和 OAuth Token 来源是独立的账户使用量投影，不会与本机会话账本合并。额度和 Token 来源
-选择彼此独立，切换来源时使用对应来源的缓存和投影。
-
-Android 的额度与 Token 分别保存来源优先级。各自 Router 按设置顺序尝试来源；首选来源失败或暂不可用
-时，会继续尝试另一来源。OpenAI 来源需要 OAuth，Windows 来源需要用户完成配对并且私人 LAN 可用。
-两个领域使用相互独立的刷新、提交和后台 Worker 路径；某个领域两种来源都不存在时，该领域没有可用
-的数据来源。
-
-用户在 Windows 上明确启用手机同步后，Android 可以通过私人 LAN 读取 Windows 的聚合 Token 使用量和
-最近一次成功的额度快照。不会共享对话正文、凭据或原始账户响应。
+启用 Windows 手机同步后，Android 可以通过私人 LAN 读取 Windows 的额度和聚合 Token 使用量。
+不会共享对话正文、凭据或原始账户响应。
 
 ## 下载
 
@@ -34,10 +25,7 @@ Windows 和 Android 正式版本均从
 - Windows 免安装包：`CodexQuotaTray-<version>-win-x64.zip`
 - Android APK：`CodexQuotaTray-Android-v<version>.apk`
 
-使用对应 Release 中的平台 `SHA256SUMS.txt` 校验下载文件。版本、自动更新以及产物和发布规则见[发布文档](docs/RELEASE.md)。
-
-正式发布使用 `main` 上的平台 tag：PR CI 是合并前验证，平台 Release workflow 负责最终测试、Release
-构建、签名、产物、SHA256、release notes 和 manifest 验证。
+使用对应 Release 中的平台 `SHA256SUMS.txt` 校验下载文件。
 
 ## 代码签名政策
 

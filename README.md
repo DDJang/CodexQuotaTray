@@ -15,20 +15,8 @@ WebView, web scraping, or account write APIs.
 > **Read-only boundary:** Both clients only read quota, Token usage, and reset-time data. They do not
 > consume reset credits or perform account writes.
 
-On Windows, the local session source reads only the numeric fields and timestamps needed from Codex
-`token_count` events and stores a daily aggregate. The Codex CLI and OAuth Token sources are separate
-account-usage projections; they are not merged with the local session ledger. Quota and Token source
-selection are independent, and switching a source switches to that source's cache and projection.
-
-On Android, quota and Token have separate priority settings. Each Router tries sources in the configured
-order and tries the other source when the preferred source fails or is unavailable. The OpenAI provider
-requires OAuth; the Windows provider requires an explicit pairing and an available private LAN. The two
-domains keep separate refresh, commit, and background-worker paths. Without either source for a domain,
-that domain has no available data source.
-
-When the user explicitly enables phone synchronization on Windows, Android can read the Windows aggregate
-Token usage and the last successful quota snapshot over the private LAN. Conversation content, credentials,
-and raw account responses are not shared.
+When phone synchronization is enabled on Windows, Android can read Windows quota and aggregated Token usage
+over the private LAN. Conversation content, credentials, and raw account responses are not shared.
 
 ## Downloads
 
@@ -40,11 +28,6 @@ Official Windows and Android packages are available from
 - Android APK: `CodexQuotaTray-Android-v<version>.apk`
 
 Use the platform-specific `SHA256SUMS.txt` from the corresponding release to verify downloaded files.
-Versioning, automatic updates, and artifact/release rules are defined in the [release documentation](docs/RELEASE.md).
-
-Formal releases are made from a platform tag on `main`: PR CI is the pre-merge check, and the platform
-Release workflow performs the final tests, Release build, signing, artifact, SHA256, release-note, and
-manifest validation.
 
 ## Code signing policy
 
