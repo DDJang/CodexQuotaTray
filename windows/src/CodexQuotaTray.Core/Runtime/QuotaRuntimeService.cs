@@ -57,6 +57,13 @@ public sealed class QuotaRuntimeService :
             SingleWriter = false,
             AllowSynchronousContinuations = false,
         });
+    private readonly Channel<AlertEvaluationWork> alertEvaluationQueue = Channel.CreateUnbounded<AlertEvaluationWork>(
+        new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false,
+            AllowSynchronousContinuations = false,
+        });
     private readonly List<Task> retiredNotificationTasks = [];
     private readonly object pendingRefreshGate = new();
     private ICodexAppServerClient? client;
@@ -70,6 +77,7 @@ public sealed class QuotaRuntimeService :
     private Task? notificationTask;
     private Task? schedulerTask;
     private Task? snapshotApplyTask;
+    private Task? alertEvaluationTask;
     private Task? pendingRefreshTask;
     private AppUiState current = ConnectingState();
     private CodexDiagnosticSnapshot lastDiagnostics = new();
@@ -89,6 +97,12 @@ public sealed class QuotaRuntimeService :
         bool HasIngressSequence,
         RateLimitsReadResult? Snapshot,
         RateLimitsUpdatedNotification? Notification,
+        CancellationToken CancellationToken,
+        TaskCompletionSource<bool> Completion);
+
+    private sealed record AlertEvaluationWork(
+        NormalizedQuotaSnapshot? Snapshot,
+        long Generation,
         CancellationToken CancellationToken,
         TaskCompletionSource<bool> Completion);
 
@@ -359,10 +373,10 @@ public sealed class QuotaRuntimeService :
                 coordinator.LastSuccessUtc ?? timeProvider.GetUtcNow(),
                 Settings.ShowRemainingPercent,
                 Settings.Use24HourTime));
-            await EvaluateAlertsAsync(
+            QueueAlertEvaluation(
                 latestNormalized,
                 Volatile.Read(ref clientGeneration),
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken);
         }
         else
         {
@@ -407,6 +421,7 @@ public sealed class QuotaRuntimeService :
             coordinator.SetMode(Settings.RefreshMode);
             alertState = await persistence.LoadAlertStateAsync(cancellationToken).ConfigureAwait(false);
             await RestoreCacheAsync(cancellationToken).ConfigureAwait(false);
+            alertEvaluationTask = AlertEvaluationLoopAsync(lifetime.Token);
             snapshotApplyTask = SnapshotApplyLoopAsync(lifetime.Token);
             schedulerTask = SchedulerLoopAsync(lifetime.Token);
             initialized = true;
@@ -650,17 +665,10 @@ public sealed class QuotaRuntimeService :
             return false;
         }
 
-        try
-        {
-            return await EvaluateAlertsAsync(normalized, generation, applyCancellation).ConfigureAwait(false);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidDataException)
-        {
-            // State is intentionally saved before notification. If persistence fails,
-            // suppress the notification rather than risk a duplicate on the next run.
-            System.Diagnostics.Debug.WriteLine($"Alert state write failed: {error.GetType().Name}");
-            return false;
-        }
+        // Alert delivery may wait for a platform acknowledgement. Queue it after
+        // the UI/cache commit so that snapshot apply never holds the generation
+        // gate while waiting for notification delivery.
+        return QueueAlertEvaluation(normalized, generation, cancellationToken);
     }
 
     private Task<bool> EnqueueSnapshotAsync(
@@ -826,6 +834,95 @@ public sealed class QuotaRuntimeService :
         }
     }
 
+    private bool QueueAlertEvaluation(
+        NormalizedQuotaSnapshot snapshot,
+        long generation,
+        CancellationToken cancellationToken)
+    {
+        if (disposed)
+        {
+            return false;
+        }
+
+        return alertEvaluationQueue.Writer.TryWrite(
+            new AlertEvaluationWork(
+                snapshot,
+                generation,
+                cancellationToken,
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously)));
+    }
+
+    /// <summary>
+    /// Test-only barrier. It completes after all alert evaluations queued before
+    /// the barrier have finished, including any notification acknowledgement wait.
+    /// </summary>
+    internal async Task WaitForAlertEvaluationsAsync(CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(disposed, this);
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!alertEvaluationQueue.Writer.TryWrite(
+                new AlertEvaluationWork(null, 0, CancellationToken.None, completion)))
+        {
+            throw new ObjectDisposedException(nameof(QuotaRuntimeService));
+        }
+
+        await completion.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task AlertEvaluationLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var work in alertEvaluationQueue.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+            {
+                if (work.Snapshot is null)
+                {
+                    work.Completion.TrySetResult(true);
+                    continue;
+                }
+
+                if (work.CancellationToken.IsCancellationRequested)
+                {
+                    work.Completion.TrySetResult(false);
+                    continue;
+                }
+
+                try
+                {
+                    using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                        work.CancellationToken,
+                        cancellationToken);
+                    var evaluated = await EvaluateAlertsAsync(
+                        work.Snapshot,
+                        work.Generation,
+                        linked.Token).ConfigureAwait(false);
+                    work.Completion.TrySetResult(evaluated);
+                }
+                catch (OperationCanceledException) when (
+                    work.CancellationToken.IsCancellationRequested
+                    || cancellationToken.IsCancellationRequested)
+                {
+                    work.Completion.TrySetResult(false);
+                }
+                catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Alert evaluation failed: {error.GetType().Name}");
+                    work.Completion.TrySetResult(false);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            while (alertEvaluationQueue.Reader.TryRead(out var work))
+            {
+                work.Completion.TrySetResult(false);
+            }
+        }
+    }
+
     private bool IsOlderSnapshot(SnapshotWork work) =>
         work.ClientGeneration < Volatile.Read(ref clientGeneration)
         || work.ClientGeneration < lastAppliedClientGeneration
@@ -882,7 +979,6 @@ public sealed class QuotaRuntimeService :
                 credit.Title,
                 credit.ResetType))
             .ToArray();
-        var previousAlertState = alertState;
         var reduction = QuotaAlertReducer.Reduce(
             alertState,
             inputs,
@@ -894,13 +990,45 @@ public sealed class QuotaRuntimeService :
             return false;
         }
 
+        if (reduction.Alert is not null)
+        {
+            try
+            {
+                // The state is intentionally committed only after the platform
+                // sink confirms delivery. A normal return is the sink's explicit
+                // acknowledgement contract; a timeout/failure leaves the old
+                // baseline untouched so a later evaluation can retry.
+                await notificationSink.ShowAsync(reduction.Alert, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+            {
+                // No alert-state write has happened yet, so there is no
+                // document rollback that could overwrite another snapshot's
+                // progress. The retained baseline makes this alert retryable.
+                System.Diagnostics.Debug.WriteLine($"Quota notification delivery failed: {error.GetType().Name}");
+                return false;
+            }
+        }
+
         if (alertState is null || !AlertStateContentEquals(alertState, reduction.State))
         {
+            // A successful alert may finish after a reconnect increments the
+            // client generation. Alert evaluation is serialized by its own
+            // queue, so committing the acknowledged event is safe and avoids a
+            // duplicate when the same snapshot is evaluated again. The commit
+            // gate still serializes the short file replacement with detach.
+            Func<bool> canCommit = reduction.Alert is not null
+                ? static () => true
+                : () => IsCurrentGeneration(generation);
             var committed = await persistence.SaveAlertStateWithCommitAsync(
                 reduction.State,
                 cancellationToken,
                 generationCommitGate,
-                () => IsCurrentGeneration(generation),
+                () => !disposed && canCommit(),
                 () => alertState = reduction.State).ConfigureAwait(false);
             if (!committed)
             {
@@ -908,78 +1036,7 @@ public sealed class QuotaRuntimeService :
             }
         }
 
-        await generationCommitGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (!IsCurrentGeneration(generation))
-            {
-                return false;
-            }
-
-            alertState = reduction.State;
-            if (reduction.Alert is not null)
-            {
-                try
-                {
-                    await notificationSink.ShowAsync(reduction.Alert, cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
-                {
-                    // A failed delivery must not consume a reset/threshold
-                    // event. Restore the committed state so the next
-                    // successful delivery can retry it.
-                    if (previousAlertState is not null)
-                    {
-                        alertState = previousAlertState;
-                        try
-                        {
-                            await persistence.SaveAlertStateAsync(
-                                previousAlertState,
-                                cancellationToken).ConfigureAwait(false);
-                        }
-                        catch (Exception restoreError) when (
-                            restoreError is not OutOfMemoryException
-                            and not StackOverflowException)
-                        {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"Quota notification state restore failed: {restoreError.GetType().Name}");
-                        }
-                    }
-                    else
-                    {
-                        // The first-ever alert has no previous document to
-                        // restore. Persist an empty baseline so a restart
-                        // cannot mark the undelivered event as handled.
-                        alertState = null;
-                        try
-                        {
-                            await persistence.SaveAlertStateAsync(
-                                new AlertStateDocument(1, [], []),
-                                cancellationToken).ConfigureAwait(false);
-                        }
-                        catch (Exception restoreError) when (
-                            restoreError is not OutOfMemoryException
-                            and not StackOverflowException)
-                        {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"Quota notification empty-state restore failed: {restoreError.GetType().Name}");
-                        }
-                    }
-
-                    System.Diagnostics.Debug.WriteLine($"Quota notification failed before delivery commit: {error.GetType().Name}");
-                }
-            }
-
-            return true;
-        }
-        finally
-        {
-            generationCommitGate.Release();
-        }
+        return true;
     }
 
     private static string AlertWindowName(NormalizedQuotaWindow window)
@@ -1077,10 +1134,10 @@ public sealed class QuotaRuntimeService :
 
             if (latestNormalized is not null)
             {
-                await EvaluateAlertsAsync(
+                QueueAlertEvaluation(
                     latestNormalized,
                     Volatile.Read(ref clientGeneration),
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken);
             }
 
             ApplyStaleState();
@@ -1513,6 +1570,7 @@ public sealed class QuotaRuntimeService :
         disposed = true;
         lifetime.Cancel();
         snapshotQueue.Writer.TryComplete();
+        alertEvaluationQueue.Writer.TryComplete();
         coordinator.Release();
         var detached = await DetachClientAsync(expected: null).ConfigureAwait(false);
         if (detached is not null)
@@ -1555,6 +1613,11 @@ public sealed class QuotaRuntimeService :
         if (snapshotApplyTask is not null)
         {
             tasks.Add(snapshotApplyTask);
+        }
+
+        if (alertEvaluationTask is not null)
+        {
+            tasks.Add(alertEvaluationTask);
         }
 
         foreach (var task in tasks)

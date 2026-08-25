@@ -10,7 +10,7 @@ public sealed class AppIntegrationSourceTests
             Path.Combine(AppContext.BaseDirectory, "Services", "TrayNotificationSink.cs"));
 
         StringAssert.Contains(source, "?? throw new InvalidOperationException");
-        StringAssert.Contains(source, "tray.ShowQuotaAlert(alert)");
+        StringAssert.Contains(source, "tray.ShowQuotaAlertAsync(alert, cancellationToken)");
         Assert.IsFalse(source.Contains("Tray?.ShowQuotaAlert", StringComparison.Ordinal));
     }
 
@@ -22,6 +22,25 @@ public sealed class AppIntegrationSourceTests
 
         StringAssert.Contains(source, "if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))");
         StringAssert.Contains(source, "throw LastWin32(\"show quota notification\")");
+        StringAssert.Contains(source, "await pending.Completion.Task.WaitAsync");
+        StringAssert.Contains(source, "BalloonShowAcknowledgementTimeout");
+        StringAssert.Contains(source, "NativeMethods.NifRealtime");
+    }
+
+    [TestMethod]
+    public void TrayBalloonLifecycleUsesShowAsTheOnlySuccessAcknowledgement()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "TrayIconService.cs"));
+        var nativeSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Interop", "NativeMethods.cs"));
+
+        StringAssert.Contains(nativeSource, "NinBalloonShow = 0x0402");
+        StringAssert.Contains(nativeSource, "NinBalloonHide = 0x0403");
+        StringAssert.Contains(nativeSource, "NinBalloonTimeout = 0x0404");
+        StringAssert.Contains(source, "trayEvent == NativeMethods.NinBalloonShow");
+        StringAssert.Contains(source, "NativeMethods.NinBalloonHide or NativeMethods.NinBalloonTimeout");
+        StringAssert.Contains(source, "FailPendingBalloon");
     }
 
     [TestMethod]
