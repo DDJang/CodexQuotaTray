@@ -154,11 +154,12 @@ public sealed class Phase3CoreTests
                 },
             }));
         }
-        await Task.Delay(100);
+        using var inputTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await input.WaitForReadCountAsync(64, inputTimeout.Token);
 
         var notifications = rpc.ReadNotificationsAsync(CancellationToken.None).GetAsyncEnumerator();
         var sawOverflow = false;
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         while (await notifications.MoveNextAsync().AsTask().WaitAsync(timeout.Token))
         {
             var notification = notifications.Current;

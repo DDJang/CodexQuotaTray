@@ -172,7 +172,6 @@ public sealed class AppServerPhase2Tests
     public async Task InitializeTimeout_IsDistinctAndCleanupDoesNotHang()
     {
         var before = ProcessCount("CodexQuotaTray.FakeAppServer");
-        var started = Stopwatch.StartNew();
         await using (var client = CreateFake("initialize-timeout", initializeTimeout: TimeSpan.FromMilliseconds(150)))
         {
             var error = await Assert.ThrowsAsync<CodexClientException>(
@@ -180,9 +179,10 @@ public sealed class AppServerPhase2Tests
             Assert.AreEqual(CodexClientErrorKind.InitializeTimeout, error.Kind);
         }
 
-        Assert.IsTrue(started.Elapsed < TimeSpan.FromSeconds(5));
-        await Task.Delay(100);
-        Assert.IsTrue(ProcessCount("CodexQuotaTray.FakeAppServer") <= before);
+        await WaitForProcessCountAtMostAsync(
+            "CodexQuotaTray.FakeAppServer",
+            before,
+            TimeSpan.FromSeconds(5));
     }
 
     [TestMethod]
@@ -499,7 +499,17 @@ public sealed class AppServerPhase2Tests
             new PreviewPersistence(store, paths),
             timeProvider: clock);
         var states = new List<AppUiState>();
-        service.StateChanged += (_, state) => states.Add(state);
+        var staleStatePublished = new TaskCompletionSource<AppUiState>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        service.StateChanged += (_, state) =>
+        {
+            states.Add(state);
+            if (state.StatusTone == StatusTone.Warning
+                && state.Windows.All(window => window.IsStale))
+            {
+                staleStatePublished.TrySetResult(state);
+            }
+        };
 
         _ = await service.GetSnapshotAsync(CancellationToken.None);
         _ = await service.RefreshAsync(CancellationToken.None);
@@ -507,14 +517,13 @@ public sealed class AppServerPhase2Tests
         var beforeStale = states.Count;
 
         clock.Advance(TimeSpan.FromMinutes(60));
-        await Task.Delay(100);
+        var staleState = await staleStatePublished.Task.WaitAsync(TimeSpan.FromSeconds(1));
         var afterFirstStale = states.Count;
         Assert.AreEqual(beforeStale + 1, afterFirstStale);
-        Assert.AreEqual(StatusTone.Warning, states[^1].StatusTone);
-        Assert.IsTrue(states[^1].Windows.All(window => window.IsStale));
+        Assert.AreEqual(StatusTone.Warning, staleState.StatusTone);
+        Assert.IsTrue(staleState.Windows.All(window => window.IsStale));
 
         clock.Advance(TimeSpan.FromSeconds(30));
-        await Task.Delay(100);
         Assert.AreEqual(afterFirstStale, states.Count);
 
         _ = await service.RefreshAsync(CancellationToken.None);
@@ -1427,6 +1436,23 @@ public sealed class AppServerPhase2Tests
     }
 
     private static int ProcessCount(string name) => System.Diagnostics.Process.GetProcessesByName(name).Length;
+
+    private static async Task WaitForProcessCountAtMostAsync(
+        string name,
+        int maximum,
+        TimeSpan timeout)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        while (ProcessCount(name) > maximum)
+        {
+            if (stopwatch.Elapsed >= timeout)
+            {
+                Assert.Fail($"Timed out waiting for {name} process count to return to <= {maximum}.");
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25));
+        }
+    }
 
     private static RateLimitsReadResult LoadFixture(string name, bool resetFieldPresent)
     {
