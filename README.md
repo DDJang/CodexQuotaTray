@@ -30,18 +30,6 @@ When the user explicitly enables phone synchronization on Windows, Android can r
 Token usage and the last successful quota snapshot over the private LAN. Conversation content, credentials,
 and raw account responses are not shared.
 
-## Refresh and automatic updates
-
-- Windows quota and Token refresh settings are separate. Each supports 5-minute, 15-minute, 30-minute,
-  and manual-only modes; the default is 15 minutes.
-- Android quota and Token refresh are separate foreground and periodic WorkManager paths. Foreground
-  automatic work uses a two-minute suppression window, manual refresh runs immediately, and switching
-  bottom tabs does not start a network request.
-- Both clients read the fixed `update-manifest` source. Automatic checks are independently configurable
-  and limited to once per 24 hours; manual checks bypass that interval. Android currently exposes GitHub
-  as the available update source; Gitee is not implemented. Downloads are checked against their published
-  SHA256 before installation or launch.
-
 ## Downloads
 
 Official Windows and Android packages are available from
