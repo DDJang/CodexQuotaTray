@@ -620,6 +620,85 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_NetworkRestoreAfterFailuresAndEmptySnapshotsEmitsOneResetAlert()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            CancellationToken.None);
+        var clock = new ManualTimeProvider();
+        var factory = new ResetRecoveryReconnectFactory();
+        var persistence = new PreviewPersistence(store, paths);
+        var sink = new RecordingNotificationSink();
+        await using var service = new QuotaRuntimeService(
+            factory,
+            new SettingsService(store, paths),
+            persistence,
+            sink,
+            clock);
+
+        _ = await service.RefreshAsync(CancellationToken.None);
+        await factory.First.NotificationStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await clock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(1));
+
+        var beforeDisconnect = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(beforeDisconnect);
+        var oldWindow = beforeDisconnect!.Windows.Values.Single();
+        Assert.AreEqual(8, oldWindow.LastReliableRemaining);
+
+        factory.First.TriggerDisconnect();
+        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
+
+        clock.Advance(TimeSpan.FromSeconds(11));
+        await service.RequestAsync(RefreshReason.NetworkRestored, CancellationToken.None);
+        var afterFirstEmpty = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterFirstEmpty);
+        Assert.AreEqual(oldWindow.PseudonymousKey, afterFirstEmpty!.Windows.Values.Single().PseudonymousKey);
+        Assert.AreEqual(oldWindow.LastReliableRemaining, afterFirstEmpty.Windows.Values.Single().LastReliableRemaining);
+        Assert.IsEmpty(sink.Alerts);
+
+        clock.Advance(TimeSpan.FromSeconds(11));
+        _ = await service.RefreshAsync(CancellationToken.None);
+        var afterFailedRefresh = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterFailedRefresh);
+        Assert.AreEqual(oldWindow.LastReliableRemaining, afterFailedRefresh!.Windows.Values.Single().LastReliableRemaining);
+
+        clock.Advance(TimeSpan.FromSeconds(11));
+        await service.RefreshAsync(CancellationToken.None);
+        var afterSecondEmpty = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterSecondEmpty);
+        Assert.AreEqual(oldWindow.LastReliableRemaining, afterSecondEmpty!.Windows.Values.Single().LastReliableRemaining);
+        Assert.IsEmpty(sink.Alerts);
+
+        clock.Advance(TimeSpan.FromSeconds(11));
+        await service.RequestAsync(RefreshReason.NetworkRestored, CancellationToken.None);
+        var recovered = await service.GetSnapshotAsync(CancellationToken.None);
+        var recoveredWindow = recovered.Windows.Single();
+        var expectedResetAt = ResetRecoveryReconnectClient.NewResetAtUtc;
+        Assert.AreEqual(100, recoveredWindow.RemainingPercent);
+        Assert.AreEqual(expectedResetAt, recoveredWindow.ResetAtUtc);
+        Assert.AreEqual(1, factory.Second.FailedReadCount);
+        Assert.AreEqual(4, factory.Second.ReadCount);
+
+        Assert.HasCount(1, sink.Alerts);
+        Assert.AreEqual(QuotaAlertKind.Reset, sink.Alerts[0].Kind);
+        Assert.AreEqual(expectedResetAt, sink.Alerts[0].ResetWindows.Single().ResetAtUtc);
+
+        var afterRecovery = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterRecovery);
+        var newWindow = afterRecovery!.Windows.Values.Single();
+        Assert.AreEqual(oldWindow.PseudonymousKey, newWindow.PseudonymousKey);
+        Assert.AreEqual(expectedResetAt, newWindow.ResetAtUtc);
+        Assert.AreEqual(100, newWindow.LastReliableRemaining);
+
+        clock.Advance(TimeSpan.FromSeconds(11));
+        _ = await service.RefreshAsync(CancellationToken.None);
+        Assert.HasCount(1, sink.Alerts);
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_OverflowRecoveryTransportClosedDoesNotSelfAwaitAndNextRefreshRecreatesClient()
     {
         using var directory = new TemporaryDirectory();
@@ -1422,6 +1501,111 @@ public sealed class AppServerPhase2Tests
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class ResetRecoveryReconnectFactory : ICodexAppServerClientFactory
+    {
+        public ResetRecoveryReconnectClient First { get; } = new(first: true);
+        public ResetRecoveryReconnectClient Second { get; } = new(first: false);
+        private int createCount;
+
+        public ICodexAppServerClient Create() =>
+            Interlocked.Increment(ref createCount) == 1 ? First : Second;
+    }
+
+    private sealed class ResetRecoveryReconnectClient(bool first) : ICodexAppServerClient
+    {
+        private const long OldResetAt = 1_000_000;
+        private const long NewResetAt = OldResetAt + 18_000;
+        private readonly TaskCompletionSource disconnect = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int disposed;
+        private int readCount;
+        private int failedReadCount;
+
+        public static DateTimeOffset NewResetAtUtc => DateTimeOffset.FromUnixTimeSeconds(NewResetAt);
+
+        public TaskCompletionSource NotificationStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int ReadCount => Volatile.Read(ref readCount);
+        public int FailedReadCount => Volatile.Read(ref failedReadCount);
+        public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
+
+        public Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new CodexSessionInfo("9.99.0", "9.99.0"));
+
+        public Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
+        {
+            var currentRead = Interlocked.Increment(ref readCount);
+            if (first)
+            {
+                return Task.FromResult(Snapshot(92, OldResetAt));
+            }
+
+            return currentRead switch
+            {
+                1 => Task.FromResult(EmptySnapshot()),
+                2 => FailedRead(),
+                3 => Task.FromResult(EmptySnapshot()),
+                _ => Task.FromResult(Snapshot(0, NewResetAt)),
+            };
+        }
+
+        public async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            NotificationStarted.TrySetResult();
+            if (first)
+            {
+                await disconnect.Task.WaitAsync(cancellationToken);
+                throw new ChannelClosedException(new CodexClientException(
+                    CodexClientErrorKind.TransportClosed,
+                    "synthetic network restore test disconnect"));
+            }
+
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            yield break;
+        }
+
+        public void TriggerDisconnect() => disconnect.TrySetResult();
+
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                disconnect.TrySetResult();
+                Disposed.TrySetResult();
+            }
+
+            return ValueTask.CompletedTask;
+        }
+
+        private Task<RateLimitsReadResult> FailedRead()
+        {
+            Interlocked.Increment(ref failedReadCount);
+            return Task.FromException<RateLimitsReadResult>(new CodexClientException(
+                CodexClientErrorKind.RequestTimeout,
+                "synthetic network restore test read failure"));
+        }
+
+        private static RateLimitsReadResult EmptySnapshot() =>
+            new(new RateLimitsResponse(), false);
+
+        private static RateLimitsReadResult Snapshot(long usedPercent, long resetAt) =>
+            new(
+                new RateLimitsResponse
+                {
+                    RateLimits = new RateLimitSnapshot
+                    {
+                        LimitId = "reconnect-reset-window",
+                        Primary = new RateLimitWindow
+                        {
+                            UsedPercent = usedPercent,
+                            WindowDurationMinutes = 300,
+                            ResetsAt = resetAt,
+                        },
+                    },
+                },
+                false);
     }
 
     private sealed class OverflowRecoveryFactory : ICodexAppServerClientFactory
