@@ -435,49 +435,60 @@ public sealed class AppServerPhase2Tests
             new SettingsService(new JsonFileStore(), paths),
             new PreviewPersistence(new JsonFileStore(), paths),
             timeProvider: clock);
-        var fourthRefreshSettled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        service.RefreshSettled += (succeeded, handoffReason) =>
+        var refreshSettledReadCounts = Channel.CreateUnbounded<int>();
+        service.RefreshSettled += (_, _) =>
         {
-            if (succeeded && handoffReason is null && client.ReadCount >= 4)
-            {
-                fourthRefreshSettled.TrySetResult();
-            }
+            refreshSettledReadCounts.Writer.TryWrite(client.ReadCount);
         };
+        async Task WaitForRefreshSettledAsync(int expectedReadCount)
+        {
+            while (true)
+            {
+                var settledReadCount = await refreshSettledReadCounts.Reader
+                    .ReadAsync()
+                    .AsTask()
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+                if (settledReadCount >= expectedReadCount)
+                {
+                    return;
+                }
+            }
+        }
 
         _ = await service.GetSnapshotAsync(CancellationToken.None);
         Assert.AreEqual(1, client.ReadCount);
+        await WaitForRefreshSettledAsync(1);
         await clock.TimerCreated.WaitAsync(TimeSpan.FromSeconds(1));
-        await Task.Delay(50);
 
         client.Fail = true;
         clock.Advance(TimeSpan.FromMinutes(15));
         await WaitForReadCountAsync(client, 2);
+        await WaitForRefreshSettledAsync(2);
         Assert.AreEqual(2, client.ReadCount);
 
         clock.Advance(TimeSpan.FromSeconds(30));
-        await Task.Delay(100);
         Assert.AreEqual(2, client.ReadCount);
 
         clock.Advance(TimeSpan.FromMinutes(14).Add(TimeSpan.FromSeconds(30)));
         await WaitForReadCountAsync(client, 3);
+        await WaitForRefreshSettledAsync(3);
         Assert.AreEqual(3, client.ReadCount);
 
         clock.Advance(TimeSpan.FromMinutes(14).Add(TimeSpan.FromSeconds(59)));
-        await Task.Delay(100);
         Assert.AreEqual(3, client.ReadCount);
 
         client.Fail = false;
         clock.Advance(TimeSpan.FromSeconds(1));
         await WaitForReadCountAsync(client, 4);
+        await WaitForRefreshSettledAsync(4);
         Assert.AreEqual(4, client.ReadCount);
-        await fourthRefreshSettled.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         clock.Advance(TimeSpan.FromMinutes(14).Add(TimeSpan.FromSeconds(59)));
-        await Task.Delay(100);
         Assert.AreEqual(4, client.ReadCount);
 
         clock.Advance(TimeSpan.FromSeconds(1));
         await WaitForReadCountAsync(client, 5);
+        await WaitForRefreshSettledAsync(5);
         Assert.AreEqual(5, client.ReadCount);
     }
 
@@ -945,7 +956,7 @@ public sealed class AppServerPhase2Tests
                 },
             },
             false));
-        await Task.Delay(50);
+        await factory.Second.NotificationProcessed.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         var beforeFullRead = await File.ReadAllTextAsync(paths.QuotaCache);
         StringAssert.Contains(beforeFullRead, "\"usedPercent\": 10");
@@ -1181,7 +1192,7 @@ public sealed class AppServerPhase2Tests
         await client.ConnectStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
 
         var cardOpened = service.RequestAsync(RefreshReason.CardOpened).AsTask();
-        await Task.Delay(50);
+        Assert.IsFalse(initialization.IsCompleted);
         Assert.AreEqual(0, client.ReadCount);
 
         client.ConnectRelease.TrySetResult();
@@ -2240,6 +2251,7 @@ public sealed class AppServerPhase2Tests
         private int disposed;
 
         public TaskCompletionSource NotificationStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource NotificationProcessed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource FirstReadStarted { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource ReleaseFirstRead { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2294,6 +2306,8 @@ public sealed class AppServerPhase2Tests
             await foreach (var notification in notifications.Reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
             {
                 yield return notification;
+                // The iterator resumes here only after the consumer has requested the next item.
+                NotificationProcessed.TrySetResult();
             }
         }
 
