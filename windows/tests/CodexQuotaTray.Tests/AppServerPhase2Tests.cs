@@ -620,6 +620,44 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_SurfaceSuccessfulSinkConsumesResetWithoutRetry()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            CancellationToken.None);
+        var sink = new RecordingNotificationSink();
+        var persistence = new PreviewPersistence(store, paths);
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(new ResetRecoveryClient()),
+            new SettingsService(store, paths),
+            persistence,
+            sink);
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        _ = await service.RefreshAsync(CancellationToken.None);
+        _ = await service.RefreshAsync(CancellationToken.None);
+
+        // The sink completed normally, which is the runtime's entire delivery
+        // contract. The committed state records the Reset as consumed before
+        // any later refresh can observe the same snapshot again.
+        Assert.HasCount(1, sink.Alerts);
+        Assert.AreEqual(QuotaAlertKind.Reset, sink.Alerts[0].Kind);
+        var committed = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(committed);
+        var committedWindow = committed!.Windows.Values.Single();
+        Assert.AreEqual(100, committedWindow.LastReliableRemaining);
+        Assert.IsNotNull(committedWindow.LastResetAlertCycleUtc);
+        Assert.IsTrue(committedWindow.ResetAlertCycleConsumed);
+
+        _ = await service.RefreshAsync(CancellationToken.None);
+
+        Assert.HasCount(1, sink.Alerts);
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_NetworkRestoreAfterFailuresAndEmptySnapshotsEmitsOneResetAlert()
     {
         using var directory = new TemporaryDirectory();
