@@ -1103,12 +1103,20 @@ public sealed class AppServerPhase2Tests
             new PreviewPersistence(store, paths));
 
         _ = await service.GetSnapshotAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
+        Assert.IsTrue(File.Exists(paths.QuotaCache));
+        Assert.IsTrue(File.Exists(paths.AlertState));
         var cache = await File.ReadAllTextAsync(paths.QuotaCache);
         var alertState = await File.ReadAllTextAsync(paths.AlertState);
+        var cacheLastWrite = File.GetLastWriteTimeUtc(paths.QuotaCache);
+        var alertStateLastWrite = File.GetLastWriteTimeUtc(paths.AlertState);
         _ = await service.RefreshAsync(CancellationToken.None);
+        await service.WaitForAlertEvaluationsAsync();
 
         Assert.AreEqual(cache, await File.ReadAllTextAsync(paths.QuotaCache));
         Assert.AreEqual(alertState, await File.ReadAllTextAsync(paths.AlertState));
+        Assert.AreEqual(cacheLastWrite, File.GetLastWriteTimeUtc(paths.QuotaCache));
+        Assert.AreEqual(alertStateLastWrite, File.GetLastWriteTimeUtc(paths.AlertState));
     }
 
     [TestMethod]
