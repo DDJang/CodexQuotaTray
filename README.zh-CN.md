@@ -7,7 +7,7 @@ CodexQuotaTray 是一组轻量、只读的 Codex 额度客户端，不使用 Ele
 ## 当前架构与数据流
 
 | 客户端 | 额度来源 | Token 使用量来源 | 实现 |
-| --- | --- | --- |
+| --- | --- | --- | --- |
 | Windows | 设置中选择本机 Codex CLI App Server（默认）或只读 OAuth | 设置中独立选择本机 session 账本（默认）、Codex CLI 账户使用量或只读 OAuth 账户使用量 | C# / WinUI 3，位于 `windows/` |
 | Android | OpenAI OAuth/Direct HTTPS 与已配对的 Windows LAN 来源；额度优先级独立设置，默认 OpenAI 优先 | OpenAI Account 使用量与已配对的 Windows LAN 来源；Token 优先级独立设置，默认 Windows 优先 | Kotlin / Jetpack Compose，位于 `android/` |
 

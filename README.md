@@ -8,7 +8,7 @@ WebView, web scraping, or account write APIs.
 ## Current architecture and data flow
 
 | Client | Quota source | Token usage source | Implementation |
-| --- | --- | --- |
+| --- | --- | --- | --- |
 | Windows | User-selected local Codex CLI App Server (default) or read-only OAuth | User-selected local session ledger (default), Codex CLI account usage, or read-only OAuth account usage | C# / WinUI 3 in `windows/` |
 | Android | OpenAI OAuth/Direct HTTPS and a paired Windows LAN source; quota priority is independent and defaults to OpenAI first | OpenAI Account usage and a paired Windows LAN source; Token priority is independent and defaults to Windows first | Kotlin / Jetpack Compose in `android/` |
 
