@@ -29,10 +29,6 @@ Official Windows and Android packages are available from
 
 Use the platform-specific `SHA256SUMS.txt` from the corresponding release to verify downloaded files.
 
-Formal releases are made from a platform tag on `main`: PR CI is the pre-merge check, and the platform
-Release workflow performs the final tests, Release build, signing, artifact, SHA256, release-note, and
-manifest validation.
-
 ## Code signing policy
 
 See the [code signing policy](docs/CODE_SIGNING.md).

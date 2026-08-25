@@ -27,9 +27,6 @@ Windows 和 Android 正式版本均从
 
 使用对应 Release 中的平台 `SHA256SUMS.txt` 校验下载文件。
 
-正式发布使用 `main` 上的平台 tag：PR CI 是合并前验证，平台 Release workflow 负责最终测试、Release
-构建、签名、产物、SHA256、release notes 和 manifest 验证。
-
 ## 代码签名政策
 
 请参阅[代码签名政策](docs/CODE_SIGNING.md)。
