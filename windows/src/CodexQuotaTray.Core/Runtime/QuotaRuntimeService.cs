@@ -124,6 +124,9 @@ public sealed class QuotaRuntimeService :
     // is started by the worker loop.
     internal event Action<bool, RefreshReason?>? RefreshSettled;
 
+    // Test-only observation point: this fires when alert evaluation is entered.
+    internal event Action? AlertEvaluationEntered;
+
     public AppSettings Settings { get; private set; } = AppSettings.Defaults;
 
     /// <summary>
@@ -852,6 +855,7 @@ public sealed class QuotaRuntimeService :
         long generation,
         CancellationToken cancellationToken)
     {
+        AlertEvaluationEntered?.Invoke();
         if (!IsCurrentGeneration(generation))
         {
             return false;
