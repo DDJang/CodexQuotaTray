@@ -7,6 +7,7 @@
   `/wham/profiles/me`，Windows LAN Token 保留 Account/Local scope。
 - 额度与 Token 使用量各自独立的回到前台自动刷新/同步、手动刷新和周期 WorkManager。
 - 额度阈值/重置通知、主题、设置、脱敏日志和 transport/scope-aware Token cache。
+- 支持 reset credit 的只读展示与过期提醒；不发起购买、兑换或消费请求。
 - Debug/Release 双 application identity 与平台独立 GitHub Release。
 - HyperOS/Xiaomi 4×2 quota Widget：使用最后成功 quota snapshot projection；Direct / Windows quota 成功刷新后主动更新，Xiaomi exposure refresh 只读取 Widget 本地 cache。
 
@@ -20,7 +21,7 @@
 - Play Store 产品化、多用户、多账号、团队管理或云端同步；
 - Codex 聊天、Agent、项目、会话正文访问或远程控制；
 - embedded Codex runtime、Termux、外部 shell/HTTP Bridge、root、Shizuku 或 NDK 重写；
-- reset-credit 展示/消费、购买或其他账户写操作；
+- reset-credit 的购买、兑换、消费或其他账户写操作；
 - 通用 LAN 客户端、多 ABI/x86 兼容矩阵。
 
 ## Validation
