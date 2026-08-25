@@ -559,6 +559,100 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public async Task AmbiguousIdentityDuringMigration_StrongRecoveryAloneDoesNotEmitReset()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var persistence = new PreviewPersistence(new JsonFileStore(), paths);
+        var resetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_000_000);
+        Directory.CreateDirectory(directory.Path);
+        await File.WriteAllTextAsync(
+            paths.AlertState,
+            $$"""
+            {
+              "schemaVersion": 1,
+              "baselineThresholds": [50, 20, 10],
+              "windows": {
+                "old-a": {
+                  "pseudonymousKey": "old-a",
+                  "windowDurationMinutes": 300,
+                  "resetAtUtc": "{{resetAt:O}}",
+                  "lastReliableRemaining": 10,
+                  "handledThresholds": [50, 20, 10]
+                },
+                "old-b": {
+                  "pseudonymousKey": "old-b",
+                  "windowDurationMinutes": 300,
+                  "resetAtUtc": "{{resetAt:O}}",
+                  "lastReliableRemaining": 70,
+                  "handledThresholds": [50, 20]
+                }
+              }
+            }
+            """);
+
+        var restored = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(restored);
+        Assert.IsFalse(restored.ResetAlertBaselineEstablished);
+
+        var reduction = QuotaAlertReducer.Reduce(
+            restored,
+            [new AlertInput("new-identity", "5 小时额度", 100, true, 300, resetAt)],
+            new NotificationSettings(true, true, true));
+
+        Assert.IsNull(reduction.Alert);
+        Assert.IsTrue(reduction.State.ResetAlertBaselineEstablished);
+        Assert.AreEqual(100, reduction.State.Windows["new-identity"].LastReliableRemaining);
+        Assert.IsEmpty(reduction.State.Windows["new-identity"].HandledThresholds);
+    }
+
+    [TestMethod]
+    public void AmbiguousIdentityDuringMigration_ReliableResetAtAdvanceEmitsReset()
+    {
+        var oldResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_000_000);
+        var newResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_018_000);
+        var previous = new AlertStateDocument(
+            1,
+            [50, 20, 10],
+            new Dictionary<string, AlertWindowState>
+            {
+                ["old-a"] = new("old-a", 300, oldResetAt, 10, [50, 20, 10]),
+                ["old-b"] = new("old-b", 300, oldResetAt, 70, [50, 20]),
+            },
+            false);
+
+        var reduction = QuotaAlertReducer.Reduce(
+            previous,
+            [new AlertInput("new-identity", "5 小时额度", 100, true, 300, newResetAt)],
+            new NotificationSettings());
+
+        Assert.AreEqual(QuotaAlertKind.Reset, reduction.Alert!.Kind);
+        Assert.IsTrue(reduction.State.ResetAlertBaselineEstablished);
+    }
+
+    [TestMethod]
+    public void AmbiguousIdentityWithEstablishedBaseline_StrongRecoveryStillEmitsReset()
+    {
+        var resetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_000_000);
+        var previous = new AlertStateDocument(
+            1,
+            [50, 20, 10],
+            new Dictionary<string, AlertWindowState>
+            {
+                ["old-a"] = new("old-a", 300, resetAt, 10, [50, 20, 10]),
+                ["old-b"] = new("old-b", 300, resetAt, 70, [50, 20]),
+            },
+            true);
+
+        var reduction = QuotaAlertReducer.Reduce(
+            previous,
+            [new AlertInput("new-identity", "5 小时额度", 100, true, 300, resetAt)],
+            new NotificationSettings());
+
+        Assert.AreEqual(QuotaAlertKind.Reset, reduction.Alert!.Kind);
+    }
+
+    [TestMethod]
     public void IdentityChangeWithStrongRecoveryAndResetAtAdvanceEmitsReset()
     {
         var oldResetAt = DateTimeOffset.FromUnixTimeSeconds(1_900_000_000);

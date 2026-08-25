@@ -238,7 +238,8 @@ public static class QuotaAlertReducer
                     matchedOldKeys);
                 var resetAtEvidence = evidenceCandidates.Any(candidate => IsReliableResetAtAdvance(candidate, input));
                 var strongRecoveryEvidence = evidenceCandidates.Any(candidate => IsStrongRecovery(candidate, input));
-                var hasResetEvidence = resetAtEvidence || strongRecoveryEvidence;
+                var hasResetEvidence = resetAtEvidence
+                    || (!resetBaseline && strongRecoveryEvidence);
                 if (hasResetEvidence)
                 {
                     resetAlertCycle = input.ResetAtUtc ?? resetAlertCycle;
