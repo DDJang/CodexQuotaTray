@@ -96,22 +96,22 @@ tray GUID 或 Installer AppId。
   elevated execution。这是规定的环境恢复步骤，不属于第三种绕过方式。elevated 后仍失败才停止并报告。
 - WinUI 的 NuGet 恢复、聚焦测试和权限处理遵循 [`windows/README.md`](windows/README.md) 的“NuGet 与环境恢复”小节；不要绕过仓库配置直接使用用户级 NuGet 配置。
 
-## Maintainer Android environment
+## Maintainer-local Android environment
 
-以下是当前 maintainer Windows 开发机的已验证事实，不是面向普通开发者的通用安装路径：
+仓库权威配置以 `global.json`、Gradle Wrapper / `build.gradle.kts`、[`windows/README.md`](windows/README.md)
+和 [`android/README.md`](android/README.md) 为准。本节只记录当前 maintainer Windows 开发机的
+fallback 事实，不是普通开发者的安装路径，也不是长期稳定合同：
 
-- PATH 当前可能命中 `C:\Windows\System32\java.exe`（Java 1.7），不得用于 Android 构建。
-- 已验证可运行仓库 Gradle 8.11.1 / AGP 8.9.1 的 Gradle JVM：`C:\Users\18456\.jdks\jbr-21.0.11`。
-- 已验证 Android SDK：`D:\Android\Sdk`。
-- Android Studio 自带 `D:\Android\Android Studio\jbr` 当前为 JDK 25，不作为本仓库 Gradle 验证 JVM。
+- PATH 当前可能命中 `C:\Windows\System32\java.exe`（Java 1.7），不得用于 Android 构建；已验证可运行
+  仓库 Gradle 8.11.1 / AGP 8.9.1 的 Gradle JVM 是 `C:\Users\18456\.jdks\jbr-21.0.11`。
+- 已验证 Android SDK：`D:\Android\Sdk`。Android Studio 自带的 `D:\Android\Android Studio\jbr`
+  当前为 JDK 25，不作为本仓库 Gradle 验证 JVM。
 
-Gradle 运行 JVM 可以使用已验证的 JBR 21，但项目 Java/Kotlin 编译 target 仍为 Java 17；不得因为
-Gradle JVM 是 21 而修改项目 Java target。
-
-使用上述路径前必须先用 `Test-Path`、`java -version` 和 `gradlew --version` 验证。若路径不存在或
-版本发生变化，必须停止并报告“maintainer 本机环境记录已过期”，不得安装 SDK/JDK、修改
-Gradle/AGP/SDK/`gradle.properties` 或猜测新的机器路径。`JAVA_HOME`、`ANDROID_HOME` 和
-`ANDROID_SDK_ROOT` 只应作用于当前 shell 进程。
+使用上述 fallback 前必须先用 `Test-Path`、`java -version` 和 `gradlew --version` 验证；任一路径不存在或
+版本不匹配，都必须停止并报告“maintainer 本机环境记录已过期”。Gradle 运行 JVM 可使用已验证的 JBR 21，
+但项目 Java/Kotlin 编译 target 仍以仓库 `build.gradle.kts` 配置为准（当前为 Java 17），不得因此修改 target。
+不得因此安装 SDK/JDK、修改 PATH、Gradle、AGP、target 或项目配置（包括 `gradle.properties`），也不得猜测新的机器路径；
+`JAVA_HOME`、`ANDROID_HOME` 和 `ANDROID_SDK_ROOT` 只应作用于当前 shell 进程。
 
 ## Validation
 
