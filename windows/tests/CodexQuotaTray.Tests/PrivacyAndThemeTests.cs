@@ -299,6 +299,12 @@ public sealed class PrivacyAndThemeTests
             "HorizontalAlignment=\"Left\"");
         StringAssert.Contains(normalizedSettingsWindow, "<StackPanel Spacing=\"4\">\n                                <HyperlinkButton Content=\"GitHub 项目主页\"");
         StringAssert.Contains(settingsWindow, "Click=\"OnRegenerateTokenSyncSecretRequested\"");
+        StringAssert.Contains(settingsWindow, "Text=\"{Binding TokenSyncEndpointText}\"");
+        StringAssert.Contains(settingsWindow, "x:Name=\"TokenSyncPairingDetails\"");
+        StringAssert.Contains(settingsWindow, "x:Name=\"TokenSyncDiagnosticsDetails\"");
+        StringAssert.Contains(settingsWindow, "Content=\"复制诊断信息\"");
+        StringAssert.Contains(settingsWindowCode, "InitializeTokenSyncDisclosure();");
+        StringAssert.Contains(settingsWindowCode, "TokenSyncDiagnosticsDetails.Visibility = Visibility.Collapsed;");
         StringAssert.Contains(settingsWindowCode, "Title = \"重新生成配对密钥？\"");
         StringAssert.Contains(settingsWindowCode, "Content = \"重新生成后，当前已配对的手机将无法继续连接，需要在手机端重新扫码配对。\"");
         StringAssert.Contains(settingsWindowCode, "PrimaryButtonText = \"重新生成\"");

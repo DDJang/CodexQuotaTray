@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
@@ -123,7 +124,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
                 return result.ToUpperInvariant() switch
                 {
                     "SUCCESS" => snapshot.LastSuccessUtc is { } success
-                        ? $"最近手机连接：{success.ToLocalTime():MM-dd HH:mm}"
+                        ? $"最近手机连接：{LanStatusTimeFormatter.Format(success, DateTimeOffset.UtcNow)}"
                         : "最近手机连接：已成功",
                     "AUTH_FAILED" => "最近手机请求：认证失败",
                     _ => "最近手机请求：请求失败",
@@ -192,7 +193,6 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         }
 
         diagnostic($"Network change observed reason={reason}");
-        SetStatus("正在重新连接…");
         CancellationTokenSource next;
         lock (networkChangeGate)
         {
@@ -409,6 +409,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             {
                 var oldAddress = server.Address;
                 diagnostic($"LAN selection change {oldAddress}/interface={currentInterfaceIndex} -> {address.Address}/interface={address.InterfaceIndex}");
+                SetStatus("正在重新连接…");
                 await StopListenerResourcesAsync().ConfigureAwait(false);
                 var restarted = await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false);
                 if (!restarted) SetStatus("网络地址变化，等待重新监听");
@@ -419,6 +420,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
                 var fault = server.ListenerFault?.GetType().Name ?? "Completed";
                 diagnostic($"LAN listener healthy=false bind={server.Address} port={server.Port} interfaceIndex={currentInterfaceIndex} restartReason={fault}");
                 diagnostic($"LAN listener unhealthy fault={fault}; retry in {addressCheckInterval.TotalSeconds:0.###}s");
+                SetStatus("正在重新连接…");
                 await StopListenerResourcesAsync().ConfigureAwait(false);
                 var restarted = await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false);
                 diagnostic($"LAN reconcile result={(restarted ? "restarted" : "restart-failed")} reason={reason}");
@@ -521,6 +523,30 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         {
             return LanRepairProbeResult.IO;
         }
+    }
+}
+
+internal static class LanStatusTimeFormatter
+{
+    internal static string Format(
+        DateTimeOffset valueUtc,
+        DateTimeOffset nowUtc,
+        TimeZoneInfo? timeZone = null)
+    {
+        var zone = timeZone ?? TimeZoneInfo.Local;
+        var value = TimeZoneInfo.ConvertTime(valueUtc, zone);
+        var now = TimeZoneInfo.ConvertTime(nowUtc, zone);
+        if (value.Date == now.Date)
+        {
+            return $"今天 {value:HH:mm}";
+        }
+
+        if (value.Date == now.Date.AddDays(-1))
+        {
+            return $"昨天 {value:HH:mm}";
+        }
+
+        return value.ToString("MM-dd HH:mm", CultureInfo.CurrentCulture);
     }
 }
 

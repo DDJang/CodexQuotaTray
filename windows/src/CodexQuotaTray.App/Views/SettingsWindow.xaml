@@ -511,57 +511,78 @@
                                         Style="{StaticResource SettingsToggleSwitchStyle}" />
                                 </Grid>
                                 <TextBlock Text="{Binding TokenSyncStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                                <TextBlock Text="{Binding TokenSyncDeviceNameText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                                <TextBlock Text="{Binding TokenSyncAddressText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBlock Text="{Binding TokenSyncEndpointText}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 <TextBlock Text="{Binding TokenSyncMobileStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                                <StackPanel x:Name="TokenSyncQrPanel" HorizontalAlignment="Center" Spacing="8">
-                                    <Image
-                                        x:Name="TokenSyncQrCodeImage"
-                                        Width="220"
-                                        Height="220"
-                                        HorizontalAlignment="Center"
-                                        Stretch="Uniform" />
+                                <Button
+                                    x:Name="TokenSyncPairingDisclosureButton"
+                                    Content="配对新手机"
+                                    Click="OnTokenSyncPairingDisclosureRequested"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                                <StackPanel
+                                    x:Name="TokenSyncPairingDetails"
+                                    Visibility="Collapsed"
+                                    Spacing="10">
+                                    <StackPanel x:Name="TokenSyncQrPanel" HorizontalAlignment="Center" Spacing="8">
+                                        <Image
+                                            x:Name="TokenSyncQrCodeImage"
+                                            Width="220"
+                                            Height="220"
+                                            HorizontalAlignment="Center"
+                                            Stretch="Uniform" />
+                                        <TextBlock
+                                            Text="使用手机端 CodexQuotaTray 扫码配对"
+                                            HorizontalAlignment="Center"
+                                            Style="{StaticResource SettingsDescriptionStyle}" />
+                                    </StackPanel>
                                     <TextBlock
-                                        Text="使用手机端 CodexQuotaTray 扫码配对"
-                                        HorizontalAlignment="Center"
+                                        Text="配对密钥默认隐藏；仅复制到受信任的私人 Wi-Fi 设备。"
+                                        TextWrapping="Wrap"
+                                        Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button
+                                            Content="复制配对信息"
+                                            Command="{Binding CopyTokenSyncPairingInfoCommand}"
+                                            IsEnabled="{Binding PhoneTokenSyncEnabled}"
+                                            Style="{StaticResource SettingsActionButtonStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button
+                                            Content="重新生成密钥"
+                                            Click="OnRegenerateTokenSyncSecretRequested"
+                                            Style="{StaticResource SettingsActionButtonStyle}" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <Button
+                                    x:Name="TokenSyncDiagnosticsDisclosureButton"
+                                    Content="连接与诊断"
+                                    Click="OnTokenSyncDiagnosticsDisclosureRequested"
+                                    Style="{StaticResource SettingsActionButtonStyle}" />
+                                <StackPanel
+                                    x:Name="TokenSyncDiagnosticsDetails"
+                                    Visibility="Collapsed"
+                                    Spacing="10">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button
+                                            Content="复制诊断信息"
+                                            Command="{Binding CopyDiagnosticsCommand}"
+                                            Style="{StaticResource SettingsActionButtonStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Button
+                                            Content="修复手机连接"
+                                            Command="{Binding RepairPhoneConnectionCommand}"
+                                            IsEnabled="{Binding PhoneTokenSyncEnabled}"
+                                            Style="{StaticResource SettingsActionButtonStyle}" />
+                                    </StackPanel>
+                                    <TextBlock
+                                        Text="用于网络重连后手机无法访问 Windows 的情况。"
+                                        TextWrapping="Wrap"
+                                        Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock
+                                        Text="若手机无法连接，请检查 Windows 防火墙；应用不会自动提权或添加规则。"
+                                        TextWrapping="Wrap"
                                         Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
-                                <TextBlock
-                                    Text="配对密钥默认隐藏；仅复制到受信任的私人 Wi-Fi 设备。"
-                                    TextWrapping="Wrap"
-                                    Style="{StaticResource SettingsDescriptionStyle}" />
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button
-                                        Content="复制配对信息"
-                                        Command="{Binding CopyTokenSyncPairingInfoCommand}"
-                                        IsEnabled="{Binding PhoneTokenSyncEnabled}"
-                                        Style="{StaticResource SettingsActionButtonStyle}" />
-                                    <Button
-                                        Content="重新生成密钥"
-                                        Click="OnRegenerateTokenSyncSecretRequested"
-                                        Style="{StaticResource SettingsActionButtonStyle}" />
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button
-                                        Content="复制诊断信息"
-                                        Command="{Binding CopyDiagnosticsCommand}"
-                                        Style="{StaticResource SettingsActionButtonStyle}" />
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Button
-                                        Content="修复手机连接"
-                                        Command="{Binding RepairPhoneConnectionCommand}"
-                                        IsEnabled="{Binding PhoneTokenSyncEnabled}"
-                                        Style="{StaticResource SettingsActionButtonStyle}" />
-                                </StackPanel>
-                                <TextBlock
-                                    Text="用于网络重连后手机无法访问 Windows 的情况。"
-                                    TextWrapping="Wrap"
-                                    Style="{StaticResource SettingsDescriptionStyle}" />
-                                <TextBlock
-                                    Text="若手机无法连接，请检查 Windows 防火墙；应用不会自动提权或添加规则。"
-                                    TextWrapping="Wrap"
-                                    Style="{StaticResource SettingsDescriptionStyle}" />
                             </StackPanel>
                         </Border>
                     </StackPanel>

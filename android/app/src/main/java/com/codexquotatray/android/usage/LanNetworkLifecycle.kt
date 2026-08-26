@@ -9,13 +9,60 @@ import android.net.NetworkRequest
 import android.os.Handler
 import android.os.Looper
 import java.net.Inet4Address
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
+ * The small subset of a Wi-Fi network context that can affect a LAN attempt.
+ * Callback delivery itself is deliberately not part of this value: Android
+ * may deliver the same state through several callback methods.
+ */
+internal data class LanNetworkContextSnapshot(
+    val networkHandle: Long,
+    val interfaceName: String?,
+    val localIpv4: String?,
+    val prefixLength: String?,
+    val gateway: String?,
+    val routePrefix: String?,
+    val transports: String,
+    val capabilities: String,
+    val lanEligible: Boolean,
+)
+
+internal enum class LanNetworkSnapshotUpdate {
+    BASELINE,
+    NO_CHANGE,
+    CHANGED,
+}
+
+/** Compares LAN context values while keeping the initial callback as baseline. */
+internal class LanNetworkSnapshotTracker {
+    private var baselineEstablished = false
+    private var current: LanNetworkContextSnapshot? = null
+
+    internal val hasBaseline: Boolean
+        get() = baselineEstablished
+
+    internal fun observe(next: LanNetworkContextSnapshot?): LanNetworkSnapshotUpdate {
+        if (!baselineEstablished) {
+            baselineEstablished = true
+            current = next
+            return LanNetworkSnapshotUpdate.BASELINE
+        }
+        if (current == next) return LanNetworkSnapshotUpdate.NO_CHANGE
+        current = next
+        return LanNetworkSnapshotUpdate.CHANGED
+    }
+
+    internal fun reset() {
+        baselineEstablished = false
+        current = null
+    }
+}
+
+/**
  * Observes Wi-Fi lifecycle changes without performing any network I/O. The
- * callback only invalidates the process-local epoch and notifies foreground
- * consumers once a short burst of callbacks has settled.
+ * callback only invalidates the process-local epoch when the key LAN context
+ * changes, then notifies foreground consumers once a short burst settles.
  */
 internal class AndroidLanNetworkLifecycle(
     context: Context,
@@ -26,8 +73,8 @@ internal class AndroidLanNetworkLifecycle(
     private val connectivity = context.applicationContext
         .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
     private val callbacks = CopyOnWriteArraySet<(Long) -> Unit>()
-    private val capabilitySignatures = ConcurrentHashMap<Long, String>()
-    private val linkPropertiesSignatures = ConcurrentHashMap<Long, String>()
+    private val networkSnapshots = mutableMapOf<Long, LanNetworkContextSnapshot>()
+    private val snapshotTracker = LanNetworkSnapshotTracker()
     private val debounce = LanNetworkRecoveryDebounce()
     private val stateLock = Any()
     private var started = false
@@ -43,29 +90,21 @@ internal class AndroidLanNetworkLifecycle(
     }
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = notifyChange("NETWORK_AVAILABLE")
+        override fun onAvailable(network: Network) = observeNetwork(network, "NETWORK_AVAILABLE")
 
         override fun onLost(network: Network) {
-            capabilitySignatures.remove(network.networkHandle)
-            linkPropertiesSignatures.remove(network.networkHandle)
-            notifyChange("NETWORK_LOST")
+            synchronized(stateLock) {
+                networkSnapshots.remove(network.networkHandle)
+            }
+            notifySnapshotChanged("NETWORK_LOST")
         }
 
         override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-            if (!capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return
-            val signature = capabilitySignature(capabilities)
-            val key = network.networkHandle
-            if (capabilitySignatures.put(key, signature) != signature) {
-                notifyChange("CAPABILITIES_CHANGED")
-            }
+            observeNetwork(network, "CAPABILITIES_CHANGED", capabilities = capabilities)
         }
 
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
-            val signature = linkPropertiesSignature(linkProperties)
-            val key = network.networkHandle
-            if (linkPropertiesSignatures.put(key, signature) != signature) {
-                notifyChange("LINK_PROPERTIES_CHANGED")
-            }
+            observeNetwork(network, "LINK_PROPERTIES_CHANGED", linkProperties = linkProperties)
         }
     }
 
@@ -90,6 +129,7 @@ internal class AndroidLanNetworkLifecycle(
                     .build(),
                 callback,
             )
+            captureActiveNetwork()
         }.onFailure {
             diagnostics.record("LAN network callback unavailable exceptionClass=${it.javaClass.simpleName}")
         }
@@ -102,10 +142,49 @@ internal class AndroidLanNetworkLifecycle(
             pendingGeneration = null
             if (!started) return
             started = false
+            networkSnapshots.clear()
+            snapshotTracker.reset()
         }
         runCatching { connectivity?.unregisterNetworkCallback(callback) }
-        capabilitySignatures.clear()
-        linkPropertiesSignatures.clear()
+    }
+
+    private fun captureActiveNetwork() {
+        val network = runCatching { connectivity?.activeNetwork }.getOrNull() ?: return
+        observeNetwork(network, "NETWORK_BASELINE")
+    }
+
+    private fun observeNetwork(
+        network: Network,
+        reason: String,
+        capabilities: NetworkCapabilities? = null,
+        linkProperties: LinkProperties? = null,
+    ) {
+        val snapshot = snapshotFor(network, capabilities, linkProperties) ?: return
+        synchronized(stateLock) {
+            if (!started) return
+            networkSnapshots[network.networkHandle] = snapshot
+        }
+        notifySnapshotChanged(reason)
+    }
+
+    private fun notifySnapshotChanged(reason: String) {
+        val update = synchronized(stateLock) {
+            if (!started) return
+            val selected = selectedSnapshotLocked()
+            if (!snapshotTracker.hasBaseline && selected == null) return
+            snapshotTracker.observe(selected)
+        }
+
+        when (update) {
+            LanNetworkSnapshotUpdate.BASELINE -> {
+                val baseline = synchronized(stateLock) { selectedSnapshotLocked() }
+                diagnostics.record(
+                    "LAN network baseline established ${baseline?.toDiagnosticFields() ?: "unavailable"}",
+                )
+            }
+            LanNetworkSnapshotUpdate.NO_CHANGE -> Unit
+            LanNetworkSnapshotUpdate.CHANGED -> notifyChange(reason)
+        }
     }
 
     private fun notifyChange(reason: String) {
@@ -126,32 +205,85 @@ internal class AndroidLanNetworkLifecycle(
         handler.postDelayed(recoveryRunnable, debounceMillis.coerceIn(1_000L, 2_000L))
     }
 
-    private fun capabilitySignature(value: NetworkCapabilities): String = listOf(
-        value.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
-        value.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET),
-        value.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
-        value.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED),
-        value.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED),
-        value.hasCapability(NetworkCapabilities.NET_CAPABILITY_TRUSTED),
-    ).joinToString(",")
-
-    private fun linkPropertiesSignature(value: LinkProperties): String = buildString {
-        append(value.interfaceName ?: "unavailable")
-        append('|')
-        value.linkAddresses
+    private fun snapshotFor(
+        network: Network,
+        capabilitiesOverride: NetworkCapabilities?,
+        linkPropertiesOverride: LinkProperties?,
+    ): LanNetworkContextSnapshot? {
+        val manager = connectivity ?: return null
+        val capabilities = capabilitiesOverride
+            ?: runCatching { manager.getNetworkCapabilities(network) }.getOrNull()
+            ?: return null
+        val linkProperties = linkPropertiesOverride
+            ?: runCatching { manager.getLinkProperties(network) }.getOrNull()
+            ?: return null
+        val addresses = linkProperties.linkAddresses
             .filter { it.address is Inet4Address }
             .sortedBy { it.address.hostAddress }
-            .forEach { append(it.address.hostAddress).append('/').append(it.prefixLength).append(',') }
-        append('|')
-        value.routes
+        val routes = linkProperties.routes
             .filter { it.destination.address is Inet4Address }
             .sortedBy { "${it.destination.address.hostAddress}/${it.destination.prefixLength}" }
-            .forEach {
-                append(it.destination.address.hostAddress).append('/').append(it.destination.prefixLength)
-                append('@').append((it.gateway as? Inet4Address)?.hostAddress ?: "direct")
-                append(',')
-            }
+        val interfaceName = linkProperties.interfaceName
+        val localIpv4 = addresses.joinToString(",") { it.address.hostAddress.orEmpty() }
+        val prefixLength = addresses.joinToString(",") { it.prefixLength.toString() }
+        val routePrefix = routes.joinToString(";") {
+            "${it.destination.address.hostAddress}/${it.destination.prefixLength}@" +
+                ((it.gateway as? Inet4Address)?.hostAddress ?: "direct")
+        }
+        val defaultRoute = routes.firstOrNull { it.destination.prefixLength == 0 }
+        val gateway = (defaultRoute?.gateway as? Inet4Address)?.hostAddress
+        val transports = buildList {
+            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) add("WIFI")
+            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) add("CELLULAR")
+            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) add("ETHERNET")
+            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) add("VPN")
+        }.ifEmpty { listOf("OTHER") }.joinToString(",")
+        val capabilityNames = buildList {
+            if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) add("WIFI")
+            if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)) add("NOT_SUSPENDED")
+            if (capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)) add("NOT_RESTRICTED")
+        }.joinToString(",")
+        val lanEligible = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+            && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+            && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+            && !interfaceName.isNullOrBlank()
+            && addresses.isNotEmpty()
+            && routes.isNotEmpty()
+        return LanNetworkContextSnapshot(
+            networkHandle = network.networkHandle,
+            interfaceName = interfaceName,
+            localIpv4 = localIpv4,
+            prefixLength = prefixLength,
+            gateway = gateway,
+            routePrefix = routePrefix,
+            transports = transports,
+            capabilities = capabilityNames,
+            lanEligible = lanEligible,
+        )
     }
+
+    private fun selectedSnapshotLocked(): LanNetworkContextSnapshot? {
+        val activeHandle = runCatching { connectivity?.activeNetwork?.networkHandle }.getOrNull()
+        return networkSnapshots.values
+            .filter { it.lanEligible }
+            .sortedWith(
+                compareBy<LanNetworkContextSnapshot> { if (it.networkHandle == activeHandle) 0 else 1 }
+                    .thenBy { it.networkHandle },
+            )
+            .firstOrNull()
+    }
+
+    private fun LanNetworkContextSnapshot.toDiagnosticFields(): String = listOf(
+        "networkHandle=$networkHandle",
+        "interface=${interfaceName ?: "unavailable"}",
+        "local=${localIpv4 ?: "unavailable"}",
+        "prefixLength=${prefixLength ?: "unavailable"}",
+        "gateway=${gateway ?: "unavailable"}",
+        "routePrefix=${routePrefix ?: "unavailable"}",
+        "transports=${transports.ifBlank { "unavailable" }}",
+        "capabilities=${capabilities.ifBlank { "unavailable" }}",
+        "lanEligible=$lanEligible",
+    ).joinToString(" ")
 
     private companion object {
         const val DEFAULT_DEBOUNCE_MILLIS = 1_500L

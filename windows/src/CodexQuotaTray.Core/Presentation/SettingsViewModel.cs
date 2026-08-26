@@ -99,6 +99,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string tokenSyncStatusText = string.Empty;
     [ObservableProperty] private string tokenSyncAddressText = string.Empty;
     [ObservableProperty] private string tokenSyncDeviceNameText = string.Empty;
+    [ObservableProperty] private string tokenSyncEndpointText = string.Empty;
     [ObservableProperty] private string tokenSyncMobileStatusText = string.Empty;
     [ObservableProperty] private string? tokenSyncPairingInfo;
     [ObservableProperty] private RefreshMode selectedRefreshMode;
@@ -1141,12 +1142,13 @@ public sealed partial class SettingsViewModel : ObservableObject
     public void RefreshTokenSyncStatus()
     {
         TokenSyncStatusText = platform.TokenSyncStatusText;
-        TokenSyncDeviceNameText = string.IsNullOrWhiteSpace(platform.TokenSyncDeviceNameText)
-            ? string.Empty
-            : $"电脑：{platform.TokenSyncDeviceNameText}";
-        TokenSyncAddressText = string.IsNullOrWhiteSpace(platform.TokenSyncAddressText)
-            ? string.Empty
-            : $"Windows 地址：{platform.TokenSyncAddressText}";
+        TokenSyncDeviceNameText = platform.TokenSyncDeviceNameText;
+        TokenSyncAddressText = platform.TokenSyncAddressText;
+        TokenSyncEndpointText = string.IsNullOrWhiteSpace(TokenSyncDeviceNameText)
+            ? TokenSyncAddressText
+            : string.IsNullOrWhiteSpace(TokenSyncAddressText)
+                ? TokenSyncDeviceNameText
+                : $"{TokenSyncDeviceNameText} · {TokenSyncAddressText}";
         TokenSyncMobileStatusText = platform.TokenSyncMobileStatusText;
         TokenSyncPairingInfo = platform.TokenSyncPairingInfo;
     }

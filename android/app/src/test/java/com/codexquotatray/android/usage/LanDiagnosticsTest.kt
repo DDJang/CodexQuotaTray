@@ -17,6 +17,36 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 
 class LanDiagnosticsTest {
+    @Test fun networkSnapshotBaselineAndNoOpDoNotAdvanceGeneration() {
+        LanNetworkEpoch.resetForTest(31L)
+        val tracker = LanNetworkSnapshotTracker()
+        val baseline = networkSnapshot()
+
+        fun observe(snapshot: LanNetworkContextSnapshot, reason: String) {
+            if (tracker.observe(snapshot) == LanNetworkSnapshotUpdate.CHANGED) {
+                LanNetworkEpoch.advance(reason, NoOpLanDiagnosticLogger)
+            }
+        }
+
+        assertEquals(LanNetworkSnapshotUpdate.BASELINE, tracker.observe(baseline))
+        assertEquals(31L, LanNetworkEpoch.current())
+        observe(baseline, "DUPLICATE_CALLBACK")
+        assertEquals(31L, LanNetworkEpoch.current())
+
+        observe(baseline.copy(localIpv4 = "192.168.1.93"), "LAN_CONTEXT_CHANGED")
+        assertEquals(32L, LanNetworkEpoch.current())
+        LanNetworkEpoch.resetForTest()
+    }
+
+    @Test fun networkSnapshotTrackerResetCreatesNewBaseline() {
+        val tracker = LanNetworkSnapshotTracker()
+        val snapshot = networkSnapshot()
+
+        assertEquals(LanNetworkSnapshotUpdate.BASELINE, tracker.observe(snapshot))
+        tracker.reset()
+        assertEquals(LanNetworkSnapshotUpdate.BASELINE, tracker.observe(snapshot))
+    }
+
     @Test fun networkEpochAndDebounceCoalesceCallbacksWithoutPersistence() {
         LanNetworkEpoch.resetForTest(11L)
         val messages = mutableListOf<String>()
@@ -229,6 +259,18 @@ class LanDiagnosticsTest {
         "192.168.1.10",
         43821,
         "secret",
+    )
+
+    private fun networkSnapshot() = LanNetworkContextSnapshot(
+        networkHandle = 42L,
+        interfaceName = "wlan0",
+        localIpv4 = "192.168.1.92",
+        prefixLength = "24",
+        gateway = "192.168.1.1",
+        routePrefix = "0.0.0.0/0;192.168.1.0/24",
+        transports = "WIFI",
+        capabilities = "NOT_RESTRICTED,NOT_SUSPENDED",
+        lanEligible = true,
     )
 
     private fun client(interceptor: (Interceptor.Chain) -> Response): OkHttpClient =

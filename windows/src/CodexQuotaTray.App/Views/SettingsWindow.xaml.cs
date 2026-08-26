@@ -29,6 +29,7 @@ public sealed partial class SettingsWindow : Window
     private SettingsContentPage? currentSettingsPage;
     private bool showingSettingsHome;
     private bool accountRefreshStarted;
+    private bool tokenSyncDisclosureInitialized;
     private bool exiting;
 
     public SettingsWindow(SettingsViewModel viewModel, string displayName)
@@ -46,6 +47,7 @@ public sealed partial class SettingsWindow : Window
         viewModel.TokenSyncChanged += OnTokenSyncChanged;
         viewModel.UpdateCheckCompleted += OnUpdateCheckCompleted;
         InitializeSettingsNavigation();
+        InitializeTokenSyncDisclosure();
         UpdateTokenSyncQrCode();
         SettingsRoot.Loaded += (_, _) =>
         {
@@ -245,6 +247,50 @@ public sealed partial class SettingsWindow : Window
             viewModel.RefreshTokenSyncStatus();
             UpdateTokenSyncQrCode();
         });
+    }
+
+    private void InitializeTokenSyncDisclosure()
+    {
+        if (tokenSyncDisclosureInitialized)
+        {
+            return;
+        }
+
+        tokenSyncDisclosureInitialized = true;
+        var hasSuccessfulConnection = viewModel.TokenSyncMobileStatusText.StartsWith(
+            "最近手机连接",
+            StringComparison.Ordinal);
+        TokenSyncPairingDetails.Visibility = viewModel.PhoneTokenSyncEnabled && !hasSuccessfulConnection
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        TokenSyncDiagnosticsDetails.Visibility = Visibility.Collapsed;
+        UpdateTokenSyncDisclosureLabels();
+    }
+
+    private void OnTokenSyncPairingDisclosureRequested(object sender, RoutedEventArgs args)
+    {
+        TokenSyncPairingDetails.Visibility = TokenSyncPairingDetails.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        UpdateTokenSyncDisclosureLabels();
+    }
+
+    private void OnTokenSyncDiagnosticsDisclosureRequested(object sender, RoutedEventArgs args)
+    {
+        TokenSyncDiagnosticsDetails.Visibility = TokenSyncDiagnosticsDetails.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        UpdateTokenSyncDisclosureLabels();
+    }
+
+    private void UpdateTokenSyncDisclosureLabels()
+    {
+        TokenSyncPairingDisclosureButton.Content = TokenSyncPairingDetails.Visibility == Visibility.Visible
+            ? "收起配对信息"
+            : "配对新手机";
+        TokenSyncDiagnosticsDisclosureButton.Content = TokenSyncDiagnosticsDetails.Visibility == Visibility.Visible
+            ? "收起连接与诊断"
+            : "连接与诊断";
     }
 
     private async void OnQuotaDataSourceSelectionChanged(object sender, SelectionChangedEventArgs args)

@@ -84,7 +84,7 @@ private enum class SettingsDestination(val title: String) {
     SYNC("数据"),
     THEME("显示与主题"),
     TOKEN_PAIRING("Windows 配对"),
-    UPDATE("更新设置"),
+    UPDATE("更新"),
 }
 
 private const val DEBUG_QUOTA_RING_FIXTURE_ACTIVITY =
@@ -140,7 +140,6 @@ class SettingsActivity : ComponentActivity() {
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var systemThemeVersion by mutableStateOf(0)
     private var pairing by mutableStateOf<TokenSyncPairing?>(null)
-    private var tokenStatus by mutableStateOf("尚未配对 Windows")
     private var showClearPairingDialog by mutableStateOf(false)
     private var updateSource by mutableStateOf(UpdateSource.GITHUB)
     private var automaticUpdateChecks by mutableStateOf(true)
@@ -354,7 +353,7 @@ class SettingsActivity : ComponentActivity() {
                     startActivity(Intent(this@SettingsActivity, LogActivity::class.java))
                 }
                 SettingsDivider()
-                SettingsNavigationRow("更新设置") {
+                SettingsNavigationRow("更新") {
                     openDestination(SettingsDestination.UPDATE)
                 }
                 SettingsDivider()
@@ -622,16 +621,14 @@ class SettingsActivity : ComponentActivity() {
         val locale = LocalLocale.current.platformLocale
         SettingsSection("Windows") {
             SettingsGroup {
-                SettingsInfoRow("状态", tokenStatus)
                 pairing?.let {
-                    SettingsDivider()
-                    SettingsInfoRow("电脑", "${it.displayName ?: "Windows PC"} · ${it.host}:${it.port}")
-                    SettingsInfoRow("最近连接尝试", formatPairingConnectionStatus(it, locale))
+                    SettingsInfoRow("电脑", it.displayName ?: "Windows PC")
+                    SettingsInfoRow("地址", "${it.host}:${it.port}")
                     SettingsInfoRow(
-                        "上次同步",
-                        it.lastSyncUtc?.let { raw -> formatPairingTime(raw, locale) } ?: "尚未成功同步",
+                        "最近连接成功",
+                        it.lastLanSuccessAtMillis?.let { value -> formatPairingMillis(value, locale) }
+                            ?: "尚未成功连接",
                     )
-                    SettingsActionButton("立即同步", onClick = ::syncPairedNow)
                     SettingsActionButton("重新扫码配对", onClick = ::scanPairing)
                     SettingsActionButton("复制诊断信息", onClick = ::copyLanDiagnostics)
                     SettingsActionButton(
@@ -680,7 +677,6 @@ class SettingsActivity : ComponentActivity() {
         }
         themeMode = themeStore.load()
         pairing = tokenStore.load()
-        tokenStatus = if (pairing == null) "尚未配对 Windows" else "已配对"
         updateSettingsStore.load().also { update ->
             updateSource = update.source
             automaticUpdateChecks = update.automaticChecksEnabled
@@ -882,7 +878,6 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun testPairing(value: TokenSyncPairing) {
-        tokenStatus = "正在测试 Windows 连接…"
         TokenPairingFlow.testPairing(this, value, pairingWorker, pairingMain) { result ->
             result.onSuccess {
                 renderState()
@@ -896,11 +891,6 @@ class SettingsActivity : ComponentActivity() {
                 ).show()
             }
         }
-    }
-
-    private fun syncPairedNow() {
-        tokenStore.load()?.let(::testPairing)
-            ?: Toast.makeText(this, "尚未配对 Windows", Toast.LENGTH_SHORT).show()
     }
 
     private fun copyLanDiagnostics() {
@@ -1081,42 +1071,8 @@ class SettingsActivity : ComponentActivity() {
             .format(Instant.ofEpochMilli(value))
     }
 
-    private fun formatPairingTime(raw: String, locale: java.util.Locale): String = runCatching {
-        DateTimeFormatter.ofPattern("MM-dd HH:mm", locale)
-            .withZone(ZoneId.systemDefault())
-            .format(Instant.parse(raw))
-    }.getOrDefault("未知")
-
-    private fun formatPairingConnectionStatus(
-        value: TokenSyncPairing,
-        locale: java.util.Locale,
-    ): String {
-        val success = value.lastLanSuccessAtMillis
-        val failure = value.lastLanFailureAtMillis
-        return when {
-            failure != null && (success == null || failure >= success) ->
-                "Windows 暂不可达 · ${formatLanFailurePhase(value.lastLanFailurePhase)}"
-            success != null -> "最近连接成功：${formatPairingMillis(success, locale)}"
-            value.lastLanAttemptId != null -> "尚未成功连接"
-            else -> "尚未尝试连接"
-        }
-    }
-
-    private fun formatLanFailurePhase(value: String?): String = when (value) {
-        "ROUTE_NOT_FOUND" -> "路由不可用"
-        "TCP_CONNECT_TIMEOUT" -> "TCP 连接超时"
-        "TCP_CONNECT_IO" -> "TCP 连接失败"
-        "AUTH_FAILED" -> "认证失败"
-        "HTTP_FAILED" -> "请求失败"
-        "NSD_TIMEOUT" -> "NSD 发现超时"
-        "NSD_DISCOVERED" -> "发现后连接失败"
-        else -> value?.takeIf(String::isNotBlank) ?: "连接失败"
-    }
-
     private fun formatPairingMillis(value: Long, locale: java.util.Locale): String =
-        DateTimeFormatter.ofPattern("MM-dd HH:mm", locale)
-            .withZone(ZoneId.systemDefault())
-            .format(Instant.ofEpochMilli(value))
+        PairingTimeFormatter.format(value, System.currentTimeMillis(), ZoneId.systemDefault(), locale)
 
     companion object {
         private const val STATE_DESTINATION = "settings_destination"

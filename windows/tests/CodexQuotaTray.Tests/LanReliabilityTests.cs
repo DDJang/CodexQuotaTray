@@ -484,6 +484,7 @@ public sealed class LanReliabilityTests
 
         await controller.SetEnabledAsync(true, CancellationToken.None);
         controller.OnNetworkChanged("NETWORK_ADDRESS_CHANGED");
+        Assert.AreEqual("正在监听", controller.StatusText);
         controller.OnNetworkChanged("NETWORK_AVAILABILITY_CHANGED");
         controller.OnNetworkChanged("CONNECTIVITY_HINT");
         await WaitUntilAsync(() => logs.Count(value => value.Contains("LAN reconcile result=no-change", StringComparison.Ordinal)) == 1);
@@ -521,6 +522,31 @@ public sealed class LanReliabilityTests
         Assert.AreEqual(2, created.Count);
         CollectionAssert.AreEqual(new uint[] { 7, 19 }, publishedInterfaces);
         Assert.IsTrue(logs.Any(value => value.Contains("LAN reconcile result=restarted", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void LanStatusTimeFormatterUsesRelativeLocalLabels()
+    {
+        var now = new DateTimeOffset(2026, 8, 26, 19, 30, 0, TimeSpan.Zero);
+
+        Assert.AreEqual(
+            "今天 19:12",
+            LanStatusTimeFormatter.Format(
+                new DateTimeOffset(2026, 8, 26, 19, 12, 0, TimeSpan.Zero),
+                now,
+                TimeZoneInfo.Utc));
+        Assert.AreEqual(
+            "昨天 22:06",
+            LanStatusTimeFormatter.Format(
+                new DateTimeOffset(2026, 8, 25, 22, 6, 0, TimeSpan.Zero),
+                now,
+                TimeZoneInfo.Utc));
+        Assert.AreEqual(
+            "08-24 16:30",
+            LanStatusTimeFormatter.Format(
+                new DateTimeOffset(2026, 8, 24, 16, 30, 0, TimeSpan.Zero),
+                now,
+                TimeZoneInfo.Utc));
     }
 
     [TestMethod]
