@@ -56,6 +56,11 @@ internal static class LanDiagnosticsFormatter
             $"dnsSdInterface={state.DnsSdInterfaceIndex?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}",
             $"lastRemote={Safe(state.LastRemoteAddress) ?? "unavailable"}",
             $"lastRequest={Format(state.LastRequestUtc)} result={Safe(state.LastRequestResult) ?? "unavailable"}",
+            $"lastNetworkChange={Format(state.LastNetworkChangeUtc)} reason={Safe(state.LastNetworkChangeReason) ?? "unavailable"}",
+            $"lastReconcile={Format(state.LastReconcileUtc)} result={Safe(state.LastReconcileResult) ?? "unavailable"}",
+            $"lastReconcileReason={Safe(state.LastReconcileReason) ?? "unavailable"}",
+            $"lastRepairProbe={Format(state.LastRepairProbeUtc)} result={Safe(state.LastRepairProbeResult) ?? "unavailable"} action={Safe(state.LastRepairActionResult) ?? "unavailable"}",
+            $"lastRepairRemote={Safe(state.LastRepairRemote) ?? "unavailable"}",
             "",
             "Recent LAN events:",
         };

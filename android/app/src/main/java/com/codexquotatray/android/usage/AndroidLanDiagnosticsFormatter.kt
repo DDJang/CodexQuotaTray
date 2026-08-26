@@ -16,8 +16,9 @@ internal object AndroidLanDiagnosticsFormatter {
         network: LanNetworkDiagnostics?,
         recentEvents: String,
         nowMillis: Long = System.currentTimeMillis(),
+        epoch: LanNetworkEpochSnapshot = LanNetworkEpoch.snapshot(),
     ): String {
-        val success = pairing?.lastLanSuccessAtMillis ?: pairing?.lastSuccessfulSyncAtMillis
+        val success = pairing?.lastLanSuccessAtMillis
         val endpoint = pairing?.lastLanTargetEndpoint ?: pairing?.let { "${it.host}:${it.port}" }
         val recent = recentEvents
             .lineSequence()
@@ -53,6 +54,7 @@ internal object AndroidLanDiagnosticsFormatter {
             appendLine("failurePhase=${pairing?.lastLanFailurePhase ?: "unavailable"}")
             appendLine("attempt=${pairing?.lastLanAttemptId?.toString() ?: "unavailable"}")
             appendLine("channel=${pairing?.lastLanAttemptChannel ?: "unavailable"}")
+            appendLine("networkGeneration=${epoch.generation}")
             appendLine()
             appendLine("Network:")
             appendLine("networkHandle=${network?.networkHandle ?: "unavailable"}")
@@ -67,6 +69,9 @@ internal object AndroidLanDiagnosticsFormatter {
             appendLine("SSID=${network?.ssid ?: "unavailable"}")
             appendLine("BSSID=${network?.bssid ?: "unavailable"}")
             appendLine("frequency=${network?.frequencyMhz ?: "unavailable"}")
+            appendLine("lastNetworkChange=${epoch.lastNetworkChangeAtMillis?.let(::formatUtc) ?: "unavailable"}")
+            appendLine("lastNetworkChangeReason=${epoch.lastNetworkChangeReason ?: "unavailable"}")
+            appendLine("lastRecoveryAction=${epoch.lastRecoveryAction ?: "unavailable"}")
             appendLine()
             appendLine("Recent LAN events:")
             append(if (recent.isBlank()) "unavailable" else recent)

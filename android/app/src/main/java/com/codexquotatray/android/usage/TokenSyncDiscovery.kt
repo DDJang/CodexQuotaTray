@@ -107,7 +107,7 @@ class AndroidNsdDiscovery(
         lateinit var listener: NsdManager.DiscoveryListener
         lateinit var resolveListener: NsdManager.ResolveListener
         fun resolveNext(serviceInfo: NsdServiceInfo?) {
-            if (serviceInfo == null) return
+            if (serviceInfo == null || attempt?.isStale() == true) return
             runCatching { manager.resolveService(serviceInfo, resolveListener) }
                 .onFailure {
                     attempt?.record("NSD resolve start failure exceptionClass=${it.javaClass.simpleName}")
@@ -117,12 +117,20 @@ class AndroidNsdDiscovery(
         }
         resolveListener = object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
+                if (attempt?.isStale() == true) {
+                    completed.countDown()
+                    return
+                }
                 attempt?.record("NSD resolve failure errorCode=$errorCode")
                     ?: diagnostics.record("Windows NSD resolve failure errorCode=$errorCode")
                 resolveNext(resolveQueue.complete(matched = false))
             }
 
             override fun onServiceResolved(serviceInfo: NsdServiceInfo) {
+                if (attempt?.isStale() == true) {
+                    completed.countDown()
+                    return
+                }
                 val resolvedHost = serviceInfo.host?.hostAddress
                 val attributes = serviceInfo.attributes
                 val resolvedId = attributes.entries
@@ -149,6 +157,7 @@ class AndroidNsdDiscovery(
             }
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
+                if (attempt?.isStale() == true) return
                 attempt?.record("NSD service found") ?: diagnostics.record("Windows NSD service found")
                 if (!serviceInfo.serviceType.trimEnd('.').equals(TokenSyncEndpoint.ServiceType, ignoreCase = true)) return
                 resolveNext(resolveQueue.offer(serviceInfo))
@@ -178,7 +187,7 @@ class AndroidNsdDiscovery(
         runOnMainAndWait {
             runCatching { manager.stopServiceDiscovery(listener) }
         }
-        return candidate
+        return candidate.takeUnless { attempt?.isStale() == true }
     }
 
     private fun runOnMainAndWait(action: () -> Unit) {

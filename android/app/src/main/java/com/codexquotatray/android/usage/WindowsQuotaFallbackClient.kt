@@ -74,12 +74,24 @@ class WindowsQuotaFallbackClient(
         return try {
             val direct = runCatching { fetchDirect(pairing, correlation) }
             direct.getOrNull()?.let { quota ->
+                if (correlation.isStale()) {
+                    correlation.finishFailure("STALE")
+                    throw LanAttemptStaleException(correlation)
+                }
                 correlation.finishSuccess()
                 val updatedPairing = TokenSyncEndpoint.markLanSuccess(pairing, correlation)
+                if (correlation.isStale()) {
+                    correlation.finishFailure("STALE")
+                    throw LanAttemptStaleException(correlation)
+                }
                 runCatching { pairingStore?.recordLanSuccess(pairing, correlation) }
                 return WindowsQuotaFallbackResult(quota, updatedPairing)
             }
             val error = direct.exceptionOrNull()
+            if (correlation.isStale()) {
+                correlation.finishFailure("STALE")
+                throw LanAttemptStaleException(correlation)
+            }
             if (error !is WindowsQuotaFallbackException
                 || error.kind != WindowsQuotaFallbackFailureKind.OFFLINE
                 || !TokenSyncEndpoint.isDiscoveryEnabled(pairing)
@@ -97,14 +109,30 @@ class WindowsQuotaFallbackClient(
             )
                 ?.takeIf { it.deviceId.equals(pairing.deviceId, ignoreCase = true) }
                 ?: run {
+                    if (correlation.isStale()) {
+                        correlation.finishFailure("STALE")
+                        throw LanAttemptStaleException(correlation)
+                    }
                     correlation.nsdTimeout()
                     throw error
                 }
+            if (correlation.isStale()) {
+                correlation.finishFailure("STALE")
+                throw LanAttemptStaleException(correlation)
+            }
             val relocated = TokenSyncEndpoint.updateHost(pairing, candidate)
             correlation.nsdDiscovered(relocated.host, relocated.port)
             val quota = fetchDirect(relocated, correlation)
+            if (correlation.isStale()) {
+                correlation.finishFailure("STALE")
+                throw LanAttemptStaleException(correlation)
+            }
             correlation.finishSuccess()
             val updatedPairing = TokenSyncEndpoint.markLanSuccess(relocated, correlation)
+            if (correlation.isStale()) {
+                correlation.finishFailure("STALE")
+                throw LanAttemptStaleException(correlation)
+            }
             runCatching { pairingStore?.recordLanSuccess(pairing, correlation) }
             WindowsQuotaFallbackResult(quota, updatedPairing)
         } catch (error: Throwable) {

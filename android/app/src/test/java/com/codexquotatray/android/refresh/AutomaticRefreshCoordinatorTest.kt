@@ -105,4 +105,33 @@ class AutomaticRefreshCoordinatorTest {
         assertTrue(coordinator.lastAutomaticAttemptAtMillis(AutomaticRefreshChannel.QUOTA) != null)
         assertTrue(coordinator.lastAutomaticAttemptAtMillis(AutomaticRefreshChannel.TOKEN) != null)
     }
+
+    @Test
+    fun networkRecoveryUsesExistingInFlightDeduplication() {
+        val coordinator = AutomaticRefreshCoordinator { 1_000_000L }
+
+        assertFalse(
+            coordinator.tryStart(
+                AutomaticRefreshChannel.TOKEN,
+                AutomaticRefreshReason.NETWORK_RESTORED,
+                enabled = false,
+            ),
+        )
+        assertTrue(
+            coordinator.tryStart(
+                AutomaticRefreshChannel.TOKEN,
+                AutomaticRefreshReason.NETWORK_RESTORED,
+                enabled = true,
+            ),
+        )
+        assertFalse(
+            coordinator.tryStart(
+                AutomaticRefreshChannel.TOKEN,
+                AutomaticRefreshReason.NETWORK_RESTORED,
+                enabled = true,
+            ),
+        )
+        coordinator.finish(AutomaticRefreshChannel.TOKEN)
+        assertTrue(coordinator.lastAutomaticAttemptAtMillis(AutomaticRefreshChannel.TOKEN) != null)
+    }
 }

@@ -11,6 +11,7 @@ import com.codexquotatray.android.usage.LanAttemptContext
 import com.codexquotatray.android.usage.LanAttemptIds
 import com.codexquotatray.android.usage.LanDiagnosticLogger
 import com.codexquotatray.android.usage.LanNetworkDiagnostics
+import com.codexquotatray.android.usage.LanAttemptStaleException
 import com.codexquotatray.android.usage.NoOpLanDiagnosticLogger
 import javax.net.SocketFactory
 import java.net.Inet4Address
@@ -37,6 +38,7 @@ data class LanSocketBinding(
     val socketFactory: SocketFactory,
     val networkId: String?,
     val diagnostics: LanNetworkDiagnostics? = null,
+    val networkGeneration: Long = com.codexquotatray.android.usage.LanNetworkEpoch.current(),
 )
 
 /**
@@ -63,10 +65,12 @@ class AndroidLanAvailability(
 
     override fun socketBindingForHostOrNull(host: String): LanSocketBinding? =
         wifiNetwork(host)?.let { network ->
+            val generation = com.codexquotatray.android.usage.LanNetworkEpoch.current()
             LanSocketBinding(
                 network.socketFactory,
                 network.networkHandle.toString(),
                 describeNetwork(network, host),
+                generation,
             )
         }
 
@@ -196,6 +200,8 @@ internal class WindowsQuotaFallbackResolver(
 
         return try {
             fetchWindows(pairing)
+        } catch (stale: LanAttemptStaleException) {
+            throw stale
         } catch (failure: WindowsQuotaFallbackException) {
             throw mapWindowsFailure(failure)
         } catch (error: Exception) {
@@ -217,6 +223,8 @@ internal class WindowsQuotaFallbackResolver(
         }
         try {
             fetchWindows(pairing)
+        } catch (stale: LanAttemptStaleException) {
+            throw stale
         } catch (failure: WindowsQuotaFallbackException) {
             throw primary
         } catch (_: Exception) {
@@ -232,11 +240,17 @@ internal class WindowsQuotaFallbackResolver(
         return try {
             val result = fallbackClient.sync(pairing, attempt)
             if (!attempt.isCompleted()) attempt.finishSuccess()
+            if (attempt.isStale()) {
+                attempt.finishFailure("STALE")
+                throw LanAttemptStaleException(attempt)
+            }
             // The concrete fallback client returns the pairing with its LAN
             // summary attached. Keep older injected implementations' pairing
             // shape unchanged so relocation persistence remains compatible.
-            val resultPairing = result.pairing
-            runCatching { pairingStore.recordLanSuccess(pairing, attempt) }
+            val resultPairing = if (attempt.isStale()) pairing else result.pairing
+            if (!attempt.isStale()) {
+                runCatching { pairingStore.recordLanSuccess(pairing, attempt) }
+            }
             TokenUsagePairingLifecycle.withLock {
                 val current = pairingStore.load()
                 if (current == null || !current.matchesConfiguration(pairing)) {

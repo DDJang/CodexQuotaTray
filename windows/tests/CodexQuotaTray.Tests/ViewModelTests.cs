@@ -1062,6 +1062,9 @@ public sealed class ViewModelTests
         }
 
         public Task RegenerateTokenSyncSecretAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<string> RepairPhoneConnectionAsync(CancellationToken cancellationToken) =>
+            Task.FromResult("尚未尝试");
     }
 
     private sealed class StubSettingsPageActions : ISettingsPageActions

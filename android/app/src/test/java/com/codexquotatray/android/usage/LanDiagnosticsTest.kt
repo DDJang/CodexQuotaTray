@@ -17,6 +17,49 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 
 class LanDiagnosticsTest {
+    @Test fun networkEpochAndDebounceCoalesceCallbacksWithoutPersistence() {
+        LanNetworkEpoch.resetForTest(11L)
+        val messages = mutableListOf<String>()
+        val next = LanNetworkEpoch.advance("NETWORK_LOST", LanDiagnosticLogger(messages::add), nowMillis = 123L)
+        assertEquals(12L, next)
+        assertEquals(12L, LanNetworkEpoch.snapshot().generation)
+        assertEquals("NETWORK_LOST", LanNetworkEpoch.snapshot().lastNetworkChangeReason)
+
+        val debounce = LanNetworkRecoveryDebounce()
+        assertTrue(debounce.schedule(12L))
+        assertFalse(debounce.schedule(13L))
+        assertFalse(debounce.consume(12L))
+        assertTrue(debounce.consume(13L))
+        assertFalse(debounce.consume(13L))
+        assertTrue(messages.any { it.contains("generation=12") && it.contains("NETWORK_LOST") })
+    }
+
+    @Test fun staleAttemptDoesNotPublishLanSuccessOrEndpoint() {
+        LanNetworkEpoch.resetForTest(20L)
+        var recorded = false
+        val pairing = pairing()
+        val store = object : TokenSyncPairingStore {
+            override fun load(): TokenSyncPairing = pairing
+            override fun save(pairing: TokenSyncPairing): Boolean = true
+            override fun recordLanSuccess(expected: TokenSyncPairing, attempt: LanAttemptContext): Boolean {
+                recorded = true
+                return true
+            }
+        }
+        val error = runCatching {
+            TokenUsageSyncClient(
+                client = client {
+                    LanNetworkEpoch.advance("LINK_PROPERTIES_CHANGED", NoOpLanDiagnosticLogger)
+                    response(it, 200, fixture())
+                },
+                pairingStore = store,
+            ).sync(pairing)
+        }.exceptionOrNull()
+
+        assertTrue(error?.isLanAttemptStale() == true)
+        assertFalse(recorded)
+        LanNetworkEpoch.resetForTest()
+    }
     @Test fun directFailureAndNsdRetryShareOneTokenAttemptId() {
         val messages = Collections.synchronizedList(mutableListOf<String>())
         val pairing = pairing()
@@ -99,6 +142,7 @@ class LanDiagnosticsTest {
         val text = AndroidLanDiagnosticsFormatter.format(
             version = "0.10.2",
             pairing = pairing().copy(
+                lastSuccessfulSyncAtMillis = 1_600_000_000_000L,
                 lastLanSuccessAtMillis = 1_700_000_000_000L,
                 lastLanAttemptId = 184L,
                 lastLanAttemptChannel = "token",
@@ -118,6 +162,12 @@ class LanDiagnosticsTest {
             ),
             recentEvents = "Authorization: Bearer secret\npairingSecret=secret token=secret\nLAN attempt=184 result=SUCCESS",
             nowMillis = 1_700_000_000_000L,
+            epoch = LanNetworkEpochSnapshot(
+                generation = 14L,
+                lastNetworkChangeAtMillis = 1_700_000_000_000L,
+                lastNetworkChangeReason = "LINK_PROPERTIES_CHANGED",
+                lastRecoveryAction = "CONTEXT_REFRESHED",
+            ),
         )
 
         assertTrue(text.contains("platform=Android"))
@@ -125,6 +175,8 @@ class LanDiagnosticsTest {
         assertTrue(text.contains("interface=wlan0"))
         assertTrue(text.contains("route=192.168.1.0/24"))
         assertTrue(text.contains("Recent LAN events:"))
+        assertTrue(text.contains("networkGeneration=14"))
+        assertTrue(text.contains("lastNetworkChangeReason=LINK_PROPERTIES_CHANGED"))
         assertFalse(text.contains("secret"))
         assertFalse(text.contains("Bearer"))
     }
@@ -133,6 +185,18 @@ class LanDiagnosticsTest {
         val text = AndroidLanDiagnosticsFormatter.format("test", null, LanNetworkDiagnostics(), "", 0L)
         assertTrue(text.contains("networkHandle=unavailable"))
         assertTrue(text.contains("SSID=unavailable"))
+    }
+
+    @Test fun formatterDoesNotTreatNonLanSyncAsLanConnectionSuccess() {
+        val text = AndroidLanDiagnosticsFormatter.format(
+            version = "test",
+            pairing = pairing().copy(lastSuccessfulSyncAtMillis = 1_700_000_000_000L),
+            network = null,
+            recentEvents = "",
+            nowMillis = 1_700_000_000_000L,
+        )
+
+        assertTrue(text.contains("lastSuccess=unavailable"))
     }
 
     @Test fun formatterCanReuseTheLastRecordedRouteWithoutProbingTheNetwork() {

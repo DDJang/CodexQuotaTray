@@ -112,10 +112,12 @@ class TokenSyncStore(context: Context) : TokenSyncPairingStore {
     }
 
     override fun recordLanSuccess(expected: TokenSyncPairing, attempt: LanAttemptContext): Boolean =
-        updateLanState(expected) { pairing -> TokenSyncEndpoint.markLanSuccess(pairing, attempt) }
+        if (attempt.isStale()) false else
+            updateLanState(expected) { pairing -> TokenSyncEndpoint.markLanSuccess(pairing, attempt) }
 
     override fun recordLanFailure(expected: TokenSyncPairing, attempt: LanAttemptContext): Boolean =
-        updateLanState(expected) { pairing -> TokenSyncEndpoint.markLanFailure(pairing, attempt) }
+        if (attempt.isStale()) false else
+            updateLanState(expected) { pairing -> TokenSyncEndpoint.markLanFailure(pairing, attempt) }
 
     private fun updateLanState(
         expected: TokenSyncPairing,

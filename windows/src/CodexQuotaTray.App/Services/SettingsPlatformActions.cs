@@ -97,4 +97,7 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
 
     public Task RegenerateTokenSyncSecretAsync(CancellationToken cancellationToken) =>
         tokenSync.RegenerateAsync(tokenSyncEnabled(), cancellationToken);
+
+    public Task<string> RepairPhoneConnectionAsync(CancellationToken cancellationToken) =>
+        tokenSync.RepairPhoneConnectionAsync(cancellationToken);
 }

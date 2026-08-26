@@ -48,6 +48,8 @@ public interface ISettingsPlatformActions
     void CopyTokenSyncPairingInfo();
 
     Task RegenerateTokenSyncSecretAsync(CancellationToken cancellationToken);
+
+    Task<string> RepairPhoneConnectionAsync(CancellationToken cancellationToken);
 }
 
 public interface ISettingsPageActions
@@ -867,6 +869,22 @@ public sealed partial class SettingsViewModel : ObservableObject
         await platform.RegenerateTokenSyncSecretAsync(cancellationToken);
         RefreshTokenSyncStatus();
         StatusText = "配对密钥已重新生成；旧配对已失效";
+    }
+
+    [RelayCommand]
+    private async Task RepairPhoneConnectionAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            StatusText = await platform.RepairPhoneConnectionAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            StatusText = error.Message;
+        }
     }
 
     private bool CanEdit() => !IsBusy;

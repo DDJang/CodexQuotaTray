@@ -51,12 +51,24 @@ class TokenUsageSyncClient(
         return try {
             val direct = runCatching { fetchDirect(pairing, forceRefresh, attempt) }
             direct.getOrNull()?.let { snapshot ->
+                if (attempt.isStale()) {
+                    attempt.finishFailure("STALE")
+                    throw LanAttemptStaleException(attempt)
+                }
                 attempt.finishSuccess()
                 val updatedPairing = TokenSyncEndpoint.markLanSuccess(pairing, attempt)
+                if (attempt.isStale()) {
+                    attempt.finishFailure("STALE")
+                    throw LanAttemptStaleException(attempt)
+                }
                 runCatching { pairingStore?.recordLanSuccess(pairing, attempt) }
                 return TokenUsageSyncResult(snapshot, updatedPairing)
             }
             val error = direct.exceptionOrNull()
+            if (attempt.isStale()) {
+                attempt.finishFailure("STALE")
+                throw LanAttemptStaleException(attempt)
+            }
             if (error !is TokenUsageException || !TokenSyncEndpoint.shouldDiscover(error.kind, pairing) || discovery == null) {
                 attempt.finishFailure()
                 throw error ?: TokenUsageException(TokenUsageFailureKind.OFFLINE, "Windows 当前不可用")
@@ -66,14 +78,30 @@ class TokenUsageSyncClient(
             val candidate = discovery.find(pairing.deviceId, TokenSyncDiscovery.DEFAULT_TIMEOUT_MS, attempt)
                 ?.takeIf { it.deviceId.equals(pairing.deviceId, ignoreCase = true) }
                 ?: run {
+                    if (attempt.isStale()) {
+                        attempt.finishFailure("STALE")
+                        throw LanAttemptStaleException(attempt)
+                    }
                     attempt.nsdTimeout()
                     throw error
                 }
+            if (attempt.isStale()) {
+                attempt.finishFailure("STALE")
+                throw LanAttemptStaleException(attempt)
+            }
             val relocated = TokenSyncEndpoint.updateHost(pairing, candidate)
             attempt.nsdDiscovered(relocated.host, relocated.port)
             val snapshot = fetchDirect(relocated, forceRefresh, attempt)
+            if (attempt.isStale()) {
+                attempt.finishFailure("STALE")
+                throw LanAttemptStaleException(attempt)
+            }
             attempt.finishSuccess()
             val updatedPairing = TokenSyncEndpoint.markLanSuccess(relocated, attempt)
+            if (attempt.isStale()) {
+                attempt.finishFailure("STALE")
+                throw LanAttemptStaleException(attempt)
+            }
             runCatching { pairingStore?.recordLanSuccess(pairing, attempt) }
             TokenUsageSyncResult(snapshot, updatedPairing)
         } catch (error: Throwable) {

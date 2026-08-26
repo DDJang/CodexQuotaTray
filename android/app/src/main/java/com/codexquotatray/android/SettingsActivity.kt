@@ -1091,7 +1091,7 @@ class SettingsActivity : ComponentActivity() {
         value: TokenSyncPairing,
         locale: java.util.Locale,
     ): String {
-        val success = value.lastLanSuccessAtMillis ?: value.lastSuccessfulSyncAtMillis
+        val success = value.lastLanSuccessAtMillis
         val failure = value.lastLanFailureAtMillis
         return when {
             failure != null && (success == null || failure >= success) ->

@@ -1,11 +1,17 @@
 package com.codexquotatray.android.usage
 
 import android.content.Context
+import android.os.Looper
 import com.codexquotatray.android.AppLogStore
 import com.codexquotatray.android.AppLogSanitizer
 import java.io.IOException
 import java.net.InetSocketAddress
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ThreadFactory
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 fun interface LanDiagnosticLogger {
     fun record(message: String)
@@ -41,8 +47,111 @@ data class LanNetworkDiagnostics(
     ).joinToString(" ")
 }
 
+/** Process-local LAN network epoch. It deliberately never reaches disk. */
+internal object LanNetworkEpoch {
+    private const val INITIAL_GENERATION = 1L
+    private val generation = AtomicLong(INITIAL_GENERATION)
+    private val lastChangeAtMillis = AtomicReference<Long?>(null)
+    private val lastChangeReason = AtomicReference<String?>(null)
+    private val lastRecoveryAction = AtomicReference<String?>(null)
+
+    fun current(): Long = generation.get()
+
+    fun advance(reason: String, logger: LanDiagnosticLogger, nowMillis: Long = System.currentTimeMillis()): Long {
+        val next = generation.updateAndGet { current ->
+            if (current == Long.MAX_VALUE) INITIAL_GENERATION else current + 1L
+        }
+        lastChangeAtMillis.set(nowMillis)
+        lastChangeReason.set(reason)
+        lastRecoveryAction.set(null)
+        runCatching { logger.record("LAN network generation=$next reason=$reason") }
+        return next
+    }
+
+    fun markRecoveryAction(action: String) {
+        lastRecoveryAction.set(action)
+    }
+
+    fun snapshot(): LanNetworkEpochSnapshot = LanNetworkEpochSnapshot(
+        generation = current(),
+        lastNetworkChangeAtMillis = lastChangeAtMillis.get(),
+        lastNetworkChangeReason = lastChangeReason.get(),
+        lastRecoveryAction = lastRecoveryAction.get(),
+    )
+
+    internal fun resetForTest(value: Long = INITIAL_GENERATION) {
+        generation.set(value.coerceAtLeast(1L))
+        lastChangeAtMillis.set(null)
+        lastChangeReason.set(null)
+        lastRecoveryAction.set(null)
+    }
+}
+
+internal data class LanNetworkEpochSnapshot(
+    val generation: Long,
+    val lastNetworkChangeAtMillis: Long?,
+    val lastNetworkChangeReason: String?,
+    val lastRecoveryAction: String?,
+)
+
+internal class LanAttemptStaleException(attempt: LanAttemptContext) :
+    IOException("LAN attempt ${attempt.id} used an expired network generation")
+
+internal fun Throwable.isLanAttemptStale(): Boolean {
+    var current: Throwable? = this
+    var depth = 0
+    while (current != null && depth++ < 16) {
+        if (current is LanAttemptStaleException) return true
+        current = current.cause
+    }
+    return false
+}
+
+/** Small, thread-safe state used by the Android network callback debouncer. */
+internal class LanNetworkRecoveryDebounce {
+    private var pendingGeneration: Long? = null
+
+    @Synchronized
+    fun schedule(generation: Long): Boolean {
+        val first = pendingGeneration == null
+        pendingGeneration = generation
+        return first
+    }
+
+    @Synchronized
+    fun consume(generation: Long): Boolean {
+        if (pendingGeneration != generation) return false
+        pendingGeneration = null
+        return true
+    }
+
+    @Synchronized
+    fun cancel() {
+        pendingGeneration = null
+    }
+}
+
 internal object NoOpLanDiagnosticLogger : LanDiagnosticLogger {
     override fun record(message: String) = Unit
+}
+
+/** Keeps lifecycle callback logging off the UI thread while reusing AppLogStore. */
+private object AndroidLanDiagnosticWriter {
+    private val executor = ThreadPoolExecutor(
+        1,
+        1,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(256),
+        ThreadFactory { runnable ->
+            Thread(runnable, "CodexQuotaTray-LanDiagnostics").apply { isDaemon = true }
+        },
+        ThreadPoolExecutor.DiscardOldestPolicy(),
+    )
+
+    fun enqueue(context: Context, message: String) {
+        runCatching { executor.execute { AppLogStore.recordLan(context, message) } }
+    }
 }
 
 internal class AndroidLanDiagnosticLogger(context: Context) : LanDiagnosticLogger {
@@ -51,7 +160,11 @@ internal class AndroidLanDiagnosticLogger(context: Context) : LanDiagnosticLogge
     override fun record(message: String) {
         // Diagnostics are deliberately fail-open: an unavailable log store
         // must never change the LAN request result.
-        runCatching { AppLogStore.recordLan(appContext, message) }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            AndroidLanDiagnosticWriter.enqueue(appContext, message)
+        } else {
+            runCatching { AppLogStore.recordLan(appContext, message) }
+        }
     }
 }
 
@@ -75,10 +188,12 @@ class LanAttemptContext(
     val id: Long,
     private val diagnostics: LanDiagnosticLogger,
     private val nowMillis: () -> Long = { System.currentTimeMillis() },
+    val networkGeneration: Long = LanNetworkEpoch.current(),
 ) {
     private val sensitiveValues = mutableListOf<String>()
     private var started = false
     private var completed = false
+    private var staleLogged = false
 
     @Volatile
     var finalPhase: String = "UNKNOWN"
@@ -97,9 +212,24 @@ class LanAttemptContext(
         if (pairing.pairingSecret.isNotBlank()) {
             synchronized(sensitiveValues) { sensitiveValues += pairing.pairingSecret }
         }
-        record("start")
+        record("start generation=$networkGeneration")
         storedEndpoint(pairing.host, pairing.port)
     }
+
+    /** Returns true once the attempt's selected LAN epoch is no longer current. */
+    fun isStale(): Boolean {
+        val current = LanNetworkEpoch.current()
+        if (current == networkGeneration) return false
+        synchronized(this) {
+            if (!staleLogged) {
+                staleLogged = true
+                record("stale oldGeneration=$networkGeneration currentGeneration=$current")
+            }
+        }
+        return true
+    }
+
+    fun markStale(): Boolean = isStale()
 
     fun storedEndpoint(host: String, port: Int) = target(host, port, "stored endpoint")
 
@@ -190,10 +320,16 @@ class LanAttemptContext(
         record("NSD result=NSD_DISCOVERED")
     }
 
-    fun finishSuccess() = finish("SUCCESS")
+    fun finishSuccess() = if (isStale()) finish("STALE") else finish("SUCCESS")
 
     fun finishFailure(fallbackPhase: String? = null) {
-        finish(fallbackPhase ?: finalPhase.takeIf { it != "UNKNOWN" } ?: "HTTP_FAILED")
+        finish(
+            fallbackPhase ?: if (isStale()) {
+                "STALE"
+            } else {
+                finalPhase.takeIf { it != "UNKNOWN" } ?: "HTTP_FAILED"
+            },
+        )
     }
 
     @Synchronized

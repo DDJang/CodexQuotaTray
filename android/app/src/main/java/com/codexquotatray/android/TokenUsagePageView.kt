@@ -90,6 +90,7 @@ import com.codexquotatray.android.usage.TokenUsageSnapshot
 import com.codexquotatray.android.usage.TokenUsageSyncCoordinator
 import com.codexquotatray.android.usage.tokenUsageSyncErrorMessage
 import com.codexquotatray.android.usage.shouldForceTokenUsageRefresh
+import com.codexquotatray.android.usage.isLanAttemptStale
 import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
 import com.codexquotatray.android.source.DataSourcePriority
 import com.codexquotatray.android.source.sourcePriorityChanged
@@ -145,6 +146,11 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         if (!priorityChanged) requestSync(reason)
     }
 
+    fun onNetworkRestored() {
+        if (!visible || syncing || !canSync) return
+        requestSync(AutomaticRefreshReason.NETWORK_RESTORED)
+    }
+
     /**
      * Reconciles local provider/cache state. A changed source priority also
      * starts one source-change sync while retaining the current snapshot.
@@ -194,6 +200,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.TOKEN, reason, enabled)) return
         val presentationStartedAt = SystemClock.elapsedRealtime()
         val snapshotAtStart = snapshot
+        val statusAtStart = status
         syncing = true
         status = RefreshStatusFormatter.tokenRefreshing(snapshot != null)
         worker.execute {
@@ -219,16 +226,20 @@ internal class TokenUsagePageController(private val host: MainActivity) {
                         snapshot = synced.snapshot
                         status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(synced.snapshot), formatSyncTime(synced.snapshot.generatedAtUtc))
                     }.onFailure { error ->
-                        val latestSnapshot = loadCachedSnapshot()
-                        if (latestSnapshot != null && hasNewerTokenUsageSnapshot(snapshotAtStart, latestSnapshot)) {
-                            snapshot = latestSnapshot
-                            status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(latestSnapshot), formatSyncTime(latestSnapshot.generatedAtUtc))
+                        if (error.isLanAttemptStale()) {
+                            status = statusAtStart
                         } else {
-                            val message = tokenUsageSyncErrorMessage(error)
-                            status = RefreshStatusFormatter.tokenFailure(
-                                reason = message,
-                                updatedAt = snapshot?.let { formatSyncTime(it.generatedAtUtc) },
-                            )
+                            val latestSnapshot = loadCachedSnapshot()
+                            if (latestSnapshot != null && hasNewerTokenUsageSnapshot(snapshotAtStart, latestSnapshot)) {
+                                snapshot = latestSnapshot
+                                status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(latestSnapshot), formatSyncTime(latestSnapshot.generatedAtUtc))
+                            } else {
+                                val message = tokenUsageSyncErrorMessage(error)
+                                status = RefreshStatusFormatter.tokenFailure(
+                                    reason = message,
+                                    updatedAt = snapshot?.let { formatSyncTime(it.generatedAtUtc) },
+                                )
+                            }
                         }
                     }
                 }, remaining)

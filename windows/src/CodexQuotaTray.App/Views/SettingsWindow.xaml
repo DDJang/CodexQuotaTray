@@ -547,6 +547,17 @@
                                         Command="{Binding CopyDiagnosticsCommand}"
                                         Style="{StaticResource SettingsActionButtonStyle}" />
                                 </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        Content="修复手机连接"
+                                        Command="{Binding RepairPhoneConnectionCommand}"
+                                        IsEnabled="{Binding PhoneTokenSyncEnabled}"
+                                        Style="{StaticResource SettingsActionButtonStyle}" />
+                                </StackPanel>
+                                <TextBlock
+                                    Text="用于网络重连后手机无法访问 Windows 的情况。"
+                                    TextWrapping="Wrap"
+                                    Style="{StaticResource SettingsDescriptionStyle}" />
                                 <TextBlock
                                     Text="若手机无法连接，请检查 Windows 防火墙；应用不会自动提权或添加规则。"
                                     TextWrapping="Wrap"

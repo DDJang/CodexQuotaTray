@@ -306,7 +306,9 @@ public partial class App : Application
         }
         mainWindow.ExitRequested += (_, _) => ExitApplication();
 
-        hostEvents = new HostEventService(() => RequestRuntimeRefresh(RefreshReason.NetworkRestored));
+        hostEvents = new HostEventService(
+            () => RequestRuntimeRefresh(RefreshReason.NetworkRestored),
+            reason => tokenUsageSync?.OnNetworkChanged(reason));
         hostEvents.Start();
 
         if (windowsUpdateService is not null)

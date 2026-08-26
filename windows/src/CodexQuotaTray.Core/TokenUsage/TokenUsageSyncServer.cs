@@ -198,6 +198,38 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                 || bytes[0] == 172 && bytes[1] is >= 16 and <= 31);
     }
 
+    public static bool IsAllowedRepairAddress(IPAddress address)
+    {
+        if (address.AddressFamily != AddressFamily.InterNetwork) return false;
+        if (IsPrivateLanAddress(address)) return true;
+        var bytes = address.GetAddressBytes();
+        return bytes[0] == 169 && bytes[1] == 254;
+    }
+
+    public static bool HasOnLinkPrivateLanRoute(IPAddress remote, LanEndpointSelection selection)
+    {
+        if (!IsAllowedRepairAddress(remote) || !IsPrivateLanAddress(selection.Address)) return false;
+        try
+        {
+            foreach (var item in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                var properties = item.GetIPProperties();
+                var interfaceIndex = properties.GetIPv4Properties()?.Index;
+                if (interfaceIndex is null || (uint)interfaceIndex.Value != selection.InterfaceIndex) continue;
+                foreach (var unicast in properties.UnicastAddresses)
+                {
+                    if (!unicast.Address.Equals(selection.Address) || unicast.IPv4Mask is null) continue;
+                    return SameSubnet(unicast.Address, remote, unicast.IPv4Mask);
+                }
+            }
+        }
+        catch (NetworkInformationException)
+        {
+        }
+
+        return false;
+    }
+
     private static bool IsPhysicalLanType(NetworkInterfaceType type) => type is
         NetworkInterfaceType.Wireless80211 or
         NetworkInterfaceType.Ethernet or

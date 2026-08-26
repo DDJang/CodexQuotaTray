@@ -22,6 +22,12 @@ internal fun OkHttpClient.bindToWifiLan(
                 attempt?.routeNotFound(host)
                 throw IOException("No Wi-Fi route to paired Windows host")
             }
+        if (attempt?.isStale() == true ||
+            attempt != null && binding.networkGeneration != attempt.networkGeneration
+        ) {
+            attempt.markStale()
+            throw LanAttemptStaleException(attempt)
+        }
         attempt?.route(binding.diagnostics)
             ?: diagnostics?.record("LAN bound network=${binding.networkId ?: "unknown"}")
         newBuilder().socketFactory(binding.socketFactory).build()

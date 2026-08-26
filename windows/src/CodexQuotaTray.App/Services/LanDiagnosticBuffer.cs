@@ -23,7 +23,17 @@ internal sealed record LanDiagnosticState(
     string? LastAttemptChannel = null,
     string? LastRemoteAddress = null,
     DateTimeOffset? LastRequestUtc = null,
-    string? LastRequestResult = null);
+    string? LastRequestResult = null,
+    string? LastSuccessfulRemoteAddress = null,
+    DateTimeOffset? LastNetworkChangeUtc = null,
+    string? LastNetworkChangeReason = null,
+    DateTimeOffset? LastReconcileUtc = null,
+    string? LastReconcileReason = null,
+    string? LastReconcileResult = null,
+    DateTimeOffset? LastRepairProbeUtc = null,
+    string? LastRepairProbeResult = null,
+    string? LastRepairActionResult = null,
+    string? LastRepairRemote = null);
 
 internal static class LanDiagnosticRedactor
 {
@@ -202,7 +212,8 @@ internal sealed class LanDiagnosticBuffer : IAsyncDisposable
             Directory.CreateDirectory(persistenceDirectory);
             var path = SlotPath(0);
             var lineBytes = Encoding.UTF8.GetByteCount(line) + Environment.NewLine.Length;
-            if (new FileInfo(path).Length + lineBytes > MaximumSlotBytes)
+            var currentBytes = File.Exists(path) ? new FileInfo(path).Length : 0L;
+            if (currentBytes + lineBytes > MaximumSlotBytes)
             {
                 RotateSlots();
             }
@@ -306,7 +317,6 @@ internal sealed class LanDiagnosticBuffer : IAsyncDisposable
             Port = ParseInt(Value(line, "port")) ?? current.Port,
             InterfaceIndex = ParseUInt(Value(line, "interfaceIndex")) ?? current.InterfaceIndex,
             DnsSdInterfaceIndex = ParseUInt(Value(line, "interface")) ?? current.DnsSdInterfaceIndex,
-            LastRemoteAddress = Value(line, "remote") ?? current.LastRemoteAddress,
         };
 
         if (line.Contains("listener healthy=true", StringComparison.OrdinalIgnoreCase)
@@ -342,12 +352,47 @@ internal sealed class LanDiagnosticBuffer : IAsyncDisposable
             next = next with { LastRequestUtc = timestamp, LastRequestResult = result };
             if (string.Equals(result, "SUCCESS", StringComparison.OrdinalIgnoreCase))
             {
-                next = next with { LastSuccessUtc = timestamp };
+                next = next with
+                {
+                    LastSuccessUtc = timestamp,
+                    LastRemoteAddress = Value(line, "remote") ?? current.LastRemoteAddress,
+                    LastSuccessfulRemoteAddress = Value(line, "remote") ?? current.LastSuccessfulRemoteAddress,
+                };
             }
             else
             {
                 next = next with { LastFailureUtc = timestamp, LastFailurePhase = result.ToUpperInvariant() };
             }
+        }
+
+        if (line.Contains("Network change observed", StringComparison.OrdinalIgnoreCase))
+        {
+            next = next with
+            {
+                LastNetworkChangeUtc = timestamp,
+                LastNetworkChangeReason = Value(line, "reason") ?? current.LastNetworkChangeReason,
+            };
+        }
+
+        if (line.Contains("LAN reconcile result=", StringComparison.OrdinalIgnoreCase))
+        {
+            next = next with
+            {
+                LastReconcileUtc = timestamp,
+                LastReconcileReason = Value(line, "reason") ?? current.LastReconcileReason,
+                LastReconcileResult = Value(line, "result") ?? current.LastReconcileResult,
+            };
+        }
+
+        if (line.Contains("LAN repair probe completed", StringComparison.OrdinalIgnoreCase))
+        {
+            next = next with
+            {
+                LastRepairProbeUtc = timestamp,
+                LastRepairProbeResult = Value(line, "probeResult") ?? current.LastRepairProbeResult,
+                LastRepairActionResult = Value(line, "actionResult") ?? current.LastRepairActionResult,
+                LastRepairRemote = Value(line, "remote") ?? current.LastRepairRemote,
+            };
         }
 
         return next;
