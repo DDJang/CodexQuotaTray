@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Net;
 using CodexQuotaTray.Core.Auth;
 using CodexQuotaTray.Core.Models;
@@ -110,6 +111,10 @@ public sealed class ViewModelTests
         Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("正在刷新…", viewModel.StatusText);
 
+        var presentationCompleted = WaitForPropertyConditionAsync(
+            viewModel,
+            nameof(MainViewModel.IsRefreshing),
+            () => !viewModel.IsRefreshing);
         viewModel.ApplySnapshot(refreshing with
         {
             StatusText = "更新于 14:30",
@@ -125,7 +130,7 @@ public sealed class ViewModelTests
         Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("正在刷新…", viewModel.StatusText);
 
-        await Task.Delay(RefreshPresentationPolicy.MinimumIndicatorDuration + TimeSpan.FromMilliseconds(150));
+        await presentationCompleted;
 
         Assert.IsFalse(viewModel.IsRefreshing);
         Assert.IsFalse(viewModel.ShowLoading);
@@ -159,7 +164,10 @@ public sealed class ViewModelTests
             new ResetCreditViewState(ResetCreditKind.Unavailable),
             IsRefreshing: true));
 
-        await Task.Delay(TimeSpan.FromMilliseconds(400));
+        var loadingStarted = WaitForPropertyConditionAsync(
+            viewModel,
+            nameof(MainViewModel.ShowLoading),
+            () => viewModel.ShowLoading);
         viewModel.ApplySnapshot(new AppUiState(
             "Codex",
             null,
@@ -168,6 +176,12 @@ public sealed class ViewModelTests
             [],
             new ResetCreditViewState(ResetCreditKind.Unavailable),
             IsRefreshing: true));
+        await loadingStarted;
+
+        var presentationCompleted = WaitForPropertyConditionAsync(
+            viewModel,
+            nameof(MainViewModel.IsRefreshing),
+            () => !viewModel.IsRefreshing);
         viewModel.ApplySnapshot(new AppUiState(
             "Codex",
             "Plus",
@@ -176,15 +190,13 @@ public sealed class ViewModelTests
             [replacementWindow, secondaryWindow],
             new ResetCreditViewState(ResetCreditKind.Unavailable)));
 
-        await Task.Delay(TimeSpan.FromMilliseconds(450));
-
         Assert.IsTrue(viewModel.IsRefreshing);
         Assert.IsTrue(viewModel.ShowLoading);
         Assert.IsFalse(viewModel.ShowContent);
         Assert.IsFalse(viewModel.HasWindows);
         Assert.HasCount(2, viewModel.LoadingWindows);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(400));
+        await presentationCompleted;
 
         Assert.IsFalse(viewModel.IsRefreshing);
         Assert.IsFalse(viewModel.ShowLoading);
@@ -362,6 +374,41 @@ public sealed class ViewModelTests
     private static MainViewModel CreateViewModel() => new(
         new StubProvider(CreateState()),
         new StubNavigation());
+
+    private static async Task WaitForPropertyConditionAsync(
+        INotifyPropertyChanged source,
+        string propertyName,
+        Func<bool> condition)
+    {
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler? handler = null;
+        handler = (_, args) =>
+        {
+            if (args.PropertyName is null || args.PropertyName == propertyName)
+            {
+                TryComplete();
+            }
+        };
+
+        source.PropertyChanged += handler;
+        try
+        {
+            TryComplete();
+            await completed.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        finally
+        {
+            source.PropertyChanged -= handler;
+        }
+
+        void TryComplete()
+        {
+            if (condition())
+            {
+                completed.TrySetResult();
+            }
+        }
+    }
 
     private static AppUiState CreateState(params QuotaWindowView[] windows) => new(
         "Codex",
@@ -848,11 +895,12 @@ public sealed class ViewModelTests
         Assert.IsTrue(viewModel.ShowOAuthCancelButton);
         Assert.IsTrue(viewModel.CanEditDataSources);
 
+        var deviceDetailsReady = WaitForPropertyConditionAsync(
+            viewModel,
+            nameof(SettingsViewModel.ShowOAuthDeviceLoginDetails),
+            () => viewModel.ShowOAuthDeviceLoginDetails);
         handler.ReleaseDeviceCode();
-        for (var attempt = 0; attempt < 100 && !viewModel.ShowOAuthDeviceLoginDetails; attempt++)
-        {
-            await Task.Delay(10);
-        }
+        await deviceDetailsReady;
 
         Assert.IsTrue(viewModel.ShowOAuthDeviceLoginDetails);
         Assert.IsFalse(viewModel.ShowOAuthLoginPreparing);

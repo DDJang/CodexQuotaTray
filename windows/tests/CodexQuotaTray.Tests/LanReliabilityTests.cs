@@ -1,6 +1,8 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.App.Services;
@@ -475,11 +477,21 @@ public sealed class LanReliabilityTests
             diagnostic: logs.Add,
             lateCallbackGracePeriod: lateCallbackGracePeriod ?? TimeSpan.FromMilliseconds(100));
 
-    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan? timeout = null)
+    private static async Task WaitUntilAsync(
+        Func<bool> condition,
+        TimeSpan? timeout = null,
+        [CallerArgumentExpression(nameof(condition))] string? conditionDescription = null)
     {
-        var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(2));
-        while (!condition() && DateTime.UtcNow < deadline) await Task.Delay(10);
-        Assert.IsTrue(condition(), "condition did not become true before timeout");
+        var limit = timeout ?? TimeSpan.FromSeconds(2);
+        var stopwatch = Stopwatch.StartNew();
+        while (!condition() && stopwatch.Elapsed < limit)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.IsTrue(
+            condition(),
+            $"Condition '{conditionDescription ?? "unknown"}' did not become true before timeout {limit}.");
     }
 
     private sealed class FakeDnsSdNative(

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.NetworkInformation;
@@ -660,9 +661,9 @@ public sealed class TokenUsageTests
         Assert.IsTrue(stale.All(value => value == 100L));
         Assert.AreEqual(2, scanCalls);
         refresh.SetResult(refreshedSnapshot);
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        var refreshTimeout = Stopwatch.StartNew();
         long afterRefresh = 0;
-        while (afterRefresh != 200 && DateTime.UtcNow < deadline)
+        while (afterRefresh != 200 && refreshTimeout.Elapsed < TimeSpan.FromSeconds(2))
         {
             await Task.Delay(10);
             afterRefresh = await LifetimeTokensAsync(client);
@@ -674,9 +675,19 @@ public sealed class TokenUsageTests
     public async Task ForceRequestWaitsForFreshScan()
     {
         var refresh = new TaskCompletionSource<TokenUsageSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var scanCalls = 0;
         await using var server = new TokenUsageSyncServer(
-            _ => ++scanCalls == 1 ? Task.FromResult(Snapshot(100, DateTimeOffset.UtcNow)) : refresh.Task,
+            _ =>
+            {
+                if (Interlocked.Increment(ref scanCalls) == 1)
+                {
+                    return Task.FromResult(Snapshot(100, DateTimeOffset.UtcNow));
+                }
+
+                refreshStarted.TrySetResult();
+                return refresh.Task;
+            },
             "test-secret",
             TimeSpan.FromHours(1));
         server.Start(IPAddress.Loopback, 0);
@@ -685,7 +696,7 @@ public sealed class TokenUsageTests
         Assert.AreEqual(100L, await LifetimeTokensAsync(client));
 
         var forced = LifetimeTokensAsync(client, "/v1/token-usage?refresh=force");
-        await Task.Delay(30);
+        await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
         Assert.IsFalse(forced.IsCompleted);
         refresh.SetResult(Snapshot(300, DateTimeOffset.UtcNow.AddSeconds(1)));
         Assert.AreEqual(300L, await forced);
