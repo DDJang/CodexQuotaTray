@@ -20,7 +20,7 @@ namespace CodexQuotaTray.App.Views;
 public sealed partial class SettingsWindow : Window
 {
     private const double DefaultWidthDips = 740;
-    private const double DefaultHeightDips = 580;
+    private const double DefaultHeightDips = 680;
     private const double MinimumWidthDips = 480;
     private const double MinimumHeightDips = 420;
     private readonly SettingsViewModel viewModel;
@@ -46,6 +46,7 @@ public sealed partial class SettingsWindow : Window
         viewModel.TokenSyncChanged += OnTokenSyncChanged;
         viewModel.UpdateCheckCompleted += OnUpdateCheckCompleted;
         InitializeSettingsNavigation();
+        InitializeTokenSyncDisclosure();
         UpdateTokenSyncQrCode();
         SettingsRoot.Loaded += (_, _) =>
         {
@@ -128,6 +129,11 @@ public sealed partial class SettingsWindow : Window
         ApplyTitleBarTheme(viewModel.SelectedThemeMode);
         if (args.WindowActivationState != WindowActivationState.Deactivated)
         {
+            if (showingSettingsHome)
+            {
+                ResizeSettingsWindowForHome();
+            }
+
             ApplyBackdrop();
         }
     }
@@ -186,6 +192,25 @@ public sealed partial class SettingsWindow : Window
         {
             NavigateToSettingsHome(animate: true);
         }
+
+        ResizeSettingsWindowForHome();
+    }
+
+    private void ResizeSettingsWindowForHome()
+    {
+        var hwnd = WindowNative.GetWindowHandle(this);
+        var scale = WindowPlacementService.GetRasterizationScale(hwnd);
+        var position = appWindow.Position;
+        var currentSize = appWindow.Size;
+        var workArea = WindowPlacementService.GetWorkArea(
+            new System.Drawing.Rectangle(
+                position.X,
+                position.Y,
+                Math.Max(1, currentSize.Width),
+                Math.Max(1, currentSize.Height)));
+        var availableHeightDips = workArea.Height / scale - 16;
+        var heightDips = Math.Clamp(availableHeightDips, MinimumHeightDips, DefaultHeightDips);
+        appWindow.Resize(new SizeInt32(currentSize.Width, DipsToPixels(heightDips, scale)));
     }
 
     private FrameworkElement[] SettingsSections() =>
@@ -245,6 +270,15 @@ public sealed partial class SettingsWindow : Window
             viewModel.RefreshTokenSyncStatus();
             UpdateTokenSyncQrCode();
         });
+    }
+
+    private void InitializeTokenSyncDisclosure()
+    {
+        var hasSuccessfulConnection = viewModel.TokenSyncMobileStatusText.StartsWith(
+            "最近手机连接",
+            StringComparison.Ordinal);
+        TokenSyncPairingExpander.IsExpanded = viewModel.PhoneTokenSyncEnabled && !hasSuccessfulConnection;
+        TokenSyncDiagnosticsExpander.IsExpanded = false;
     }
 
     private async void OnQuotaDataSourceSelectionChanged(object sender, SelectionChangedEventArgs args)
@@ -478,6 +512,25 @@ public sealed partial class SettingsWindow : Window
         if (await TryShowDialogAsync(dialog) == ContentDialogResult.Primary)
         {
             await viewModel.RegenerateTokenSyncSecretCommand.ExecuteAsync(null);
+        }
+    }
+
+    private async void OnRepairPhoneConnectionRequested(object sender, RoutedEventArgs args)
+    {
+        var dialog = new ContentDialog
+        {
+            Title = "修复手机连接？",
+            Content = "此操作会根据最近一次手机连接记录检查当前局域网路径，并发送一次修复探测；不会重新配对或修改配对密钥，完成后请在手机端重新刷新。",
+            PrimaryButtonText = "确认",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+            RequestedTheme = SettingsRoot.ActualTheme,
+            XamlRoot = SettingsRoot.XamlRoot,
+        };
+
+        if (await TryShowDialogAsync(dialog) == ContentDialogResult.Primary)
+        {
+            await viewModel.RepairPhoneConnectionCommand.ExecuteAsync(null);
         }
     }
 

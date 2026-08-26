@@ -41,21 +41,22 @@ class AccountActivity : ComponentActivity() {
                     Column(Modifier.fillMaxWidth()) {
                         SettingsSection("OpenAI") {
                             SettingsGroup {
-                                SettingsInfoRow(
-                                    title = "状态",
-                                    value = if (credentials == null) "尚未登录 Codex" else "已登录",
-                                )
-                                credentials?.let { value ->
-                                    JwtClaims.planType(value.idToken)?.takeIf(String::isNotBlank)?.let { plan ->
-                                        SettingsDivider()
-                                        SettingsInfoRow(
-                                            title = "账户类型",
-                                            value = plan.replaceFirstChar { character -> character.uppercase() },
-                                        )
-                                    }
-                                    value.accountId?.let { accountId ->
-                                        SettingsDivider()
-                                        SettingsInfoRow("账号标识", mask(accountId))
+                                if (credentials == null) {
+                                    SettingsInfoRow("状态", "尚未登录 Codex")
+                                } else {
+                                    credentials?.let { value ->
+                                        JwtClaims.planType(value.idToken)
+                                            ?.takeIf(String::isNotBlank)
+                                            ?.let { plan ->
+                                                SettingsInfoRow(
+                                                    title = "账户类型",
+                                                    value = plan.replaceFirstChar { character -> character.uppercase() },
+                                                )
+                                            }
+                                        value.accountId?.let { accountId ->
+                                            SettingsDivider()
+                                            SettingsInfoRow("账号标识", mask(accountId))
+                                        }
                                     }
                                 }
                                 SettingsActionButton(

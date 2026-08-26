@@ -464,6 +464,149 @@ public sealed class LanReliabilityTests
         Assert.AreEqual(19u, publishedInterface);
     }
 
+    [TestMethod]
+    public async Task NetworkEventsDebounceAndDoNotRestartHealthyUnchangedListener()
+    {
+        var created = 0;
+        var logs = new List<string>();
+        var settings = new TokenUsageSettings(2, Guid.NewGuid(), new string('a', 64));
+        await using var controller = new TokenUsageSyncController(
+            _ => Task.FromResult(settings),
+            _ => Task.FromResult(settings),
+            () => new LanEndpointSelection(IPAddress.Parse("192.168.1.20"), 7),
+            _ => { created++; return new FakeLanServer(false, []); },
+            (_, _) => new FakePublisher(),
+            43821,
+            "",
+            TimeSpan.FromSeconds(10),
+            logs.Add,
+            networkChangeDebounce: TimeSpan.FromMilliseconds(30));
+
+        await controller.SetEnabledAsync(true, CancellationToken.None);
+        controller.OnNetworkChanged("NETWORK_ADDRESS_CHANGED");
+        Assert.AreEqual("正在监听", controller.StatusText);
+        controller.OnNetworkChanged("NETWORK_AVAILABILITY_CHANGED");
+        controller.OnNetworkChanged("CONNECTIVITY_HINT");
+        await WaitUntilAsync(() => logs.Count(value => value.Contains("LAN reconcile result=no-change", StringComparison.Ordinal)) == 1);
+
+        Assert.AreEqual(1, created);
+        Assert.AreEqual("正在监听", controller.StatusText);
+        Assert.AreEqual(1, logs.Count(value => value.Contains("LAN reconcile result=no-change", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task NetworkAddressChangeUsesExistingReconcileAndPublishesNewInterface()
+    {
+        var current = new LanEndpointSelection(IPAddress.Parse("192.168.1.20"), 7);
+        var created = new List<FakeLanServer>();
+        var publishedInterfaces = new List<uint>();
+        var logs = new List<string>();
+        var settings = new TokenUsageSettings(2, Guid.NewGuid(), new string('a', 64));
+        await using var controller = new TokenUsageSyncController(
+            _ => Task.FromResult(settings),
+            _ => Task.FromResult(settings),
+            () => current,
+            _ => { var server = new FakeLanServer(false, []); created.Add(server); return server; },
+            (_, _) => new FakePublisher(onStart: publishedInterfaces.Add),
+            43821,
+            "",
+            TimeSpan.FromSeconds(10),
+            logs.Add,
+            networkChangeDebounce: TimeSpan.FromMilliseconds(20));
+
+        await controller.SetEnabledAsync(true, CancellationToken.None);
+        current = new LanEndpointSelection(IPAddress.Parse("192.168.1.21"), 19);
+        controller.OnNetworkChanged("NETWORK_ADDRESS_CHANGED");
+        await WaitUntilAsync(() => created.Count == 2 && controller.AddressText.StartsWith("192.168.1.21", StringComparison.Ordinal));
+
+        Assert.AreEqual(2, created.Count);
+        CollectionAssert.AreEqual(new uint[] { 7, 19 }, publishedInterfaces);
+        Assert.IsTrue(logs.Any(value => value.Contains("LAN reconcile result=restarted", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void LanStatusTimeFormatterUsesRelativeLocalLabels()
+    {
+        var now = new DateTimeOffset(2026, 8, 26, 19, 30, 0, TimeSpan.Zero);
+
+        Assert.AreEqual(
+            "今天 19:12",
+            LanStatusTimeFormatter.Format(
+                new DateTimeOffset(2026, 8, 26, 19, 12, 0, TimeSpan.Zero),
+                now,
+                TimeZoneInfo.Utc));
+        Assert.AreEqual(
+            "昨天 22:06",
+            LanStatusTimeFormatter.Format(
+                new DateTimeOffset(2026, 8, 25, 22, 6, 0, TimeSpan.Zero),
+                now,
+                TimeZoneInfo.Utc));
+        Assert.AreEqual(
+            "08-24 16:30",
+            LanStatusTimeFormatter.Format(
+                new DateTimeOffset(2026, 8, 24, 16, 30, 0, TimeSpan.Zero),
+                now,
+                TimeZoneInfo.Utc));
+    }
+
+    [TestMethod]
+    public async Task RepairWithoutSuccessfulRemoteDoesNotProbe()
+    {
+        var probes = 0;
+        var settings = new TokenUsageSettings(2, Guid.NewGuid(), new string('a', 64));
+        await using var controller = new TokenUsageSyncController(
+            _ => Task.FromResult(settings),
+            _ => Task.FromResult(settings),
+            () => new LanEndpointSelection(IPAddress.Parse("192.168.1.20"), 7),
+            _ => new FakeLanServer(false, []),
+            (_, _) => new FakePublisher(),
+            43821,
+            "",
+            TimeSpan.FromSeconds(10),
+            diagnosticStateProvider: () => new LanDiagnosticState(
+                LastRemoteAddress: "192.168.1.92",
+                LastRequestResult: "AUTH_FAILED"),
+            repairProbe: (_, _) => { probes++; return Task.FromResult(LanRepairProbeResult.REPLY); });
+
+        await controller.SetEnabledAsync(true, CancellationToken.None);
+        var result = await controller.RepairPhoneConnectionAsync(CancellationToken.None);
+
+        Assert.AreEqual("暂无可修复的手机连接记录", result);
+        Assert.AreEqual(0, probes);
+    }
+
+    [TestMethod]
+    public async Task RepairUsesOnlySuccessfulOnLinkRemoteAndTimeoutIsNotFailure()
+    {
+        var probes = 0;
+        var logs = new List<string>();
+        var settings = new TokenUsageSettings(2, Guid.NewGuid(), new string('a', 64));
+        await using var controller = new TokenUsageSyncController(
+            _ => Task.FromResult(settings),
+            _ => Task.FromResult(settings),
+            () => new LanEndpointSelection(IPAddress.Parse("192.168.1.58"), 7),
+            _ => new FakeLanServer(false, []),
+            (_, _) => new FakePublisher(),
+            43821,
+            "",
+            TimeSpan.FromSeconds(10),
+            logs.Add,
+            diagnosticStateProvider: () => new LanDiagnosticState(
+                LastSuccessfulRemoteAddress: "192.168.1.92",
+                LastRequestResult: "SUCCESS"),
+            repairProbe: (_, _) => { probes++; return Task.FromResult(LanRepairProbeResult.TIMEOUT); },
+            repairRouteValidator: (_, _) => true);
+
+        await controller.SetEnabledAsync(true, CancellationToken.None);
+        var result = await controller.RepairPhoneConnectionAsync(CancellationToken.None);
+        var second = await controller.RepairPhoneConnectionAsync(CancellationToken.None);
+
+        Assert.AreEqual("已尝试修复，请在手机端重新刷新", result);
+        Assert.AreEqual(1, probes);
+        Assert.AreEqual("请稍后再试", second);
+        Assert.IsTrue(logs.Any(value => value.Contains("probeResult=TIMEOUT actionResult=PROBE_SENT", StringComparison.Ordinal)));
+    }
+
     private static DnsSdServicePublisher Publisher(
         FakeDnsSdNative native,
         List<string> logs,

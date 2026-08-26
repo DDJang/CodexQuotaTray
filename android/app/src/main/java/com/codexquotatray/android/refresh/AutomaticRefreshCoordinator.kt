@@ -14,6 +14,7 @@ internal enum class AutomaticRefreshReason {
     RETRY,
     MANUAL,
     SOURCE_CHANGED,
+    NETWORK_RESTORED,
 }
 
 /**
@@ -48,6 +49,7 @@ internal class AutomaticRefreshCoordinator(
                 AutomaticRefreshReason.MANUAL,
                 AutomaticRefreshReason.RETRY,
                 AutomaticRefreshReason.SOURCE_CHANGED,
+                AutomaticRefreshReason.NETWORK_RESTORED,
             ) &&
             !ForegroundRefreshPolicy.shouldRunOnForeground(
                 enabled = enabled,

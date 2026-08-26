@@ -27,6 +27,8 @@ internal sealed class DemoSettingsPlatformActions : ISettingsPlatformActions
 
     public string TokenSyncDeviceNameText => string.Empty;
 
+    public string TokenSyncMobileStatusText => string.Empty;
+
     public string? TokenSyncPairingInfo => null;
 
     public event EventHandler? TokenSyncChanged
@@ -40,4 +42,7 @@ internal sealed class DemoSettingsPlatformActions : ISettingsPlatformActions
     public void CopyTokenSyncPairingInfo() => throw new InvalidOperationException("预览模式不可用。");
 
     public Task RegenerateTokenSyncSecretAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    public Task<string> RepairPhoneConnectionAsync(CancellationToken cancellationToken) =>
+        Task.FromResult("预览模式不可用");
 }

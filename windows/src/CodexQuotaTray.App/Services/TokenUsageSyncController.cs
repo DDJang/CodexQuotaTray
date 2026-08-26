@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.Core.Persistence;
@@ -10,6 +12,9 @@ namespace CodexQuotaTray.App.Services;
 internal sealed class TokenUsageSyncController : IAsyncDisposable
 {
     private static readonly TimeSpan DefaultAddressCheckInterval = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan DefaultNetworkChangeDebounce = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan DefaultRepairCooldown = TimeSpan.FromSeconds(4);
+    private static readonly TimeSpan RepairProbeTimeout = TimeSpan.FromMilliseconds(750);
     private readonly Func<CancellationToken, Task<TokenUsageSettings>> loadSettings;
     private readonly Func<CancellationToken, Task<TokenUsageSettings>> regenerateSettings;
     private readonly Func<LanEndpointSelection?> addressProvider;
@@ -17,6 +22,10 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
     private readonly Func<Guid, string, IDnsSdPublisher> publisherFactory;
     private readonly TimeSpan addressCheckInterval;
     private readonly Action<string> diagnostic;
+    private readonly Func<LanDiagnosticState>? diagnosticStateProvider;
+    private readonly TimeSpan networkChangeDebounce;
+    private readonly Func<IPAddress, CancellationToken, Task<LanRepairProbeResult>> repairProbe;
+    private readonly Func<IPAddress, LanEndpointSelection, bool> repairRouteValidator;
     private readonly int port;
     private readonly string displayNameSuffix;
     private readonly SemaphoreSlim stateGate = new(1, 1);
@@ -28,6 +37,10 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
     private bool enabled;
     private uint currentInterfaceIndex;
     private string displayName;
+    private readonly object networkChangeGate = new();
+    private CancellationTokenSource? networkChangeLifetime;
+    private DateTimeOffset? lastRepairAtUtc;
+    private int repairInFlight;
 
     internal TokenUsageSyncController(
         TokenUsageSettingsService settingsService,
@@ -36,18 +49,32 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         int port = TokenUsageSyncServer.DefaultPort,
         string displayNameSuffix = "",
         string dnsSdInstancePrefix = "CodexQuotaTray",
-        Action<string>? diagnostic = null)
-        : this(
-            settingsService.LoadOrCreateAsync,
-            settingsService.RegenerateAsync,
-            () => TokenUsageSyncServer.FindPrivateLanSelection(diagnostic),
-            secret => new LanSyncServerAdapter(new TokenUsageSyncServer(readTokenUsageAsync, secret, quotaSnapshotProvider, diagnostic: diagnostic)),
-            (deviceId, name) => new DnsSdPublisherAdapter(new DnsSdServicePublisher(deviceId, name, dnsSdInstancePrefix, diagnostic: diagnostic)),
-            port,
-            displayNameSuffix,
-            DefaultAddressCheckInterval,
-            diagnostic ?? (message => System.Diagnostics.Debug.WriteLine(message)))
+        Action<string>? diagnostic = null,
+        Func<LanDiagnosticState>? diagnosticStateProvider = null,
+        TimeSpan? networkChangeDebounce = null,
+        Func<IPAddress, CancellationToken, Task<LanRepairProbeResult>>? repairProbe = null,
+        Func<IPAddress, LanEndpointSelection, bool>? repairRouteValidator = null)
     {
+        loadSettings = settingsService.LoadOrCreateAsync;
+        regenerateSettings = settingsService.RegenerateAsync;
+        addressProvider = () => TokenUsageSyncServer.FindPrivateLanSelection(diagnostic);
+        serverFactory = secret => new LanSyncServerAdapter(new TokenUsageSyncServer(
+            readTokenUsageAsync,
+            secret,
+            quotaSnapshotProvider,
+            diagnostic: diagnostic,
+            requestObserved: () => Changed?.Invoke(this, EventArgs.Empty)));
+        publisherFactory = (deviceId, name) => new DnsSdPublisherAdapter(
+            new DnsSdServicePublisher(deviceId, name, dnsSdInstancePrefix, diagnostic: diagnostic));
+        this.port = port;
+        this.displayNameSuffix = displayNameSuffix;
+        addressCheckInterval = DefaultAddressCheckInterval;
+        this.diagnostic = diagnostic ?? (message => System.Diagnostics.Debug.WriteLine(message));
+        this.diagnosticStateProvider = diagnosticStateProvider;
+        this.networkChangeDebounce = networkChangeDebounce ?? DefaultNetworkChangeDebounce;
+        this.repairProbe = repairProbe ?? ProbeOnceAsync;
+        this.repairRouteValidator = repairRouteValidator ?? TokenUsageSyncServer.HasOnLinkPrivateLanRoute;
+        displayName = CreateDisplayName(displayNameSuffix);
     }
 
     internal TokenUsageSyncController(
@@ -59,7 +86,11 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         int port,
         string displayNameSuffix,
         TimeSpan addressCheckInterval,
-        Action<string>? diagnostic = null)
+        Action<string>? diagnostic = null,
+        Func<LanDiagnosticState>? diagnosticStateProvider = null,
+        TimeSpan? networkChangeDebounce = null,
+        Func<IPAddress, CancellationToken, Task<LanRepairProbeResult>>? repairProbe = null,
+        Func<IPAddress, LanEndpointSelection, bool>? repairRouteValidator = null)
     {
         this.loadSettings = loadSettings;
         this.regenerateSettings = regenerateSettings;
@@ -70,6 +101,10 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         this.displayNameSuffix = displayNameSuffix;
         this.addressCheckInterval = addressCheckInterval;
         this.diagnostic = diagnostic ?? (_ => { });
+        this.diagnosticStateProvider = diagnosticStateProvider;
+        this.networkChangeDebounce = networkChangeDebounce ?? DefaultNetworkChangeDebounce;
+        this.repairProbe = repairProbe ?? ProbeOnceAsync;
+        this.repairRouteValidator = repairRouteValidator ?? TokenUsageSyncServer.HasOnLinkPrivateLanRoute;
         displayName = CreateDisplayName(displayNameSuffix);
     }
 
@@ -79,6 +114,26 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
     internal string? PairingInfo => server?.Address is null || settings is null
         ? null
         : new TokenUsagePairing(settings.DeviceId, server.Address.ToString(), server.Port, settings.PairingSecret, displayName).ToUri();
+    internal string MobileStatusText
+    {
+        get
+        {
+            var snapshot = diagnosticStateProvider?.Invoke();
+            if (snapshot?.LastRequestResult is { } result)
+            {
+                return result.ToUpperInvariant() switch
+                {
+                    "SUCCESS" => snapshot.LastSuccessUtc is { } success
+                        ? $"最近手机连接：{LanStatusTimeFormatter.Format(success, DateTimeOffset.UtcNow)}"
+                        : "最近手机连接：已成功",
+                    "AUTH_FAILED" => "最近手机请求：认证失败",
+                    _ => "最近手机请求：请求失败",
+                };
+            }
+
+            return "尚未收到手机连接";
+        }
+    }
     internal event EventHandler? Changed;
 
     internal async Task SetEnabledAsync(bool enabled, CancellationToken cancellationToken)
@@ -97,6 +152,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             if (this.enabled) return;
             var loadedSettings = await loadSettings(cancellationToken).ConfigureAwait(false);
             settings = loadedSettings;
+            diagnostic($"LAN pairing device={settings.DeviceId:D} endpoint=unavailable");
             displayName = CreateDisplayName(displayNameSuffix);
             monitorLifetime = new CancellationTokenSource();
             this.enabled = true;
@@ -129,8 +185,119 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         else Changed?.Invoke(this, EventArgs.Empty);
     }
 
+    internal void OnNetworkChanged(string reason = "NETWORK_EVENT")
+    {
+        if (!enabled)
+        {
+            return;
+        }
+
+        diagnostic($"Network change observed reason={reason}");
+        CancellationTokenSource next;
+        lock (networkChangeGate)
+        {
+            networkChangeLifetime?.Cancel();
+            networkChangeLifetime?.Dispose();
+            next = new CancellationTokenSource();
+            networkChangeLifetime = next;
+        }
+
+        diagnostic($"LAN reconcile scheduled reason={reason} debounceMs={networkChangeDebounce.TotalMilliseconds:0}");
+        _ = ReconcileAfterNetworkChangeAsync(reason, next);
+    }
+
+    internal async Task<string> RepairPhoneConnectionAsync(CancellationToken cancellationToken)
+    {
+        if (Interlocked.CompareExchange(ref repairInFlight, 1, 0) != 0)
+        {
+            diagnostic("LAN repair cooldown reason=IN_FLIGHT");
+            return "正在尝试修复，请稍候";
+        }
+
+        try
+        {
+            var now = DateTimeOffset.UtcNow;
+            lock (networkChangeGate)
+            {
+                if (lastRepairAtUtc is { } previous && now - previous < DefaultRepairCooldown)
+                {
+                    diagnostic("LAN repair cooldown reason=TOO_SOON");
+                    return "请稍后再试";
+                }
+            }
+
+            var snapshot = diagnosticStateProvider?.Invoke();
+            var remoteText = snapshot?.LastSuccessfulRemoteAddress
+                ?? (string.Equals(snapshot?.LastRequestResult, "SUCCESS", StringComparison.OrdinalIgnoreCase)
+                    ? snapshot?.LastRemoteAddress
+                    : null);
+            diagnostic($"LAN repair requested remote={remoteText ?? "unavailable"}");
+            if (!IPAddress.TryParse(remoteText, out var remote)
+                || remote.AddressFamily != AddressFamily.InterNetwork
+                || !TokenUsageSyncServer.IsAllowedRepairAddress(remote))
+            {
+                diagnostic("LAN repair skipped reason=NO_VALID_SUCCESSFUL_REMOTE");
+                return "暂无可修复的手机连接记录";
+            }
+
+            LanEndpointSelection? selection;
+            IPAddress? listenerAddress;
+            uint listenerInterfaceIndex;
+            var listenerHealthy = false;
+            await stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                selection = addressProvider();
+                listenerAddress = server?.Address;
+                listenerInterfaceIndex = currentInterfaceIndex;
+                listenerHealthy = enabled && server?.IsHealthy == true;
+            }
+            finally
+            {
+                stateGate.Release();
+            }
+
+            if (selection is null
+                || !listenerHealthy
+                || listenerAddress is null
+                || !TokenUsageSyncServer.IsPrivateLanAddress(listenerAddress)
+                || !listenerAddress.Equals(selection.Address)
+                || listenerInterfaceIndex != selection.InterfaceIndex
+                || !repairRouteValidator(remote, selection))
+            {
+                diagnostic($"LAN repair skipped reason=REMOTE_NOT_ON_LINK remote={remote}");
+                return "手机网络已变化，请先在手机端重新刷新";
+            }
+
+            lock (networkChangeGate) lastRepairAtUtc = now;
+            diagnostic($"LAN repair probe started remote={remote}");
+            var probeResult = LanRepairProbeResult.IO;
+            try
+            {
+                probeResult = await repairProbe(remote, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+            {
+                diagnostic($"LAN repair probe exception exceptionClass={error.GetType().Name}");
+            }
+
+            diagnostic($"LAN repair probe completed remote={remote} probeResult={probeResult} actionResult=PROBE_SENT");
+            return "已尝试修复，请在手机端重新刷新";
+        }
+        finally
+        {
+            Volatile.Write(ref repairInFlight, 0);
+        }
+    }
+
     public async ValueTask DisposeAsync()
     {
+        lock (networkChangeGate)
+        {
+            networkChangeLifetime?.Cancel();
+            networkChangeLifetime?.Dispose();
+            networkChangeLifetime = null;
+        }
         await StopAsync().ConfigureAwait(false);
         stateGate.Dispose();
     }
@@ -140,9 +307,12 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         var nextServer = serverFactory(settings!.PairingSecret);
         try
         {
+            diagnostic($"LAN listener start bind={selection.Address} port={port} interfaceIndex={selection.InterfaceIndex}");
             nextServer.Start(selection.Address, port);
             server = nextServer;
             currentInterfaceIndex = selection.InterfaceIndex;
+            diagnostic($"LAN pairing device={settings.DeviceId:D} endpoint={selection.Address}:{nextServer.Port}");
+            diagnostic($"LAN listener healthy=true bind={selection.Address} port={nextServer.Port} interfaceIndex={selection.InterfaceIndex}");
             diagnostic($"LAN listener started address={selection.Address}:{nextServer.Port} interface={selection.InterfaceIndex}");
             await TryStartPublisherAsync(cancellationToken).ConfigureAwait(false);
             return true;
@@ -152,6 +322,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             await nextServer.DisposeAsync().ConfigureAwait(false);
             var status = error.SocketErrorCode == SocketError.AddressAlreadyInUse ? "端口被占用" : "无法监听局域网地址";
             SetStatus(status);
+            diagnostic($"LAN listener healthy=false bind={selection.Address} port={port} interfaceIndex={selection.InterfaceIndex} restartReason={error.SocketErrorCode}");
             diagnostic($"LAN listener start/restart failure={error.SocketErrorCode}; retry in {addressCheckInterval.TotalSeconds:0.###}s");
             return false;
         }
@@ -166,12 +337,14 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             nextPublisher = publisherFactory(settings!.DeviceId, displayName);
             await nextPublisher.StartAsync(server.Address!, server.Port, currentInterfaceIndex, cancellationToken).ConfigureAwait(false);
             publisher = nextPublisher;
+            diagnostic($"DNS-SD register success interface={currentInterfaceIndex}");
             SetStatus("正在监听");
         }
         catch (Exception error) when (error is DllNotFoundException or EntryPointNotFoundException or Win32Exception or InvalidOperationException or TimeoutException)
         {
             if (nextPublisher is not null) await nextPublisher.DisposeAsync().ConfigureAwait(false);
             SetStatus("正在监听（自动发现不可用）");
+            diagnostic($"DNS-SD register failure interface={currentInterfaceIndex} exceptionClass={error.GetType().Name}");
             diagnostic($"DNS-SD publisher unavailable={error.GetType().Name}; retry in {addressCheckInterval.TotalSeconds:0.###}s");
         }
     }
@@ -183,51 +356,101 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(addressCheckInterval, cancellationToken).ConfigureAwait(false);
-                var address = addressProvider();
-                await stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-                try
-                {
-                    if (!enabled) continue;
-                    if (address is null)
-                    {
-                        if (server is not null) await StopListenerResourcesAsync().ConfigureAwait(false);
-                        SetStatus("无可用局域网地址");
-                        diagnostic($"LAN address unavailable; retry in {addressCheckInterval.TotalSeconds:0.###}s");
-                    }
-                    else if (server is null)
-                    {
-                        await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false);
-                    }
-                    else if (!address.Address.Equals(server.Address) || address.InterfaceIndex != currentInterfaceIndex)
-                    {
-                        var oldAddress = server.Address;
-                        diagnostic($"LAN selection change {oldAddress}/interface={currentInterfaceIndex} -> {address.Address}/interface={address.InterfaceIndex}");
-                        await StopListenerResourcesAsync().ConfigureAwait(false);
-                        if (!await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false))
-                        {
-                            SetStatus("网络地址变化，等待重新监听");
-                        }
-                    }
-                    else if (!server.IsHealthy)
-                    {
-                        diagnostic($"LAN listener unhealthy fault={server.ListenerFault?.GetType().Name ?? "Completed"}; retry in {addressCheckInterval.TotalSeconds:0.###}s");
-                        await StopListenerResourcesAsync().ConfigureAwait(false);
-                        await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false);
-                    }
-                    else if (publisher is null)
-                    {
-                        await TryStartPublisherAsync(cancellationToken).ConfigureAwait(false);
-                    }
-                }
-                finally { stateGate.Release(); }
+                await ReconcileAsync("PERIODIC", cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
     }
 
+    private async Task ReconcileAfterNetworkChangeAsync(string reason, CancellationTokenSource scheduled)
+    {
+        try
+        {
+            await Task.Delay(networkChangeDebounce, scheduled.Token).ConfigureAwait(false);
+            await ReconcileAsync(reason, scheduled.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (scheduled.IsCancellationRequested)
+        {
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            diagnostic($"LAN reconcile result=failed reason={reason} exceptionClass={error.GetType().Name}");
+        }
+        finally
+        {
+            lock (networkChangeGate)
+            {
+                if (ReferenceEquals(networkChangeLifetime, scheduled)) networkChangeLifetime = null;
+            }
+            scheduled.Dispose();
+        }
+    }
+
+    private async Task ReconcileAsync(string reason, CancellationToken cancellationToken)
+    {
+        await stateGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!enabled) return;
+            var address = addressProvider();
+            if (address is null)
+            {
+                if (server is not null) await StopListenerResourcesAsync().ConfigureAwait(false);
+                SetStatus("无可用局域网地址");
+                diagnostic($"LAN address unavailable; retry in {addressCheckInterval.TotalSeconds:0.###}s");
+                diagnostic($"LAN reconcile result=unavailable reason={reason}");
+            }
+            else if (server is null)
+            {
+                var started = await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false);
+                diagnostic($"LAN reconcile result={(started ? "started" : "restart-failed")} reason={reason}");
+            }
+            else if (!address.Address.Equals(server.Address) || address.InterfaceIndex != currentInterfaceIndex)
+            {
+                var oldAddress = server.Address;
+                diagnostic($"LAN selection change {oldAddress}/interface={currentInterfaceIndex} -> {address.Address}/interface={address.InterfaceIndex}");
+                SetStatus("正在重新连接…");
+                await StopListenerResourcesAsync().ConfigureAwait(false);
+                var restarted = await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false);
+                if (!restarted) SetStatus("网络地址变化，等待重新监听");
+                diagnostic($"LAN reconcile result={(restarted ? "restarted" : "restart-failed")} reason={reason}");
+            }
+            else if (!server.IsHealthy)
+            {
+                var fault = server.ListenerFault?.GetType().Name ?? "Completed";
+                diagnostic($"LAN listener healthy=false bind={server.Address} port={server.Port} interfaceIndex={currentInterfaceIndex} restartReason={fault}");
+                diagnostic($"LAN listener unhealthy fault={fault}; retry in {addressCheckInterval.TotalSeconds:0.###}s");
+                SetStatus("正在重新连接…");
+                await StopListenerResourcesAsync().ConfigureAwait(false);
+                var restarted = await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false);
+                diagnostic($"LAN reconcile result={(restarted ? "restarted" : "restart-failed")} reason={reason}");
+            }
+            else if (publisher is null)
+            {
+                await TryStartPublisherAsync(cancellationToken).ConfigureAwait(false);
+                diagnostic($"LAN reconcile result=dns-sd-retry reason={reason}");
+            }
+            else
+            {
+                SetStatus("正在监听");
+                diagnostic($"LAN reconcile result=no-change reason={reason}");
+            }
+        }
+        finally
+        {
+            stateGate.Release();
+        }
+    }
+
     private async Task StopAsync()
     {
         enabled = false;
+        lock (networkChangeGate)
+        {
+            networkChangeLifetime?.Cancel();
+            networkChangeLifetime?.Dispose();
+            networkChangeLifetime = null;
+        }
         var monitor = monitorLifetime;
         monitorLifetime = null;
         monitor?.Cancel();
@@ -255,6 +478,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         }
         if (server is not null)
         {
+            diagnostic($"LAN listener healthy=false bind={server.Address} port={server.Port} interfaceIndex={currentInterfaceIndex} restartReason=stopped");
             diagnostic($"LAN listener stopped address={server.Address}:{server.Port}");
             await server.DisposeAsync().ConfigureAwait(false);
             server = null;
@@ -269,6 +493,68 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
     }
 
     private static string CreateDisplayName(string suffix) => string.Concat(Environment.MachineName, suffix);
+
+    private static async Task<LanRepairProbeResult> ProbeOnceAsync(
+        IPAddress remote,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var ping = new Ping();
+            var reply = await ping.SendPingAsync(
+                remote,
+                RepairProbeTimeout,
+                Array.Empty<byte>(),
+                new PingOptions(),
+                cancellationToken).ConfigureAwait(false);
+            return reply.Status == IPStatus.Success
+                ? LanRepairProbeResult.REPLY
+                : LanRepairProbeResult.TIMEOUT;
+        }
+        catch (Exception error) when (error is PingException or SocketException)
+        {
+            return LanRepairProbeResult.IO;
+        }
+        catch (OperationCanceledException)
+        {
+            return LanRepairProbeResult.IO;
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            return LanRepairProbeResult.IO;
+        }
+    }
+}
+
+internal static class LanStatusTimeFormatter
+{
+    internal static string Format(
+        DateTimeOffset valueUtc,
+        DateTimeOffset nowUtc,
+        TimeZoneInfo? timeZone = null)
+    {
+        var zone = timeZone ?? TimeZoneInfo.Local;
+        var value = TimeZoneInfo.ConvertTime(valueUtc, zone);
+        var now = TimeZoneInfo.ConvertTime(nowUtc, zone);
+        if (value.Date == now.Date)
+        {
+            return $"今天 {value:HH:mm}";
+        }
+
+        if (value.Date == now.Date.AddDays(-1))
+        {
+            return $"昨天 {value:HH:mm}";
+        }
+
+        return value.ToString("MM-dd HH:mm", CultureInfo.CurrentCulture);
+    }
+}
+
+internal enum LanRepairProbeResult
+{
+    REPLY,
+    TIMEOUT,
+    IO,
 }
 
 internal interface ILanSyncServer : IAsyncDisposable

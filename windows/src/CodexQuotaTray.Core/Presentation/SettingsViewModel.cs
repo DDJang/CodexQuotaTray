@@ -37,6 +37,8 @@ public interface ISettingsPlatformActions
 
     string TokenSyncDeviceNameText { get; }
 
+    string TokenSyncMobileStatusText { get; }
+
     string? TokenSyncPairingInfo { get; }
 
     event EventHandler? TokenSyncChanged;
@@ -46,6 +48,8 @@ public interface ISettingsPlatformActions
     void CopyTokenSyncPairingInfo();
 
     Task RegenerateTokenSyncSecretAsync(CancellationToken cancellationToken);
+
+    Task<string> RepairPhoneConnectionAsync(CancellationToken cancellationToken);
 }
 
 public interface ISettingsPageActions
@@ -56,7 +60,7 @@ public interface ISettingsPageActions
 
     Task OpenWindowsUpdateBrowserAsync(CancellationToken cancellationToken);
 
-    void CopyDiagnostics();
+    bool CopyDiagnostics();
 }
 
 public sealed record PercentageDisplayModeOption(bool ShowRemainingPercent, string DisplayName);
@@ -95,6 +99,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string tokenSyncStatusText = string.Empty;
     [ObservableProperty] private string tokenSyncAddressText = string.Empty;
     [ObservableProperty] private string tokenSyncDeviceNameText = string.Empty;
+    [ObservableProperty] private string tokenSyncEndpointText = string.Empty;
+    [ObservableProperty] private string tokenSyncMobileStatusText = string.Empty;
     [ObservableProperty] private string? tokenSyncPairingInfo;
     [ObservableProperty] private RefreshMode selectedRefreshMode;
     [ObservableProperty] private RefreshMode selectedTokenRefreshMode;
@@ -710,7 +716,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void OpenOfficialUsage() => pageActions.OpenOfficialUsage();
 
     [RelayCommand]
-    private void CopyDiagnostics() => pageActions.CopyDiagnostics();
+    private void CopyDiagnostics() => StatusText = pageActions.CopyDiagnostics()
+        ? "日志信息已复制"
+        : "无法复制日志信息，请关闭占用剪贴板的程序后重试";
 
     [RelayCommand]
     private async Task CheckForWindowsUpdatesAsync(CancellationToken cancellationToken)
@@ -864,6 +872,22 @@ public sealed partial class SettingsViewModel : ObservableObject
         await platform.RegenerateTokenSyncSecretAsync(cancellationToken);
         RefreshTokenSyncStatus();
         StatusText = "配对密钥已重新生成；旧配对已失效";
+    }
+
+    [RelayCommand]
+    private async Task RepairPhoneConnectionAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            StatusText = await platform.RepairPhoneConnectionAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            StatusText = error.Message;
+        }
     }
 
     private bool CanEdit() => !IsBusy;
@@ -1120,12 +1144,14 @@ public sealed partial class SettingsViewModel : ObservableObject
     public void RefreshTokenSyncStatus()
     {
         TokenSyncStatusText = platform.TokenSyncStatusText;
-        TokenSyncDeviceNameText = string.IsNullOrWhiteSpace(platform.TokenSyncDeviceNameText)
-            ? string.Empty
-            : $"电脑：{platform.TokenSyncDeviceNameText}";
-        TokenSyncAddressText = string.IsNullOrWhiteSpace(platform.TokenSyncAddressText)
-            ? string.Empty
-            : $"Windows 地址：{platform.TokenSyncAddressText}";
+        TokenSyncDeviceNameText = platform.TokenSyncDeviceNameText;
+        TokenSyncAddressText = platform.TokenSyncAddressText;
+        TokenSyncEndpointText = string.IsNullOrWhiteSpace(TokenSyncDeviceNameText)
+            ? TokenSyncAddressText
+            : string.IsNullOrWhiteSpace(TokenSyncAddressText)
+                ? TokenSyncDeviceNameText
+                : $"{TokenSyncDeviceNameText} · {TokenSyncAddressText}";
+        TokenSyncMobileStatusText = platform.TokenSyncMobileStatusText;
         TokenSyncPairingInfo = platform.TokenSyncPairingInfo;
     }
 

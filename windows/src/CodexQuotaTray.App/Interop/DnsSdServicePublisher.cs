@@ -132,14 +132,14 @@ internal sealed class DnsSdServicePublisher : IAsyncDisposable
                 : result;
             if (status != 0)
             {
-                diagnostic($"DNS-SD registration failure status={status}");
+                diagnostic($"DNS-SD registration failure status={status} interface={interfaceIndex}");
                 throw new Win32Exception((int)status, "Windows DNS-SD registration failed.");
             }
             lock (callbackStateLock)
             {
                 phase = RegistrationPhase.Registered;
             }
-            diagnostic("DNS-SD registration success");
+            diagnostic($"DNS-SD registration success interface={interfaceIndex}");
         }
         catch
         {

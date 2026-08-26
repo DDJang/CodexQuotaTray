@@ -13,6 +13,8 @@ import java.util.concurrent.TimeUnit
 internal class LanHttpCallDiagnostics(
     private val label: String,
     private val diagnostics: LanDiagnosticLogger,
+    private val attempt: LanAttemptContext? = null,
+    private val connectTimeoutMillis: Long? = null,
 ) {
     private val startedAt = System.nanoTime()
     private val phase = LanHttpCallPhase()
@@ -28,33 +30,59 @@ internal class LanHttpCallDiagnostics(
         .eventListener(object : EventListener() {
             override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) {
                 phase.connecting()
-                diagnostics.record("$label LAN connectStart elapsedMs=${elapsedMillis()}")
+                attempt?.connectStart(inetSocketAddress)
+                    ?: diagnostics.record("$label LAN connectStart elapsedMs=${elapsedMillis()}")
             }
 
             override fun connectEnd(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy, protocol: Protocol?) {
-                phase.connectionAcquired()
-                diagnostics.record("$label LAN connectEnd elapsedMs=${elapsedMillis()}")
+                attempt?.connectEnd()
+                    ?: diagnostics.record("$label LAN connectEnd elapsedMs=${elapsedMillis()}")
             }
 
             override fun connectionAcquired(call: Call, connection: Connection) {
                 phase.connectionAcquired()
-                diagnostics.record("$label LAN connectionAcquired elapsedMs=${elapsedMillis()}")
+                attempt?.tcpConnected(
+                    connection.socket().localAddress?.hostAddress,
+                    connection.socket().localPort,
+                ) ?: diagnostics.record(
+                    "$label LAN connectionAcquired local=${connection.socket().localAddress?.hostAddress ?: "unknown"}:${connection.socket().localPort} elapsedMs=${elapsedMillis()}",
+                )
             }
 
             override fun connectFailed(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy, protocol: Protocol?, ioe: IOException) {
                 phase.connectFailed()
-                diagnostics.record("$label LAN connectFailed elapsedMs=${elapsedMillis()}")
+                attempt?.connectFailed(ioe, ioe is java.net.SocketTimeoutException, phase.connected)
+                    ?: diagnostics.record(
+                        "$label LAN connectFailed exceptionClass=${ioe.javaClass.simpleName} exceptionMessage=${ioe.message ?: "unknown"} elapsedMs=${elapsedMillis()}",
+                    )
             }
 
             override fun responseHeadersStart(call: Call) {
                 phase.responseHeadersStarted()
-                diagnostics.record("$label LAN responseHeadersStart elapsedMs=${elapsedMillis()}")
+                attempt?.responseHeadersStart()
+                    ?: diagnostics.record("$label LAN responseHeadersStart elapsedMs=${elapsedMillis()}")
             }
         })
         .build()
 
-    fun failure(kind: String) {
-        diagnostics.record("$label LAN direct failure=$kind phase=${phase.name} elapsedMs=${elapsedMillis()}")
+    fun failure(kind: String, error: IOException? = null) {
+        if (attempt != null) {
+            if (kind.equals("TIMEOUT", ignoreCase = true)) {
+                attempt.connectFailed(
+                    error ?: java.net.SocketTimeoutException("$label timeout"),
+                    timeout = true,
+                    connectionAcquired = phase.connected,
+                )
+            } else {
+                attempt.connectFailed(
+                    error ?: IOException("$label IO failure"),
+                    timeout = false,
+                    connectionAcquired = phase.connected,
+                )
+            }
+        } else {
+            diagnostics.record("$label LAN direct failure=$kind phase=${phase.name} elapsedMs=${elapsedMillis()}")
+        }
     }
 
     fun elapsedMillis(): Long = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)

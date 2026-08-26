@@ -2,6 +2,9 @@ package com.codexquotatray.android
 
 import android.Manifest
 import android.app.NotificationManager
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -49,6 +52,7 @@ import com.codexquotatray.android.quota.ResetCreditExpiryReminderScheduler
 import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
 import com.codexquotatray.android.source.DataSourcePriority
 import com.codexquotatray.android.usage.TokenSyncPairing
+import com.codexquotatray.android.usage.AndroidLanDiagnosticsFormatter
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettings
@@ -80,7 +84,7 @@ private enum class SettingsDestination(val title: String) {
     SYNC("数据"),
     THEME("显示与主题"),
     TOKEN_PAIRING("Windows 配对"),
-    UPDATE("更新设置"),
+    UPDATE("更新"),
 }
 
 private const val DEBUG_QUOTA_RING_FIXTURE_ACTIVITY =
@@ -136,7 +140,6 @@ class SettingsActivity : ComponentActivity() {
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
     private var systemThemeVersion by mutableStateOf(0)
     private var pairing by mutableStateOf<TokenSyncPairing?>(null)
-    private var tokenStatus by mutableStateOf("尚未配对 Windows")
     private var showClearPairingDialog by mutableStateOf(false)
     private var updateSource by mutableStateOf(UpdateSource.GITHUB)
     private var automaticUpdateChecks by mutableStateOf(true)
@@ -350,7 +353,7 @@ class SettingsActivity : ComponentActivity() {
                     startActivity(Intent(this@SettingsActivity, LogActivity::class.java))
                 }
                 SettingsDivider()
-                SettingsNavigationRow("更新设置") {
+                SettingsNavigationRow("更新") {
                     openDestination(SettingsDestination.UPDATE)
                 }
                 SettingsDivider()
@@ -618,16 +621,18 @@ class SettingsActivity : ComponentActivity() {
         val locale = LocalLocale.current.platformLocale
         SettingsSection("Windows") {
             SettingsGroup {
-                SettingsInfoRow("状态", tokenStatus)
                 pairing?.let {
+                    SettingsInfoRow("电脑", it.displayName ?: "Windows PC")
                     SettingsDivider()
-                    SettingsInfoRow("电脑", "${it.displayName ?: "Windows PC"} · ${it.host}:${it.port}")
+                    SettingsInfoRow("地址", "${it.host}:${it.port}")
+                    SettingsDivider()
                     SettingsInfoRow(
-                        "上次同步",
-                        it.lastSyncUtc?.let { raw -> formatPairingTime(raw, locale) } ?: "尚未成功同步",
+                        "最近连接成功",
+                        it.lastLanSuccessAtMillis?.let { value -> formatPairingMillis(value, locale) }
+                            ?: "尚未成功连接",
                     )
-                    SettingsActionButton("立即同步", onClick = ::syncPairedNow)
                     SettingsActionButton("重新扫码配对", onClick = ::scanPairing)
+                    SettingsActionButton("复制诊断信息", onClick = ::copyLanDiagnostics)
                     SettingsActionButton(
                         label = "解除配对",
                         danger = true,
@@ -674,7 +679,6 @@ class SettingsActivity : ComponentActivity() {
         }
         themeMode = themeStore.load()
         pairing = tokenStore.load()
-        tokenStatus = if (pairing == null) "尚未配对 Windows" else "已配对"
         updateSettingsStore.load().also { update ->
             updateSource = update.source
             automaticUpdateChecks = update.automaticChecksEnabled
@@ -876,7 +880,6 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun testPairing(value: TokenSyncPairing) {
-        tokenStatus = "正在测试 Windows 连接…"
         TokenPairingFlow.testPairing(this, value, pairingWorker, pairingMain) { result ->
             result.onSuccess {
                 renderState()
@@ -892,9 +895,17 @@ class SettingsActivity : ComponentActivity() {
         }
     }
 
-    private fun syncPairedNow() {
-        tokenStore.load()?.let(::testPairing)
-            ?: Toast.makeText(this, "尚未配对 Windows", Toast.LENGTH_SHORT).show()
+    private fun copyLanDiagnostics() {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val recentEvents = AppLogStore(this).readLan()
+        val text = AndroidLanDiagnosticsFormatter.format(
+            version = BuildConfig.VERSION_NAME,
+            pairing = tokenStore.load(),
+            network = AndroidLanDiagnosticsFormatter.extractNetwork(recentEvents),
+            recentEvents = recentEvents,
+        )
+        clipboard?.setPrimaryClip(ClipData.newPlainText("CodexQuotaTray LAN Diagnostics", text))
+        Toast.makeText(this, "诊断信息已复制", Toast.LENGTH_SHORT).show()
     }
 
     private fun clearPairing() {
@@ -1062,11 +1073,8 @@ class SettingsActivity : ComponentActivity() {
             .format(Instant.ofEpochMilli(value))
     }
 
-    private fun formatPairingTime(raw: String, locale: java.util.Locale): String = runCatching {
-        DateTimeFormatter.ofPattern("MM-dd HH:mm", locale)
-            .withZone(ZoneId.systemDefault())
-            .format(Instant.parse(raw))
-    }.getOrDefault("未知")
+    private fun formatPairingMillis(value: Long, locale: java.util.Locale): String =
+        PairingTimeFormatter.format(value, System.currentTimeMillis(), ZoneId.systemDefault(), locale)
 
     companion object {
         private const val STATE_DESTINATION = "settings_destination"

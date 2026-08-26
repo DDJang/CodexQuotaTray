@@ -38,6 +38,8 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
 
     public string TokenSyncDeviceNameText => tokenSync.DeviceNameText;
 
+    public string TokenSyncMobileStatusText => tokenSync.MobileStatusText;
+
     public string? TokenSyncPairingInfo => tokenSync.PairingInfo;
 
     public event EventHandler? TokenSyncChanged
@@ -95,4 +97,7 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
 
     public Task RegenerateTokenSyncSecretAsync(CancellationToken cancellationToken) =>
         tokenSync.RegenerateAsync(tokenSyncEnabled(), cancellationToken);
+
+    public Task<string> RepairPhoneConnectionAsync(CancellationToken cancellationToken) =>
+        tokenSync.RepairPhoneConnectionAsync(cancellationToken);
 }

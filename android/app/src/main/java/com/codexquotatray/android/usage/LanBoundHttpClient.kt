@@ -8,10 +8,27 @@ internal fun OkHttpClient.bindToWifiLan(
     lanAvailability: LanAvailability?,
     host: String,
     diagnostics: LanDiagnosticLogger? = null,
+): OkHttpClient = bindToWifiLan(lanAvailability, host, diagnostics, null)
+
+internal fun OkHttpClient.bindToWifiLan(
+    lanAvailability: LanAvailability?,
+    host: String,
+    diagnostics: LanDiagnosticLogger?,
+    attempt: LanAttemptContext?,
 ): OkHttpClient =
     if (lanAvailability == null) this else {
         val binding = lanAvailability.socketBindingForHostOrNull(host)
-            ?: throw IOException("No Wi-Fi route to paired Windows host")
-        diagnostics?.record("LAN bound network=${binding.networkId ?: "unknown"}")
+            ?: run {
+                attempt?.routeNotFound(host)
+                throw IOException("No Wi-Fi route to paired Windows host")
+            }
+        if (attempt?.isStale() == true ||
+            attempt != null && binding.networkGeneration != attempt.networkGeneration
+        ) {
+            attempt.markStale()
+            throw LanAttemptStaleException(attempt)
+        }
+        attempt?.route(binding.diagnostics)
+            ?: diagnostics?.record("LAN bound network=${binding.networkId ?: "unknown"}")
         newBuilder().socketFactory(binding.socketFactory).build()
     }

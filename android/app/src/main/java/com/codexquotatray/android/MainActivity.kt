@@ -65,6 +65,8 @@ class MainActivity : ComponentActivity() {
     private var pendingInstall by mutableStateOf<java.io.File?>(null)
     private val pairingWorker = Executors.newSingleThreadExecutor()
     private val pairingMain = Handler(Looper.getMainLooper())
+    private var lanRecoveryRegistration: AutoCloseable? = null
+    private var activityStarted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         AppTheme.prepare(this)
@@ -87,6 +89,12 @@ class MainActivity : ComponentActivity() {
                 if (result is com.codexquotatray.android.update.UpdateCheckResult.Failed) {
                     AppLogStore.record(this, "自动检查更新失败", "WARN")
                 }
+            }
+        }
+        lanRecoveryRegistration = app.lanNetworkLifecycle.addStableListener {
+            if (activityStarted && !isFinishing && !isDestroyed) {
+                quota.onNetworkRestored()
+                usage.onNetworkRestored()
             }
         }
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -189,10 +197,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        activityStarted = true
         if (::quota.isInitialized) quota.onStart()
         if (::usage.isInitialized) usage.onStart()
     }
     override fun onStop() {
+        activityStarted = false
         if (::quota.isInitialized) quota.onStop()
         if (::usage.isInitialized) usage.onStop()
         super.onStop()
@@ -233,6 +243,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        lanRecoveryRegistration?.close()
+        lanRecoveryRegistration = null
         foregroundRegistration?.close()
         foregroundRegistration = null
         updateReminderRegistration?.close()

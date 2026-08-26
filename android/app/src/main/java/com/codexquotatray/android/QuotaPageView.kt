@@ -75,6 +75,7 @@ import com.codexquotatray.android.ui.toQuotaUiModel
 import com.codexquotatray.android.ui.unauthenticatedQuotaUiModel
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.cacheIdentity
+import com.codexquotatray.android.usage.isLanAttemptStale
 import java.text.SimpleDateFormat
 import java.time.ZoneId
 import java.util.Date
@@ -221,6 +222,11 @@ internal class QuotaPageController(private val host: MainActivity) {
         requestRefresh(if (priorityChanged) AutomaticRefreshReason.SOURCE_CHANGED else reason)
     }
 
+    fun onNetworkRestored() {
+        if (!visible || busy || !hasQuotaSource()) return
+        requestRefresh(AutomaticRefreshReason.NETWORK_RESTORED)
+    }
+
     fun onLoginResult(requestCode: Int, resultCode: Int) {
         if (requestCode == LOGIN_REQUEST_CODE && resultCode == Activity.RESULT_OK) QuotaRefreshScheduler.schedule(host)
     }
@@ -282,25 +288,29 @@ internal class QuotaPageController(private val host: MainActivity) {
                             }
                         },
                         onFailure = { error ->
-                            AppLogStore.record(host, "额度读取失败：${error.message ?: "未知错误"}", "WARN")
-                            if (error is QuotaReadException && error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) {
-                                lastQuotaSourceAvailable = hasQuotaSource()
-                                if (lastQuotaSourceAvailable != true) {
-                                    lastSuccessful = null
-                                    snapshotStore.clear()
-                                    com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
-                                    QuotaRefreshScheduler.cancel(host)
+                            if (error.isLanAttemptStale()) {
+                                previous ?: quotaErrorUiModel("网络状态已变化，请稍后重试", null)
+                            } else {
+                                AppLogStore.record(host, "额度读取失败：${error.message ?: "未知错误"}", "WARN")
+                                if (error is QuotaReadException && error.kind == QuotaReadFailureKind.LOGIN_REQUIRED) {
+                                    lastQuotaSourceAvailable = hasQuotaSource()
+                                    if (lastQuotaSourceAvailable != true) {
+                                        lastSuccessful = null
+                                        snapshotStore.clear()
+                                        com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
+                                        QuotaRefreshScheduler.cancel(host)
+                                    }
                                 }
-                            }
-                            when (error) {
-                                is QuotaReadException -> if (
-                                    error.kind == QuotaReadFailureKind.LOGIN_REQUIRED && lastQuotaSourceAvailable != true
-                                ) {
-                                    unauthenticatedQuotaUiModel()
-                                } else {
-                                    quotaErrorUiModel(error.message, previous)
+                                when (error) {
+                                    is QuotaReadException -> if (
+                                        error.kind == QuotaReadFailureKind.LOGIN_REQUIRED && lastQuotaSourceAvailable != true
+                                    ) {
+                                        unauthenticatedQuotaUiModel()
+                                    } else {
+                                        quotaErrorUiModel(error.message, previous)
+                                    }
+                                    else -> quotaErrorUiModel("额度读取失败", previous)
                                 }
-                                else -> quotaErrorUiModel("额度读取失败", previous)
                             }
                         },
                     )

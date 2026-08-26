@@ -44,4 +44,25 @@ class LanBoundHttpClientTest {
             OkHttpClient().bindToWifiLan(provider, "192.168.1.10")
         }
     }
+
+    @Test fun bindingFromAnExpiredGenerationIsRejectedBeforeSocketUse() {
+        LanNetworkEpoch.resetForTest(2L)
+        val socketFactory = SocketFactory.getDefault()
+        val provider = object : LanAvailability {
+            override fun isAvailable() = true
+            override fun socketBindingForHostOrNull(host: String): LanSocketBinding =
+                LanSocketBinding(socketFactory, "old-network", networkGeneration = 1L)
+        }
+        val attempt = LanAttemptContext(
+            channel = "token",
+            id = 1L,
+            diagnostics = NoOpLanDiagnosticLogger,
+            networkGeneration = 1L,
+        )
+
+        assertThrows(LanAttemptStaleException::class.java) {
+            OkHttpClient().bindToWifiLan(provider, "192.168.1.10", diagnostics = null, attempt = attempt)
+        }
+        LanNetworkEpoch.resetForTest()
+    }
 }

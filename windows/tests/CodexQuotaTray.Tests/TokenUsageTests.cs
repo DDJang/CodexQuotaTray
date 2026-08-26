@@ -14,6 +14,15 @@ namespace CodexQuotaTray.Tests;
 public sealed class TokenUsageTests
 {
     [TestMethod]
+    public void ManualRepairAddressPolicyAllowsOnlyPrivateOrLinkLocalIpv4()
+    {
+        Assert.IsTrue(TokenUsageSyncServer.IsAllowedRepairAddress(IPAddress.Parse("192.168.1.92")));
+        Assert.IsTrue(TokenUsageSyncServer.IsAllowedRepairAddress(IPAddress.Parse("169.254.1.92")));
+        Assert.IsFalse(TokenUsageSyncServer.IsAllowedRepairAddress(IPAddress.Parse("8.8.8.8")));
+        Assert.IsFalse(TokenUsageSyncServer.IsAllowedRepairAddress(IPAddress.Parse("127.0.0.1")));
+    }
+
+    [TestMethod]
     public void LanAddressSelectionPrefersPhysicalWifiOverVpnTunnelAndVirtualAdapters()
     {
         var candidates = new[]

@@ -7,16 +7,21 @@ import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import com.codexquotatray.android.update.UpdateCheckCoordinator
 import com.codexquotatray.android.update.UpdateDownloadManager
 import com.codexquotatray.android.update.UpdateRelease
+import com.codexquotatray.android.usage.AndroidLanNetworkLifecycle
 
 class CodexQuotaApplication : Application(), Application.ActivityLifecycleCallbacks {
     private val foregroundTracker by lazy { ProcessForegroundTracker() }
     val updateCheckCoordinator: UpdateCheckCoordinator by lazy { UpdateCheckCoordinator(this) }
     val updateDownloadManager: UpdateDownloadManager by lazy { UpdateDownloadManager(this) }
+    internal val lanNetworkLifecycle: AndroidLanNetworkLifecycle by lazy {
+        AndroidLanNetworkLifecycle(this)
+    }
 
     override fun onCreate() {
         super.onCreate()
         if (isWidgetProcessName(Application.getProcessName())) return
         registerActivityLifecycleCallbacks(this)
+        lanNetworkLifecycle.start()
         updateDownloadManager.cleanupStaleFiles()
         com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
     }
