@@ -8,7 +8,7 @@ internal sealed class DiagnosticsClipboardService(IDiagnosticTextProvider provid
     internal void Copy()
     {
         var package = new DataPackage();
-        package.SetText(provider.CreateDiagnosticText());
+        package.SetText(LanDiagnosticRedactor.SanitizeText(provider.CreateDiagnosticText()));
         Clipboard.SetContent(package);
         Clipboard.Flush();
     }

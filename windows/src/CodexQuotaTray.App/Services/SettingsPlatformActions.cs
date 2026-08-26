@@ -38,6 +38,8 @@ internal sealed class SettingsPlatformActions : ISettingsPlatformActions
 
     public string TokenSyncDeviceNameText => tokenSync.DeviceNameText;
 
+    public string TokenSyncMobileStatusText => tokenSync.MobileStatusText;
+
     public string? TokenSyncPairingInfo => tokenSync.PairingInfo;
 
     public event EventHandler? TokenSyncChanged

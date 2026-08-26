@@ -37,6 +37,8 @@ public interface ISettingsPlatformActions
 
     string TokenSyncDeviceNameText { get; }
 
+    string TokenSyncMobileStatusText { get; }
+
     string? TokenSyncPairingInfo { get; }
 
     event EventHandler? TokenSyncChanged;
@@ -95,6 +97,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string tokenSyncStatusText = string.Empty;
     [ObservableProperty] private string tokenSyncAddressText = string.Empty;
     [ObservableProperty] private string tokenSyncDeviceNameText = string.Empty;
+    [ObservableProperty] private string tokenSyncMobileStatusText = string.Empty;
     [ObservableProperty] private string? tokenSyncPairingInfo;
     [ObservableProperty] private RefreshMode selectedRefreshMode;
     [ObservableProperty] private RefreshMode selectedTokenRefreshMode;
@@ -1126,6 +1129,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         TokenSyncAddressText = string.IsNullOrWhiteSpace(platform.TokenSyncAddressText)
             ? string.Empty
             : $"Windows 地址：{platform.TokenSyncAddressText}";
+        TokenSyncMobileStatusText = platform.TokenSyncMobileStatusText;
         TokenSyncPairingInfo = platform.TokenSyncPairingInfo;
     }
 

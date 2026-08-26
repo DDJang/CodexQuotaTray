@@ -4,8 +4,13 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
 import com.codexquotatray.android.usage.AndroidLanDiagnosticLogger
+import com.codexquotatray.android.usage.LanAttemptContext
+import com.codexquotatray.android.usage.LanAttemptIds
 import com.codexquotatray.android.usage.LanDiagnosticLogger
+import com.codexquotatray.android.usage.LanNetworkDiagnostics
 import com.codexquotatray.android.usage.NoOpLanDiagnosticLogger
 import javax.net.SocketFactory
 import java.net.Inet4Address
@@ -31,6 +36,7 @@ interface LanAvailability {
 data class LanSocketBinding(
     val socketFactory: SocketFactory,
     val networkId: String?,
+    val diagnostics: LanNetworkDiagnostics? = null,
 )
 
 /**
@@ -42,8 +48,10 @@ class AndroidLanAvailability(
     context: Context,
     private val diagnostics: LanDiagnosticLogger = AndroidLanDiagnosticLogger(context),
 ) : LanAvailability {
-    private val connectivity = context.applicationContext
+    private val appContext = context.applicationContext
+    private val connectivity = appContext
         .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+    private val wifiManager = appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
 
     override fun isAvailable(): Boolean = wifiNetwork() != null
 
@@ -55,7 +63,11 @@ class AndroidLanAvailability(
 
     override fun socketBindingForHostOrNull(host: String): LanSocketBinding? =
         wifiNetwork(host)?.let { network ->
-            LanSocketBinding(network.socketFactory, network.networkHandle.toString())
+            LanSocketBinding(
+                network.socketFactory,
+                network.networkHandle.toString(),
+                describeNetwork(network, host),
+            )
         }
 
     private fun wifiNetwork(host: String? = null): Network? {
@@ -77,6 +89,60 @@ class AndroidLanAvailability(
             "Windows LAN route host=$host matching=${selected != null} network=${selected?.safeId ?: "none"}",
         )
         return selected?.value
+    }
+
+    private fun describeNetwork(network: Network, host: String): LanNetworkDiagnostics = runCatching {
+        val manager = connectivity ?: return@runCatching LanNetworkDiagnostics(networkHandle = network.networkHandle.toString())
+        val capabilities = manager.getNetworkCapabilities(network)
+        val linkProperties = manager.getLinkProperties(network)
+        val matchingRoute = linkProperties?.routes.orEmpty()
+            .filter { route ->
+                val address = route.destination.address as? Inet4Address
+                address != null && Ipv4Route(address.address, route.destination.prefixLength)
+                    .matches(InetAddress.getByName(host).address)
+            }
+            .maxByOrNull { it.destination.prefixLength }
+        val local = linkProperties?.linkAddresses.orEmpty()
+            .firstOrNull { it.address is Inet4Address }
+        val gateway = matchingRoute?.gateway as? Inet4Address
+        val wifiInfo = (capabilities?.transportInfo as? WifiInfo)
+            ?: runCatching { wifiManager?.connectionInfo }.getOrNull()
+        LanNetworkDiagnostics(
+            networkHandle = network.networkHandle.toString(),
+            interfaceName = linkProperties?.interfaceName,
+            localIpv4 = (local?.address as? Inet4Address)?.hostAddress,
+            prefixLength = local?.prefixLength,
+            gateway = gateway?.hostAddress
+                ?: linkProperties?.routes.orEmpty()
+                    .firstOrNull { it.gateway is Inet4Address }
+                    ?.gateway?.hostAddress,
+            routePrefix = matchingRoute?.destination?.let { destination ->
+                "${destination.address.hostAddress}/${destination.prefixLength}"
+            },
+            transports = capabilities?.let(::transports).orEmpty(),
+            capabilities = capabilities?.let(::capabilities).orEmpty(),
+            ssid = wifiInfo?.ssid?.takeUnless { it.isNullOrBlank() || it == WifiManager.UNKNOWN_SSID },
+            bssid = wifiInfo?.bssid?.takeUnless { it.isNullOrBlank() || it == "02:00:00:00:00:00" },
+            frequencyMhz = wifiInfo?.frequency?.takeIf { it > 0 },
+        )
+    }.getOrElse {
+        LanNetworkDiagnostics(networkHandle = network.networkHandle.toString())
+    }
+
+    private fun transports(capabilities: NetworkCapabilities): List<String> = buildList {
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) add("WIFI")
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) add("CELLULAR")
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) add("ETHERNET")
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) add("VPN")
+        if (isEmpty()) add("OTHER")
+    }
+
+    private fun capabilities(value: NetworkCapabilities): List<String> = buildList {
+        if (value.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) add("INTERNET")
+        if (value.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) add("VALIDATED")
+        if (value.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)) add("NOT_SUSPENDED")
+        if (value.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)) add("NOT_RESTRICTED")
+        if (value.hasCapability(NetworkCapabilities.NET_CAPABILITY_TRUSTED)) add("TRUSTED")
     }
 }
 
@@ -124,6 +190,7 @@ internal class WindowsQuotaFallbackResolver(
         val pairing = pairingStore.load()
             ?: throw QuotaReadException(QuotaReadFailureKind.LOGIN_REQUIRED, "尚未登录 Codex，也未配对 Windows")
         if (!lanAvailability.isAvailable()) {
+            recordUnavailable(pairing)
             throw QuotaReadException(QuotaReadFailureKind.NETWORK, "Windows 局域网暂不可用")
         }
 
@@ -144,7 +211,10 @@ internal class WindowsQuotaFallbackResolver(
         if (primary.kind != QuotaReadFailureKind.NETWORK) throw primary
 
         val pairing = pairingStore.load() ?: throw primary
-        if (!lanAvailability.isAvailable()) throw primary
+        if (!lanAvailability.isAvailable()) {
+            recordUnavailable(pairing)
+            throw primary
+        }
         try {
             fetchWindows(pairing)
         } catch (failure: WindowsQuotaFallbackException) {
@@ -156,31 +226,55 @@ internal class WindowsQuotaFallbackResolver(
         }
     }
 
-    private fun fetchWindows(pairing: TokenSyncPairing): ResolvedQuota = try {
-        val result = fallbackClient.sync(pairing)
-        TokenUsagePairingLifecycle.withLock {
-            val current = pairingStore.load()
-            if (current == null || !current.matchesConfiguration(pairing)) {
-                throw WindowsQuotaFallbackException(
-                    WindowsQuotaFallbackFailureKind.PAIRING_CHANGED,
-                    "Windows pairing changed; stale quota discarded",
-                )
-            }
-            if (result.pairing != pairing) {
-                val saved = pairingStore.saveIfCurrent(pairing, result.pairing)
-                diagnostics.record("Quota LAN relocated endpoint persisted=$saved")
-                if (!saved) {
+    private fun fetchWindows(pairing: TokenSyncPairing): ResolvedQuota {
+        val attempt = LanAttemptContext("quota", LanAttemptIds.nextId(), diagnostics)
+        attempt.start(pairing)
+        return try {
+            val result = fallbackClient.sync(pairing, attempt)
+            if (!attempt.isCompleted()) attempt.finishSuccess()
+            // The concrete fallback client returns the pairing with its LAN
+            // summary attached. Keep older injected implementations' pairing
+            // shape unchanged so relocation persistence remains compatible.
+            val resultPairing = result.pairing
+            runCatching { pairingStore.recordLanSuccess(pairing, attempt) }
+            TokenUsagePairingLifecycle.withLock {
+                val current = pairingStore.load()
+                if (current == null || !current.matchesConfiguration(pairing)) {
                     throw WindowsQuotaFallbackException(
                         WindowsQuotaFallbackFailureKind.PAIRING_CHANGED,
                         "Windows pairing changed; stale quota discarded",
                     )
                 }
+                if (resultPairing != pairing) {
+                    val saved = pairingStore.saveIfCurrent(pairing, resultPairing)
+                    diagnostics.record("Quota LAN relocated endpoint persisted=$saved")
+                    if (!saved) {
+                        throw WindowsQuotaFallbackException(
+                            WindowsQuotaFallbackFailureKind.PAIRING_CHANGED,
+                            "Windows pairing changed; stale quota discarded",
+                        )
+                    }
+                }
+                ResolvedQuota(result.quota, resultPairing)
             }
-            ResolvedQuota(result.quota, result.pairing)
+        } catch (failure: WindowsQuotaFallbackException) {
+            attempt.finishFailure()
+            runCatching { pairingStore.recordLanFailure(pairing, attempt) }
+            recordFailure(failure)
+            throw failure
+        } catch (error: Throwable) {
+            attempt.finishFailure()
+            runCatching { pairingStore.recordLanFailure(pairing, attempt) }
+            throw error
         }
-    } catch (failure: WindowsQuotaFallbackException) {
-        recordFailure(failure)
-        throw failure
+    }
+
+    private fun recordUnavailable(pairing: TokenSyncPairing) {
+        val attempt = LanAttemptContext("quota", LanAttemptIds.nextId(), diagnostics)
+        attempt.start(pairing)
+        attempt.routeNotFound(pairing.host)
+        attempt.finishFailure("ROUTE_NOT_FOUND")
+        runCatching { pairingStore.recordLanFailure(pairing, attempt) }
     }
 
     private fun mapWindowsFailure(failure: WindowsQuotaFallbackException): QuotaReadException = when (failure.kind) {

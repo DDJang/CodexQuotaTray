@@ -52,6 +52,12 @@ data class TokenSyncPairing(
     val displayName: String? = null,
     val lastSyncUtc: String? = null,
     val lastSuccessfulSyncAtMillis: Long? = null,
+    val lastLanSuccessAtMillis: Long? = null,
+    val lastLanFailureAtMillis: Long? = null,
+    val lastLanFailurePhase: String? = null,
+    val lastLanAttemptId: Long? = null,
+    val lastLanAttemptChannel: String? = null,
+    val lastLanTargetEndpoint: String? = null,
 ) {
     constructor(host: String, port: Int, secret: String) : this("", secret, host, port)
 
@@ -136,6 +142,12 @@ object TokenSyncEndpoint {
         displayName: String? = null,
         lastSyncUtc: String? = null,
         lastSuccessfulSyncAtMillis: Long? = null,
+        lastLanSuccessAtMillis: Long? = null,
+        lastLanFailureAtMillis: Long? = null,
+        lastLanFailurePhase: String? = null,
+        lastLanAttemptId: Long? = null,
+        lastLanAttemptChannel: String? = null,
+        lastLanTargetEndpoint: String? = null,
     ): TokenSyncPairing {
         require(deviceId.isBlank() || isValidDeviceId(deviceId)) { "Windows 设备标识无效" }
         require(isPrivateIpv4(host)) { "仅允许私人局域网 IPv4 地址" }
@@ -149,6 +161,12 @@ object TokenSyncEndpoint {
             displayName?.takeIf { it.isNotBlank() },
             lastSyncUtc,
             lastSuccessfulSyncAtMillis,
+            lastLanSuccessAtMillis,
+            lastLanFailureAtMillis,
+            lastLanFailurePhase,
+            lastLanAttemptId,
+            lastLanAttemptChannel,
+            lastLanTargetEndpoint,
         )
     }
 
@@ -177,6 +195,12 @@ object TokenSyncEndpoint {
             candidate.displayName ?: pairing.displayName,
             pairing.lastSyncUtc,
             pairing.lastSuccessfulSyncAtMillis,
+            pairing.lastLanSuccessAtMillis,
+            pairing.lastLanFailureAtMillis,
+            pairing.lastLanFailurePhase,
+            pairing.lastLanAttemptId,
+            pairing.lastLanAttemptChannel,
+            pairing.lastLanTargetEndpoint,
         )
 
     fun markSynced(
@@ -186,6 +210,29 @@ object TokenSyncEndpoint {
     ): TokenSyncPairing = pairing.copy(
         lastSyncUtc = snapshot.generatedAtUtc,
         lastSuccessfulSyncAtMillis = nowMillis,
+    )
+
+    internal fun markLanSuccess(
+        pairing: TokenSyncPairing,
+        attempt: LanAttemptContext,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): TokenSyncPairing = pairing.copy(
+        lastLanSuccessAtMillis = nowMillis,
+        lastLanAttemptId = attempt.id,
+        lastLanAttemptChannel = attempt.channel,
+        lastLanTargetEndpoint = attempt.lastTargetEndpoint ?: "${pairing.host}:${pairing.port}",
+    )
+
+    internal fun markLanFailure(
+        pairing: TokenSyncPairing,
+        attempt: LanAttemptContext,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): TokenSyncPairing = pairing.copy(
+        lastLanFailureAtMillis = nowMillis,
+        lastLanFailurePhase = attempt.finalPhase,
+        lastLanAttemptId = attempt.id,
+        lastLanAttemptChannel = attempt.channel,
+        lastLanTargetEndpoint = attempt.lastTargetEndpoint ?: "${pairing.host}:${pairing.port}",
     )
 
     fun isPrivateIpv4(host: String): Boolean {

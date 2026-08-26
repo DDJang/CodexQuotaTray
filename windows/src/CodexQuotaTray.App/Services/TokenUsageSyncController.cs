@@ -17,6 +17,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
     private readonly Func<Guid, string, IDnsSdPublisher> publisherFactory;
     private readonly TimeSpan addressCheckInterval;
     private readonly Action<string> diagnostic;
+    private readonly Func<LanDiagnosticState>? diagnosticStateProvider;
     private readonly int port;
     private readonly string displayNameSuffix;
     private readonly SemaphoreSlim stateGate = new(1, 1);
@@ -36,18 +37,26 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         int port = TokenUsageSyncServer.DefaultPort,
         string displayNameSuffix = "",
         string dnsSdInstancePrefix = "CodexQuotaTray",
-        Action<string>? diagnostic = null)
-        : this(
-            settingsService.LoadOrCreateAsync,
-            settingsService.RegenerateAsync,
-            () => TokenUsageSyncServer.FindPrivateLanSelection(diagnostic),
-            secret => new LanSyncServerAdapter(new TokenUsageSyncServer(readTokenUsageAsync, secret, quotaSnapshotProvider, diagnostic: diagnostic)),
-            (deviceId, name) => new DnsSdPublisherAdapter(new DnsSdServicePublisher(deviceId, name, dnsSdInstancePrefix, diagnostic: diagnostic)),
-            port,
-            displayNameSuffix,
-            DefaultAddressCheckInterval,
-            diagnostic ?? (message => System.Diagnostics.Debug.WriteLine(message)))
+        Action<string>? diagnostic = null,
+        Func<LanDiagnosticState>? diagnosticStateProvider = null)
     {
+        loadSettings = settingsService.LoadOrCreateAsync;
+        regenerateSettings = settingsService.RegenerateAsync;
+        addressProvider = () => TokenUsageSyncServer.FindPrivateLanSelection(diagnostic);
+        serverFactory = secret => new LanSyncServerAdapter(new TokenUsageSyncServer(
+            readTokenUsageAsync,
+            secret,
+            quotaSnapshotProvider,
+            diagnostic: diagnostic,
+            requestObserved: () => Changed?.Invoke(this, EventArgs.Empty)));
+        publisherFactory = (deviceId, name) => new DnsSdPublisherAdapter(
+            new DnsSdServicePublisher(deviceId, name, dnsSdInstancePrefix, diagnostic: diagnostic));
+        this.port = port;
+        this.displayNameSuffix = displayNameSuffix;
+        addressCheckInterval = DefaultAddressCheckInterval;
+        this.diagnostic = diagnostic ?? (message => System.Diagnostics.Debug.WriteLine(message));
+        this.diagnosticStateProvider = diagnosticStateProvider;
+        displayName = CreateDisplayName(displayNameSuffix);
     }
 
     internal TokenUsageSyncController(
@@ -59,7 +68,8 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         int port,
         string displayNameSuffix,
         TimeSpan addressCheckInterval,
-        Action<string>? diagnostic = null)
+        Action<string>? diagnostic = null,
+        Func<LanDiagnosticState>? diagnosticStateProvider = null)
     {
         this.loadSettings = loadSettings;
         this.regenerateSettings = regenerateSettings;
@@ -70,6 +80,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         this.displayNameSuffix = displayNameSuffix;
         this.addressCheckInterval = addressCheckInterval;
         this.diagnostic = diagnostic ?? (_ => { });
+        this.diagnosticStateProvider = diagnosticStateProvider;
         displayName = CreateDisplayName(displayNameSuffix);
     }
 
@@ -79,6 +90,26 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
     internal string? PairingInfo => server?.Address is null || settings is null
         ? null
         : new TokenUsagePairing(settings.DeviceId, server.Address.ToString(), server.Port, settings.PairingSecret, displayName).ToUri();
+    internal string MobileStatusText
+    {
+        get
+        {
+            var snapshot = diagnosticStateProvider?.Invoke();
+            if (snapshot?.LastRequestResult is { } result)
+            {
+                return result.ToUpperInvariant() switch
+                {
+                    "SUCCESS" => snapshot.LastSuccessUtc is { } success
+                        ? $"最近手机连接：{success.ToLocalTime():MM-dd HH:mm}"
+                        : "最近手机连接：已成功",
+                    "AUTH_FAILED" => "最近手机请求：认证失败",
+                    _ => "最近手机请求：请求失败",
+                };
+            }
+
+            return "尚未收到手机连接";
+        }
+    }
     internal event EventHandler? Changed;
 
     internal async Task SetEnabledAsync(bool enabled, CancellationToken cancellationToken)
@@ -97,6 +128,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             if (this.enabled) return;
             var loadedSettings = await loadSettings(cancellationToken).ConfigureAwait(false);
             settings = loadedSettings;
+            diagnostic($"LAN pairing device={settings.DeviceId:D} endpoint=unavailable");
             displayName = CreateDisplayName(displayNameSuffix);
             monitorLifetime = new CancellationTokenSource();
             this.enabled = true;
@@ -140,9 +172,12 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         var nextServer = serverFactory(settings!.PairingSecret);
         try
         {
+            diagnostic($"LAN listener start bind={selection.Address} port={port} interfaceIndex={selection.InterfaceIndex}");
             nextServer.Start(selection.Address, port);
             server = nextServer;
             currentInterfaceIndex = selection.InterfaceIndex;
+            diagnostic($"LAN pairing device={settings.DeviceId:D} endpoint={selection.Address}:{nextServer.Port}");
+            diagnostic($"LAN listener healthy=true bind={selection.Address} port={nextServer.Port} interfaceIndex={selection.InterfaceIndex}");
             diagnostic($"LAN listener started address={selection.Address}:{nextServer.Port} interface={selection.InterfaceIndex}");
             await TryStartPublisherAsync(cancellationToken).ConfigureAwait(false);
             return true;
@@ -152,6 +187,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             await nextServer.DisposeAsync().ConfigureAwait(false);
             var status = error.SocketErrorCode == SocketError.AddressAlreadyInUse ? "端口被占用" : "无法监听局域网地址";
             SetStatus(status);
+            diagnostic($"LAN listener healthy=false bind={selection.Address} port={port} interfaceIndex={selection.InterfaceIndex} restartReason={error.SocketErrorCode}");
             diagnostic($"LAN listener start/restart failure={error.SocketErrorCode}; retry in {addressCheckInterval.TotalSeconds:0.###}s");
             return false;
         }
@@ -166,12 +202,14 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             nextPublisher = publisherFactory(settings!.DeviceId, displayName);
             await nextPublisher.StartAsync(server.Address!, server.Port, currentInterfaceIndex, cancellationToken).ConfigureAwait(false);
             publisher = nextPublisher;
+            diagnostic($"DNS-SD register success interface={currentInterfaceIndex}");
             SetStatus("正在监听");
         }
         catch (Exception error) when (error is DllNotFoundException or EntryPointNotFoundException or Win32Exception or InvalidOperationException or TimeoutException)
         {
             if (nextPublisher is not null) await nextPublisher.DisposeAsync().ConfigureAwait(false);
             SetStatus("正在监听（自动发现不可用）");
+            diagnostic($"DNS-SD register failure interface={currentInterfaceIndex} exceptionClass={error.GetType().Name}");
             diagnostic($"DNS-SD publisher unavailable={error.GetType().Name}; retry in {addressCheckInterval.TotalSeconds:0.###}s");
         }
     }
@@ -210,6 +248,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
                     }
                     else if (!server.IsHealthy)
                     {
+                        diagnostic($"LAN listener healthy=false bind={server.Address} port={server.Port} interfaceIndex={currentInterfaceIndex} restartReason={server.ListenerFault?.GetType().Name ?? "Completed"}");
                         diagnostic($"LAN listener unhealthy fault={server.ListenerFault?.GetType().Name ?? "Completed"}; retry in {addressCheckInterval.TotalSeconds:0.###}s");
                         await StopListenerResourcesAsync().ConfigureAwait(false);
                         await TryStartServerAsync(address, cancellationToken).ConfigureAwait(false);
@@ -255,6 +294,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         }
         if (server is not null)
         {
+            diagnostic($"LAN listener healthy=false bind={server.Address} port={server.Port} interfaceIndex={currentInterfaceIndex} restartReason=stopped");
             diagnostic($"LAN listener stopped address={server.Address}:{server.Port}");
             await server.DisposeAsync().ConfigureAwait(false);
             server = null;

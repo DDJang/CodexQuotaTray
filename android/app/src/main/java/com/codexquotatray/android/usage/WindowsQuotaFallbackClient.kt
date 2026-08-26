@@ -39,6 +39,8 @@ data class WindowsQuotaFallbackResult(
 
 interface WindowsQuotaFallback {
     fun sync(pairing: TokenSyncPairing): WindowsQuotaFallbackResult
+
+    fun sync(pairing: TokenSyncPairing, attempt: LanAttemptContext?): WindowsQuotaFallbackResult = sync(pairing)
 }
 
 /**
@@ -51,36 +53,73 @@ class WindowsQuotaFallbackClient(
     private val discovery: TokenSyncDiscovery? = null,
     private val lanAvailability: LanAvailability? = null,
     private val diagnostics: LanDiagnosticLogger = NoOpLanDiagnosticLogger,
+    private val pairingStore: TokenSyncPairingStore? = null,
 ) : WindowsQuotaFallback {
-    constructor(context: Context, client: OkHttpClient = defaultClient()) : this(client, diagnostics = AndroidLanDiagnosticLogger(context), discovery = AndroidNsdDiscovery(context), lanAvailability = AndroidLanAvailability(context))
+    constructor(context: Context, client: OkHttpClient = defaultClient()) : this(
+        client = client,
+        diagnostics = AndroidLanDiagnosticLogger(context),
+        discovery = AndroidNsdDiscovery(context),
+        lanAvailability = AndroidLanAvailability(context),
+        pairingStore = TokenSyncStore(context),
+    )
 
     override fun sync(pairing: TokenSyncPairing): WindowsQuotaFallbackResult {
-        diagnostics.record("Quota LAN stored endpoint=${pairing.host}:${pairing.port}")
-        val direct = runCatching { fetchDirect(pairing) }
-        direct.getOrNull()?.let { return WindowsQuotaFallbackResult(it, pairing) }
-        val error = direct.exceptionOrNull()
-        if (error !is WindowsQuotaFallbackException
-            || error.kind != WindowsQuotaFallbackFailureKind.OFFLINE
-            || !TokenSyncEndpoint.isDiscoveryEnabled(pairing)
-            || discovery == null
-        ) {
-            throw error ?: WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.OFFLINE, "Windows quota unavailable")
-        }
-
-        val candidate = discovery.find(
-            pairing.deviceId,
-            timeoutMs = QuotaNetworkTimeouts.WINDOWS_DNS_SD_TIMEOUT_MILLIS,
-        )
-            ?.takeIf { it.deviceId.equals(pairing.deviceId, ignoreCase = true) }
-            ?: throw error
-        val relocated = TokenSyncEndpoint.updateHost(pairing, candidate)
-        diagnostics.record("Quota LAN discovered endpoint=${relocated.host}:${relocated.port}")
-        return WindowsQuotaFallbackResult(fetchDirect(relocated), relocated)
+        return sync(pairing, null)
     }
 
-    private fun fetchDirect(pairing: TokenSyncPairing): DirectQuotaResult {
+    override fun sync(pairing: TokenSyncPairing, attempt: LanAttemptContext?): WindowsQuotaFallbackResult {
+        val correlation = attempt ?: LanAttemptContext("quota", LanAttemptIds.nextId(), diagnostics)
+        correlation.start(pairing)
+        correlation.connectTimeout(QuotaNetworkTimeouts.WINDOWS_CONNECT_TIMEOUT_MILLIS)
+        return try {
+            val direct = runCatching { fetchDirect(pairing, correlation) }
+            direct.getOrNull()?.let { quota ->
+                correlation.finishSuccess()
+                val updatedPairing = TokenSyncEndpoint.markLanSuccess(pairing, correlation)
+                runCatching { pairingStore?.recordLanSuccess(pairing, correlation) }
+                return WindowsQuotaFallbackResult(quota, updatedPairing)
+            }
+            val error = direct.exceptionOrNull()
+            if (error !is WindowsQuotaFallbackException
+                || error.kind != WindowsQuotaFallbackFailureKind.OFFLINE
+                || !TokenSyncEndpoint.isDiscoveryEnabled(pairing)
+                || discovery == null
+            ) {
+                correlation.finishFailure()
+                throw error ?: WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.OFFLINE, "Windows quota unavailable")
+            }
+
+            correlation.nsdStart(QuotaNetworkTimeouts.WINDOWS_DNS_SD_TIMEOUT_MILLIS)
+            val candidate = discovery.find(
+                pairing.deviceId,
+                timeoutMs = QuotaNetworkTimeouts.WINDOWS_DNS_SD_TIMEOUT_MILLIS,
+                attempt = correlation,
+            )
+                ?.takeIf { it.deviceId.equals(pairing.deviceId, ignoreCase = true) }
+                ?: run {
+                    correlation.nsdTimeout()
+                    throw error
+                }
+            val relocated = TokenSyncEndpoint.updateHost(pairing, candidate)
+            correlation.nsdDiscovered(relocated.host, relocated.port)
+            val quota = fetchDirect(relocated, correlation)
+            correlation.finishSuccess()
+            val updatedPairing = TokenSyncEndpoint.markLanSuccess(relocated, correlation)
+            runCatching { pairingStore?.recordLanSuccess(pairing, correlation) }
+            WindowsQuotaFallbackResult(quota, updatedPairing)
+        } catch (error: Throwable) {
+            correlation.finishFailure()
+            runCatching { pairingStore?.recordLanFailure(pairing, correlation) }
+            throw error
+        }
+    }
+
+    private fun fetchDirect(pairing: TokenSyncPairing, attempt: LanAttemptContext): DirectQuotaResult {
         val safe = runCatching { TokenSyncEndpoint.validated(pairing.deviceId, pairing.host, pairing.port, pairing.secret) }
-            .getOrElse { throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.INVALID_RESPONSE, "Windows quota address invalid") }
+            .getOrElse {
+                attempt.invalidResponse(it)
+                throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.INVALID_RESPONSE, "Windows quota address invalid")
+            }
         val url = "http://${safe.host}:${safe.port}/v1/quota".toHttpUrl()
         val request = Request.Builder()
             .url(url)
@@ -88,19 +127,27 @@ class WindowsQuotaFallbackClient(
             .header("Authorization", "Bearer ${safe.secret}")
             .header("Accept", "application/json")
             .build()
-        val callDiagnostics = LanHttpCallDiagnostics("Quota", diagnostics)
+        val callDiagnostics = LanHttpCallDiagnostics(
+            "Quota",
+            diagnostics,
+            attempt = attempt,
+            connectTimeoutMillis = QuotaNetworkTimeouts.WINDOWS_CONNECT_TIMEOUT_MILLIS,
+        )
         val response = try {
-            callDiagnostics.instrument(client.bindToWifiLan(lanAvailability, safe.host, diagnostics)).newCall(request).execute().use { result ->
+            callDiagnostics.instrument(
+                client.bindToWifiLan(lanAvailability, safe.host, diagnostics, attempt),
+            ).newCall(request).execute().use { result ->
                 callDiagnostics.responseReceived()
                 result.code to result.body?.string().orEmpty()
             }
-        } catch (_: SocketTimeoutException) {
-            callDiagnostics.failure("TIMEOUT")
+        } catch (error: SocketTimeoutException) {
+            callDiagnostics.failure("TIMEOUT", error)
             throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.OFFLINE, "Windows quota unavailable")
-        } catch (_: IOException) {
-            callDiagnostics.failure("IO")
+        } catch (error: IOException) {
+            callDiagnostics.failure("IO", error)
             throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.OFFLINE, "Windows quota unavailable")
         }
+        attempt.httpStatus(response.first)
         diagnostics.record("Quota LAN direct status=${response.first} elapsedMs=${callDiagnostics.elapsedMillis()}")
         if (response.first == 401) {
             throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.PAIRING_INVALID, "Windows pairing invalid")
@@ -108,7 +155,9 @@ class WindowsQuotaFallbackClient(
         if (response.first !in 200..299) {
             throw WindowsQuotaFallbackException(WindowsQuotaFallbackFailureKind.HTTP_ERROR, "Windows quota unavailable")
         }
-        return WindowsQuotaJson.parse(response.second)
+        return runCatching { WindowsQuotaJson.parse(response.second) }
+            .onFailure { attempt.invalidResponse(it) }
+            .getOrElse { throw it }
     }
 
     companion object {

@@ -24,6 +24,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
     private readonly SemaphoreSlim scanGate = new(1, 1);
     private readonly object cacheLock = new();
     private readonly Action<string> diagnostic;
+    private readonly Action? requestObserved;
     private TcpListener? listener;
     private Task? acceptTask;
     private TokenUsageSnapshot? cached;
@@ -38,7 +39,8 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         TimeSpan? minimumScanInterval = null,
         Func<QuotaLanSnapshot?>? quotaSnapshotProvider = null,
         TimeSpan? requestHeaderTimeout = null,
-        Action<string>? diagnostic = null)
+        Action<string>? diagnostic = null,
+        Action? requestObserved = null)
     {
         scanAsync = cancellationToken => scanner.ScanAsync(codexHome, cancellationToken: cancellationToken);
         this.secret = secret;
@@ -46,13 +48,15 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         this.requestHeaderTimeout = requestHeaderTimeout ?? TimeSpan.FromSeconds(10);
         this.quotaSnapshotProvider = quotaSnapshotProvider ?? (() => null);
         this.diagnostic = diagnostic ?? (_ => { });
+        this.requestObserved = requestObserved;
     }
 
     internal TokenUsageSyncServer(
         Func<CancellationToken, Task<TokenUsageSnapshot>> scanAsync,
         string secret,
         TimeSpan minimumScanInterval,
-        Action<string>? diagnostic = null)
+        Action<string>? diagnostic = null,
+        Action? requestObserved = null)
     {
         this.scanAsync = scanAsync;
         this.secret = secret;
@@ -60,6 +64,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         requestHeaderTimeout = TimeSpan.FromSeconds(10);
         quotaSnapshotProvider = () => null;
         this.diagnostic = diagnostic ?? (_ => { });
+        this.requestObserved = requestObserved;
     }
 
     public TokenUsageSyncServer(
@@ -68,7 +73,8 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         Func<QuotaLanSnapshot?> quotaSnapshotProvider,
         TimeSpan? minimumScanInterval = null,
         TimeSpan? requestHeaderTimeout = null,
-        Action<string>? diagnostic = null)
+        Action<string>? diagnostic = null,
+        Action? requestObserved = null)
     {
         scanAsync = readTokenUsageAsync;
         this.secret = secret;
@@ -76,6 +82,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         this.requestHeaderTimeout = requestHeaderTimeout ?? TimeSpan.FromSeconds(10);
         this.quotaSnapshotProvider = quotaSnapshotProvider;
         this.diagnostic = diagnostic ?? (_ => { });
+        this.requestObserved = requestObserved;
     }
 
     public IPAddress? Address { get; private set; }
@@ -101,6 +108,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         Address = address;
         Port = ((IPEndPoint)listener.LocalEndpoint).Port;
         acceptTask = AcceptLoopAsync(listener, lifetime.Token);
+        diagnostic($"LAN listener start bind={Address} port={Port}");
         diagnostic($"LAN listener started address={Address}:{Port}");
     }
 
@@ -250,7 +258,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         while (!cancellationToken.IsCancellationRequested)
         {
             var client = await activeListener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-            diagnostic("LAN listener accepted connection");
+            diagnostic($"LAN accept remote={RemoteAddress(client)}");
             _ = ObserveClientAsync(HandleClientAsync(client, cancellationToken));
         }
     }
@@ -263,6 +271,9 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
+        var remote = RemoteAddress(client);
+        var requestPath = "unavailable";
+        var handlerEntered = false;
         try
         {
             using (client)
@@ -278,19 +289,24 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     }
                     catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                     {
+                        RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 408, "SocketTimeoutException");
                         return;
                     }
                 }
                 if (request is null)
                 {
                     await WriteResponseAsync(stream, 400, "Bad Request", null, cancellationToken).ConfigureAwait(false);
+                    RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 400);
                     return;
                 }
-                diagnostic($"LAN request path={request.Path}");
+                requestPath = SafePath(request.Path);
+                handlerEntered = true;
+                diagnostic($"LAN request remote={remote} path={requestPath} handler=entered=true");
 
                 if (!string.Equals(request.Method, "GET", StringComparison.Ordinal))
                 {
                     await WriteResponseAsync(stream, 405, "Method Not Allowed", null, cancellationToken).ConfigureAwait(false);
+                    RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 405);
                     return;
                 }
 
@@ -298,12 +314,14 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     && !string.Equals(request.Path, "/v1/quota", StringComparison.Ordinal))
                 {
                     await WriteResponseAsync(stream, 404, "Not Found", null, cancellationToken).ConfigureAwait(false);
+                    RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 404);
                     return;
                 }
 
                 if (!Authorized(request.Authorization))
                 {
                     await WriteResponseAsync(stream, 401, "Unauthorized", null, cancellationToken).ConfigureAwait(false);
+                    RecordRequestResult(remote, requestPath, handlerEntered, "AUTH_FAILED", 401);
                     return;
                 }
 
@@ -313,12 +331,13 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     if (quota is null)
                     {
                         await WriteResponseAsync(stream, 503, "Service Unavailable", null, cancellationToken).ConfigureAwait(false);
+                        RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 503);
                         return;
                     }
 
                     var quotaBody = JsonSerializer.SerializeToUtf8Bytes(quota, JsonOptions);
                     await WriteResponseAsync(stream, 200, "OK", quotaBody, cancellationToken).ConfigureAwait(false);
-                    diagnostic("LAN response path=/v1/quota status=200");
+                    RecordRequestResult(remote, requestPath, handlerEntered, "SUCCESS", 200);
                     return;
                 }
 
@@ -340,13 +359,45 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     snapshot.Days,
                 }, JsonOptions);
                 await WriteResponseAsync(stream, 200, "OK", body, cancellationToken).ConfigureAwait(false);
-                diagnostic("LAN response path=/v1/token-usage status=200");
+                RecordRequestResult(remote, requestPath, handlerEntered, "SUCCESS", 200);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
+        catch (Exception error)
+        {
+            RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 500, error.GetType().Name);
+            throw;
+        }
     }
+
+    private void RecordRequestResult(
+        string remote,
+        string path,
+        bool handlerEntered,
+        string result,
+        int status,
+        string? exceptionClass = null)
+    {
+        var exception = exceptionClass is null ? string.Empty : $" exceptionClass={exceptionClass}";
+        diagnostic($"LAN request remote={remote} path={path} handler=entered={handlerEntered.ToString().ToLowerInvariant()} result={result} status={status}{exception}");
+        try { requestObserved?.Invoke(); }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            diagnostic($"LAN request observer fault={error.GetType().Name}");
+        }
+    }
+
+    private static string RemoteAddress(TcpClient client) =>
+        (client.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString() ?? "unavailable";
+
+    private static string SafePath(string path) => path switch
+    {
+        "/v1/token-usage" => path,
+        "/v1/quota" => path,
+        _ => "<other>",
+    };
 
     private async Task<TokenUsageSnapshot> GetSnapshotAsync(bool forceRefresh, CancellationToken cancellationToken)
     {

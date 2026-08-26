@@ -30,6 +30,8 @@
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TokenUsageCacheSettingsState.cs" Link="Services\TokenUsageCacheSettingsState.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Interop\NativeMethods.cs" Link="Interop\NativeMethods.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Interop\DnsSdServicePublisher.cs" Link="Interop\DnsSdServicePublisher.cs" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Services\LanDiagnosticBuffer.cs" Link="Services\LanDiagnosticBuffer.cs" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Services\LanDiagnosticsFormatter.cs" Link="Services\LanDiagnosticsFormatter.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TokenUsageSyncController.cs" Link="Services\TokenUsageSyncController.cs" />
     <None Include="..\fixtures\*.json" Link="Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

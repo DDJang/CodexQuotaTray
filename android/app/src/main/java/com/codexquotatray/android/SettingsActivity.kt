@@ -2,6 +2,9 @@ package com.codexquotatray.android
 
 import android.Manifest
 import android.app.NotificationManager
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
@@ -49,6 +52,7 @@ import com.codexquotatray.android.quota.ResetCreditExpiryReminderScheduler
 import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
 import com.codexquotatray.android.source.DataSourcePriority
 import com.codexquotatray.android.usage.TokenSyncPairing
+import com.codexquotatray.android.usage.AndroidLanDiagnosticsFormatter
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettings
@@ -622,12 +626,14 @@ class SettingsActivity : ComponentActivity() {
                 pairing?.let {
                     SettingsDivider()
                     SettingsInfoRow("电脑", "${it.displayName ?: "Windows PC"} · ${it.host}:${it.port}")
+                    SettingsInfoRow("最近连接尝试", formatPairingConnectionStatus(it, locale))
                     SettingsInfoRow(
                         "上次同步",
                         it.lastSyncUtc?.let { raw -> formatPairingTime(raw, locale) } ?: "尚未成功同步",
                     )
                     SettingsActionButton("立即同步", onClick = ::syncPairedNow)
                     SettingsActionButton("重新扫码配对", onClick = ::scanPairing)
+                    SettingsActionButton("复制诊断信息", onClick = ::copyLanDiagnostics)
                     SettingsActionButton(
                         label = "解除配对",
                         danger = true,
@@ -897,6 +903,19 @@ class SettingsActivity : ComponentActivity() {
             ?: Toast.makeText(this, "尚未配对 Windows", Toast.LENGTH_SHORT).show()
     }
 
+    private fun copyLanDiagnostics() {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val recentEvents = AppLogStore(this).readLan()
+        val text = AndroidLanDiagnosticsFormatter.format(
+            version = BuildConfig.VERSION_NAME,
+            pairing = tokenStore.load(),
+            network = AndroidLanDiagnosticsFormatter.extractNetwork(recentEvents),
+            recentEvents = recentEvents,
+        )
+        clipboard?.setPrimaryClip(ClipData.newPlainText("CodexQuotaTray LAN Diagnostics", text))
+        Toast.makeText(this, "诊断信息已复制", Toast.LENGTH_SHORT).show()
+    }
+
     private fun clearPairing() {
         val cleared = TokenUsagePairingLifecycle.withLock {
             TokenUsagePairingLifecycle.clear(tokenStore, TokenUsageCache(this)).also { success ->
@@ -1067,6 +1086,37 @@ class SettingsActivity : ComponentActivity() {
             .withZone(ZoneId.systemDefault())
             .format(Instant.parse(raw))
     }.getOrDefault("未知")
+
+    private fun formatPairingConnectionStatus(
+        value: TokenSyncPairing,
+        locale: java.util.Locale,
+    ): String {
+        val success = value.lastLanSuccessAtMillis ?: value.lastSuccessfulSyncAtMillis
+        val failure = value.lastLanFailureAtMillis
+        return when {
+            failure != null && (success == null || failure >= success) ->
+                "Windows 暂不可达 · ${formatLanFailurePhase(value.lastLanFailurePhase)}"
+            success != null -> "最近连接成功：${formatPairingMillis(success, locale)}"
+            value.lastLanAttemptId != null -> "尚未成功连接"
+            else -> "尚未尝试连接"
+        }
+    }
+
+    private fun formatLanFailurePhase(value: String?): String = when (value) {
+        "ROUTE_NOT_FOUND" -> "路由不可用"
+        "TCP_CONNECT_TIMEOUT" -> "TCP 连接超时"
+        "TCP_CONNECT_IO" -> "TCP 连接失败"
+        "AUTH_FAILED" -> "认证失败"
+        "HTTP_FAILED" -> "请求失败"
+        "NSD_TIMEOUT" -> "NSD 发现超时"
+        "NSD_DISCOVERED" -> "发现后连接失败"
+        else -> value?.takeIf(String::isNotBlank) ?: "连接失败"
+    }
+
+    private fun formatPairingMillis(value: Long, locale: java.util.Locale): String =
+        DateTimeFormatter.ofPattern("MM-dd HH:mm", locale)
+            .withZone(ZoneId.systemDefault())
+            .format(Instant.ofEpochMilli(value))
 
     companion object {
         private const val STATE_DESTINATION = "settings_destination"

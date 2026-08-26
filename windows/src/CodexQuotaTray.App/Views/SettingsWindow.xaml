@@ -513,6 +513,7 @@
                                 <TextBlock Text="{Binding TokenSyncStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 <TextBlock Text="{Binding TokenSyncDeviceNameText}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 <TextBlock Text="{Binding TokenSyncAddressText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBlock Text="{Binding TokenSyncMobileStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 <StackPanel x:Name="TokenSyncQrPanel" HorizontalAlignment="Center" Spacing="8">
                                     <Image
                                         x:Name="TokenSyncQrCodeImage"
@@ -538,6 +539,12 @@
                                     <Button
                                         Content="重新生成密钥"
                                         Click="OnRegenerateTokenSyncSecretRequested"
+                                        Style="{StaticResource SettingsActionButtonStyle}" />
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button
+                                        Content="复制诊断信息"
+                                        Command="{Binding CopyDiagnosticsCommand}"
                                         Style="{StaticResource SettingsActionButtonStyle}" />
                                 </StackPanel>
                                 <TextBlock

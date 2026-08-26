@@ -27,6 +27,8 @@ internal sealed class DemoSettingsPlatformActions : ISettingsPlatformActions
 
     public string TokenSyncDeviceNameText => string.Empty;
 
+    public string TokenSyncMobileStatusText => string.Empty;
+
     public string? TokenSyncPairingInfo => null;
 
     public event EventHandler? TokenSyncChanged

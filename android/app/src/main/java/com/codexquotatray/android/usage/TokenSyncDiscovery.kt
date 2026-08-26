@@ -12,6 +12,13 @@ import java.util.concurrent.TimeUnit
 interface TokenSyncDiscovery {
     fun find(deviceId: String, timeoutMs: Long = DEFAULT_TIMEOUT_MS): TokenSyncEndpoint.TokenSyncDiscoveryCandidate?
 
+    /** Correlation-aware overload; existing discovery implementations remain compatible. */
+    fun find(
+        deviceId: String,
+        timeoutMs: Long,
+        attempt: LanAttemptContext,
+    ): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? = find(deviceId, timeoutMs)
+
     companion object {
         const val DEFAULT_TIMEOUT_MS = 5_000L
     }
@@ -49,16 +56,40 @@ class AndroidNsdDiscovery(
     private val wifi = appContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
     private val main = Handler(Looper.getMainLooper())
 
-    override fun find(deviceId: String, timeoutMs: Long): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? {
-        val manager = nsd ?: return null
-        val wifiManager = wifi ?: return null
-        if (!TokenSyncEndpoint.isValidDeviceId(deviceId)) return null
+    override fun find(deviceId: String, timeoutMs: Long): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? =
+        findInternal(deviceId, timeoutMs, null)
+
+    override fun find(
+        deviceId: String,
+        timeoutMs: Long,
+        attempt: LanAttemptContext,
+    ): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? =
+        findInternal(deviceId, timeoutMs, attempt)
+
+    private fun findInternal(
+        deviceId: String,
+        timeoutMs: Long,
+        attempt: LanAttemptContext?,
+    ): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? {
+        val manager = nsd ?: run {
+            attempt?.nsdUnavailable()
+            return null
+        }
+        val wifiManager = wifi ?: run {
+            attempt?.nsdUnavailable()
+            return null
+        }
+        if (!TokenSyncEndpoint.isValidDeviceId(deviceId)) {
+            attempt?.nsdUnavailable()
+            return null
+        }
         return runCatching {
             withDiscoveryMulticastLock(AndroidDiscoveryMulticastLock(wifiManager)) {
-                discover(manager, deviceId, timeoutMs.coerceIn(1_000L, 5_000L))
+                discover(manager, deviceId, timeoutMs.coerceIn(1_000L, 5_000L), attempt)
             }
         }.onFailure {
-            diagnostics.record("Windows NSD multicast/discovery failure=${it.javaClass.simpleName}")
+            attempt?.record("NSD multicast/discovery failure exceptionClass=${it.javaClass.simpleName}")
+                ?: diagnostics.record("Windows NSD multicast/discovery failure=${it.javaClass.simpleName}")
         }.getOrNull()
     }
 
@@ -66,6 +97,7 @@ class AndroidNsdDiscovery(
         manager: NsdManager,
         deviceId: String,
         timeoutMs: Long,
+        attempt: LanAttemptContext?,
     ): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? {
         val completed = CountDownLatch(1)
         var candidate: TokenSyncEndpoint.TokenSyncDiscoveryCandidate? = null
@@ -78,13 +110,15 @@ class AndroidNsdDiscovery(
             if (serviceInfo == null) return
             runCatching { manager.resolveService(serviceInfo, resolveListener) }
                 .onFailure {
-                    diagnostics.record("Windows NSD resolve start failure=${it.javaClass.simpleName}")
+                    attempt?.record("NSD resolve start failure exceptionClass=${it.javaClass.simpleName}")
+                        ?: diagnostics.record("Windows NSD resolve start failure=${it.javaClass.simpleName}")
                     resolveNext(resolveQueue.complete(matched = false))
                 }
         }
         resolveListener = object : NsdManager.ResolveListener {
             override fun onResolveFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
-                diagnostics.record("Windows NSD resolve failure errorCode=$errorCode")
+                attempt?.record("NSD resolve failure errorCode=$errorCode")
+                    ?: diagnostics.record("Windows NSD resolve failure errorCode=$errorCode")
                 resolveNext(resolveQueue.complete(matched = false))
             }
 
@@ -103,18 +137,19 @@ class AndroidNsdDiscovery(
                     .firstOrNull { it.key.equals("name", ignoreCase = true) }
                     ?.value?.toString(Charsets.UTF_8)?.trim()
                 candidate = TokenSyncEndpoint.TokenSyncDiscoveryCandidate(valid.deviceId, valid.host, valid.port, name)
-                diagnostics.record("Windows NSD discovered endpoint=${valid.host}:${valid.port}")
+                attempt?.nsdDiscovered(valid.host, valid.port)
+                    ?: diagnostics.record("Windows NSD discovered endpoint=${valid.host}:${valid.port}")
                 resolveQueue.complete(matched = true)
                 completed.countDown()
             }
         }
         listener = object : NsdManager.DiscoveryListener {
             override fun onDiscoveryStarted(serviceType: String) {
-                diagnostics.record("Windows NSD started")
+                attempt?.record("NSD started") ?: diagnostics.record("Windows NSD started")
             }
 
             override fun onServiceFound(serviceInfo: NsdServiceInfo) {
-                diagnostics.record("Windows NSD service found")
+                attempt?.record("NSD service found") ?: diagnostics.record("Windows NSD service found")
                 if (!serviceInfo.serviceType.trimEnd('.').equals(TokenSyncEndpoint.ServiceType, ignoreCase = true)) return
                 resolveNext(resolveQueue.offer(serviceInfo))
             }
@@ -122,20 +157,23 @@ class AndroidNsdDiscovery(
             override fun onServiceLost(serviceInfo: NsdServiceInfo) = Unit
             override fun onDiscoveryStopped(serviceType: String) = Unit
             override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
-                diagnostics.record("Windows NSD start failure errorCode=$errorCode")
+                attempt?.record("NSD start failure errorCode=$errorCode")
+                    ?: diagnostics.record("Windows NSD start failure errorCode=$errorCode")
                 completed.countDown()
             }
             override fun onStopDiscoveryFailed(serviceType: String, errorCode: Int) {
-                diagnostics.record("Windows NSD stop failure errorCode=$errorCode")
+                attempt?.record("NSD stop failure errorCode=$errorCode")
+                    ?: diagnostics.record("Windows NSD stop failure errorCode=$errorCode")
             }
         }
 
         runOnMainAndWait {
-            diagnostics.record("Windows NSD start requested timeoutMs=$timeoutMs")
+            attempt?.nsdStart(timeoutMs)
+                ?: diagnostics.record("Windows NSD start requested timeoutMs=$timeoutMs")
             manager.discoverServices(TokenSyncEndpoint.ServiceType, NsdManager.PROTOCOL_DNS_SD, listener)
         }
         if (!completed.await(timeoutMs, TimeUnit.MILLISECONDS)) {
-            diagnostics.record("Windows NSD discovery timeout")
+            attempt?.nsdTimeout() ?: diagnostics.record("Windows NSD discovery timeout")
         }
         runOnMainAndWait {
             runCatching { manager.stopServiceDiscovery(listener) }

@@ -17,6 +17,11 @@ interface TokenSyncPairingStore {
     fun save(pairing: TokenSyncPairing): Boolean
     fun clear(): Boolean = false
 
+    /** Best-effort LAN status projection; failures never affect the network result. */
+    fun recordLanSuccess(expected: TokenSyncPairing, attempt: LanAttemptContext): Boolean = false
+
+    fun recordLanFailure(expected: TokenSyncPairing, attempt: LanAttemptContext): Boolean = false
+
     /** Atomically persist only when the user has not replaced this pairing. */
     fun saveIfCurrent(expected: TokenSyncPairing, updated: TokenSyncPairing): Boolean =
         load()?.takeIf { it.matchesConfiguration(expected) }?.let { save(updated) } ?: false
@@ -65,6 +70,12 @@ class TokenSyncStore(context: Context) : TokenSyncPairingStore {
                 .put("displayName", pairing.displayName ?: JSONObject.NULL)
                 .put("lastSyncUtc", pairing.lastSyncUtc ?: JSONObject.NULL)
                 .put("lastSuccessfulSyncAtMillis", pairing.lastSuccessfulSyncAtMillis ?: JSONObject.NULL)
+                .put("lastLanSuccessAtMillis", pairing.lastLanSuccessAtMillis ?: JSONObject.NULL)
+                .put("lastLanFailureAtMillis", pairing.lastLanFailureAtMillis ?: JSONObject.NULL)
+                .put("lastLanFailurePhase", pairing.lastLanFailurePhase ?: JSONObject.NULL)
+                .put("lastLanAttemptId", pairing.lastLanAttemptId ?: JSONObject.NULL)
+                .put("lastLanAttemptChannel", pairing.lastLanAttemptChannel ?: JSONObject.NULL)
+                .put("lastLanTargetEndpoint", pairing.lastLanTargetEndpoint ?: JSONObject.NULL)
                 .toString().toByteArray(Charsets.UTF_8)
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.ENCRYPT_MODE, key())
@@ -87,11 +98,30 @@ class TokenSyncStore(context: Context) : TokenSyncPairingStore {
             (json.opt("displayName") as? String)?.takeIf { it.isNotBlank() },
             (json.opt("lastSyncUtc") as? String)?.takeIf { it.isNotBlank() },
             (json.opt("lastSuccessfulSyncAtMillis") as? Number)?.toLong(),
+            (json.opt("lastLanSuccessAtMillis") as? Number)?.toLong(),
+            (json.opt("lastLanFailureAtMillis") as? Number)?.toLong(),
+            (json.opt("lastLanFailurePhase") as? String)?.takeIf { it.isNotBlank() },
+            (json.opt("lastLanAttemptId") as? Number)?.toLong(),
+            (json.opt("lastLanAttemptChannel") as? String)?.takeIf { it.isNotBlank() },
+            (json.opt("lastLanTargetEndpoint") as? String)?.takeIf { it.isNotBlank() },
         )
     }.getOrNull()
 
     override fun clear(): Boolean = TokenUsagePairingLifecycle.withLock {
         preferences.edit().remove(KEY_PAIRING).commit()
+    }
+
+    override fun recordLanSuccess(expected: TokenSyncPairing, attempt: LanAttemptContext): Boolean =
+        updateLanState(expected) { pairing -> TokenSyncEndpoint.markLanSuccess(pairing, attempt) }
+
+    override fun recordLanFailure(expected: TokenSyncPairing, attempt: LanAttemptContext): Boolean =
+        updateLanState(expected) { pairing -> TokenSyncEndpoint.markLanFailure(pairing, attempt) }
+
+    private fun updateLanState(
+        expected: TokenSyncPairing,
+        update: (TokenSyncPairing) -> TokenSyncPairing,
+    ): Boolean = TokenUsagePairingLifecycle.withLock {
+        load()?.takeIf { it.matchesConfiguration(expected) }?.let { write(update(it)) } ?: false
     }
 
     private fun key(): SecretKey {

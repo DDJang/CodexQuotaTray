@@ -1033,6 +1033,8 @@ public sealed class ViewModelTests
 
         public string TokenSyncDeviceNameText => string.Empty;
 
+        public string TokenSyncMobileStatusText => string.Empty;
+
         public string? TokenSyncPairingInfo => null;
 
         public event EventHandler? TokenSyncChanged
