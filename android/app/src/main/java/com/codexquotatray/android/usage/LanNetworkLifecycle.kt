@@ -59,6 +59,33 @@ internal class LanNetworkSnapshotTracker {
     }
 }
 
+/** Serializes callback registration and lifecycle state transitions. */
+internal class LanNetworkLifecycleState {
+    private val lock = Any()
+    private var started = false
+
+    internal fun start(register: () -> Unit): Boolean = synchronized(lock) {
+        if (started) {
+            false
+        } else {
+            register()
+            started = true
+            true
+        }
+    }
+
+    internal fun isStarted(): Boolean = synchronized(lock) { started }
+
+    internal fun stop(): Boolean = synchronized(lock) {
+        if (!started) {
+            false
+        } else {
+            started = false
+            true
+        }
+    }
+}
+
 /**
  * Observes Wi-Fi lifecycle changes without performing any network I/O. The
  * callback only invalidates the process-local epoch when the key LAN context
@@ -76,8 +103,8 @@ internal class AndroidLanNetworkLifecycle(
     private val networkSnapshots = mutableMapOf<Long, LanNetworkContextSnapshot>()
     private val snapshotTracker = LanNetworkSnapshotTracker()
     private val debounce = LanNetworkRecoveryDebounce()
+    private val lifecycleState = LanNetworkLifecycleState()
     private val stateLock = Any()
-    private var started = false
     private var pendingGeneration: Long? = null
 
     private val recoveryRunnable = Runnable {
@@ -114,23 +141,24 @@ internal class AndroidLanNetworkLifecycle(
     }
 
     fun start() {
-        synchronized(stateLock) {
-            if (started) return
-            started = true
-        }
         val manager = connectivity ?: run {
             diagnostics.record("LAN network callback unavailable reason=CONNECTIVITY_MANAGER")
             return
         }
-        runCatching {
-            manager.registerNetworkCallback(
-                NetworkRequest.Builder()
-                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                    .build(),
-                callback,
-            )
-            captureActiveNetwork()
+        val startedNow = runCatching {
+            lifecycleState.start {
+                manager.registerNetworkCallback(
+                    NetworkRequest.Builder()
+                        .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                        .build(),
+                    callback,
+                )
+            }
         }.onFailure {
+            diagnostics.record("LAN network callback unavailable exceptionClass=${it.javaClass.simpleName}")
+        }.getOrDefault(false)
+        if (!startedNow) return
+        runCatching { captureActiveNetwork() }.onFailure {
             diagnostics.record("LAN network callback unavailable exceptionClass=${it.javaClass.simpleName}")
         }
     }
@@ -140,8 +168,7 @@ internal class AndroidLanNetworkLifecycle(
         debounce.cancel()
         synchronized(stateLock) {
             pendingGeneration = null
-            if (!started) return
-            started = false
+            if (!lifecycleState.stop()) return
             networkSnapshots.clear()
             snapshotTracker.reset()
         }
@@ -161,7 +188,7 @@ internal class AndroidLanNetworkLifecycle(
     ) {
         val snapshot = snapshotFor(network, capabilities, linkProperties) ?: return
         synchronized(stateLock) {
-            if (!started) return
+            if (!lifecycleState.isStarted()) return
             networkSnapshots[network.networkHandle] = snapshot
         }
         notifySnapshotChanged(reason)
@@ -169,7 +196,7 @@ internal class AndroidLanNetworkLifecycle(
 
     private fun notifySnapshotChanged(reason: String) {
         val update = synchronized(stateLock) {
-            if (!started) return
+            if (!lifecycleState.isStarted()) return
             val selected = selectedSnapshotLocked()
             if (!snapshotTracker.hasBaseline && selected == null) return
             snapshotTracker.observe(selected)
@@ -189,7 +216,7 @@ internal class AndroidLanNetworkLifecycle(
 
     private fun notifyChange(reason: String) {
         synchronized(stateLock) {
-            if (!started) return
+            if (!lifecycleState.isStarted()) return
         }
         val generation = LanNetworkEpoch.advance(reason, diagnostics)
         val first = debounce.schedule(generation)

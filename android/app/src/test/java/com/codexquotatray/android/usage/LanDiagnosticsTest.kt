@@ -17,6 +17,27 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 
 class LanDiagnosticsTest {
+    @Test fun networkCallbackRegistrationFailureAllowsRetryOnNextStart() {
+        val lifecycle = LanNetworkLifecycleState()
+        var attempts = 0
+        var shouldFail = true
+
+        assertTrue(
+            runCatching {
+                lifecycle.start {
+                    attempts += 1
+                    if (shouldFail) error("registration failed")
+                }
+            }.isFailure,
+        )
+        assertFalse(lifecycle.isStarted())
+
+        shouldFail = false
+        assertTrue(lifecycle.start { attempts += 1 })
+        assertTrue(lifecycle.isStarted())
+        assertEquals(2, attempts)
+    }
+
     @Test fun networkSnapshotBaselineAndNoOpDoNotAdvanceGeneration() {
         LanNetworkEpoch.resetForTest(31L)
         val tracker = LanNetworkSnapshotTracker()
