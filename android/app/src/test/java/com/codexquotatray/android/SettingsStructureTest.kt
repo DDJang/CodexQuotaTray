@@ -435,7 +435,7 @@ class SettingsStructureTest {
             File("android/app/src/debug/AndroidManifest.xml"),
             File("app/src/debug/AndroidManifest.xml"),
             File("src/debug/AndroidManifest.xml"),
-        ).firstOrNull(File::isFile)?.readText()
+        ).firstOrNull(File::isFile)?.readNormalizedText()
             ?: error("debug AndroidManifest.xml not found from ${System.getProperty("user.dir")}")
         assertTrue(manifest.contains(".debug.LiquidBottomTabsFixtureActivity"))
 
@@ -617,6 +617,11 @@ class SettingsStructureTest {
 
     private fun settingsSource(): String = sourceFile("SettingsActivity.kt")
 
+    private fun File.readNormalizedText(): String =
+        readText()
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+
     private fun sourceFile(name: String): String {
         val relative = "com/codexquotatray/android/$name"
         val candidates = listOf(
@@ -624,7 +629,7 @@ class SettingsStructureTest {
             File("app/src/main/java/$relative"),
             File("src/main/java/$relative"),
         )
-        return candidates.firstOrNull(File::isFile)?.readText()
+        return candidates.firstOrNull(File::isFile)?.readNormalizedText()
             ?: error("$name source not found from ${System.getProperty("user.dir")}")
     }
 
@@ -635,7 +640,7 @@ class SettingsStructureTest {
             File("app/src/debug/java/$relative"),
             File("src/debug/java/$relative"),
         )
-        return candidates.firstOrNull(File::isFile)?.readText()
+        return candidates.firstOrNull(File::isFile)?.readNormalizedText()
             ?: error("$name debug source not found from ${System.getProperty("user.dir")}")
     }
 
@@ -645,7 +650,7 @@ class SettingsStructureTest {
             File("app/src/debug/AndroidManifest.xml"),
             File("src/debug/AndroidManifest.xml"),
         )
-        return candidates.firstOrNull(File::isFile)?.readText()
+        return candidates.firstOrNull(File::isFile)?.readNormalizedText()
             ?: error("debug AndroidManifest.xml not found from ${System.getProperty("user.dir")}")
     }
 }
