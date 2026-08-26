@@ -228,7 +228,7 @@ public partial class App : Application
             cancellationToken => viewModel.RefreshCommand.ExecuteAsync(cancellationToken),
             () => viewModel.OpenUsageCommand.Execute(null),
             OpenWindowsUpdateBrowserAsync,
-            clipboard.Copy);
+            clipboard.TryCopy);
         trayIcon = new TrayIconService(
             uiDispatcher,
             mainWindow.TogglePanel,
@@ -513,7 +513,7 @@ public partial class App : Application
         Func<CancellationToken, Task> refreshQuota,
         Action openOfficialUsage,
         Func<CancellationToken, Task> openWindowsUpdateBrowser,
-        Action copyDiagnostics) : ISettingsPageActions
+        Func<bool> copyDiagnostics) : ISettingsPageActions
     {
         public Task RefreshQuotaAsync(CancellationToken cancellationToken) => refreshQuota(cancellationToken);
 
@@ -522,7 +522,7 @@ public partial class App : Application
         public Task OpenWindowsUpdateBrowserAsync(CancellationToken cancellationToken) =>
             openWindowsUpdateBrowser(cancellationToken);
 
-        public void CopyDiagnostics() => copyDiagnostics();
+        public bool CopyDiagnostics() => copyDiagnostics();
     }
 
     private static string? ReadOption(string[] arguments, string name)

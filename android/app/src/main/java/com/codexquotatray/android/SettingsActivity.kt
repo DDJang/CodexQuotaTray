@@ -623,7 +623,9 @@ class SettingsActivity : ComponentActivity() {
             SettingsGroup {
                 pairing?.let {
                     SettingsInfoRow("电脑", it.displayName ?: "Windows PC")
+                    SettingsDivider()
                     SettingsInfoRow("地址", "${it.host}:${it.port}")
+                    SettingsDivider()
                     SettingsInfoRow(
                         "最近连接成功",
                         it.lastLanSuccessAtMillis?.let { value -> formatPairingMillis(value, locale) }

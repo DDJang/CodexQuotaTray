@@ -466,6 +466,20 @@ public sealed class ViewModelTests
         Assert.AreEqual(1, actions.RefreshCount);
         Assert.IsTrue(actions.OpenedUsage);
         Assert.IsTrue(actions.CopiedDiagnostics);
+        Assert.AreEqual("日志信息已复制", viewModel.StatusText);
+    }
+
+    [TestMethod]
+    public void DiagnosticsCopyFailureIsReportedWithoutEscapingTheCommand()
+    {
+        var runtime = new StubRuntimeControl();
+        var platform = new StubSettingsPlatformActions();
+        var actions = new StubSettingsPageActions { CopyDiagnosticsResult = false };
+        var viewModel = new SettingsViewModel(runtime, platform, actions);
+
+        viewModel.CopyDiagnosticsCommand.Execute(null);
+
+        Assert.AreEqual("无法复制日志信息，请关闭占用剪贴板的程序后重试", viewModel.StatusText);
     }
 
     [TestMethod]
@@ -1075,6 +1089,8 @@ public sealed class ViewModelTests
 
         public bool CopiedDiagnostics { get; private set; }
 
+        public bool CopyDiagnosticsResult { get; init; } = true;
+
         public bool OpenedWindowsUpdateBrowser { get; private set; }
 
         public Task RefreshQuotaAsync(CancellationToken cancellationToken)
@@ -1091,7 +1107,11 @@ public sealed class ViewModelTests
             return Task.CompletedTask;
         }
 
-        public void CopyDiagnostics() => CopiedDiagnostics = true;
+        public bool CopyDiagnostics()
+        {
+            CopiedDiagnostics = true;
+            return CopyDiagnosticsResult;
+        }
     }
 
     private sealed class StubWindowsUpdateController : IWindowsUpdateController

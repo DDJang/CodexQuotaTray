@@ -60,7 +60,7 @@ public interface ISettingsPageActions
 
     Task OpenWindowsUpdateBrowserAsync(CancellationToken cancellationToken);
 
-    void CopyDiagnostics();
+    bool CopyDiagnostics();
 }
 
 public sealed record PercentageDisplayModeOption(bool ShowRemainingPercent, string DisplayName);
@@ -716,7 +716,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     private void OpenOfficialUsage() => pageActions.OpenOfficialUsage();
 
     [RelayCommand]
-    private void CopyDiagnostics() => pageActions.CopyDiagnostics();
+    private void CopyDiagnostics() => StatusText = pageActions.CopyDiagnostics()
+        ? "日志信息已复制"
+        : "无法复制日志信息，请关闭占用剪贴板的程序后重试";
 
     [RelayCommand]
     private async Task CheckForWindowsUpdatesAsync(CancellationToken cancellationToken)
