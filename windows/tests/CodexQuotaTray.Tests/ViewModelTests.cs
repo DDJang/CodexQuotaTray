@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Net;
 using CodexQuotaTray.Core.Auth;
 using CodexQuotaTray.Core.Models;
@@ -110,6 +111,10 @@ public sealed class ViewModelTests
         Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("正在刷新…", viewModel.StatusText);
 
+        var presentationCompleted = WaitForPropertyConditionAsync(
+            viewModel,
+            nameof(MainViewModel.IsRefreshing),
+            () => !viewModel.IsRefreshing);
         viewModel.ApplySnapshot(refreshing with
         {
             StatusText = "更新于 14:30",
@@ -125,7 +130,7 @@ public sealed class ViewModelTests
         Assert.IsFalse(viewModel.RefreshCommand.CanExecute(null));
         Assert.AreEqual("正在刷新…", viewModel.StatusText);
 
-        await Task.Delay(RefreshPresentationPolicy.MinimumIndicatorDuration + TimeSpan.FromMilliseconds(150));
+        await presentationCompleted;
 
         Assert.IsFalse(viewModel.IsRefreshing);
         Assert.IsFalse(viewModel.ShowLoading);
@@ -159,7 +164,10 @@ public sealed class ViewModelTests
             new ResetCreditViewState(ResetCreditKind.Unavailable),
             IsRefreshing: true));
 
-        await Task.Delay(TimeSpan.FromMilliseconds(400));
+        var loadingStarted = WaitForPropertyConditionAsync(
+            viewModel,
+            nameof(MainViewModel.ShowLoading),
+            () => viewModel.ShowLoading);
         viewModel.ApplySnapshot(new AppUiState(
             "Codex",
             null,
@@ -168,6 +176,12 @@ public sealed class ViewModelTests
             [],
             new ResetCreditViewState(ResetCreditKind.Unavailable),
             IsRefreshing: true));
+        await loadingStarted;
+
+        var presentationCompleted = WaitForPropertyConditionAsync(
+            viewModel,
+            nameof(MainViewModel.IsRefreshing),
+            () => !viewModel.IsRefreshing);
         viewModel.ApplySnapshot(new AppUiState(
             "Codex",
             "Plus",
@@ -176,15 +190,13 @@ public sealed class ViewModelTests
             [replacementWindow, secondaryWindow],
             new ResetCreditViewState(ResetCreditKind.Unavailable)));
 
-        await Task.Delay(TimeSpan.FromMilliseconds(450));
-
         Assert.IsTrue(viewModel.IsRefreshing);
         Assert.IsTrue(viewModel.ShowLoading);
         Assert.IsFalse(viewModel.ShowContent);
         Assert.IsFalse(viewModel.HasWindows);
         Assert.HasCount(2, viewModel.LoadingWindows);
 
-        await Task.Delay(TimeSpan.FromMilliseconds(400));
+        await presentationCompleted;
 
         Assert.IsFalse(viewModel.IsRefreshing);
         Assert.IsFalse(viewModel.ShowLoading);
@@ -193,6 +205,242 @@ public sealed class ViewModelTests
         Assert.HasCount(2, viewModel.Windows);
         Assert.AreEqual("7 天额度", viewModel.Windows[0].Name);
     }
+
+    [TestMethod]
+    public void ApplySnapshot_SameLocalKeysPreserveItemInstancesAndUpdateValues()
+    {
+        var viewModel = CreateViewModel();
+        viewModel.ApplySnapshot(CreateState(
+            CreateQuotaWindow(
+                "five-hour",
+                "5 小时额度",
+                90,
+                "1 小时后重置",
+                "14:30",
+                new DateTimeOffset(2026, 8, 26, 6, 30, 0, TimeSpan.Zero)),
+            CreateQuotaWindow(
+                "seven-day",
+                "7 天额度",
+                99,
+                "6 天后重置",
+                "周二 14:30",
+                new DateTimeOffset(2026, 9, 1, 6, 30, 0, TimeSpan.Zero))));
+
+        var fiveHour = viewModel.Windows.Single(window => window.LocalKey == "five-hour");
+        var sevenDay = viewModel.Windows.Single(window => window.LocalKey == "seven-day");
+
+        viewModel.ApplySnapshot(CreateState(
+            CreateQuotaWindow(
+                "five-hour",
+                "5 小时额度（更新）",
+                89,
+                "59 分钟后重置",
+                "14:31",
+                new DateTimeOffset(2026, 8, 26, 6, 31, 0, TimeSpan.Zero)),
+            CreateQuotaWindow(
+                "seven-day",
+                "7 天额度（更新）",
+                98,
+                "5 天 23 小时后重置",
+                "周二 14:31",
+                new DateTimeOffset(2026, 9, 1, 6, 31, 0, TimeSpan.Zero))));
+
+        Assert.AreSame(fiveHour, viewModel.Windows.Single(window => window.LocalKey == "five-hour"));
+        Assert.AreSame(sevenDay, viewModel.Windows.Single(window => window.LocalKey == "seven-day"));
+        Assert.AreEqual(89, fiveHour.DisplayPercent);
+        Assert.AreEqual("89%", fiveHour.PercentText);
+        Assert.AreEqual("59 分钟后重置", fiveHour.ResetRelative);
+        Assert.AreEqual("14:31", fiveHour.ResetAt);
+        Assert.AreEqual(new DateTimeOffset(2026, 8, 26, 6, 31, 0, TimeSpan.Zero), fiveHour.ResetAtUtc);
+        Assert.AreEqual(QuotaTone.Accent, fiveHour.Tone);
+        Assert.AreEqual(98, sevenDay.DisplayPercent);
+        Assert.AreEqual("98%", sevenDay.PercentText);
+        Assert.AreEqual("5 天 23 小时后重置", sevenDay.ResetRelative);
+        Assert.AreEqual("周二 14:31", sevenDay.ResetAt);
+        Assert.AreEqual(QuotaTone.Accent, sevenDay.Tone);
+    }
+
+    [TestMethod]
+    public void ApplySnapshot_TwoQuotaItemsNeverCrossIdentity()
+    {
+        var viewModel = CreateViewModel();
+        viewModel.ApplySnapshot(CreateState(
+            CreateQuotaWindow("five-hour", "5 小时额度", 20, "1 小时后重置", "14:30"),
+            CreateQuotaWindow("seven-day", "7 天额度", 90, "6 天后重置", "周二 14:30")));
+
+        var fiveHour = viewModel.Windows.Single(window => window.LocalKey == "five-hour");
+        var sevenDay = viewModel.Windows.Single(window => window.LocalKey == "seven-day");
+
+        viewModel.ApplySnapshot(CreateState(
+            CreateQuotaWindow("five-hour", "5 小时额度", 21, "59 分钟后重置", "14:31"),
+            CreateQuotaWindow("seven-day", "7 天额度", 89, "5 天 23 小时后重置", "周二 14:31")));
+
+        Assert.AreSame(fiveHour, viewModel.Windows.Single(window => window.LocalKey == "five-hour"));
+        Assert.AreSame(sevenDay, viewModel.Windows.Single(window => window.LocalKey == "seven-day"));
+        Assert.AreEqual(21, fiveHour.DisplayPercent);
+        Assert.AreEqual(89, sevenDay.DisplayPercent);
+    }
+
+    [TestMethod]
+    public void ApplySnapshot_AddsOnlyNewLocalKey()
+    {
+        var viewModel = CreateViewModel();
+        viewModel.ApplySnapshot(CreateState(
+            CreateQuotaWindow("five-hour", "5 小时额度", 90, "1 小时后重置", "14:30")));
+        var fiveHour = viewModel.Windows.Single();
+
+        viewModel.ApplySnapshot(CreateState(
+            CreateQuotaWindow("five-hour", "5 小时额度", 89, "59 分钟后重置", "14:31"),
+            CreateQuotaWindow("seven-day", "7 天额度", 98, "5 天 23 小时后重置", "周二 14:31")));
+
+        Assert.AreEqual(2, viewModel.Windows.Count);
+        Assert.AreSame(fiveHour, viewModel.Windows.Single(window => window.LocalKey == "five-hour"));
+        Assert.IsNotNull(viewModel.Windows.SingleOrDefault(window => window.LocalKey == "seven-day"));
+    }
+
+    [TestMethod]
+    public void ApplySnapshot_RemovesOnlyMissingLocalKey()
+    {
+        var viewModel = CreateViewModel();
+        viewModel.ApplySnapshot(CreateState(
+            CreateQuotaWindow("five-hour", "5 小时额度", 90, "1 小时后重置", "14:30"),
+            CreateQuotaWindow("seven-day", "7 天额度", 99, "6 天后重置", "周二 14:30")));
+        var sevenDay = viewModel.Windows.Single(window => window.LocalKey == "seven-day");
+
+        viewModel.ApplySnapshot(CreateState(
+            CreateQuotaWindow("seven-day", "7 天额度", 98, "5 天 23 小时后重置", "周二 14:31")));
+
+        Assert.HasCount(1, viewModel.Windows);
+        Assert.AreSame(sevenDay, viewModel.Windows.Single());
+        Assert.AreEqual("seven-day", viewModel.Windows.Single().LocalKey);
+    }
+
+    [TestMethod]
+    public void ApplySnapshot_ReordersExistingItemsWithoutReplacingThem()
+    {
+        var viewModel = CreateViewModel();
+        viewModel.ApplySnapshot(CreateState(
+            CreateQuotaWindow("five-hour", "5 小时额度", 90, "1 小时后重置", "14:30"),
+            CreateQuotaWindow("seven-day", "7 天额度", 99, "6 天后重置", "周二 14:30")));
+        var fiveHour = viewModel.Windows[0];
+        var sevenDay = viewModel.Windows[1];
+
+        viewModel.ApplySnapshot(CreateState(
+            CreateQuotaWindow("seven-day", "7 天额度", 98, "5 天 23 小时后重置", "周二 14:31"),
+            CreateQuotaWindow("five-hour", "5 小时额度", 89, "59 分钟后重置", "14:31")));
+
+        Assert.AreEqual("seven-day", viewModel.Windows[0].LocalKey);
+        Assert.AreEqual("five-hour", viewModel.Windows[1].LocalKey);
+        Assert.AreSame(sevenDay, viewModel.Windows[0]);
+        Assert.AreSame(fiveHour, viewModel.Windows[1]);
+    }
+
+    [TestMethod]
+    public void QuotaWindowItemViewModel_UpdateFromNotifiesDependentPresentationProperties()
+    {
+        var item = new QuotaWindowItemViewModel(
+            CreateQuotaWindow("five-hour", "5 小时额度", 90, "1 小时后重置", "14:30"));
+        var propertyNames = new HashSet<string>(StringComparer.Ordinal);
+        item.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName is not null)
+            {
+                propertyNames.Add(args.PropertyName);
+            }
+        };
+
+        item.UpdateFrom(CreateQuotaWindow(
+            "five-hour",
+            "5 小时额度（更新）",
+            19,
+            "刚刚重置",
+            "14:31",
+            new DateTimeOffset(2026, 8, 26, 6, 31, 0, TimeSpan.Zero)));
+
+        Assert.AreEqual("5 小时额度（更新）", item.Name);
+        Assert.AreEqual(19, item.DisplayPercent);
+        Assert.AreEqual("19%", item.PercentText);
+        Assert.AreEqual("刚刚重置", item.ResetRelative);
+        Assert.AreEqual("14:31", item.ResetAt);
+        Assert.AreEqual(new DateTimeOffset(2026, 8, 26, 6, 31, 0, TimeSpan.Zero), item.ResetAtUtc);
+        Assert.AreEqual(QuotaTone.Critical, item.Tone);
+        Assert.IsTrue(propertyNames.Contains(nameof(QuotaWindowItemViewModel.DisplayPercent)));
+        Assert.IsTrue(propertyNames.Contains(nameof(QuotaWindowItemViewModel.PercentText)));
+        Assert.IsTrue(propertyNames.Contains(nameof(QuotaWindowItemViewModel.ResetRelative)));
+        Assert.IsTrue(propertyNames.Contains(nameof(QuotaWindowItemViewModel.ResetAt)));
+        Assert.IsTrue(propertyNames.Contains(nameof(QuotaWindowItemViewModel.Tone)));
+    }
+
+    private static MainViewModel CreateViewModel() => new(
+        new StubProvider(CreateState()),
+        new StubNavigation());
+
+    private static async Task WaitForPropertyConditionAsync(
+        INotifyPropertyChanged source,
+        string propertyName,
+        Func<bool> condition)
+    {
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler? handler = null;
+        handler = (_, args) =>
+        {
+            if (args.PropertyName is null || args.PropertyName == propertyName)
+            {
+                TryComplete();
+            }
+        };
+
+        source.PropertyChanged += handler;
+        try
+        {
+            TryComplete();
+            await completed.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        finally
+        {
+            source.PropertyChanged -= handler;
+        }
+
+        void TryComplete()
+        {
+            if (condition())
+            {
+                completed.TrySetResult();
+            }
+        }
+    }
+
+    private static AppUiState CreateState(params QuotaWindowView[] windows) => new(
+        "Codex",
+        "Plus",
+        "更新于 14:30",
+        StatusTone.Success,
+        windows,
+        new ResetCreditViewState(ResetCreditKind.Unavailable));
+
+    private static QuotaWindowView CreateQuotaWindow(
+        string localKey,
+        string name,
+        int remainingPercent,
+        string resetRelative,
+        string resetAt,
+        DateTimeOffset? resetAtUtc = null,
+        bool isAvailable = true,
+        bool isStale = false) => new(
+        localKey,
+        name,
+        100 - remainingPercent,
+        remainingPercent,
+        remainingPercent,
+        remainingPercent,
+        300,
+        resetAtUtc,
+        resetAt,
+        resetRelative,
+        QuotaTonePolicy.For(remainingPercent, isStale, isAvailable),
+        true,
+        isAvailable,
+        isStale);
 
     [DataRow("plus", "已登录 · Plus")]
     [DataRow("TEAM", "已登录 · Team")]
@@ -647,11 +895,12 @@ public sealed class ViewModelTests
         Assert.IsTrue(viewModel.ShowOAuthCancelButton);
         Assert.IsTrue(viewModel.CanEditDataSources);
 
+        var deviceDetailsReady = WaitForPropertyConditionAsync(
+            viewModel,
+            nameof(SettingsViewModel.ShowOAuthDeviceLoginDetails),
+            () => viewModel.ShowOAuthDeviceLoginDetails);
         handler.ReleaseDeviceCode();
-        for (var attempt = 0; attempt < 100 && !viewModel.ShowOAuthDeviceLoginDetails; attempt++)
-        {
-            await Task.Delay(10);
-        }
+        await deviceDetailsReady;
 
         Assert.IsTrue(viewModel.ShowOAuthDeviceLoginDetails);
         Assert.IsFalse(viewModel.ShowOAuthLoginPreparing);

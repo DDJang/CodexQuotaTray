@@ -583,6 +583,7 @@ public sealed class AppServerPhase2Tests
 
         _ = await service.GetSnapshotAsync(CancellationToken.None);
         await disconnected.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await factory.First.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(1));
         _ = await service.RefreshAsync(CancellationToken.None);
 
         Assert.AreEqual(2, factory.CreateCount);
@@ -1613,18 +1614,22 @@ public sealed class AppServerPhase2Tests
 
     private sealed class ReconnectingClientFactory : ICodexAppServerClientFactory
     {
-        public int CreateCount { get; private set; }
+        public ReconnectingClient First { get; } = new(closesNotifications: true);
+        public ReconnectingClient Second { get; } = new(closesNotifications: false);
+        private int createCount;
 
-        public ICodexAppServerClient Create()
-        {
-            CreateCount++;
-            return new ReconnectingClient(CreateCount == 1);
-        }
+        public int CreateCount => Volatile.Read(ref createCount);
+
+        public ICodexAppServerClient Create() =>
+            Interlocked.Increment(ref createCount) == 1 ? First : Second;
     }
 
     private sealed class ReconnectingClient(bool closesNotifications) : ICodexAppServerClient
     {
+        private int disposed;
+
         public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
+        public TaskCompletionSource Disposed { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken) =>
             Task.FromResult(new CodexSessionInfo("9.99.0", "9.99.0"));
@@ -1655,7 +1660,15 @@ public sealed class AppServerPhase2Tests
             yield break;
         }
 
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                Disposed.TrySetResult();
+            }
+
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class ResetRecoveryReconnectFactory : ICodexAppServerClientFactory

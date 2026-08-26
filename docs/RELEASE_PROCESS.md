@@ -82,19 +82,25 @@ Codex 以选定平台的上一 tag → 当前 HEAD 为边界，筛选该平台�
 
 若文件已经是目标版本，脚本保持它；不修改未选平台版本、其它版本引用、依赖、签名或应用身份。
 
-### 5. 选定平台的本地验证
+### 5. 选定平台的本地准备检查
 
-Windows-only 运行 Windows Release 验证；Android-only 运行 Android 测试、lint 和 Debug assemble；All 运行两者。两种选择都会运行共同的离线 `update-release-manifest` writer 测试和 `git diff --check`：
+发布准备脚本只运行轻量的发布 planner、manifest writer 和 `git diff --check` 检查，不在本地重复平台 build/test。完整代码质量验证由 PR CI 负责：Windows-only 运行 Windows Full，Android-only 运行 Android 测试、lint 和 Debug assemble，All 运行两者。
 
 ```text
-Windows: pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Release
-Android: android\gradlew.bat -p android :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-Common:  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps1
-         pwsh -NoProfile -File .\.github\scripts\test-publish-release.ps1
-         git diff --check
+Windows/Android/All:
+  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps1
+  pwsh -NoProfile -File .\.github\scripts\test-publish-release.ps1
+  git diff --check
 ```
 
-任何失败都停止，不跳过检查、不修改测试、不自动进行危险恢复。
+PR CI 的平台验证为：
+
+```text
+Windows: pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Full
+Android: android\gradlew.bat -p android :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
+```
+
+任何失败都停止，不跳过检查、不修改测试、不自动进行危险恢复。Release workflow 另行运行 release-specific artifact 验证，不重复 PR CI 的离线测试。
 
 ### 6. Commit + push
 
@@ -136,7 +142,7 @@ All:     git push --atomic origin refs/tags/android-vX.Y.Z refs/tags/windows-vX.
 
 tag push 后，脚本按精确 tag、精确 SHA 和 workflow 文件查找并等待选定平台的 Release workflow。workflow 必须进入 `completed/success`；queued 或 `in_progress` 不能提前视为成功；任一失败立即停止，不自动删除 tag 或重发。
 
-Release workflow 仍共用 `update-manifest-publish` concurrency group，且 `cancel-in-progress: false`。每个 workflow 完成自己的 Release 和资产后，继续通过现有 read-modify-write 流程只替换当前平台的 `update-manifest` 节点；本次脚本改动不改变该协议或语义。
+每个 Release workflow 的构建、签名、资产和 GitHub Release 阶段可以并行；只有依赖 Release 完成的 `publish-manifest` job 使用共享 `update-manifest-publish` concurrency group，且 `cancel-in-progress: false`。该 job 继续通过现有 read-modify-write 流程只替换当前平台的 `update-manifest` 节点。
 
 ### 12. 验证选定平台 Release 与 update-manifest
 
@@ -156,7 +162,7 @@ Release workflow 仍共用 `update-manifest-publish` concurrency group，且 `ca
 .\scripts\publish-release.ps1 -Platform All -Version 0.10.0 -DryRun
 ```
 
-DryRun 会真实读取并报告当前 branch、HEAD、`main` 关系、工作区、`gh` 认证状态、远端仓库、选定平台的 ancestor tag、目标版本、notes 路径、目标 tag 冲突、预期版本和 Android `versionCode`（如适用）、将运行的本地验证、后续 PR CI、merge、tag、Release workflow 和 manifest 阶段的计划。DryRun 在查询或创建 PR 前退出，不会报告具体 PR 的复用或创建结果。
+DryRun 会真实读取并报告当前 branch、HEAD、`main` 关系、工作区、`gh` 认证状态、远端仓库、选定平台的 ancestor tag、目标版本、notes 路径、目标 tag 冲突、预期版本和 Android `versionCode`（如适用）、轻量本地准备检查、后续 PR CI、merge、tag、Release workflow 和 manifest 阶段的计划。DryRun 明确跳过平台 build/test，在查询或创建 PR 前退出，不会报告具体 PR 的复用或创建结果。
 
 DryRun 不执行版本写入、fetch 写 refs、构建、commit、push、PR 查询或 create、merge、tag、Release 或 manifest 写入。选定平台的 release notes 缺失会明确显示为正式运行的阻塞项，但不会为了展示计划而修改工作区。
 

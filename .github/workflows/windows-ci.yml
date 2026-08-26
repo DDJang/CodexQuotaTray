@@ -101,18 +101,8 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Verify WinUI Quick
-        if: github.event_name == 'pull_request'
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Quick
-          if ($LASTEXITCODE -ne 0) {
-            throw "WinUI Quick verification failed with exit code $LASTEXITCODE."
-          }
-
       - name: Verify WinUI Full
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'pull_request'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
