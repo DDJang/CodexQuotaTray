@@ -12,6 +12,8 @@ import com.codexquotatray.android.R
 import com.codexquotatray.android.quotaProgressArgb
 import com.codexquotatray.android.usage.TokenFormatter
 
+private val WINDOW_TITLE_UNIT_PATTERN = Regex("""\s*(天|小时|分钟)""")
+
 internal object QuotaWidgetRenderer {
     fun updateAll(context: Context) {
         val manager = AppWidgetManager.getInstance(context)
@@ -73,7 +75,7 @@ internal object QuotaWidgetRenderer {
             views.setViewVisibility(R.id.widget_quota_center, View.VISIBLE)
             views.setViewVisibility(R.id.widget_quota_double_layout, View.GONE)
             views.setViewVisibility(R.id.widget_quota_double_rings, View.GONE)
-            views.setTextViewText(R.id.widget_quota_single_label, compactTitle(outer.title))
+            views.setTextViewText(R.id.widget_quota_single_label, formatWindowTitle(outer.title))
             views.setTextViewText(R.id.widget_quota_center_value, formatPercent(outer))
             views.setTextColor(R.id.widget_quota_center_value, quotaColor(context, outer))
             views.setTextViewText(R.id.widget_quota_center_caption, "余额")
@@ -107,10 +109,12 @@ internal object QuotaWidgetRenderer {
         }
     }
 
-    private fun compactTitle(title: String): String = title.replace(" ", "")
+    private fun formatWindowTitle(title: String): String = title.trim().replace(
+        WINDOW_TITLE_UNIT_PATTERN,
+    ) { match -> " ${match.value.trim()}" }
 
     internal fun formatQuotaLabel(window: QuotaWidgetWindow): String =
-        "${compactTitle(window.title)} · ${formatPercent(window)}"
+        "${formatWindowTitle(window.title)} · ${formatPercent(window)}"
 
     private fun formatPercent(window: QuotaWidgetWindow): String =
         formatQuotaPercent(window.remainingPercent)

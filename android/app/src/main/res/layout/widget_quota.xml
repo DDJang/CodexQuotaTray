@@ -116,34 +116,37 @@
 
                 <LinearLayout
                     android:id="@+id/widget_quota_double_labels"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_alignParentStart="true"
                     android:layout_alignParentTop="true"
                     android:layout_marginStart="2dp"
+                    android:layout_marginEnd="2dp"
                     android:layout_toStartOf="@id/widget_quota_double_rings"
                     android:orientation="vertical">
 
                     <TextView
                         android:id="@+id/widget_quota_outer_label"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:includeFontPadding="false"
+                        android:maxLines="1"
                         android:textSize="11sp" />
 
                     <TextView
                         android:id="@+id/widget_quota_inner_label"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="3dp"
                         android:includeFontPadding="false"
+                        android:maxLines="1"
                         android:textSize="11sp" />
                 </LinearLayout>
 
                 <ImageView
                     android:id="@+id/widget_quota_double_rings"
-                    android:layout_width="92dp"
-                    android:layout_height="92dp"
+                    android:layout_width="82dp"
+                    android:layout_height="82dp"
                     android:layout_alignParentEnd="true"
                     android:layout_centerVertical="true"
                     android:layout_marginEnd="4dp"

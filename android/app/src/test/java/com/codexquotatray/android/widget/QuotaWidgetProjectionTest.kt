@@ -56,12 +56,20 @@ class QuotaWidgetProjectionTest {
         assertEquals("100%", formatQuotaPercent(123))
         assertEquals("不可用", formatQuotaPercent(null))
         assertEquals(
-            "7天 · 52%",
+            "7 天 · 52%",
             QuotaWidgetRenderer.formatQuotaLabel(QuotaWidgetWindow("7 天", 52, null, 10_080L)),
         )
         assertEquals(
-            "5小时 · 100%",
+            "5 小时 · 100%",
             QuotaWidgetRenderer.formatQuotaLabel(QuotaWidgetWindow("5 小时", 100, null, 300L)),
+        )
+        assertEquals(
+            "7 天 · 52%",
+            QuotaWidgetRenderer.formatQuotaLabel(QuotaWidgetWindow("7天", 52, null, 10_080L)),
+        )
+        assertEquals(
+            "5 小时 · 100%",
+            QuotaWidgetRenderer.formatQuotaLabel(QuotaWidgetWindow("5小时", 100, null, 300L)),
         )
     }
 
