@@ -69,18 +69,43 @@ Assert-Contains -Text $source -Needle '"android-v$Version"' `
 Assert-Contains -Text $source -Needle '"windows-v$Version"' `
     -Message 'Release script must retain the Windows tag format.'
 
-$validationStart = $source.IndexOf('function Run-LocalValidation', [StringComparison]::Ordinal)
+$validationStart = $source.IndexOf('function Run-ReleasePreparationChecks', [StringComparison]::Ordinal)
 $validationEnd = $source.IndexOf('function Get-OpenReleasePr', [StringComparison]::Ordinal)
 if ($validationStart -lt 0 -or $validationEnd -le $validationStart) {
-    throw 'Could not isolate Run-LocalValidation for contract checks.'
+    throw 'Could not isolate Run-ReleasePreparationChecks for contract checks.'
 }
 $validation = $source.Substring($validationStart, $validationEnd - $validationStart)
-Assert-Matches -Text $validation `
-    -Pattern "(?s)if \(Test-PlatformSelected -Name 'Android'\).*?android\\gradlew\.bat" `
-    -Message 'Android local validation is not selection-gated.'
-Assert-Matches -Text $validation `
-    -Pattern "(?s)if \(Test-PlatformSelected -Name 'Windows'\).*?verify-winui\.ps1.*?-Mode', 'Release'" `
-    -Message 'Windows local validation is not selection-gated.'
+Assert-Contains -Text $validation -Needle '.\.github\scripts\test-update-release-manifest.ps1' `
+    -Message 'Release preparation checks must run the manifest writer tests.'
+Assert-Contains -Text $validation -Needle '.\.github\scripts\test-publish-release.ps1' `
+    -Message 'Release preparation checks must run the release planner tests.'
+Assert-Contains -Text $validation -Needle "'diff', '--check'" `
+    -Message 'Release preparation checks must run git diff --check.'
+if ($validation.Contains('gradlew', [StringComparison]::Ordinal) -or
+    $validation.Contains('verify-winui.ps1', [StringComparison]::Ordinal)) {
+    throw 'Release preparation checks must not duplicate platform builds or tests owned by PR CI.'
+}
+$dryRunStart = $source.IndexOf('if ($DryRun) {', [StringComparison]::Ordinal)
+$preparationCall = $source.LastIndexOf('Run-ReleasePreparationChecks', [StringComparison]::Ordinal)
+if ($dryRunStart -lt 0 -or $preparationCall -lt $dryRunStart) {
+    throw 'DryRun must exit before release preparation checks can run.'
+}
+Assert-Contains -Text $source -Needle 'DRY RUN: skips platform builds/tests;' `
+    -Message 'DryRun must explicitly skip platform builds and tests.'
+Assert-Contains -Text $source -Needle 'baseRefOid' `
+    -Message 'Release PR lookup must record the PR base commit SHA.'
+Assert-Contains -Text $source -Needle 'function Get-ReleasePrBaseSha' `
+    -Message 'Release planner must validate and record the release PR base SHA.'
+Assert-Contains -Text $source -Needle 'function Assert-ReleasePrBaseUnchanged' `
+    -Message 'Release planner must guard against main drift after PR checks.'
+$waitChecksIndex = $source.IndexOf('Wait-PrChecks -Number $prNumber', [StringComparison]::Ordinal)
+$baseGuardIndex = $source.IndexOf('Assert-ReleasePrBaseUnchanged -Number $prNumber', [StringComparison]::Ordinal)
+$mergeIndex = $source.IndexOf("Write-Step 'Merging the release PR with squash merge.'", [StringComparison]::Ordinal)
+if ($waitChecksIndex -lt 0 -or $baseGuardIndex -le $waitChecksIndex -or $mergeIndex -le $baseGuardIndex) {
+    throw 'Release planner must guard the recorded PR base SHA after checks pass and before merge.'
+}
+Assert-Contains -Text $source -Needle 'synchronize the release branch with main and rerun PR CI' `
+    -Message 'Main drift must fail closed with an actionable synchronization message.'
 
 $mainStart = $source.IndexOf("Write-Step 'Checking previous platform tags and release notes.'", [StringComparison]::Ordinal)
 if ($mainStart -lt 0) {
@@ -185,13 +210,15 @@ on:
   push:
     tags:
       - windows-v*
-concurrency:
-  group: update-manifest-publish
-  cancel-in-progress: false
 jobs:
   release:
     steps:
       - run: echo --notes-file
+  publish-manifest:
+    needs: release
+    concurrency:
+      group: update-manifest-publish
+      cancel-in-progress: false
 '@
     Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/workflows/windows-ci.yml' -Content 'name: Windows CI'
     Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/scripts/update-release-manifest.ps1' -Content '# fixture'
@@ -238,7 +265,7 @@ if "%1"=="repo" (
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="list" (
-  echo [{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","baseRefName":"main"}]
+  echo [{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","baseRefName":"main","baseRefOid":"$seedHead"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="checks" (
@@ -247,6 +274,7 @@ if "%1"=="pr" if "%2"=="checks" (
 )
 exit /b 99
 '@
+    $windowsGhShim = $windowsGhShim.Replace('$seedHead', $seedHead)
     $unixGhShim = @'
 #!/bin/sh
 if [ "$1" = "auth" ]; then exit 0; fi
@@ -255,7 +283,7 @@ if [ "$1" = "repo" ]; then
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
-  printf '%s\n' '[{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","baseRefName":"main"}]'
+  printf '%s\n' '[{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","baseRefName":"main","baseRefOid":"0000000000000000000000000000000000000000"}]'
   exit 0
 fi
 if [ "$1" = "pr" ] && [ "$2" = "checks" ]; then
@@ -331,7 +359,7 @@ if "%1"=="repo" (
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="list" (
-  echo [{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","headRefOid":"$preparationHead","baseRefName":"main","mergeCommit":{"oid":"$squashMainHead"}}]
+  echo [{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","headRefOid":"$preparationHead","baseRefName":"main","baseRefOid":"$seedHead","mergeCommit":{"oid":"$squashMainHead"}}]
   exit /b 0
 )
 if "%1"=="run" if "%2"=="list" (
@@ -382,7 +410,7 @@ if "%1"=="repo" (
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="list" (
-  echo [{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","headRefOid":"$seedHead","baseRefName":"main","mergeCommit":{"oid":"$squashMainHead"}}]
+  echo [{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","headRefOid":"$seedHead","baseRefName":"main","baseRefOid":"$seedHead","mergeCommit":{"oid":"$squashMainHead"}}]
   exit /b 0
 )
 if "%1"=="run" if "%2"=="list" (
@@ -406,6 +434,134 @@ exit /b 99
     }
     if ($negativeText -match 'POST_MERGE_NEGATIVE_RELEASE_SENTINEL') {
         throw 'Post-merge identity counterexample incorrectly reached the Release workflow.'
+    }
+
+    Write-Host 'Running release PR base/main SHA guard regression tests.'
+    $baseGuardBranch = 'codex/base-guard-test'
+    $baseGuardVersion = '0.8.9'
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', 'main')
+    $baseGuardMainSha = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', '-c', $baseGuardBranch)
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/release-notes/0.8.9.md' -Content '# Windows 0.8.9' | Out-Null
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'windows/release-notes/0.8.9.md')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'docs: add Windows 0.8.9 notes')
+    $baseGuardVersionPath = Join-Path $resumeRepo 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj'
+    $baseGuardVersionText = [IO.File]::ReadAllText($baseGuardVersionPath).Replace('<Version>0.8.8</Version>', '<Version>0.8.9</Version>')
+    [IO.File]::WriteAllText($baseGuardVersionPath, $baseGuardVersionText, [Text.UTF8Encoding]::new($false))
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'release: prepare Windows 0.8.9')
+    $baseGuardPreparationHead = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+
+    $baseGuardGhShim = @"
+@echo off
+if "%1"=="auth" exit /b 0
+if "%1"=="repo" (
+  echo example/test
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="list" (
+  echo [{"number":43,"url":"https://github.com/example/test/pull/43","headRefName":"$baseGuardBranch","headRefOid":"$baseGuardPreparationHead","baseRefName":"main","baseRefOid":"$baseGuardMainSha"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="checks" (
+  echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="merge" (
+  echo BASE_GUARD_MERGE_SENTINEL
+  exit /b 42
+)
+exit /b 99
+"@
+    Write-ResumeTestFile -Root $resumeShim -RelativePath 'gh.cmd' -Content $baseGuardGhShim | Out-Null
+    $baseGuardNormalOutput = @(& $testPwshCommand -NoProfile -File (Join-Path $resumeRepo 'scripts/publish-release.ps1') `
+        -Platform Windows -Version $baseGuardVersion -TimeoutMinutes 5 2>&1 | ForEach-Object {
+            [string]$_
+        })
+    $baseGuardNormalExitCode = $LASTEXITCODE
+    $baseGuardNormalText = ($baseGuardNormalOutput -join [Environment]::NewLine)
+    if ($baseGuardNormalExitCode -eq 0 -or
+        $baseGuardNormalText -notmatch 'BASE_GUARD_MERGE_SENTINEL') {
+        throw "Unchanged-main guard regression did not reach the merge sentinel. Output: $baseGuardNormalText"
+    }
+    if ($baseGuardNormalText -match 'origin/main changed after PR checks') {
+        throw 'Unchanged-main guard regression incorrectly rejected an unchanged base.'
+    }
+
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', 'main')
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath 'main-guard-drift.txt' -Content 'main moved after PR checks' | Out-Null
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'main-guard-drift.txt')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'test: advance main after PR checks')
+    $baseGuardDriftSha = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', $baseGuardBranch)
+    $baseGuardDriftGhShim = @"
+@echo off
+if "%1"=="auth" exit /b 0
+if "%1"=="repo" (
+  echo example/test
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="list" (
+  echo [{"number":43,"url":"https://github.com/example/test/pull/43","headRefName":"$baseGuardBranch","headRefOid":"$baseGuardPreparationHead","baseRefName":"main","baseRefOid":"$baseGuardMainSha"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="checks" (
+  git -C "$resumeRepo" push origin refs/heads/main:refs/heads/main >nul 2>nul
+  echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="merge" (
+  echo BASE_GUARD_DRIFT_MERGE_SENTINEL
+  exit /b 42
+)
+exit /b 99
+"@
+    Write-ResumeTestFile -Root $resumeShim -RelativePath 'gh.cmd' -Content $baseGuardDriftGhShim | Out-Null
+    $baseGuardDriftOutput = @(& $testPwshCommand -NoProfile -File (Join-Path $resumeRepo 'scripts/publish-release.ps1') `
+        -Platform Windows -Version $baseGuardVersion -TimeoutMinutes 5 2>&1 | ForEach-Object {
+            [string]$_
+        })
+    $baseGuardDriftExitCode = $LASTEXITCODE
+    $baseGuardDriftText = ($baseGuardDriftOutput -join [Environment]::NewLine)
+    if ($baseGuardDriftExitCode -eq 0 -or
+        $baseGuardDriftText -notmatch 'origin/main changed after PR checks') {
+        throw "Main-drift guard regression did not fail closed. Output: $baseGuardDriftText"
+    }
+    if ($baseGuardDriftText -match 'BASE_GUARD_DRIFT_MERGE_SENTINEL') {
+        throw 'Main-drift guard regression reached the merge command.'
+    }
+    if ($baseGuardDriftText -notmatch 'synchronize the release branch with' -or
+        $baseGuardDriftText -notmatch 'and rerun PR CI') {
+        throw "Main-drift guard regression did not provide the synchronization instruction. Output: $baseGuardDriftText"
+    }
+
+    Write-Host 'Running final-HEAD release preparation regression test.'
+    $ancestorBranch = 'codex/ancestor-preparation-test'
+    $ancestorVersion = '0.8.10'
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', 'main')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', '-c', $ancestorBranch)
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/release-notes/0.8.10.md' -Content '# Windows 0.8.10' | Out-Null
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'windows/release-notes/0.8.10.md')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'docs: add Windows 0.8.10 notes')
+    $ancestorVersionText = [IO.File]::ReadAllText($baseGuardVersionPath).Replace('<Version>0.8.8</Version>', '<Version>0.8.10</Version>')
+    [IO.File]::WriteAllText($baseGuardVersionPath, $ancestorVersionText, [Text.UTF8Encoding]::new($false))
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'release: prepare Windows 0.8.10')
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/src/CodexQuotaTray.App/Business.cs' -Content 'class BusinessBaseline { public const string ReleaseBehavior = "changed after preparation"; }' | Out-Null
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'windows/src/CodexQuotaTray.App/Business.cs')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', 'test: change branch after preparation')
+    $ancestorOutput = @(& $testPwshCommand -NoProfile -File (Join-Path $resumeRepo 'scripts/publish-release.ps1') `
+        -Platform Windows -Version $ancestorVersion -TimeoutMinutes 5 2>&1 | ForEach-Object {
+            [string]$_
+        })
+    $ancestorExitCode = $LASTEXITCODE
+    $ancestorText = ($ancestorOutput -join [Environment]::NewLine)
+    if ($ancestorExitCode -eq 0 -or
+        $ancestorText -notmatch 'No release preparation changes were staged') {
+        throw "Release preparation ancestor regression did not reject a non-final preparation commit. Output: $ancestorText"
+    }
+    if ($ancestorText -match 'BASE_GUARD_DRIFT_MERGE_SENTINEL') {
+        throw 'Release preparation ancestor regression reached the PR stage.'
     }
 } finally {
     $env:PATH = $originalPath

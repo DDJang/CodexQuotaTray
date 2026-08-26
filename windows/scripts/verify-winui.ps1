@@ -210,31 +210,35 @@ Write-Host "NuGet.Config: $nugetConfig"
 
 Push-Location $repoRoot
 try {
-    Invoke-Checked $dotnet.Path @(
-        "restore", $solution,
-        "--configfile", $nugetConfig,
-        "-p:Platform=x64"
-    ) "WinUI restore"
-
-    if ($Mode -in @("Full", "Release")) {
+    if ($Mode -eq "Release") {
+        Write-Host "Release mode performs release-specific publish verification; format and offline tests are owned by PR CI."
+    } else {
         Invoke-Checked $dotnet.Path @(
-            "format", $solution,
-            "--verify-no-changes",
-            "--no-restore",
-            "--verbosity", "minimal"
-        ) "WinUI format verification"
-    }
+            "restore", $solution,
+            "--configfile", $nugetConfig,
+            "-p:Platform=x64"
+        ) "WinUI restore"
 
-    Invoke-Checked $dotnet.Path @(
-        "build", $solution,
-        "-c", $buildConfiguration,
-        "-p:Platform=x64",
-        "-p:RestoreConfigFile=$nugetConfig",
-        "--no-restore"
-    ) "WinUI $buildConfiguration x64 build"
+        if ($Mode -eq "Full") {
+            Invoke-Checked $dotnet.Path @(
+                "format", $solution,
+                "--verify-no-changes",
+                "--no-restore",
+                "--verbosity", "minimal"
+            ) "WinUI format verification"
+        }
 
-    if ($Mode -in @("Full", "Release")) {
-        Invoke-OfflineTests $dotnet.Path $testProject $nugetConfig $buildConfiguration
+        Invoke-Checked $dotnet.Path @(
+            "build", $solution,
+            "-c", $buildConfiguration,
+            "-p:Platform=x64",
+            "-p:RestoreConfigFile=$nugetConfig",
+            "--no-restore"
+        ) "WinUI $buildConfiguration x64 build"
+
+        if ($Mode -eq "Full") {
+            Invoke-OfflineTests $dotnet.Path $testProject $nugetConfig $buildConfiguration
+        }
     }
 
     Invoke-DiffCheck $repoRoot

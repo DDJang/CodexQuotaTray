@@ -42,8 +42,8 @@ pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Full
 ```
 
 Quick 与 Full 都构建 Debug/Dev；Full 额外运行格式检查和完整离线测试。`-Mode Release` 只供
-GitHub Actions 正式发布路径，不是日常开发命令。三种模式默认都不安装、不签名、不运行真实
-账户或 Explorer 托盘 smoke。
+GitHub Actions 正式发布路径，执行 release-specific restore/publish 和产物检查，不重复 Full 的
+格式检查与离线测试。三种模式默认都不安装、不签名、不运行真实账户或 Explorer 托盘 smoke。
 
 正式发布规则集中在 [RELEASE.md](../docs/RELEASE.md)。
 

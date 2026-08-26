@@ -602,9 +602,15 @@ function Assert-WorkflowContracts {
         }
     }
     foreach ($contract in $workflowContracts) {
-        $workflow = [IO.File]::ReadAllText((Join-Path $script:RepoRoot $contract.Path))
+        $workflow = [IO.File]::ReadAllText((Join-Path $script:RepoRoot $contract.Path)) -replace '\r\n', "`n"
         Require-Text -Text $workflow -Needle 'group: update-manifest-publish' -Label "$($contract.Platform) Release concurrency"
         Require-Text -Text $workflow -Needle 'cancel-in-progress: false' -Label "$($contract.Platform) Release concurrency"
+        if ($workflow -match '(?m)^concurrency:\s*$') {
+            Add-Blocker "$($contract.Platform) Release must not lock the entire workflow."
+        }
+        if ($workflow -notmatch '(?ms)^  publish-manifest:\s*$.*?^    concurrency:\s*$\n      group: update-manifest-publish\s*$\n      cancel-in-progress: false\s*$') {
+            Add-Blocker "$($contract.Platform) Release must lock only the publish-manifest job."
+        }
         Require-Text -Text $workflow -Needle $contract.TagPrefix -Label "$($contract.Platform) Release tag trigger"
         Require-Text -Text $workflow -Needle '--notes-file' -Label "$($contract.Platform) Release notes"
         if ($workflow.Contains('--generate-notes')) {
@@ -665,18 +671,8 @@ function Update-VersionFiles {
     }
 }
 
-function Run-LocalValidation {
-    Write-Step 'Running release validation.'
-    if (Test-PlatformSelected -Name 'Android') {
-        Invoke-External -FilePath (Join-Path $script:RepoRoot 'android\gradlew.bat') -Arguments @(
-            '-p', 'android', ':app:testDebugUnitTest', ':app:lintDebug', ':app:assembleDebug'
-        )
-    }
-    if (Test-PlatformSelected -Name 'Windows') {
-        Invoke-External -FilePath 'pwsh' -Arguments @(
-            '-NoProfile', '-File', '.\windows\scripts\verify-winui.ps1', '-Mode', 'Release'
-        )
-    }
+function Run-ReleasePreparationChecks {
+    Write-Step 'Running lightweight release preparation checks.'
     Invoke-External -FilePath 'pwsh' -Arguments @(
         '-NoProfile', '-File', '.\.github\scripts\test-update-release-manifest.ps1'
     )
@@ -689,7 +685,7 @@ function Run-LocalValidation {
 function Get-OpenReleasePr {
     $prs = @(Read-GhJson @(
         'pr', 'list', '--head', $script:Branch, '--base', 'main', '--state', 'open',
-        '--json', 'number,url,headRefName,baseRefName'
+        '--json', 'number,url,headRefName,baseRefName,baseRefOid'
     ))
     if ($prs.Count -eq 0) { return $null }
     if ($prs.Count -gt 1) {
@@ -697,6 +693,19 @@ function Get-OpenReleasePr {
         return $null
     }
     return $prs[0]
+}
+
+function Get-ReleasePrBaseSha {
+    param([Parameter(Mandatory = $true)]$Pr)
+    if ([string]$Pr.baseRefName -cne 'main') {
+        throw "Release PR #$($Pr.number) does not target main; refusing to merge or tag."
+    }
+    $baseRefOidProperty = $Pr.PSObject.Properties['baseRefOid']
+    if ($null -eq $baseRefOidProperty -or
+        [string]::IsNullOrWhiteSpace([string]$baseRefOidProperty.Value)) {
+        throw "Release PR #$($Pr.number) did not expose baseRefOid; refusing to merge without a recorded main/base SHA."
+    }
+    return ([string]$baseRefOidProperty.Value).Trim()
 }
 
 function Wait-PrChecks {
@@ -730,6 +739,30 @@ function Wait-PrChecks {
         Start-Sleep -Seconds 15
     }
     throw "Timed out waiting for PR checks for #$Number."
+}
+
+function Assert-ReleasePrBaseUnchanged {
+    param(
+        [Parameter(Mandatory = $true)][int]$Number,
+        [Parameter(Mandatory = $true)][string]$ExpectedBaseSha
+    )
+    Write-Step 'Checking that main did not drift after PR checks.'
+    Invoke-External -FilePath $script:Git -Arguments @(
+        'fetch', 'origin', 'refs/heads/main:refs/remotes/origin/main'
+    )
+    $currentMainCapture = Invoke-Captured -FilePath $script:Git -Arguments @(
+        'rev-parse', 'refs/remotes/origin/main'
+    )
+    if ($currentMainCapture.ExitCode -ne 0 -or
+        [string]::IsNullOrWhiteSpace($currentMainCapture.Text)) {
+        throw 'Could not re-read origin/main after PR checks; refusing to merge or tag.'
+    }
+    $currentMainSha = $currentMainCapture.Text.Trim()
+    if ($currentMainSha -cne $ExpectedBaseSha) {
+        throw "origin/main changed after PR checks (PR base SHA $ExpectedBaseSha, current origin/main $currentMainSha). Refusing to merge or tag; synchronize the release branch with main and rerun PR CI."
+    }
+    Write-Host "PR #$Number and origin/main still match base SHA $ExpectedBaseSha."
+    return $currentMainSha
 }
 
 function Get-WorkflowRuns {
@@ -1162,7 +1195,7 @@ if ($script:PostMergeResume) {
 }
 
 if ($DryRun) {
-    Write-Host 'DRY RUN: no version files, refs, commits, PRs, Releases, or manifest files will be written.'
+    Write-Host 'DRY RUN: skips platform builds/tests; no version files, refs, commits, PRs, Releases, or manifest files will be written.'
     if ($script:Blockers.Count -gt 0) {
         Write-Host ("DRY RUN BLOCKED with {0} issue(s)." -f $script:Blockers.Count) -ForegroundColor Yellow
         exit 2
@@ -1177,7 +1210,7 @@ if ($script:Blockers.Count -gt 0) {
 
 if (-not $script:PostMergeResume) {
 Update-VersionFiles -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -VersionCode $plannedCode
-Run-LocalValidation
+Run-ReleasePreparationChecks
 
 Write-Step 'Creating the release preparation commit.'
 $pathsToStage = @()
@@ -1218,12 +1251,18 @@ if ($null -eq $pr) {
         '--title', $releaseSubject, '--body', $body
     )
     $pr = Read-GhJson -Arguments @(
-        'pr', 'view', $prUrl.Trim(), '--json', 'number,url,headRefName,baseRefName'
+        'pr', 'view', $prUrl.Trim(), '--json', 'number,url,headRefName,baseRefName,baseRefOid'
     )
 }
 $prNumber = [int]$pr.number
+$releasePrBaseSha = Get-ReleasePrBaseSha -Pr $pr
+if ($releasePrBaseSha -cne $script:MainSha) {
+    throw "Release PR #$prNumber is based on $releasePrBaseSha, but the preflight origin/main is $($script:MainSha); synchronize the release branch with main and rerun PR CI."
+}
+Write-Host "Release PR #$prNumber CI base/main SHA: $releasePrBaseSha"
 Write-Host "Release PR: #$prNumber $($pr.url)"
 Wait-PrChecks -Number $prNumber
+Assert-ReleasePrBaseUnchanged -Number $prNumber -ExpectedBaseSha $releasePrBaseSha | Out-Null
 
 Write-Step 'Merging the release PR with squash merge.'
 Invoke-External -FilePath $script:Gh -Arguments @(

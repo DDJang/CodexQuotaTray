@@ -8,12 +8,10 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: update-manifest-publish
-  cancel-in-progress: false
-
 jobs:
   release:
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     runs-on: windows-latest
     env:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
@@ -258,11 +256,25 @@ jobs:
             throw "GitHub Release creation failed with exit code $LASTEXITCODE."
           }
 
+  publish-manifest:
+    needs: release
+    runs-on: windows-latest
+    concurrency:
+      group: update-manifest-publish
+      cancel-in-progress: false
+
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
       - name: Publish unified update manifest
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_VERSION: ${{ needs.release.outputs.version }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -284,14 +296,36 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Could not create update manifest worktree.' }
 
           $metadataPath = Join-Path $env:RUNNER_TEMP 'release-metadata.json'
-          gh release view $env:TAG_NAME --json body,publishedAt | Out-File -LiteralPath $metadataPath -Encoding utf8
+          gh release view $env:TAG_NAME --json body,publishedAt,assets | Out-File -LiteralPath $metadataPath -Encoding utf8
           if ($LASTEXITCODE -ne 0) { throw 'Could not read the completed GitHub Release.' }
           $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
           $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.md'
           [IO.File]::WriteAllText($notesPath, [string]$metadata.body, [Text.UTF8Encoding]::new($false))
           $installerName = "CodexQuotaTray-$($env:RELEASE_VERSION)-setup.exe"
-          $installerPath = Join-Path (Get-Location) "dist-inno\$installerName"
-          $installerHash = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash
+          $installerAsset = @($metadata.assets | Where-Object { $_.name -ceq $installerName }) | Select-Object -First 1
+          if ($null -eq $installerAsset) { throw "Completed GitHub Release is missing $installerName." }
+
+          $releaseDir = Join-Path $env:RUNNER_TEMP 'windows-release-manifest'
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+          gh release download $env:TAG_NAME --pattern $installerName --pattern 'SHA256SUMS.txt' --dir $releaseDir
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download completed Windows Release assets.' }
+          $installerPath = Join-Path $releaseDir $installerName
+          $checksumPath = Join-Path $releaseDir 'SHA256SUMS.txt'
+          $checksumLines = @(Get-Content -LiteralPath $checksumPath | Where-Object {
+            $_ -match "\s+$([Regex]::Escape($installerName))$"
+          })
+          if ($checksumLines.Count -ne 1 -or $checksumLines[0] -notmatch '^([0-9a-fA-F]{64})\s+') {
+            throw "Could not find the Windows installer SHA-256 in SHA256SUMS.txt."
+          }
+          $assetSha256 = $Matches[1].ToLowerInvariant()
+          $downloadedSha256 = (Get-FileHash -LiteralPath $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($downloadedSha256 -cne $assetSha256) {
+            throw 'Downloaded Windows installer does not match SHA256SUMS.txt.'
+          }
+          if ([long]$installerAsset.size -ne (Get-Item -LiteralPath $installerPath).Length) {
+            throw 'Downloaded Windows installer size does not match GitHub Release metadata.'
+          }
+
           & '.github\scripts\update-release-manifest.ps1' `
             -Platform windows `
             -ManifestPath (Join-Path $worktree 'update-manifest.json') `
@@ -299,8 +333,8 @@ jobs:
             -Tag $env:TAG_NAME `
             -AssetName $installerName `
             -AssetUrl "https://github.com/DDJang/CodexQuotaTray/releases/download/$($env:TAG_NAME)/$installerName" `
-            -Sha256 $installerHash `
-            -AssetSize (Get-Item -LiteralPath $installerPath).Length `
+            -Sha256 $assetSha256 `
+            -AssetSize ([long]$installerAsset.size) `
             -ReleaseNotesPath $notesPath `
             -PublishedAt ([string]$metadata.publishedAt)
 

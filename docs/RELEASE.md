@@ -52,21 +52,23 @@ Windows 与 Android 正式 Release 当前只支持严格的 `MAJOR.MINOR.PATCH` 
 3. 确认 `main` 上的实际目标 commit、项目版本和 release notes 正确；Android `versionCode`
    必须大于既有 `android-v*` tag 历史中的最大值。
 4. 在该 `main` commit 创建对应平台 tag 并 push。
-5. Release workflow 执行正式测试、Release build、签名验证、产物校验、SHA-256 校验、release
-   notes 和 `update-manifest` 验证，再创建 GitHub Release。任何校验、签名或构建失败都不得发布。
+5. Release workflow 执行 Release build、签名验证、产物校验、SHA-256 校验、release notes 和
+   `update-manifest` 验证，再创建 GitHub Release。完整测试、lint、format 和 Debug build 由 PR CI
+   负责；任何校验、签名或构建失败都不得发布。
 
 PR CI 是合并前验证；Release workflow 是正式发布验证。发布流程不再把 merge 后的普通 main CI
 作为额外的独立发布门禁。
 
 普通 CI 由 PR 与 `workflow_dispatch` 触发；merge 到 `main` 不会再触发重复的普通 CI。
 
-Windows workflow 运行 `windows/scripts/verify-winui.ps1 -Mode Release`，再生成 portable ZIP 和 Inno installer。
+Windows workflow 运行 `windows/scripts/verify-winui.ps1 -Mode Release`（只做 release-specific publish
+和产物检查），再生成 portable ZIP 和 Inno installer。PR CI 的 Full 验证负责格式检查和离线测试。
 本地 `windows/scripts/publish-winui.ps1`、`windows/scripts/package-winui.ps1`、
 `windows/scripts/package-inno.ps1` 仅供显式发布输入诊断，不是
 正式发布路径。
 
-Android workflow 使用 JDK 17、Android SDK、Gradle Wrapper，运行测试与 `assembleRelease`，再
-定位 SDK build-tools 中的 `apksigner` 验证签名。签名缺少任一 Secret 时 fail closed：
+Android workflow 使用 JDK 17、Android SDK、Gradle Wrapper，运行带正式签名的 `assembleRelease`，再
+定位 SDK build-tools 中的 `apksigner` 验证签名。PR CI 负责测试、lint 和 Debug assemble。签名缺少任一 Secret 时 fail closed：
 
 - `ANDROID_RELEASE_KEYSTORE_BASE64`
 - `ANDROID_RELEASE_STORE_PASSWORD`

@@ -159,9 +159,15 @@ try {
         Join-Path $PSScriptRoot '..\workflows\windows-release.yml'
     )
     foreach ($workflowPath in $releaseWorkflows) {
-        $workflow = (Get-Content -LiteralPath $workflowPath -Raw).TrimStart([char]0xFEFF)
-        if ($workflow -cnotmatch '(?m)^concurrency:\r?\n  group: update-manifest-publish\r?\n  cancel-in-progress: false\r?$') {
-            throw "Release workflow does not use the shared non-cancelling manifest concurrency group: $workflowPath"
+        $workflow = ((Get-Content -LiteralPath $workflowPath -Raw).TrimStart([char]0xFEFF)) -replace '\r\n', "`n"
+        if ($workflow -cmatch '(?m)^concurrency:\s*$') {
+            throw "Release workflow must not lock the entire workflow: $workflowPath"
+        }
+        if ($workflow -cnotmatch '(?ms)^  publish-manifest:\s*$.*?^    needs: release\s*$') {
+            throw "Release workflow must have a manifest job depending on release: $workflowPath"
+        }
+        if ($workflow -cnotmatch '(?ms)^  publish-manifest:\s*$.*?^    concurrency:\s*$\n      group: update-manifest-publish\s*$\n      cancel-in-progress: false\s*$') {
+            throw "Release workflow must use the shared non-cancelling manifest concurrency group on publish-manifest: $workflowPath"
         }
         $releaseIndex = $workflow.LastIndexOf('- name: Create public GitHub Release', [StringComparison]::Ordinal)
         $manifestIndex = $workflow.LastIndexOf('- name: Publish unified update manifest', [StringComparison]::Ordinal)
