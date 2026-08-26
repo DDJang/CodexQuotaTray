@@ -13,11 +13,11 @@ data class QuotaWidgetWindow(
 )
 
 data class QuotaWidgetTokenSummary(
-    val todayTokens: Long,
-    val last7DaysTokens: Long,
-    /** Null only when decoding a pre-30-day Widget projection. */
+    val todayTokens: Long?,
+    val last7DaysTokens: Long?,
+    /** Null when the source has no value or the projection predates the 30-day field. */
     val last30DaysTokens: Long? = null,
-    val lifetimeTokens: Long,
+    val lifetimeTokens: Long?,
 )
 
 data class QuotaWidgetProjection(
@@ -91,13 +91,22 @@ object QuotaWidgetProjectionCodec {
 
     private fun decodeTokenSummary(value: Any?): QuotaWidgetTokenSummary? {
         if (value !is JSONObject) return null
-        return QuotaWidgetTokenSummary(
-            todayTokens = value.optLong("todayTokens", -1L).takeIf { it >= 0L } ?: return null,
-            last7DaysTokens = value.optLong("last7DaysTokens", -1L).takeIf { it >= 0L } ?: return null,
-            last30DaysTokens = value.optLong("last30DaysTokens", -1L).takeIf { it >= 0L },
-            lifetimeTokens = value.optLong("lifetimeTokens", -1L).takeIf { it >= 0L } ?: return null,
+        val summary = QuotaWidgetTokenSummary(
+            todayTokens = value.optionalNonNegativeLong("todayTokens"),
+            last7DaysTokens = value.optionalNonNegativeLong("last7DaysTokens"),
+            last30DaysTokens = value.optionalNonNegativeLong("last30DaysTokens"),
+            lifetimeTokens = value.optionalNonNegativeLong("lifetimeTokens"),
         )
+        return summary.takeIf {
+            it.todayTokens != null ||
+                it.last7DaysTokens != null ||
+                it.last30DaysTokens != null ||
+                it.lifetimeTokens != null
+        }
     }
+
+    private fun JSONObject.optionalNonNegativeLong(key: String): Long? =
+        (opt(key) as? Number)?.toLong()?.takeIf { it >= 0L }
 
     private fun encodeWindow(window: QuotaWidgetWindow): JSONObject = JSONObject()
         .put("title", window.title)
@@ -106,10 +115,10 @@ object QuotaWidgetProjectionCodec {
         .put("windowDurationMins", window.windowDurationMins ?: JSONObject.NULL)
 
     private fun encodeTokenSummary(summary: QuotaWidgetTokenSummary): JSONObject = JSONObject()
-        .put("todayTokens", summary.todayTokens)
-        .put("last7DaysTokens", summary.last7DaysTokens)
-        .apply { summary.last30DaysTokens?.let { put("last30DaysTokens", it) } }
-        .put("lifetimeTokens", summary.lifetimeTokens)
+        .put("todayTokens", summary.todayTokens ?: JSONObject.NULL)
+        .put("last7DaysTokens", summary.last7DaysTokens ?: JSONObject.NULL)
+        .put("last30DaysTokens", summary.last30DaysTokens ?: JSONObject.NULL)
+        .put("lifetimeTokens", summary.lifetimeTokens ?: JSONObject.NULL)
 
     private fun decodeWindow(value: Any?): QuotaWidgetWindow? {
         if (value !is JSONObject) return null

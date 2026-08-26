@@ -7,6 +7,7 @@ import com.codexquotatray.android.usage.TokenUsageSummary
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.json.JSONObject
 import java.time.LocalDate
 import org.junit.Test
 
@@ -56,12 +57,20 @@ class QuotaWidgetProjectionTest {
         assertEquals("100%", formatQuotaPercent(123))
         assertEquals("不可用", formatQuotaPercent(null))
         assertEquals(
-            "7天 · 52%",
+            "7 天 · 52%",
             QuotaWidgetRenderer.formatQuotaLabel(QuotaWidgetWindow("7 天", 52, null, 10_080L)),
         )
         assertEquals(
-            "5小时 · 100%",
+            "5 小时 · 100%",
             QuotaWidgetRenderer.formatQuotaLabel(QuotaWidgetWindow("5 小时", 100, null, 300L)),
+        )
+        assertEquals(
+            "7 天 · 52%",
+            QuotaWidgetRenderer.formatQuotaLabel(QuotaWidgetWindow("7天", 52, null, 10_080L)),
+        )
+        assertEquals(
+            "5 小时 · 100%",
+            QuotaWidgetRenderer.formatQuotaLabel(QuotaWidgetWindow("5小时", 100, null, 300L)),
         )
     }
 
@@ -102,6 +111,32 @@ class QuotaWidgetProjectionTest {
     }
 
     @Test
+    fun codecRoundTripsPartialNullableTokenSummaryAndPreservesZero() {
+        val tokenSummary = QuotaWidgetTokenSummary(
+            todayTokens = null,
+            last7DaysTokens = 0L,
+            last30DaysTokens = null,
+            lifetimeTokens = 42L,
+        )
+        val projection = QuotaWidgetProjection(
+            planType = "Plus",
+            updatedAtMillis = 1_700_000_000_000L,
+            primary = null,
+            secondary = null,
+            tokenSummary = tokenSummary,
+        )
+
+        val encoded = QuotaWidgetProjectionCodec.encode(projection)
+        val encodedSummary = JSONObject(encoded).getJSONObject("tokenSummary")
+        val decoded = QuotaWidgetProjectionCodec.decode(encoded)
+
+        assertTrue(encodedSummary.isNull("todayTokens"))
+        assertEquals(0L, encodedSummary.getLong("last7DaysTokens"))
+        assertTrue(encodedSummary.isNull("last30DaysTokens"))
+        assertEquals(tokenSummary, decoded?.tokenSummary)
+    }
+
+    @Test
     fun legacyProjectionWithoutThirtyDayTokenStillDecodesWithoutFabricatingValue() {
         val raw = """
             {"schemaVersion":1,"planType":"Plus","updatedAtMillis":1700000000000,
@@ -113,7 +148,9 @@ class QuotaWidgetProjectionTest {
         val decoded = QuotaWidgetProjectionCodec.decode(raw)
 
         assertEquals(188_000_000L, decoded?.tokenSummary?.todayTokens)
+        assertEquals(1_600_000_000L, decoded?.tokenSummary?.last7DaysTokens)
         assertNull(decoded?.tokenSummary?.last30DaysTokens)
+        assertEquals(4_600_000_000L, decoded?.tokenSummary?.lifetimeTokens)
     }
 
     @Test
@@ -131,6 +168,36 @@ class QuotaWidgetProjectionTest {
         )
 
         assertEquals(3L, summary.toQuotaWidgetTokenSummary()?.last30DaysTokens)
+    }
+
+    @Test
+    fun bridgeProjectionKeepsPartialSummaryAndDropsOnlyAllNullSummary() {
+        val partial = TokenUsageSummary(
+            todayTokens = null,
+            last7DaysTokens = 2L,
+            last30DaysTokens = null,
+            lifetimeTokens = 0L,
+            peakDailyTokens = null,
+            peakDate = null,
+            activeDays = null,
+            currentStreak = null,
+            longestStreak = null,
+        )
+        val allNull = partial.copy(last7DaysTokens = null, lifetimeTokens = null)
+
+        assertEquals(
+            QuotaWidgetTokenSummary(null, 2L, null, 0L),
+            partial.toQuotaWidgetTokenSummary(),
+        )
+        assertNull(allNull.toQuotaWidgetTokenSummary())
+    }
+
+    @Test
+    fun rendererTokenFormattingDistinguishesMissingValuesFromRealZero() {
+        assertEquals("待同步", QuotaWidgetRenderer.formatWidgetTokenToday(null))
+        assertEquals("0", QuotaWidgetRenderer.formatWidgetTokenToday(0L))
+        assertEquals("—", QuotaWidgetRenderer.formatWidgetTokenValue(null))
+        assertEquals("0", QuotaWidgetRenderer.formatWidgetTokenValue(0L))
     }
 
     @Test

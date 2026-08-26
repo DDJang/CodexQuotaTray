@@ -12,6 +12,7 @@ import kotlin.math.roundToInt
 /** Draws the small deterministic ring surface used by the RemoteViews widget. */
 internal object QuotaWidgetRingRenderer {
     private const val RING_SIZE_DP = 92f
+    private const val DOUBLE_RING_SIZE_DP = 82f
     private const val OUTER_STROKE_DP = 8f
     private const val INNER_STROKE_DP = 7f
     private const val RING_GAP_DP = 9f
@@ -22,13 +23,15 @@ internal object QuotaWidgetRingRenderer {
         inner: QuotaWidgetWindow?,
     ): Bitmap {
         val density = context.resources.displayMetrics.density
-        val size = (RING_SIZE_DP * density).roundToInt()
+        val ringSizeDp = if (inner == null) RING_SIZE_DP else DOUBLE_RING_SIZE_DP
+        val scale = ringSizeDp / RING_SIZE_DP
+        val size = (ringSizeDp * density).roundToInt()
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val center = size / 2f
-        val outerStroke = OUTER_STROKE_DP * density
-        val innerStroke = INNER_STROKE_DP * density
-        val gap = RING_GAP_DP * density
+        val outerStroke = OUTER_STROKE_DP * scale * density
+        val innerStroke = INNER_STROKE_DP * scale * density
+        val gap = RING_GAP_DP * scale * density
         val trackColor = context.getColor(R.color.widget_ring_track)
 
         if (inner == null) {
