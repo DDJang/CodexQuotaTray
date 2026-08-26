@@ -99,15 +99,24 @@ internal object QuotaWidgetRenderer {
         views.setViewVisibility(R.id.widget_token_stats, if (tokenSummary == null) View.GONE else View.VISIBLE)
         views.setViewVisibility(R.id.widget_token_empty, if (tokenSummary == null) View.VISIBLE else View.GONE)
         if (tokenSummary != null) {
-            views.setTextViewText(R.id.widget_token_today, TokenFormatter.format(tokenSummary.todayTokens))
-            views.setTextViewText(R.id.widget_token_week, TokenFormatter.format(tokenSummary.last7DaysTokens))
+            views.setTextViewText(R.id.widget_token_today, formatWidgetTokenToday(tokenSummary.todayTokens))
+            views.setTextViewText(R.id.widget_token_week, formatWidgetTokenValue(tokenSummary.last7DaysTokens))
             views.setTextViewText(
                 R.id.widget_token_month,
-                tokenSummary.last30DaysTokens?.let(TokenFormatter::format) ?: "—",
+                formatWidgetTokenValue(tokenSummary.last30DaysTokens),
             )
-            views.setTextViewText(R.id.widget_token_lifetime, TokenFormatter.format(tokenSummary.lifetimeTokens))
+            views.setTextViewText(
+                R.id.widget_token_lifetime,
+                formatWidgetTokenValue(tokenSummary.lifetimeTokens),
+            )
         }
     }
+
+    internal fun formatWidgetTokenToday(tokens: Long?): String =
+        tokens?.let(TokenFormatter::format) ?: "待同步"
+
+    internal fun formatWidgetTokenValue(tokens: Long?): String =
+        tokens?.let(TokenFormatter::format) ?: "—"
 
     private fun formatWindowTitle(title: String): String = title.trim().replace(
         WINDOW_TITLE_UNIT_PATTERN,

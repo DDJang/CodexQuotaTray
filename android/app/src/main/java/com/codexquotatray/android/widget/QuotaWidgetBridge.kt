@@ -81,10 +81,14 @@ object QuotaWidgetBridge {
     }
 }
 
-internal fun TokenUsageSummary.toQuotaWidgetTokenSummary(): QuotaWidgetTokenSummary? =
-    QuotaWidgetTokenSummary(
-        todayTokens = todayTokens ?: return null,
-        last7DaysTokens = last7DaysTokens ?: return null,
+internal fun TokenUsageSummary.toQuotaWidgetTokenSummary(): QuotaWidgetTokenSummary? {
+    if (todayTokens == null && last7DaysTokens == null && last30DaysTokens == null && lifetimeTokens == null) {
+        return null
+    }
+    return QuotaWidgetTokenSummary(
+        todayTokens = todayTokens,
+        last7DaysTokens = last7DaysTokens,
         last30DaysTokens = last30DaysTokens,
-        lifetimeTokens = lifetimeTokens ?: return null,
+        lifetimeTokens = lifetimeTokens,
     )
+}
