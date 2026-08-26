@@ -31,7 +31,7 @@ Android 与 Windows 客户端都从固定地址
 `https://raw.githubusercontent.com/DDJang/CodexQuotaTray/update-manifest/update-manifest.json`
 读取统一更新清单，不查询 GitHub Releases API。安装包和 APK 仍由对应 GitHub Release 托管，清单中包含下载地址、SHA256、发布说明与发布时间。
 
-两个 Release workflow 使用同一个 `update-manifest-publish` concurrency group，且不取消运行中的发布。Release 与全部资产成功创建后，workflow 的最后一步读取 `update-manifest` 分支上的现有清单，只替换当前平台节点，再提交回该分支。首次创建该分支时使用 `.github/update-manifest.seed.json` 保留另一个平台已有的最新正式版本。
+Windows 与 Android Release workflow 可独立运行；只有各自的 `publish-manifest` job 使用共享的 `update-manifest-publish` concurrency group，且不取消运行中的 job。因此 manifest 写入会串行，但 Release job 的构建、签名、资产和 GitHub Release 阶段不因该 group 串行。Release 与全部资产成功创建后，`publish-manifest` job 读取 `update-manifest` 分支上的现有清单，只替换当前平台节点，再提交回该分支。首次创建该分支时使用 `.github/update-manifest.seed.json` 保留另一个平台已有的最新正式版本。
 
 两个 workflow 都会 fetch `origin/main`，并拒绝不属于 `main` 历史的 tagged commit。Tag 版本必须
 与对应项目版本完全一致。平台更新器只能识别自身平台的 tag 前缀，不能依赖 GitHub “latest release”。
@@ -62,10 +62,9 @@ PR CI 是合并前验证；Release workflow 是正式发布验证。发布流程
 普通 CI 由 PR 与 `workflow_dispatch` 触发；merge 到 `main` 不会再触发重复的普通 CI。
 
 Windows workflow 运行 `windows/scripts/verify-winui.ps1 -Mode Release`（只做 release-specific publish
-和产物检查），再生成 portable ZIP 和 Inno installer。PR CI 的 Full 验证负责格式检查和离线测试。
-本地 `windows/scripts/publish-winui.ps1`、`windows/scripts/package-winui.ps1`、
-`windows/scripts/package-inno.ps1` 仅供显式发布输入诊断，不是
-正式发布路径。
+和产物检查），再生成 portable ZIP 和 Inno installer。上述 `publish-winui.ps1`、`package-winui.ps1`、
+`package-inno.ps1` 属于正式 Release workflow 的底层 publish/package 实现，但不作为维护者日常手工
+发布入口；正式发布入口仍由统一发布状态机和 GitHub Actions 管理。PR CI 的 Full 验证负责格式检查和离线测试。
 
 Android workflow 使用 JDK 17、Android SDK、Gradle Wrapper，运行带正式签名的 `assembleRelease`，再
 定位 SDK build-tools 中的 `apksigner` 验证签名。PR CI 负责测试、lint 和 Debug assemble。签名缺少任一 Secret 时 fail closed：
