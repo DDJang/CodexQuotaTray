@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.10.1",
-    "tag": "windows-v0.10.1",
+    "version": "0.10.2",
+    "tag": "windows-v0.10.2",
     "installer": {
-      "name": "CodexQuotaTray-0.10.1-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.10.1/CodexQuotaTray-0.10.1-setup.exe",
-      "sha256": "7bec43df2567cc8f00192f71ce43b235e47d2feebafc9d0e324e383b27543c77",
-      "size": 64023933
+      "name": "CodexQuotaTray-0.10.2-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.10.2/CodexQuotaTray-0.10.2-setup.exe",
+      "sha256": "4a3549b576a793ed9c829ad2442d0837a38830c8acb6517cbae4ac69f231e715",
+      "size": 64023309
     },
-    "releaseNotes": "## Windows\r\n\r\n- 修复额度服务重连、limit ID 变化或协议返回形状变化后，Windows quota Reset 通知可能漏报的问题。\r\n- 改进额度窗口身份不确定时的 Reset 识别：优先依据可靠的周期变化和恢复证据提醒，同时避免同一 Reset 周期重复通知。\r\n- 保留既有 threshold 提醒历史隔离与旧版提醒状态兼容，减少升级后误报或漏报。\r\n",
-    "publishedAt": "2026-08-25T10:15:54Z"
+    "releaseNotes": "## Windows\r\n\r\n- 修复同时显示 5 小时和 7 天额度时刷新进度条可能异常左右滑动、先缩后伸或短暂串位的问题。\r\n- 改进额度刷新后的进度条关联，确保每条进度条继续对应自己的额度窗口。\r\n",
+    "publishedAt": "2026-08-26T07:31:32Z"
   },
   "android": {
     "version": "0.10.1",
