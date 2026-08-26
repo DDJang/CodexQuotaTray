@@ -52,7 +52,7 @@ public sealed partial class MainViewModel : ObservableObject
         this.stateEventsAuthoritative = stateEventsAuthoritative;
     }
 
-    public ObservableCollection<QuotaWindowView> Windows { get; } = [];
+    public ObservableCollection<QuotaWindowItemViewModel> Windows { get; } = [];
 
     public ObservableCollection<bool> LoadingWindows { get; } = [true];
 
@@ -140,13 +140,61 @@ public sealed partial class MainViewModel : ObservableObject
         StatusTone = state.StatusTone;
         ResetCredits = state.ResetCredits;
         IsPrototype = state.IsPrototype;
-        Windows.Clear();
-        foreach (var window in state.Windows)
-        {
-            Windows.Add(window);
-        }
+        SyncWindows(state.Windows);
 
         OnPropertyChanged(nameof(HasWindows));
+    }
+
+    private void SyncWindows(IReadOnlyList<QuotaWindowView> incoming)
+    {
+        var existingByKey = Windows.ToDictionary(window => window.LocalKey, StringComparer.Ordinal);
+        var incomingKeys = new HashSet<string>(StringComparer.Ordinal);
+        var desiredItems = new List<QuotaWindowItemViewModel>(incoming.Count);
+
+        foreach (var window in incoming)
+        {
+            if (!incomingKeys.Add(window.LocalKey))
+            {
+                throw new InvalidOperationException($"Duplicate quota window LocalKey: {window.LocalKey}");
+            }
+
+            if (existingByKey.TryGetValue(window.LocalKey, out var existing))
+            {
+                existing.UpdateFrom(window);
+                desiredItems.Add(existing);
+            }
+            else
+            {
+                desiredItems.Add(new QuotaWindowItemViewModel(window));
+            }
+        }
+
+        for (var index = Windows.Count - 1; index >= 0; index--)
+        {
+            if (!incomingKeys.Contains(Windows[index].LocalKey))
+            {
+                Windows.RemoveAt(index);
+            }
+        }
+
+        for (var targetIndex = 0; targetIndex < desiredItems.Count; targetIndex++)
+        {
+            var desiredItem = desiredItems[targetIndex];
+            if (targetIndex < Windows.Count && ReferenceEquals(Windows[targetIndex], desiredItem))
+            {
+                continue;
+            }
+
+            var currentIndex = Windows.IndexOf(desiredItem);
+            if (currentIndex >= 0)
+            {
+                Windows.Move(currentIndex, targetIndex);
+            }
+            else
+            {
+                Windows.Insert(targetIndex, desiredItem);
+            }
+        }
     }
 
     private void BeginRefreshPresentation(bool showLoading, int loadingWindowCount)
