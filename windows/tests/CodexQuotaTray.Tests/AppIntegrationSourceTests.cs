@@ -20,16 +20,26 @@ public sealed class AppIntegrationSourceTests
     }
 
     [TestMethod]
-    public void WindowsNotificationServiceRegistersBeforeActivationAndUsesNotificationCenter()
+    public void OnlyCurrentMainInstanceRegistersWindowsNotifications()
     {
         var appSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
         var serviceSource = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Services", "WindowsAppNotificationService.cs"));
 
-        var registration = appSource.IndexOf("appNotifications.TryRegister", StringComparison.Ordinal);
-        var activation = appSource.IndexOf("GetActivatedEventArgs()", StringComparison.Ordinal);
-        Assert.IsTrue(registration >= 0);
-        Assert.IsTrue(activation > registration);
+        var findInstance = appSource.IndexOf("AppInstance.FindOrRegisterForKey", StringComparison.Ordinal);
+        var secondaryPath = appSource.IndexOf("if (!currentInstance.IsCurrent)", findInstance, StringComparison.Ordinal);
+        var shutdownPath = appSource.IndexOf("if (HasArgument(arguments, \"--shutdown-existing\"))", secondaryPath, StringComparison.Ordinal);
+        var registration = appSource.IndexOf("appNotifications.TryRegister", shutdownPath, StringComparison.Ordinal);
+        Assert.IsTrue(findInstance >= 0);
+        Assert.IsTrue(secondaryPath > findInstance);
+        Assert.IsTrue(shutdownPath > secondaryPath);
+        Assert.IsTrue(registration > shutdownPath);
+        var auxiliaryInstancePaths = appSource[secondaryPath..registration];
+        StringAssert.Contains(
+            auxiliaryInstancePaths,
+            "RedirectActivationToAsync(AppInstance.GetCurrent().GetActivatedEventArgs())");
+        Assert.IsFalse(auxiliaryInstancePaths.Contains("TryRegister", StringComparison.Ordinal));
+        Assert.IsFalse(auxiliaryInstancePaths.Contains("DisposeAppNotifications", StringComparison.Ordinal));
 
         StringAssert.Contains(serviceSource, "AppNotificationManager.IsSupported()");
         StringAssert.Contains(serviceSource, "candidate.Register(displayName, iconUri)");

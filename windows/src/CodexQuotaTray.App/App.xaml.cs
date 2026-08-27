@@ -55,28 +55,26 @@ public partial class App : Application
         var showDemo = launchProfile.ShowDemo;
         var identity = AppIdentity.From(launchProfile.TrayIdentity);
 
-        if (!showDemo)
-        {
-            appNotifications = new WindowsAppNotificationService(OnAppNotificationInvoked);
-            var iconUri = new Uri(Path.GetFullPath(
-                Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.png")));
-            _ = appNotifications.TryRegister(identity.DisplayName, iconUri);
-        }
-
         currentInstance = AppInstance.FindOrRegisterForKey(launchProfile.InstanceKey);
         if (!currentInstance.IsCurrent)
         {
             await currentInstance.RedirectActivationToAsync(AppInstance.GetCurrent().GetActivatedEventArgs());
-            DisposeAppNotifications();
             Exit();
             return;
         }
 
         if (HasArgument(arguments, "--shutdown-existing"))
         {
-            DisposeAppNotifications();
             Exit();
             return;
+        }
+
+        if (!showDemo)
+        {
+            appNotifications = new WindowsAppNotificationService(OnAppNotificationInvoked);
+            var iconUri = new Uri(Path.GetFullPath(
+                Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.png")));
+            _ = appNotifications.TryRegister(identity.DisplayName, iconUri);
         }
 
         currentInstance.Activated += OnInstanceActivated;

@@ -125,7 +125,7 @@ public sealed class WindowsResetAlertAtLeastOnceTests
 
         AssertReset(nextCycle, "5h", 25, nextDeadline);
         Assert.AreEqual(oldDeadline, nextCycle.ResetDiagnostics.Single().PendingResetDeadlineUtc);
-        Assert.AreNotEqual(
+        Assert.AreEqual(
             nextCycle.State.Windows["5h"].PendingResetDeadlineUtc,
             nextCycle.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
     }
@@ -240,7 +240,7 @@ public sealed class WindowsResetAlertAtLeastOnceTests
     }
 
     [TestMethod]
-    public void MultipleMissedCyclesProduceAtLeastOneEventPerSuccessfulEvaluation()
+    public void MultipleMissedCyclesProduceOneCatchUpForTheLatestObservedCycle()
     {
         var oldDeadline = Now.AddHours(-12);
         var nextDeadline = oldDeadline.AddHours(5);
@@ -249,10 +249,9 @@ public sealed class WindowsResetAlertAtLeastOnceTests
         var secondCatchUp = Reduce(firstCatchUp.State, [Window("5h", 300, 20, nextDeadline)], Now.AddMinutes(1));
 
         AssertReset(firstCatchUp, "5h", 20, nextDeadline);
-        AssertReset(secondCatchUp, "5h", 20, nextDeadline);
-        Assert.AreNotEqual(
-            firstCatchUp.State.Windows["5h"].LastNotifiedResetDeadlineUtc,
-            secondCatchUp.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
+        Assert.IsNull(secondCatchUp.Alert);
+        Assert.AreEqual(nextDeadline, firstCatchUp.State.Windows["5h"].PendingResetDeadlineUtc);
+        Assert.AreEqual(nextDeadline, firstCatchUp.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
     }
 
     [TestMethod]
@@ -273,7 +272,7 @@ public sealed class WindowsResetAlertAtLeastOnceTests
     }
 
     [TestMethod]
-    public async Task OldAlertStateJsonMigratesWithoutStartupAlertAndRemainsFailOpen()
+    public async Task LegacyFutureDeadlineDoesNotAlertAtStartup()
     {
         var resetAt = Now.AddHours(5);
         using var directory = new TestDirectory();
@@ -301,12 +300,66 @@ public sealed class WindowsResetAlertAtLeastOnceTests
         var persistence = new PreviewPersistence(new JsonFileStore(), paths);
         var restored = await persistence.LoadAlertStateAsync(CancellationToken.None);
         var startup = Reduce(restored, [Window("5h", 300, 20, resetAt)], Now);
-        var realReset = Reduce(startup.State, [Window("5h", 300, 100, resetAt)], Now.AddMinutes(1));
 
         Assert.IsNotNull(restored);
         Assert.IsNull(startup.Alert);
-        AssertReset(realReset, "5h", 100, resetAt);
         Assert.IsTrue(startup.State.Windows["5h"].ResetAlertMigrationPending);
+    }
+
+    [TestMethod]
+    public void MigratedLegacyDeadlineRemainsCatchUpCapableAfterItPasses()
+    {
+        var resetAt = Now.AddHours(5);
+        var startup = Reduce(
+            LegacyState(resetAt, remaining: 20),
+            [Window("5h", 300, 20, resetAt)],
+            Now);
+        var caughtUp = Reduce(
+            startup.State,
+            [Window("5h", 300, 20, resetAt)],
+            resetAt.AddMinutes(4));
+
+        Assert.IsNull(startup.Alert);
+        Assert.IsTrue(startup.State.Windows["5h"].ResetAlertMigrationPending);
+        AssertReset(caughtUp, "5h", 20, resetAt);
+    }
+
+    [TestMethod]
+    public void LegacyPastDeadlineWithUnchangedSnapshotCatchesUpOnce()
+    {
+        var resetAt = Now.AddHours(-1);
+        var legacy = LegacyState(resetAt, remaining: 20);
+        var caughtUp = Reduce(legacy, [Window("5h", 300, 20, resetAt)], Now);
+
+        AssertReset(caughtUp, "5h", 20, resetAt);
+        Assert.IsFalse(caughtUp.State.Windows["5h"].ResetAlertMigrationPending);
+        Assert.AreEqual(resetAt, caughtUp.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
+    }
+
+    [TestMethod]
+    public void SuccessfulLegacyPastDeadlineCatchUpDoesNotRepeat()
+    {
+        var resetAt = Now.AddHours(-1);
+        var caughtUp = Reduce(
+            LegacyState(resetAt, remaining: 20),
+            [Window("5h", 300, 20, resetAt)],
+            Now);
+        var repeated = Reduce(caughtUp.State, [Window("5h", 300, 20, resetAt)], Now.AddMinutes(1));
+
+        AssertReset(caughtUp, "5h", 20, resetAt);
+        Assert.IsNull(repeated.Alert);
+    }
+
+    [TestMethod]
+    public void LegacyPastDeadlineRetriesWhenNotificationStateIsNotCommitted()
+    {
+        var resetAt = Now.AddHours(-1);
+        var legacy = LegacyState(resetAt, remaining: 20);
+        var attempted = Reduce(legacy, [Window("5h", 300, 20, resetAt)], Now);
+        var retried = Reduce(legacy, [Window("5h", 300, 20, resetAt)], Now.AddMinutes(1));
+
+        AssertReset(attempted, "5h", 20, resetAt);
+        AssertReset(retried, "5h", 20, resetAt);
     }
 
     [TestMethod]
@@ -350,6 +403,21 @@ public sealed class WindowsResetAlertAtLeastOnceTests
         DateTimeOffset? resetAt,
         bool reliable = true) =>
         new(key, key, remaining, reliable, durationMinutes, resetAt);
+
+    private static AlertStateDocument LegacyState(DateTimeOffset resetAt, int remaining) =>
+        new(
+            1,
+            [50, 20, 10],
+            new Dictionary<string, AlertWindowState>(StringComparer.Ordinal)
+            {
+                ["5h"] = new(
+                    "5h",
+                    300,
+                    resetAt,
+                    remaining,
+                    [20, 10]),
+            },
+            ResetAlertBaselineEstablished: true);
 
     private static void AssertReset(
         AlertReduction reduction,

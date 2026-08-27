@@ -303,7 +303,8 @@ public static class QuotaAlertReducer
                 evaluation,
                 handled.OrderDescending().ToArray(),
                 semanticIdentity,
-                identityUncertain && evaluation.CurrentCycleAlreadyAcknowledged && evaluation.Reference is null);
+                identityUncertain && evaluation.CurrentCycleAlreadyAcknowledged && evaluation.Reference is null,
+                now);
         }
 
         var resetCreditStates = baseline
@@ -609,9 +610,14 @@ public static class QuotaAlertReducer
         var lastNotifiedResetDeadline = LastNotifiedResetDeadline(state);
         var effectiveDuration = input.WindowDurationMinutes ?? state.WindowDurationMinutes;
         var currentReliable = input.IsPercentageReliable && currentRemaining is not null;
-        var canUsePersistedDeadline = !state.ResetAlertMigrationPending
-            && (state.PendingResetDeadlineUtc is not null
-                || (HasExtendedResetState(state) && state.BaselineResetAtUtc is not null));
+        var hasTrustworthyCurrentSnapshot = currentReliable || input.ResetAtUtc is not null;
+        var canCatchUpLegacyDeadline = (!HasExtendedResetState(state) || state.ResetAlertMigrationPending)
+            && state.ResetAtUtc is not null
+            && hasTrustworthyCurrentSnapshot;
+        var canUsePersistedDeadline = canCatchUpLegacyDeadline
+            || (!state.ResetAlertMigrationPending
+                && (state.PendingResetDeadlineUtc is not null
+                    || (HasExtendedResetState(state) && state.BaselineResetAtUtc is not null)));
         var deadlineCrossed = canUsePersistedDeadline
             && pendingResetDeadline is { } pending
             && lastNotifiedResetDeadline != pending
@@ -649,7 +655,8 @@ public static class QuotaAlertReducer
         ResetEvaluation evaluation,
         IReadOnlyList<int> handledThresholds,
         string semanticIdentity,
-        bool markCurrentCycleAcknowledged)
+        bool markCurrentCycleAcknowledged,
+        DateTimeOffset now)
     {
         var old = evaluation.Reference;
         var currentRemaining = evaluation.CurrentRemainingPercent;
@@ -715,6 +722,14 @@ public static class QuotaAlertReducer
                 pendingResetDeadline = currentResetAt;
                 resetAlertCycle = currentResetAt;
                 resetCycleFingerprint = CreateResetCycleKey(duration, currentResetAt);
+                if (evaluation.DeadlineCrossed
+                    && now >= currentResetAt + ResetDeadlineGrace)
+                {
+                    // One successful catch-up acknowledges every missed cycle
+                    // represented by this snapshot instead of replaying them
+                    // one at a time on subsequent evaluations.
+                    lastNotifiedResetDeadline = currentResetAt;
+                }
             }
 
             minRemaining = currentReliable ? currentRemaining : null;

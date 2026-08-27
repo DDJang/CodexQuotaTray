@@ -431,7 +431,11 @@ public sealed class Phase3CoreTests
             DateTimeOffset.UnixEpoch.AddMinutes(300),
             legacyKey);
 
-        var reduction = QuotaAlertReducer.Reduce(previous, [input], new NotificationSettings(true, true, true));
+        var reduction = QuotaAlertReducer.Reduce(
+            previous,
+            [input],
+            new NotificationSettings(true, true, true),
+            nowUtc: DateTimeOffset.UnixEpoch.AddMinutes(1));
 
         Assert.IsFalse(reduction.State.Windows.ContainsKey(legacyKey));
         Assert.IsTrue(reduction.State.Windows.ContainsKey(stableKey));
