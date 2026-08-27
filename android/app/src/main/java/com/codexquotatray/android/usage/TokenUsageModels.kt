@@ -340,21 +340,41 @@ object TokenFormatter {
 }
 
 object HeatmapBuckets {
-    fun bucket(value: Long, nonZeroValues: List<Long>): Int {
-        if (value <= 0L) return 0
-        val sorted = nonZeroValues.filter { it > 0L }.sorted()
-        if (sorted.isEmpty()) return 0
-        val transformed = sorted.map { ln(it.toDouble() + 1.0) }
-        val current = ln(value.toDouble() + 1.0)
-        val q1 = transformed[(transformed.lastIndex * 0.25).toInt()]
-        val q2 = transformed[(transformed.lastIndex * 0.50).toInt()]
-        val q3 = transformed[(transformed.lastIndex * 0.75).toInt()]
-        return when {
-            current <= q1 -> 1
-            current <= q2 -> 2
-            current <= q3 -> 3
-            else -> 4
+    class Scale internal constructor(
+        private val thresholds: DoubleArray?,
+    ) {
+        fun bucket(value: Long): Int {
+            if (value <= 0L) return 0
+            val thresholds = thresholds ?: return 0
+            val current = ln(value.toDouble() + 1.0)
+            return when {
+                current <= thresholds[0] -> 1
+                current <= thresholds[1] -> 2
+                current <= thresholds[2] -> 3
+                else -> 4
+            }
         }
+    }
+
+    fun prepare(nonZeroValues: Iterable<Long>): Scale {
+        val sorted = nonZeroValues.filter { it > 0L }.sorted()
+        if (sorted.isEmpty()) return Scale(null)
+
+        val lastIndex = sorted.lastIndex
+        val q1Index = (lastIndex * 0.25).toInt()
+        val q2Index = (lastIndex * 0.50).toInt()
+        val q3Index = (lastIndex * 0.75).toInt()
+        return Scale(
+            doubleArrayOf(
+                ln(sorted[q1Index].toDouble() + 1.0),
+                ln(sorted[q2Index].toDouble() + 1.0),
+                ln(sorted[q3Index].toDouble() + 1.0),
+            ),
+        )
+    }
+
+    fun bucket(value: Long, nonZeroValues: List<Long>): Int {
+        return prepare(nonZeroValues).bucket(value)
     }
 }
 
