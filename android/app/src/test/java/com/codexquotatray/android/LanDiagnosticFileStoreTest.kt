@@ -10,6 +10,7 @@ import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.CopyOnWriteArrayList
 
 class LanDiagnosticFileStoreTest {
     private lateinit var root: File
@@ -82,6 +83,36 @@ class LanDiagnosticFileStoreTest {
         store.append("after-1")
         store.append("after-2")
         assertEquals("after-1\nafter-2", store.read())
+    }
+
+    @Test
+    fun fullQueueReportsAllDropsInOneLaterSummary() {
+        val writes = CopyOnWriteArrayList<String>()
+        val firstWriteStarted = CountDownLatch(1)
+        val releaseFirstWrite = CountDownLatch(1)
+        val writer = BoundedLanDiagnosticWriter(queueCapacity = 2) { _, line ->
+            if (line == "blocking") {
+                firstWriteStarted.countDown()
+                releaseFirstWrite.await()
+            }
+            writes += line
+        }
+        val store = store()
+
+        writer.append(store, "blocking")
+        firstWriteStarted.await()
+        writer.append(store, "queued-1")
+        writer.append(store, "queued-2")
+        writer.append(store, "dropped-1")
+        writer.append(store, "dropped-2")
+        releaseFirstWrite.countDown()
+        writer.read(store)
+
+        val summaries = writes.filter { it.contains("LAN diagnostics dropped") }
+        assertEquals(1, summaries.size)
+        assertTrue(summaries.single().contains("dropped 2 entries"))
+        assertFalse(writes.contains("dropped-1"))
+        assertFalse(writes.contains("dropped-2"))
     }
 
     private fun store(

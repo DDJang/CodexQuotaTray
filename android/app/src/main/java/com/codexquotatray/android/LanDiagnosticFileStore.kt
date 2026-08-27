@@ -5,6 +5,7 @@ import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.atomic.AtomicLong
 
 internal fun interface LegacyLanLogSource {
     fun loadAndClear(clear: Boolean): String
@@ -103,10 +104,13 @@ internal class LanDiagnosticFileStore(
     }
 }
 
-internal object LanDiagnosticWriter {
-    private const val QUEUE_CAPACITY = 256
-    private val queue = ArrayBlockingQueue<() -> Unit>(QUEUE_CAPACITY)
+internal class BoundedLanDiagnosticWriter(
+    queueCapacity: Int,
+    private val appendLine: (LanDiagnosticFileStore, String) -> Unit = LanDiagnosticFileStore::append,
+) {
+    private val queue = ArrayBlockingQueue<() -> Unit>(queueCapacity)
     private val submitGate = Any()
+    private val droppedCount = AtomicLong()
 
     init {
         Thread({
@@ -118,13 +122,22 @@ internal object LanDiagnosticWriter {
     }
 
     fun append(store: LanDiagnosticFileStore, line: String) {
-        synchronized(submitGate) { queue.offer { store.append(line) } }
+        synchronized(submitGate) {
+            if (queue.remainingCapacity() == 0) {
+                droppedCount.incrementAndGet()
+                return
+            }
+            queue.offer { appendWithDropSummary(store, line) }
+        }
     }
 
     fun clear(store: LanDiagnosticFileStore) {
         synchronized(submitGate) {
             queue.clear()
-            queue.offer { store.clear() }
+            queue.offer {
+                store.clear()
+                droppedCount.set(0L)
+            }
         }
     }
 
@@ -137,4 +150,28 @@ internal object LanDiagnosticWriter {
         }
         return result.get()
     }
+
+    private fun appendWithDropSummary(store: LanDiagnosticFileStore, line: String) {
+        val dropped = droppedCount.get()
+        if (dropped > 0L) {
+            appendLine(
+                store,
+                "${AppLogRetention.formatTimestamp(System.currentTimeMillis())} [WARN] " +
+                    "LAN diagnostics dropped $dropped entries because the writer queue was full",
+            )
+            droppedCount.addAndGet(-dropped)
+        }
+        appendLine(store, line)
+    }
+}
+
+internal object LanDiagnosticWriter {
+    private const val QUEUE_CAPACITY = 256
+    private val delegate = BoundedLanDiagnosticWriter(QUEUE_CAPACITY)
+
+    fun append(store: LanDiagnosticFileStore, line: String) = delegate.append(store, line)
+
+    fun clear(store: LanDiagnosticFileStore) = delegate.clear(store)
+
+    fun read(store: LanDiagnosticFileStore): String = delegate.read(store)
 }
