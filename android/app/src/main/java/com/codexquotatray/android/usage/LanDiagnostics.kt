@@ -5,7 +5,10 @@ import android.os.Looper
 import com.codexquotatray.android.AppLogStore
 import com.codexquotatray.android.AppLogSanitizer
 import java.io.IOException
+import java.net.ConnectException
 import java.net.InetSocketAddress
+import java.net.NoRouteToHostException
+import java.net.SocketTimeoutException
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -246,6 +249,11 @@ class LanAttemptContext(
         record("route ${metadata.toDiagnosticFields()}")
     }
 
+    fun socketBinding(networkId: String?, bindingGeneration: Long) = record(
+        "socketBinding boundToNetwork=true networkHandle=${networkId ?: "unavailable"} " +
+            "bindingGeneration=$bindingGeneration attemptGeneration=$networkGeneration",
+    )
+
     fun routeNotFound(host: String) {
         finalPhase = "ROUTE_NOT_FOUND"
         record("route matching=false phase=ROUTE_NOT_FOUND")
@@ -255,7 +263,11 @@ class LanAttemptContext(
 
     fun connectStart(address: InetSocketAddress) {
         target(address.hostString, address.port, "target")
-        record("connectStart")
+        val currentGeneration = LanNetworkEpoch.current()
+        record(
+            "connectStart connectGeneration=$currentGeneration " +
+                "generationChanged=${currentGeneration != networkGeneration}",
+        )
     }
 
     fun connectEnd() = record("connectEnd")
@@ -277,8 +289,7 @@ class LanAttemptContext(
         }
         finalPhase = when {
             connectionAcquired -> "HTTP_FAILED"
-            timeout -> "TCP_CONNECT_TIMEOUT"
-            else -> "TCP_CONNECT_IO"
+            else -> classifyLanConnectFailure(error, timeout)
         }
         record(
             "connectFailed phase=$finalPhase exceptionClass=${error.javaClass.simpleName} " +
@@ -360,4 +371,22 @@ class LanAttemptContext(
         }
         return safe
     }
+}
+
+internal fun classifyLanConnectFailure(error: IOException, timeout: Boolean = false): String {
+    if (timeout) return "TCP_CONNECT_TIMEOUT"
+    var current: Throwable? = error
+    var depth = 0
+    while (current != null && depth++ < 16) {
+        when (current) {
+            is SocketTimeoutException -> return "TCP_CONNECT_TIMEOUT"
+            is NoRouteToHostException -> return "ROUTE_FAILURE"
+            is ConnectException -> if (
+                current.message?.contains("refused", ignoreCase = true) == true ||
+                current.message?.contains("ECONNREFUSED", ignoreCase = true) == true
+            ) return "TCP_CONNECTION_REFUSED"
+        }
+        current = current.cause
+    }
+    return "TCP_CONNECT_IO"
 }

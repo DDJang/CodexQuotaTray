@@ -67,7 +67,14 @@ public sealed class LanDiagnosticsTests
             LastReconcileResult: "restarted",
             LastRepairProbeResult: "TIMEOUT",
             LastRepairActionResult: "PROBE_SENT",
-            LastRepairRemote: "192.168.1.92");
+            LastRepairRemote: "192.168.1.92",
+            LastRepairProbeKind: "ICMP_ECHO",
+            LastRepairLocalAddress: "192.168.1.58",
+            LastRepairInterfaceIndex: 7,
+            LastRepairSourceBound: true,
+            LastRepairFailureKind: "NEIGHBOR_RESOLUTION",
+            LastRepairNeighborBeforeState: "Incomplete",
+            LastRepairNeighborAfterState: "Unreachable/Failed");
 
         var text = LanDiagnosticsFormatter.FormatWindows(
             "0.10.2",
@@ -85,7 +92,21 @@ public sealed class LanDiagnosticsTests
         StringAssert.Contains(text, "result=restarted");
         StringAssert.Contains(text, "lastRepairProbe=");
         StringAssert.Contains(text, "probeResult", StringComparison.OrdinalIgnoreCase);
+        StringAssert.Contains(text, "lastRepairSourceBound=true");
+        StringAssert.Contains(text, "neighborBeforeState=Incomplete");
+        StringAssert.Contains(text, "neighborAfterState=Unreachable/Failed");
         Assert.IsFalse(text.Contains("secret", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
+    public void NeighborFormatterMapsAllDocumentedStatesAndBoundsMacLength()
+    {
+        CollectionAssert.AreEqual(
+            new[] { "Unreachable/Failed", "Incomplete", "Probe", "Delay", "Stale", "Reachable", "Permanent", "Unknown" },
+            Enumerable.Range(0, 8).Select(value => LanNeighborDiagnosticsFormatter.StateName(value)).ToArray());
+        Assert.AreEqual(
+            "AA-BB-CC-DD-EE-FF",
+            LanNeighborDiagnosticsFormatter.FormatMac([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF], 6));
     }
 
     [TestMethod]
