@@ -3,7 +3,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:core="using:CodexQuotaTray.Core.Presentation"
-    xmlns:local="using:CodexQuotaTray.App">
+    xmlns:local="using:CodexQuotaTray.App"
+    xmlns:views="using:CodexQuotaTray.App.Views">
     <UserControl.Resources>
         <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
         <local:QuotaToneBrushConverter x:Key="QuotaToneBrushConverter" />
@@ -52,11 +53,9 @@
                                             Style="{StaticResource QuotaPercentTextStyle}"
                                             Text="{Binding PercentText}" />
                                     </Grid>
-                                    <ProgressBar
-                                        Maximum="100"
+                                    <views:QuotaProgressVisual
                                         Value="{Binding DisplayPercent}"
-                                        Foreground="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}"
-                                        Style="{StaticResource QuotaProgressStyle}" />
+                                        IndicatorBrush="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}" />
                                     <Grid ColumnSpacing="4">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />

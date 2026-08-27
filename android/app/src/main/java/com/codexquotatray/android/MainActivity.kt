@@ -111,41 +111,45 @@ class MainActivity : ComponentActivity() {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .layerBackdrop(chromeBackdrop)
-                            .background(palette.color(palette.background)),
+                            .layerBackdrop(chromeBackdrop),
                     ) {
-                    }
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .statusBarsPadding(),
-                    ) {
-                        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 72.dp, top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("CodexQuota", color = palette.color(palette.title), fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Box(Modifier.weight(1f)) {
-                            AnimatedContent(
-                                targetState = selectedIndex,
-                                modifier = Modifier.fillMaxSize(),
-                                transitionSpec = {
-                                    val direction = if (targetState > initialState) 1 else -1
-                                    (
-                                        fadeIn(animationSpec = tween(200)) +
-                                            slideInHorizontally(
-                                                animationSpec = tween(200),
-                                                initialOffsetX = { width -> direction * width / 20 },
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .background(palette.color(palette.background)),
+                        )
+                        Column(
+                            Modifier
+                                .fillMaxSize()
+                                .statusBarsPadding(),
+                        ) {
+                            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 72.dp, top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("CodexQuota", color = palette.color(palette.title), fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Box(Modifier.weight(1f)) {
+                                AnimatedContent(
+                                    targetState = selectedIndex,
+                                    modifier = Modifier.fillMaxSize(),
+                                    transitionSpec = {
+                                        val direction = if (targetState > initialState) 1 else -1
+                                        (
+                                            fadeIn(animationSpec = tween(200)) +
+                                                slideInHorizontally(
+                                                    animationSpec = tween(200),
+                                                    initialOffsetX = { width -> direction * width / 20 },
+                                                )
+                                            ) togetherWith (
+                                            fadeOut(animationSpec = tween(160)) +
+                                                slideOutHorizontally(
+                                                    animationSpec = tween(160),
+                                                    targetOffsetX = { width -> -direction * width / 28 },
+                                                )
                                             )
-                                        ) togetherWith (
-                                        fadeOut(animationSpec = tween(160)) +
-                                            slideOutHorizontally(
-                                                animationSpec = tween(160),
-                                                targetOffsetX = { width -> -direction * width / 28 },
-                                            )
-                                        )
-                                },
-                                label = "main-page-transition",
-                            ) { pageIndex ->
-                                if (pageIndex == 0) QuotaPage(quota) else TokenUsagePage(usage, ::scanTokenPairing)
+                                    },
+                                    label = "main-page-transition",
+                                ) { pageIndex ->
+                                    if (pageIndex == 0) QuotaPage(quota) else TokenUsagePage(usage, ::scanTokenPairing)
+                                }
                             }
                         }
                     }
