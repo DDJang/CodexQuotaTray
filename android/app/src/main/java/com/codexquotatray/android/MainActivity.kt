@@ -30,9 +30,14 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -106,12 +111,23 @@ class MainActivity : ComponentActivity() {
             systemThemeVersion
             val palette = rememberAnimatedThemePalette(AppTheme.palette(this, themeMode))
             CodexQuotaTheme(palette) {
-                val chromeBackdrop = rememberLayerBackdrop()
+                val sceneLayer = rememberGraphicsLayer()
+                val drawSceneLayer: ContentDrawScope.() -> Unit = remember(sceneLayer) {
+                    { drawLayer(sceneLayer) }
+                }
+                val chromeBackdrop = rememberLayerBackdrop(onDraw = drawSceneLayer)
                 Box(Modifier.fillMaxSize()) {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .layerBackdrop(chromeBackdrop),
+                            .layerBackdrop(chromeBackdrop)
+                            .drawWithContent {
+                                val content = this
+                                sceneLayer.record {
+                                    content.drawContent()
+                                }
+                                drawLayer(sceneLayer)
+                            },
                     ) {
                         Box(
                             Modifier
