@@ -1,17 +1,59 @@
+using CodexQuotaTray.App.Services;
+using CodexQuotaTray.Core.Alerts;
+
 namespace CodexQuotaTray.Tests;
 
 [TestClass]
 public sealed class AppIntegrationSourceTests
 {
     [TestMethod]
-    public void TrayNotificationSinkFailsClosedBeforeTrayIsAvailable()
+    public void TrayNotificationSinkPrefersWindowsNotificationsAndKeepsTrayFallback()
     {
         var source = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Services", "TrayNotificationSink.cs"));
 
+        StringAssert.Contains(source, "if (appNotifications.IsRegistered)");
+        StringAssert.Contains(source, "appNotifications.ShowQuotaAlert(alert)");
         StringAssert.Contains(source, "?? throw new InvalidOperationException");
         StringAssert.Contains(source, "tray.ShowQuotaAlertAsync(alert, cancellationToken)");
         Assert.IsFalse(source.Contains("Tray?.ShowQuotaAlert", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void WindowsNotificationServiceRegistersBeforeActivationAndUsesNotificationCenter()
+    {
+        var appSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+        var serviceSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "WindowsAppNotificationService.cs"));
+
+        var registration = appSource.IndexOf("appNotifications.TryRegister", StringComparison.Ordinal);
+        var activation = appSource.IndexOf("GetActivatedEventArgs()", StringComparison.Ordinal);
+        Assert.IsTrue(registration >= 0);
+        Assert.IsTrue(activation > registration);
+
+        StringAssert.Contains(serviceSource, "AppNotificationManager.IsSupported()");
+        StringAssert.Contains(serviceSource, "candidate.Register(displayName, iconUri)");
+        StringAssert.Contains(serviceSource, "current.Setting != AppNotificationSetting.Enabled");
+        StringAssert.Contains(serviceSource, "new AppNotificationBuilder()");
+        StringAssert.Contains(serviceSource, "current.Show(notification)");
+        StringAssert.Contains(serviceSource, "current.Unregister()");
+    }
+
+    [TestMethod]
+    public void ResetNotificationFormatterPreservesUnknownRemainingValue()
+    {
+        var alert = QuotaAlert.ForReset(
+        [
+            new QuotaResetWindow("5 小时额度", null, null),
+        ]);
+
+        var content = QuotaNotificationFormatter.Format(alert);
+
+        Assert.AreEqual("Codex 额度提醒", content.Title);
+        StringAssert.Contains(content.Body, "5 小时额度已重置");
+        StringAssert.Contains(content.Body, "当前剩余 未知");
+        StringAssert.Contains(content.Body, "下次重置时间为 未知");
+        Assert.IsFalse(content.Body.Contains("%", StringComparison.Ordinal));
     }
 
     [TestMethod]

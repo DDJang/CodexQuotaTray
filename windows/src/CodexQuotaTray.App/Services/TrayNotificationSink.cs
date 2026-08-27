@@ -4,7 +4,9 @@ using Microsoft.UI.Dispatching;
 
 namespace CodexQuotaTray.App.Services;
 
-internal sealed class TrayNotificationSink(DispatcherQueue dispatcher) : IQuotaNotificationSink
+internal sealed class TrayNotificationSink(
+    DispatcherQueue dispatcher,
+    WindowsAppNotificationService appNotifications) : IQuotaNotificationSink
 {
     internal TrayIconService? Tray { get; set; }
 
@@ -30,6 +32,13 @@ internal sealed class TrayNotificationSink(DispatcherQueue dispatcher) : IQuotaN
     {
         try
         {
+            if (appNotifications.IsRegistered)
+            {
+                appNotifications.ShowQuotaAlert(alert);
+                completion.TrySetResult();
+                return;
+            }
+
             var tray = Tray
                 ?? throw new InvalidOperationException("The tray notification service is unavailable.");
             await tray.ShowQuotaAlertAsync(alert, cancellationToken).ConfigureAwait(false);
