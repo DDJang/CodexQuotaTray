@@ -117,6 +117,7 @@ internal fun quotaSourceAvailable(oauthAvailable: Boolean, windowsPairingAvailab
 internal class QuotaPageController(private val host: MainActivity) {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
+    private val lifecycle = PageControllerLifecycle()
     private val repository by lazy { CodexQuotaRepository(host) }
     private val refreshSettings by lazy { QuotaRefreshSettingsStore(host) }
     private val snapshotStore by lazy { QuotaSnapshotStore(host) }
@@ -140,7 +141,7 @@ internal class QuotaPageController(private val host: MainActivity) {
         }
     }
 
-    val canRefresh get() = !busy && hasQuotaSource()
+    val canRefresh get() = lifecycle.isAlive() && !busy && hasQuotaSource()
 
     fun initialize() {
         if (initialized) return
@@ -231,7 +232,13 @@ internal class QuotaPageController(private val host: MainActivity) {
         if (requestCode == LOGIN_REQUEST_CODE && resultCode == Activity.RESULT_OK) QuotaRefreshScheduler.schedule(host)
     }
 
-    fun destroy() { onStop(); worker.shutdownNow() }
+    fun destroy() {
+        onStop()
+        lifecycle.destroy()
+        main.removeCallbacksAndMessages(null)
+        if (busy) AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.QUOTA)
+        worker.shutdownNow()
+    }
 
     /** Manual refreshes deliberately bypass the two-minute foreground freshness window. */
     fun refresh() = requestRefresh(AutomaticRefreshReason.MANUAL)
@@ -240,6 +247,11 @@ internal class QuotaPageController(private val host: MainActivity) {
         if (!canRefresh) return
         val enabled = refreshSettings.load().autoRefreshOnOpen
         if (!AppAutomaticRefreshCoordinator.tryStart(AutomaticRefreshChannel.QUOTA, reason, enabled)) return
+        val requestGeneration = lifecycle.beginOperation()
+        if (requestGeneration == null) {
+            AppAutomaticRefreshCoordinator.finish(AutomaticRefreshChannel.QUOTA)
+            return
+        }
         val presentationStartedAt = SystemClock.elapsedRealtime()
         busy = true
         val previous = lastSuccessful
@@ -253,11 +265,13 @@ internal class QuotaPageController(private val host: MainActivity) {
             }
             val requestFinishedAt = SystemClock.elapsedRealtime()
             main.post {
+                if (!lifecycle.isCurrent(requestGeneration)) return@post
                 val remaining = remainingRefreshPresentationMillis(
                     presentationStartedAt,
                     requestFinishedAt,
                 )
                 main.postDelayed({
+                    if (!lifecycle.isCurrent(requestGeneration)) return@postDelayed
                     busy = false
                     val currentWindowsDeviceIdentity = currentWindowsDeviceIdentity()
                     val directResultIsUsable = result.getOrNull()?.let {
