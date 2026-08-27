@@ -5,6 +5,9 @@ import java.io.FileOutputStream
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 internal fun interface LegacyLanLogSource {
     fun loadAndClear(clear: Boolean): String
@@ -103,14 +106,53 @@ internal class LanDiagnosticFileStore(
     }
 }
 
-internal object LanDiagnosticWriter {
-    private const val QUEUE_CAPACITY = 256
-    private val queue = ArrayBlockingQueue<() -> Unit>(QUEUE_CAPACITY)
+internal class BoundedLanDiagnosticWriter(
+    queueCapacity: Int,
+    private val appendLine: (LanDiagnosticFileStore, String) -> Unit = LanDiagnosticFileStore::append,
+) {
+    private sealed interface Operation {
+        data class Append(
+            val store: LanDiagnosticFileStore,
+            val line: String,
+            val generation: Generation,
+        ) : Operation
+
+        data class Read(
+            val store: LanDiagnosticFileStore,
+            val result: CompletableFuture<String>,
+        ) : Operation
+
+        data object Wake : Operation
+    }
+
+    private class Generation {
+        val droppedCount = AtomicLong()
+    }
+
+    private val queue = ArrayBlockingQueue<Operation>(queueCapacity)
     private val submitGate = Any()
+    private val generation = AtomicReference(Generation())
+    private val pendingClears = ConcurrentHashMap.newKeySet<LanDiagnosticFileStore>()
 
     init {
         Thread({
-            while (true) runCatching { queue.take().invoke() }
+            while (true) {
+                drainPendingClears()
+                val operation = queue.take()
+                drainPendingClears()
+                runCatching {
+                    when (operation) {
+                        is Operation.Append -> {
+                            if (operation.generation === generation.get()) {
+                                appendWithDropSummary(operation)
+                            }
+                        }
+                        is Operation.Read -> runCatching(operation.store::read)
+                            .fold(operation.result::complete, operation.result::completeExceptionally)
+                        Operation.Wake -> Unit
+                    }
+                }
+            }
         }, "CodexQuotaTray-LAN-log").apply {
             isDaemon = true
             start()
@@ -118,23 +160,58 @@ internal object LanDiagnosticWriter {
     }
 
     fun append(store: LanDiagnosticFileStore, line: String) {
-        synchronized(submitGate) { queue.offer { store.append(line) } }
+        synchronized(submitGate) {
+            val currentGeneration = generation.get()
+            if (!queue.offer(Operation.Append(store, line, currentGeneration))) {
+                currentGeneration.droppedCount.incrementAndGet()
+            }
+        }
     }
 
     fun clear(store: LanDiagnosticFileStore) {
         synchronized(submitGate) {
-            queue.clear()
-            queue.offer { store.clear() }
+            generation.set(Generation())
+            pendingClears += store
+            queue.offer(Operation.Wake)
         }
     }
 
     fun read(store: LanDiagnosticFileStore): String {
         val result = CompletableFuture<String>()
-        synchronized(submitGate) {
-            queue.put {
-                runCatching(store::read).fold(result::complete, result::completeExceptionally)
-            }
-        }
+        queue.put(Operation.Read(store, result))
         return result.get()
     }
+
+    internal fun queuedReadCount(): Int = queue.count { it is Operation.Read }
+
+    private fun drainPendingClears() {
+        while (true) {
+            val store = pendingClears.firstOrNull() ?: return
+            if (pendingClears.remove(store)) runCatching(store::clear)
+        }
+    }
+
+    private fun appendWithDropSummary(operation: Operation.Append) {
+        val dropped = operation.generation.droppedCount.get()
+        if (dropped > 0L) {
+            appendLine(
+                operation.store,
+                "${AppLogRetention.formatTimestamp(System.currentTimeMillis())} [WARN] " +
+                    "LAN diagnostics dropped $dropped entries because the writer queue was full",
+            )
+            operation.generation.droppedCount.addAndGet(-dropped)
+        }
+        appendLine(operation.store, operation.line)
+    }
+}
+
+internal object LanDiagnosticWriter {
+    private const val QUEUE_CAPACITY = 256
+    private val delegate = BoundedLanDiagnosticWriter(QUEUE_CAPACITY)
+
+    fun append(store: LanDiagnosticFileStore, line: String) = delegate.append(store, line)
+
+    fun clear(store: LanDiagnosticFileStore) = delegate.clear(store)
+
+    fun read(store: LanDiagnosticFileStore): String = delegate.read(store)
 }

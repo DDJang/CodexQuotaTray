@@ -122,6 +122,7 @@ class SettingsActivity : ComponentActivity() {
     private val sourcePriorityStore by lazy { AndroidDataSourcePriorityStore(this) }
     private val pairingWorker = Executors.newSingleThreadExecutor()
     private val pairingMain = android.os.Handler(android.os.Looper.getMainLooper())
+    @Volatile private var destroyed = false
 
     private var destination by mutableStateOf(SettingsDestination.ROOT)
     private var lowQuota by mutableStateOf(false)
@@ -276,6 +277,8 @@ class SettingsActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        destroyed = true
+        pairingMain.removeCallbacksAndMessages(null)
         pairingWorker.shutdownNow()
         super.onDestroy()
     }
@@ -904,7 +907,9 @@ class SettingsActivity : ComponentActivity() {
                 network = AndroidLanDiagnosticsFormatter.extractNetwork(recentEvents),
                 recentEvents = recentEvents,
             )
+            if (destroyed) return@execute
             pairingMain.post {
+                if (destroyed) return@post
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                 clipboard?.setPrimaryClip(ClipData.newPlainText("CodexQuotaTray LAN Diagnostics", text))
                 Toast.makeText(this, "诊断信息已复制", Toast.LENGTH_SHORT).show()
