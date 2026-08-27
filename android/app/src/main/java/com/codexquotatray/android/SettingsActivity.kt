@@ -896,16 +896,20 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun copyLanDiagnostics() {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        val recentEvents = AppLogStore(this).readLan()
-        val text = AndroidLanDiagnosticsFormatter.format(
-            version = BuildConfig.VERSION_NAME,
-            pairing = tokenStore.load(),
-            network = AndroidLanDiagnosticsFormatter.extractNetwork(recentEvents),
-            recentEvents = recentEvents,
-        )
-        clipboard?.setPrimaryClip(ClipData.newPlainText("CodexQuotaTray LAN Diagnostics", text))
-        Toast.makeText(this, "诊断信息已复制", Toast.LENGTH_SHORT).show()
+        pairingWorker.execute {
+            val recentEvents = AppLogStore(this).readLan()
+            val text = AndroidLanDiagnosticsFormatter.format(
+                version = BuildConfig.VERSION_NAME,
+                pairing = tokenStore.load(),
+                network = AndroidLanDiagnosticsFormatter.extractNetwork(recentEvents),
+                recentEvents = recentEvents,
+            )
+            pairingMain.post {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                clipboard?.setPrimaryClip(ClipData.newPlainText("CodexQuotaTray LAN Diagnostics", text))
+                Toast.makeText(this, "诊断信息已复制", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun clearPairing() {
