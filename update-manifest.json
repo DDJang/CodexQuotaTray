@@ -13,15 +13,15 @@
     "publishedAt": "2026-08-27T12:03:12Z"
   },
   "android": {
-    "version": "0.10.3",
-    "tag": "android-v0.10.3",
+    "version": "0.10.4",
+    "tag": "android-v0.10.4",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.10.3.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.10.3/CodexQuotaTray-Android-v0.10.3.apk",
-      "sha256": "c081dffa123b48a98b73ac55b7840132ccdc026d55ec2f2c16ba708c3e92fb2c",
-      "size": 27106512
+      "name": "CodexQuotaTray-Android-v0.10.4.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.10.4/CodexQuotaTray-Android-v0.10.4.apk",
+      "sha256": "7fdd02e0a346c4883a723bdf8f7ff3dc696ed5ad50b0d2f1cf330ffb89ae2aa8",
+      "size": 27122896
     },
-    "releaseNotes": "## Android\n\n### 手机配对与同步\n\n- 增强 LAN quota/token 同步诊断，关联一次操作内的连接、NSD fallback 和最终结果，补充网络上下文和失败阶段信息。\n- 配对页区分“已配对”和最近一次连接结果，保留最近成功/失败摘要；增加复制诊断信息，并在重启后保留必要摘要和近期脱敏诊断日志。\n- 改进网络变化后的 LAN 恢复与状态表达，注册网络回调失败后可再次尝试。\n\n### 设置与账户\n\n- 简化设置页的更新入口和已登录账户状态展示，调整配对/连接诊断操作的布局与弹窗提示。\n",
-    "publishedAt": "2026-08-26T13:47:18Z"
+    "releaseNotes": "## Android\n\n### 局域网同步与稳定性\n\n- 改进额度与 Token 局域网同步的连接恢复和诊断摘要，让失败阶段与最近一次操作更清晰。\n- 限制诊断记录的存储增长，并在应用重启后保留近期脱敏记录，方便在设置中查看和复制。\n- 改进前后台切换与网络变化时的刷新生命周期，减少过期同步结果覆盖当前状态的情况。\n\n### 界面与主题\n\n- 修复主页面液态玻璃控件的内容采样，使底栏、刷新和设置控件正确反映页面内容。\n- 修复关于页图标在浅色主题下显示为深色，并随系统主题动态切换。\n",
+    "publishedAt": "2026-08-27T12:03:46Z"
   }
 }
