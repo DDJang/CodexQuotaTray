@@ -11,6 +11,7 @@ import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 
 class LanDiagnosticFileStoreTest {
     private lateinit var root: File
@@ -113,6 +114,48 @@ class LanDiagnosticFileStoreTest {
         assertTrue(summaries.single().contains("dropped 2 entries"))
         assertFalse(writes.contains("dropped-1"))
         assertFalse(writes.contains("dropped-2"))
+    }
+
+    @Test
+    fun concurrentClearPreservesReadBarrierAndInvalidatesPendingAppends() {
+        val firstWriteStarted = CountDownLatch(1)
+        val releaseFirstWrite = CountDownLatch(1)
+        val writer = BoundedLanDiagnosticWriter(queueCapacity = 2) { store, line ->
+            if (line == "blocking-old") {
+                firstWriteStarted.countDown()
+                releaseFirstWrite.await()
+            }
+            store.append(line)
+        }
+        val store = store(maxSlotBytes = 64 * 1_024)
+        val controls = Executors.newFixedThreadPool(2)
+
+        writer.append(store, "blocking-old")
+        assertTrue(firstWriteStarted.await(2, TimeUnit.SECONDS))
+        writer.append(store, "pending-old")
+        val concurrentRead = controls.submit<String> { writer.read(store) }
+        assertTrue(waitUntil { writer.queuedReadCount() == 1 })
+        writer.append(store, "dropped-before-clear")
+
+        val concurrentClear = controls.submit { writer.clear(store) }
+        concurrentClear.get(2, TimeUnit.SECONDS)
+        releaseFirstWrite.countDown()
+
+        assertEquals("", concurrentRead.get(2, TimeUnit.SECONDS))
+        assertEquals("", writer.read(store))
+
+        writer.append(store, "after-clear")
+        assertEquals("after-clear", writer.read(store))
+        controls.shutdownNow()
+    }
+
+    private fun waitUntil(predicate: () -> Boolean): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (System.nanoTime() < deadline) {
+            if (predicate()) return true
+            Thread.yield()
+        }
+        return predicate()
     }
 
     private fun store(
