@@ -386,7 +386,18 @@ internal fun classifyLanConnectFailure(error: IOException, timeout: Boolean = fa
                 current.message?.contains("ECONNREFUSED", ignoreCase = true) == true
             ) return "TCP_CONNECTION_REFUSED"
         }
+        if (isExplicitRouteFailureMessage(current.message)) return "ROUTE_FAILURE"
         current = current.cause
     }
     return "TCP_CONNECT_IO"
+}
+
+private fun isExplicitRouteFailureMessage(message: String?): Boolean {
+    if (message.isNullOrBlank()) return false
+    return listOf(
+        "ENETUNREACH",
+        "EHOSTUNREACH",
+        "network is unreachable",
+        "no route to host",
+    ).any { marker -> message.contains(marker, ignoreCase = true) }
 }

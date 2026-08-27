@@ -181,6 +181,29 @@ class LanDiagnosticsTest {
         assertEquals("TCP_CONNECT_IO", classifyLanConnectFailure(java.io.IOException("reset")))
     }
 
+    @Test fun androidErrnoAndRouteMessagesAreClassifiedAcrossCauseChain() {
+        assertEquals(
+            "ROUTE_FAILURE",
+            classifyLanConnectFailure(ConnectException("connect failed: ENETUNREACH")),
+        )
+        assertEquals(
+            "ROUTE_FAILURE",
+            classifyLanConnectFailure(java.io.IOException("wrapper", ConnectException("EHOSTUNREACH"))),
+        )
+        assertEquals(
+            "ROUTE_FAILURE",
+            classifyLanConnectFailure(java.io.IOException("Network is unreachable")),
+        )
+        assertEquals(
+            "ROUTE_FAILURE",
+            classifyLanConnectFailure(java.io.IOException("No route to host")),
+        )
+        assertEquals(
+            "TCP_CONNECT_IO",
+            classifyLanConnectFailure(ConnectException("failed to connect to 192.168.1.58")),
+        )
+    }
+
     @Test fun directFailureAndNsdRetryShareOneQuotaAttemptId() {
         val messages = Collections.synchronizedList(mutableListOf<String>())
         val pairing = pairing()
@@ -281,6 +304,62 @@ class LanDiagnosticsTest {
         val text = AndroidLanDiagnosticsFormatter.format("test", null, LanNetworkDiagnostics(), "", 0L)
         assertTrue(text.contains("networkHandle=unavailable"))
         assertTrue(text.contains("SSID=unavailable"))
+    }
+
+    @Test fun formatterCorrelatesInterleavedQuotaAndTokenFieldsToLastAttempt() {
+        val text = AndroidLanDiagnosticsFormatter.format(
+            version = "test",
+            pairing = pairing().copy(lastLanAttemptId = 202L, lastLanAttemptChannel = "token"),
+            network = null,
+            recentEvents = """
+                LAN attempt=202 channel=token socketBinding boundToNetwork=true networkHandle=token-current bindingGeneration=22 attemptGeneration=22
+                LAN attempt=201 channel=quota socketBinding boundToNetwork=true networkHandle=quota-old bindingGeneration=11 attemptGeneration=11
+                LAN attempt=202 channel=token connectStart connectGeneration=22 generationChanged=false
+                LAN attempt=201 channel=quota connectStart connectGeneration=99 generationChanged=true
+            """.trimIndent(),
+            nowMillis = 0L,
+        )
+
+        assertTrue(text.contains("socketNetworkHandle=token-current"))
+        assertTrue(text.contains("socketNetworkGeneration=22"))
+        assertTrue(text.contains("connectNetworkGeneration=22"))
+        assertTrue(text.contains("generationChangedDuringConnect=false"))
+    }
+
+    @Test fun formatterDoesNotInheritBindingFromAnOlderAttempt() {
+        val text = AndroidLanDiagnosticsFormatter.format(
+            version = "test",
+            pairing = pairing().copy(lastLanAttemptId = 302L, lastLanAttemptChannel = "token"),
+            network = null,
+            recentEvents = """
+                LAN attempt=301 channel=quota socketBinding boundToNetwork=true networkHandle=old-network bindingGeneration=31 attemptGeneration=31
+                LAN attempt=302 channel=token connectStart connectGeneration=32 generationChanged=false
+            """.trimIndent(),
+            nowMillis = 0L,
+        )
+
+        assertTrue(text.contains("socketBoundToNetwork=unavailable"))
+        assertTrue(text.contains("socketNetworkHandle=unavailable"))
+        assertTrue(text.contains("socketNetworkGeneration=unavailable"))
+        assertTrue(text.contains("connectNetworkGeneration=32"))
+    }
+
+    @Test fun formatterKeepsGenerationFieldsWithinTheCorrelatedAttempt() {
+        val text = AndroidLanDiagnosticsFormatter.format(
+            version = "test",
+            pairing = pairing().copy(lastLanAttemptId = 402L, lastLanAttemptChannel = "quota"),
+            network = null,
+            recentEvents = """
+                LAN attempt=402 channel=quota socketBinding boundToNetwork=true networkHandle=current bindingGeneration=44 attemptGeneration=44
+                LAN attempt=402 channel=quota connectStart connectGeneration=45 generationChanged=true
+                LAN attempt=401 channel=token connectStart connectGeneration=99 generationChanged=false
+            """.trimIndent(),
+            nowMillis = 0L,
+        )
+
+        assertTrue(text.contains("socketNetworkGeneration=44"))
+        assertTrue(text.contains("connectNetworkGeneration=45"))
+        assertTrue(text.contains("generationChangedDuringConnect=true"))
     }
 
     @Test fun formatterDoesNotTreatNonLanSyncAsLanConnectionSuccess() {

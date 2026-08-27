@@ -34,15 +34,22 @@ internal object AndroidLanDiagnosticsFormatter {
             .takeLast(MAX_EVENTS)
             .joinToString("\n")
             .takeLast(MAX_RECENT_EVENT_CHARS)
-        val recentFields = recent.lineSequence()
-            .filter { it.contains("socketBinding ") || it.contains("connectStart ") }
-            .flatMap { line ->
-                line.split(' ').mapNotNull { token ->
-                    val separator = token.indexOf('=')
-                    if (separator <= 0) null else token.substring(0, separator) to token.substring(separator + 1)
+        val lastAttemptId = pairing?.lastLanAttemptId?.toString()
+        val recentFields: Map<String, String> = if (lastAttemptId == null) {
+            emptyMap()
+        } else {
+            recent.lineSequence()
+                .filter { it.contains("socketBinding ") || it.contains("connectStart ") }
+                .map { line ->
+                    line.split(' ').mapNotNull { token ->
+                        val separator = token.indexOf('=')
+                        if (separator <= 0) null else token.substring(0, separator) to token.substring(separator + 1)
+                    }.toMap()
                 }
-            }
-            .toMap()
+                .filter { fields -> fields["attempt"] == lastAttemptId }
+                .flatMap { fields -> fields.asSequence().map { it.key to it.value } }
+                .toMap()
+        }
 
         return buildString {
             appendLine("CodexQuotaTray LAN Diagnostics")
