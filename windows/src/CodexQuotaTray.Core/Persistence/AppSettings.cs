@@ -92,7 +92,14 @@ public sealed record AlertWindowState(
     bool? ResetAlertCycleConsumed = null,
     bool ResetAlertAwaitingCycleMetadata = false,
     string? SemanticIdentity = null,
-    string? LastResetAlertCycleFingerprint = null);
+    string? LastResetAlertCycleFingerprint = null,
+    DateTimeOffset? BaselineResetAtUtc = null,
+    DateTimeOffset? PendingResetDeadlineUtc = null,
+    DateTimeOffset? LastNotifiedResetDeadlineUtc = null,
+    int? MinRemainingPercentSinceBaseline = null,
+    int? LastObservedRemainingPercent = null,
+    DateTimeOffset? LastObservedResetAtUtc = null,
+    bool ResetAlertMigrationPending = false);
 
 public sealed record ResetCreditAlertState(
     DateTimeOffset? LastSeenUtc = null,

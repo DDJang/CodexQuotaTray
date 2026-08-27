@@ -966,6 +966,24 @@ public sealed class QuotaRuntimeService :
                 window.LegacyAlertKey,
                 window.SemanticIdentity))
             .ToArray();
+        var knownAlertKeys = inputs
+            .Select(input => input.PseudonymousKey)
+            .ToHashSet(StringComparer.Ordinal);
+        inputs = inputs
+            .Concat((snapshot.ResetObservations ?? [])
+                .Where(observation =>
+                    QuotaBucketPolicy.IsCanonical(observation.BucketId)
+                    && !knownAlertKeys.Contains(observation.AlertKey))
+                .Select(observation => new AlertInput(
+                    observation.AlertKey,
+                    AlertWindowName(observation.LimitName, observation.WindowDurationMinutes),
+                    null,
+                    false,
+                    observation.WindowDurationMinutes,
+                    observation.ResetAtUtc,
+                    observation.LegacyAlertKey,
+                    observation.SemanticIdentity)))
+            .ToArray();
         var resetCreditInputs = snapshot.ResetCredits.AvailableCount == 0
             ? null
             : snapshot.ResetCredits.Credits?
@@ -987,6 +1005,8 @@ public sealed class QuotaRuntimeService :
             return false;
         }
 
+        var resetNotificationAttempted = reduction.Alert is not null
+            && reduction.Alert.ResetWindows.Count > 0;
         if (reduction.Alert is not null)
         {
             try
@@ -996,9 +1016,11 @@ public sealed class QuotaRuntimeService :
                 // acknowledgement contract; a timeout/failure leaves the old
                 // baseline untouched so a later evaluation can retry.
                 await notificationSink.ShowAsync(reduction.Alert, cancellationToken).ConfigureAwait(false);
+                LogResetDiagnostics(reduction, resetNotificationAttempted, resetNotificationAttempted);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
+                LogResetDiagnostics(reduction, resetNotificationAttempted, succeeded: false);
                 throw;
             }
             catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
@@ -1007,8 +1029,13 @@ public sealed class QuotaRuntimeService :
                 // document rollback that could overwrite another snapshot's
                 // progress. The retained baseline makes this alert retryable.
                 System.Diagnostics.Debug.WriteLine($"Quota notification delivery failed: {error.GetType().Name}");
+                LogResetDiagnostics(reduction, resetNotificationAttempted, succeeded: false);
                 return false;
             }
+        }
+        else
+        {
+            LogResetDiagnostics(reduction, attempted: false, succeeded: false);
         }
 
         if (alertState is null || !AlertStateContentEquals(alertState, reduction.State))
@@ -1036,9 +1063,29 @@ public sealed class QuotaRuntimeService :
         return true;
     }
 
-    private static string AlertWindowName(NormalizedQuotaWindow window)
+    private static void LogResetDiagnostics(
+        AlertReduction reduction,
+        bool attempted,
+        bool succeeded)
     {
-        var duration = window.WindowDurationMinutes switch
+        foreach (var diagnostic in reduction.ResetDiagnostics)
+        {
+            System.Diagnostics.Debug.WriteLine(
+                QuotaAlertReducer.FormatResetEvaluation(
+                    diagnostic with
+                    {
+                        NotificationAttempted = attempted,
+                        NotificationSucceeded = succeeded,
+                    }));
+        }
+    }
+
+    private static string AlertWindowName(NormalizedQuotaWindow window) =>
+        AlertWindowName(window.LimitName, window.WindowDurationMinutes);
+
+    private static string AlertWindowName(string? limitName, long? durationMinutes)
+    {
+        var duration = durationMinutes switch
         {
             300 => "5 小时额度",
             10_080 => "7 天额度",
@@ -1048,10 +1095,10 @@ public sealed class QuotaRuntimeService :
             _ => "额度窗口",
         };
 
-        return string.IsNullOrWhiteSpace(window.LimitName)
-            || string.Equals(window.LimitName.Trim(), "Codex", StringComparison.OrdinalIgnoreCase)
+        return string.IsNullOrWhiteSpace(limitName)
+            || string.Equals(limitName.Trim(), "Codex", StringComparison.OrdinalIgnoreCase)
             ? duration
-            : $"{window.LimitName.Trim()} · {duration}";
+            : $"{limitName.Trim()} · {duration}";
     }
 
     private async Task NotificationLoopAsync(
@@ -1355,7 +1402,14 @@ public sealed class QuotaRuntimeService :
             && entry.Value.ResetAlertCycleConsumed == other.ResetAlertCycleConsumed
             && entry.Value.ResetAlertAwaitingCycleMetadata == other.ResetAlertAwaitingCycleMetadata
             && entry.Value.SemanticIdentity == other.SemanticIdentity
-            && entry.Value.LastResetAlertCycleFingerprint == other.LastResetAlertCycleFingerprint))
+            && entry.Value.LastResetAlertCycleFingerprint == other.LastResetAlertCycleFingerprint
+            && entry.Value.BaselineResetAtUtc == other.BaselineResetAtUtc
+            && entry.Value.PendingResetDeadlineUtc == other.PendingResetDeadlineUtc
+            && entry.Value.LastNotifiedResetDeadlineUtc == other.LastNotifiedResetDeadlineUtc
+            && entry.Value.MinRemainingPercentSinceBaseline == other.MinRemainingPercentSinceBaseline
+            && entry.Value.LastObservedRemainingPercent == other.LastObservedRemainingPercent
+            && entry.Value.LastObservedResetAtUtc == other.LastObservedResetAtUtc
+            && entry.Value.ResetAlertMigrationPending == other.ResetAlertMigrationPending))
         {
             return false;
         }

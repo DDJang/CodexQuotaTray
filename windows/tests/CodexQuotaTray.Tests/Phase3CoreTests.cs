@@ -783,7 +783,7 @@ public sealed class Phase3CoreTests
     public void ResetCycleWithSignificantRecoveryEmitsOneResetAlert(int remaining)
     {
         var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
-        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var resetAt = DateTimeOffset.UtcNow.AddDays(14);
         var reduction = QuotaAlertReducer.Reduce(
             first.State,
             [Input(remaining, resetAt)],
@@ -800,9 +800,9 @@ public sealed class Phase3CoreTests
     {
         var first = QuotaAlertReducer.Reduce(
             null,
-            [Input(8, DateTimeOffset.UnixEpoch.AddDays(7))],
+            [Input(8, DateTimeOffset.UtcNow.AddDays(7))],
             new NotificationSettings());
-        var current = Input(100, DateTimeOffset.UnixEpoch.AddDays(7));
+        var current = Input(100, DateTimeOffset.UtcNow.AddDays(7));
 
         Assert.IsTrue(QuotaAlertReducer.IsNewCycle(first.State.Windows["window"], current));
         Assert.IsTrue(QuotaAlertReducer.IsResetCycle(first.State.Windows["window"], current));
@@ -818,7 +818,7 @@ public sealed class Phase3CoreTests
         var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
         var delayed = QuotaAlertReducer.Reduce(
             first.State,
-            [Input(90, DateTimeOffset.UnixEpoch.AddDays(7).AddMinutes(1))],
+            [Input(90, DateTimeOffset.UtcNow.AddDays(7).AddMinutes(1))],
             new NotificationSettings());
         Assert.AreEqual(QuotaAlertKind.Reset, delayed.Alert!.Kind);
 
@@ -836,7 +836,7 @@ public sealed class Phase3CoreTests
     [TestMethod]
     public void StrongRecoveryStartsNextCycleWhenPreviousCycleWasConsumedAndResetTimeIsDelayed()
     {
-        var t1 = DateTimeOffset.UnixEpoch.AddDays(7);
+        var t1 = DateTimeOffset.UtcNow.AddDays(7);
         var t2 = t1.AddDays(7);
         var t3 = t2.AddDays(7);
         var settings = new NotificationSettings();
@@ -867,7 +867,7 @@ public sealed class Phase3CoreTests
         using var directory = new TemporaryDirectory();
         var paths = new PreviewDataPaths(directory.Path);
         var persistence = new PreviewPersistence(new JsonFileStore(), paths);
-        var t1 = DateTimeOffset.UnixEpoch.AddDays(7);
+        var t1 = DateTimeOffset.UtcNow.AddDays(7);
         var t2 = t1.AddDays(7);
         var t3 = t2.AddDays(7);
         var settings = new NotificationSettings();
@@ -900,7 +900,7 @@ public sealed class Phase3CoreTests
         using var directory = new TemporaryDirectory();
         var paths = new PreviewDataPaths(directory.Path);
         var persistence = new PreviewPersistence(new JsonFileStore(), paths);
-        var t1 = DateTimeOffset.UnixEpoch.AddDays(7);
+        var t1 = DateTimeOffset.UtcNow.AddDays(7);
         var t2 = t1.AddDays(7);
         var t4 = t2.AddDays(14);
         var settings = new NotificationSettings(true, true, true);
@@ -945,7 +945,7 @@ public sealed class Phase3CoreTests
             null,
             [Input(20), Input(30, key: "other")],
             new NotificationSettings());
-        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var resetAt = DateTimeOffset.UtcNow.AddDays(14);
         var next = QuotaAlertReducer.Reduce(
             first.State,
             [Input(98, resetAt), Input(97, resetAt, key: "other")],
@@ -970,7 +970,7 @@ public sealed class Phase3CoreTests
                 Input(21, key: "threshold") with { WindowName = "threshold window" },
             ],
             new NotificationSettings());
-        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var resetAt = DateTimeOffset.UtcNow.AddDays(14);
         var next = QuotaAlertReducer.Reduce(
             first.State,
             [
@@ -998,10 +998,10 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
-    public void ResetRequiresCycleChangeAndReliablePercentage()
+    public void ResetUsesCycleChangeEvenWhenPercentageIsUnreliable()
     {
         var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
-        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var resetAt = DateTimeOffset.UtcNow.AddDays(14);
         var timeOnly = QuotaAlertReducer.Reduce(first.State, [Input(25, resetAt)], new NotificationSettings());
         var recoveryOnly = QuotaAlertReducer.Reduce(first.State, [Input(98)], new NotificationSettings());
         var untrusted = QuotaAlertReducer.Reduce(
@@ -1011,14 +1011,16 @@ public sealed class Phase3CoreTests
 
         Assert.AreEqual(QuotaAlertKind.Reset, timeOnly.Alert!.Kind);
         Assert.AreEqual(QuotaAlertKind.Reset, recoveryOnly.Alert!.Kind);
-        Assert.IsNull(untrusted.Alert);
+        Assert.AreEqual(QuotaAlertKind.Reset, untrusted.Alert!.Kind);
+        Assert.IsNull(untrusted.Alert.ResetWindows.Single().RemainingPercent);
+        Assert.IsNull(untrusted.ResetDiagnostics.Single().CurrentRemainingPercent);
     }
 
     [TestMethod]
     public void ResetWithNoUsageStillEmitsResetAlert()
     {
         var first = QuotaAlertReducer.Reduce(null, [Input(100)], new NotificationSettings());
-        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var resetAt = DateTimeOffset.UtcNow.AddDays(14);
         var reduction = QuotaAlertReducer.Reduce(
             first.State,
             [Input(100, resetAt)],
@@ -1035,7 +1037,7 @@ public sealed class Phase3CoreTests
         var paths = new PreviewDataPaths(directory.Path);
         var persistence = new PreviewPersistence(new JsonFileStore(), paths);
         var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
-        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var resetAt = DateTimeOffset.UtcNow.AddDays(14);
         var alerted = QuotaAlertReducer.Reduce(first.State, [Input(98, resetAt)], new NotificationSettings());
         await persistence.SaveAlertStateAsync(alerted.State, CancellationToken.None);
 
@@ -1058,7 +1060,7 @@ public sealed class Phase3CoreTests
         using var directory = new TemporaryDirectory();
         var paths = new PreviewDataPaths(directory.Path);
         var persistence = new PreviewPersistence(new JsonFileStore(), paths);
-        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var resetAt = DateTimeOffset.UtcNow.AddDays(14);
         Directory.CreateDirectory(directory.Path);
         await File.WriteAllTextAsync(
             paths.AlertState,
@@ -1092,7 +1094,7 @@ public sealed class Phase3CoreTests
     [TestMethod]
     public void MigratedBaselineAllowsReliablyProvenResetAtTransition()
     {
-        var t1 = DateTimeOffset.UnixEpoch.AddDays(7);
+        var t1 = DateTimeOffset.UtcNow.AddDays(7);
         var t2 = t1.AddDays(7);
         var previous = new AlertStateDocument(
             1,
@@ -1113,7 +1115,7 @@ public sealed class Phase3CoreTests
     {
         var disabled = new NotificationSettings(ResetAfterCycle: false);
         var first = QuotaAlertReducer.Reduce(null, [Input(20)], disabled);
-        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var resetAt = DateTimeOffset.UtcNow.AddDays(14);
         var suppressed = QuotaAlertReducer.Reduce(first.State, [Input(98, resetAt)], disabled);
         var enabledLater = QuotaAlertReducer.Reduce(suppressed.State, [Input(97, resetAt)], new NotificationSettings());
 
@@ -1157,7 +1159,7 @@ public sealed class Phase3CoreTests
     {
         var first = QuotaAlertReducer.Reduce(null, [Input(20)], new NotificationSettings());
         var partial = QuotaAlertReducer.Reduce(first.State, [], new NotificationSettings());
-        var resetAt = DateTimeOffset.UnixEpoch.AddDays(14);
+        var resetAt = DateTimeOffset.UtcNow.AddDays(14);
         var reset = QuotaAlertReducer.Reduce(
             partial.State,
             [Input(98, resetAt)],
@@ -1187,7 +1189,7 @@ public sealed class Phase3CoreTests
     [TestMethod]
     public void SmallResetCorrectionDoesNotStartNewCycle()
     {
-        var previous = new AlertWindowState("window", 10_080, DateTimeOffset.UnixEpoch.AddDays(7), 10, [20, 10]);
+        var previous = new AlertWindowState("window", 10_080, DateTimeOffset.UtcNow.AddDays(7), 10, [20, 10]);
         var current = Input(11) with { WindowDurationMinutes = 10_080, ResetAtUtc = previous.ResetAtUtc!.Value.AddMinutes(6) };
         Assert.IsFalse(QuotaAlertReducer.IsNewCycle(previous, current));
         current = current with { ResetAtUtc = previous.ResetAtUtc.Value.AddDays(4) };
@@ -1197,7 +1199,7 @@ public sealed class Phase3CoreTests
     [TestMethod]
     public void ResetRequiresMatchingKnownPositiveDurations()
     {
-        var previous = new AlertWindowState("window", 10_080, DateTimeOffset.UnixEpoch.AddDays(7), 20, []);
+        var previous = new AlertWindowState("window", 10_080, DateTimeOffset.UtcNow.AddDays(7), 20, []);
         var resetAt = previous.ResetAtUtc!.Value.AddDays(4);
         var valid = Input(25, resetAt) with { WindowDurationMinutes = 10_080 };
 
@@ -1376,7 +1378,7 @@ public sealed class Phase3CoreTests
         remaining,
         true,
         10_080,
-        resetAt ?? DateTimeOffset.UnixEpoch.AddDays(7));
+        resetAt ?? DateTimeOffset.UtcNow.AddDays(7));
 
     private static AlertInput InputWithoutResetAt(int remaining, string key = "window") => new(
         key,
