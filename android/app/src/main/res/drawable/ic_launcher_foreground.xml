@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:drawable="@drawable/ic_launcher_mark_vector"
-    android:inset="15dp">
-</inset>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="15"
+        android:translateY="15">
+        <group
+            android:scaleX="0.325"
+            android:scaleY="0.325">
+            <path
+                android:fillColor="#FFE6E6E6"
+                android:fillType="evenOdd"
+                android:pathData="M19.5,120 L20.5,146 L27.5,169 L32.5,179 L40.5,191 L57,207.5 L62,209.5 L177,209.5 L180,208.5 L197.5,192 L206.5,179 L215.5,158 L215.5,155 L218.5,146 L218.5,138 L219.5,137 L219.5,122 L218.5,121 L218.5,113 L217.5,112 L217.5,107 L215.5,103 L215.5,100 L206.5,79 L196.5,65 L184,52.5 L170,42.5 L154,34.5 L151,34.5 L140,30.5 L134,30.5 L133,29.5 L121,29.5 L119,28.5 L118,29.5 L106,29.5 L105,30.5 L95,31.5 L91,33.5 L85,34.5 L69,42.5 L56,51.5 L42.5,65 L31.5,81 L23.5,100 L23.5,103 L20.5,112 L20.5,119 Z M39.5,119 L39.5,137 L40.5,138 L40.5,144 L41.5,145 L43.5,155 L50.5,170 L54.5,176 L67,189.5 L172,189.5 L181.5,180 L188.5,170 L193.5,160 L198.5,144 L198.5,137 L199.5,136 L198.5,114 L194.5,100 L187.5,86 L181.5,78 L172,68.5 L161,60.5 L147,53.5 L141,52.5 L137,50.5 L133,50.5 L132,49.5 L121,49.5 L119,48.5 L118,49.5 L102,50.5 L87,55.5 L72,64.5 L57.5,78 L50.5,88 L44.5,100 L40.5,114 L40.5,118 Z M89.5,124 L89.5,134 L91.5,141 L95.5,148 L101,153.5 L114,159.5 L125,159.5 L131,157.5 L138,153.5 L143.5,148 L147.5,141 L149.5,134 L149.5,124 L146.5,117 L163.5,99 L164.5,97 L163.5,90 L157,84.5 L152,84.5 L147,87.5 L132,102.5 L125,99.5 L114,99.5 L108,101.5 L101,105.5 L95.5,111 Z M109.5,128 L110.5,134 L115,138.5 L118,139.5 L124,138.5 L129.5,132 L128.5,125 L122,119.5 L117,119.5 L115,120.5 L110.5,125 Z" />
+        </group>
+    </group>
+</vector>

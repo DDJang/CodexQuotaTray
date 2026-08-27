@@ -3,6 +3,6 @@
     <style name="Theme.CodexQuotaTray.Starting" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/splash_background</item>
         <item name="android:windowSplashScreenBackground">@color/splash_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_splash</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
     </style>
 </resources>

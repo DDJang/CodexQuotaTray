@@ -13,43 +13,32 @@ class LauncherIconResourceTest {
         listOf(launcher, round).forEach { source ->
             assertTrue(source.contains("@color/launcher_background"))
             assertTrue(source.contains("@drawable/ic_launcher_foreground"))
-            assertTrue(source.contains("@drawable/ic_launcher_monochrome"))
+            assertTrue(source.contains("<monochrome android:drawable=\"@drawable/ic_launcher_foreground\" />"))
         }
     }
 
     @Test
-    fun adaptiveLayersUseSharedSafeGeometryWithoutTheOldInset() {
+    fun adaptiveLayersUseOne108DpVectorGeometryWithoutNestedInsets() {
         val foreground = resourceText("drawable/ic_launcher_foreground.xml")
-        val monochrome = resourceText("drawable/ic_launcher_monochrome.xml")
 
-        listOf(foreground, monochrome).forEach { source ->
-            assertTrue(source.contains("@drawable/ic_launcher_mark_vector"))
-            assertTrue(source.contains("android:inset=\"15dp\""))
-            assertTrue(!source.contains("18dp"))
-            assertTrue(!source.contains("<bitmap"))
-        }
+        assertTrue(foreground.contains("android:width=\"108dp\""))
+        assertTrue(foreground.contains("android:height=\"108dp\""))
+        assertTrue(foreground.contains("android:viewportWidth=\"108\""))
+        assertTrue(foreground.contains("android:viewportHeight=\"108\""))
+        assertTrue(foreground.contains("android:translateX=\"15\""))
+        assertTrue(foreground.contains("android:translateY=\"15\""))
+        assertTrue(foreground.contains("android:scaleX=\"0.325\""))
+        assertTrue(foreground.contains("android:scaleY=\"0.325\""))
+        assertTrue(foreground.contains("android:fillType=\"evenOdd\""))
+        assertTrue(!foreground.contains("<inset"))
+        assertTrue(!foreground.contains("<bitmap"))
     }
 
     @Test
-    fun splashUsesIndependentResourceWithMatchingGeometry() {
+    fun splashUsesTheSameResolutionIndependentLauncherGeometry() {
         val styles = resourceText("values/styles.xml")
-        val splash = resourceText("drawable/ic_launcher_splash.xml")
 
-        assertTrue(styles.contains("@drawable/ic_launcher_splash"))
-        assertTrue(!styles.contains("@drawable/ic_launcher_foreground</item>"))
-        assertTrue(splash.contains("@drawable/ic_launcher_mark_vector"))
-        assertTrue(splash.contains("android:inset=\"15dp\""))
-    }
-
-    @Test
-    fun launcherMarkIsResolutionIndependentVectorGeometry() {
-        val mark = resourceText("drawable/ic_launcher_mark_vector.xml")
-
-        assertTrue(mark.contains("<vector"))
-        assertTrue(mark.contains("android:viewportWidth=\"240\""))
-        assertTrue(mark.contains("android:viewportHeight=\"240\""))
-        assertTrue(mark.contains("android:fillType=\"evenOdd\""))
-        assertTrue(mark.contains("android:pathData="))
+        assertTrue(styles.contains("@drawable/ic_launcher_foreground"))
     }
 
     @Test
