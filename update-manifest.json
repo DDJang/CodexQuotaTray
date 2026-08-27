@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.10.3",
-    "tag": "windows-v0.10.3",
+    "version": "0.10.4",
+    "tag": "windows-v0.10.4",
     "installer": {
-      "name": "CodexQuotaTray-0.10.3-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.10.3/CodexQuotaTray-0.10.3-setup.exe",
-      "sha256": "1812eeefff539cf09611fd5a62d59ed6b9408912e11b63fbe0da064cad76ef49",
-      "size": 64025037
+      "name": "CodexQuotaTray-0.10.4-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.10.4/CodexQuotaTray-0.10.4-setup.exe",
+      "sha256": "f09696e288907cb373e83473c3b6deb9bd60c095961bb07e253772a7c9298667",
+      "size": 64059389
     },
-    "releaseNotes": "## Windows\r\n\r\n### 手机同步与局域网诊断\r\n\r\n- 增强 Windows 手机同步的局域网状态与故障诊断，补充监听器、DNS-SD、连接请求和最近一次手机请求状态，便于定位连接问题。\r\n- LAN 诊断日志现在会脱敏、异步持久化并有限轮转，应用重启后仍可查看近期记录；设置中的“连接与诊断”支持复制诊断信息。\r\n- 改进网络变化后的手机连接恢复与同步状态表达，区分“正在监听”和最近一次手机请求结果。\r\n\r\n### 设置\r\n\r\n- 优化手机同步设置区域的配对、连接诊断和修复操作布局，保持现有设置样式。\r\n",
-    "publishedAt": "2026-08-26T13:46:00Z"
+    "releaseNotes": "## Windows\r\n\r\n### 手机同步与更新稳定性\r\n\r\n- 改进手机局域网同步的连接处理与诊断，在网络异常时提供更稳定的恢复体验。\r\n- 改进更新下载与关闭过程的并发处理，减少重复或悬挂的更新操作。\r\n\r\n### 额度与统计\r\n\r\n- Token 使用统计支持增量汇总，减少重复处理历史记录的开销。\r\n- 修复额度卡进度条在首次加载、额度大幅变化及窗口缩放时左右漂移的问题，进度指示器左端保持固定。\r\n",
+    "publishedAt": "2026-08-27T12:03:12Z"
   },
   "android": {
     "version": "0.10.3",
