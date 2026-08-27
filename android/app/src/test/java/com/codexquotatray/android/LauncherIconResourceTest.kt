@@ -23,22 +23,33 @@ class LauncherIconResourceTest {
         val monochrome = resourceText("drawable/ic_launcher_monochrome.xml")
 
         listOf(foreground, monochrome).forEach { source ->
-            assertTrue(source.contains("@drawable/ic_launcher_mark"))
+            assertTrue(source.contains("@drawable/ic_launcher_mark_vector"))
             assertTrue(source.contains("android:inset=\"15dp\""))
             assertTrue(!source.contains("18dp"))
+            assertTrue(!source.contains("<bitmap"))
         }
-        assertTrue(monochrome.contains("android:tint=\"@android:color/white\""))
     }
 
     @Test
-    fun splashKeepsItsPreviousGeometryWithoutSharingAdaptiveForeground() {
+    fun splashUsesIndependentResourceWithMatchingGeometry() {
         val styles = resourceText("values/styles.xml")
         val splash = resourceText("drawable/ic_launcher_splash.xml")
 
         assertTrue(styles.contains("@drawable/ic_launcher_splash"))
         assertTrue(!styles.contains("@drawable/ic_launcher_foreground</item>"))
-        assertTrue(splash.contains("@drawable/ic_launcher_mark"))
-        assertTrue(splash.contains("android:inset=\"18dp\""))
+        assertTrue(splash.contains("@drawable/ic_launcher_mark_vector"))
+        assertTrue(splash.contains("android:inset=\"15dp\""))
+    }
+
+    @Test
+    fun launcherMarkIsResolutionIndependentVectorGeometry() {
+        val mark = resourceText("drawable/ic_launcher_mark_vector.xml")
+
+        assertTrue(mark.contains("<vector"))
+        assertTrue(mark.contains("android:viewportWidth=\"240\""))
+        assertTrue(mark.contains("android:viewportHeight=\"240\""))
+        assertTrue(mark.contains("android:fillType=\"evenOdd\""))
+        assertTrue(mark.contains("android:pathData="))
     }
 
     @Test
