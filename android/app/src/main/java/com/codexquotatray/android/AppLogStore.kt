@@ -5,6 +5,7 @@ import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 class AppLogStore(
     context: Context,
@@ -14,6 +15,32 @@ class AppLogStore(
         PREFERENCES_NAME,
         Context.MODE_PRIVATE,
     )
+    private val lanStore = lanStores.computeIfAbsent(context.applicationContext.filesDir.absolutePath) {
+        LanDiagnosticFileStore(
+            context.applicationContext.filesDir.resolve(LAN_DIRECTORY),
+            LegacyLanLogSource { clear ->
+                val currentSlot = preferences.getInt(KEY_LAN_SLOT, 0)
+                val value = (1..AppLanLogRetention.SLOT_COUNT)
+                    .map { offset ->
+                        preferences.getString(
+                            lanSlotKey((currentSlot + offset) % AppLanLogRetention.SLOT_COUNT),
+                            "",
+                        ).orEmpty()
+                    }
+                    .filter(String::isNotBlank)
+                    .joinToString("\n")
+                if (clear) {
+                    preferences.edit()
+                        .remove(KEY_LAN_SLOT)
+                        .also { editor ->
+                            repeat(AppLanLogRetention.SLOT_COUNT) { slot -> editor.remove(lanSlotKey(slot)) }
+                        }
+                        .commit()
+                }
+                value
+            },
+        )
+    }
 
     fun append(message: String, level: String = "INFO") {
         synchronized(AppLogStore::class.java) {
@@ -25,33 +52,11 @@ class AppLogStore(
         }
     }
 
-    /**
-     * LAN diagnostics use their own rolling store so normal application logs
-     * remain small while connection history survives an application restart.
-     * The three preference slots are bounded independently and rotate without
-     * introducing a second logging implementation.
-     */
     fun appendLan(message: String, level: String = "INFO") {
-        synchronized(AppLogStore::class.java) {
-            runCatching {
-                val now = nowMillis()
-                val line = "${AppLogRetention.formatTimestamp(now)} [${level.uppercase(Locale.ROOT)}] " +
-                    AppLogSanitizer.sanitizeLan(message)
-                val currentSlot = preferences.getInt(KEY_LAN_SLOT, 0)
-                val currentKey = lanSlotKey(currentSlot)
-                val current = preferences.getString(currentKey, "").orEmpty()
-                val candidate = if (current.isBlank()) line else "$current\n$line"
-                if (AppLanLogRetention.utf8Size(candidate) <= AppLanLogRetention.MAX_SLOT_BYTES) {
-                    preferences.edit().putString(currentKey, candidate).apply()
-                } else {
-                    val nextSlot = (currentSlot + 1) % AppLanLogRetention.SLOT_COUNT
-                    preferences.edit()
-                        .putInt(KEY_LAN_SLOT, nextSlot)
-                        .putString(lanSlotKey(nextSlot), line)
-                        .apply()
-                }
-            }
-        }
+        val now = nowMillis()
+        val line = "${AppLogRetention.formatTimestamp(now)} [${level.uppercase(Locale.ROOT)}] " +
+            AppLogSanitizer.sanitizeLan(message)
+        LanDiagnosticWriter.append(lanStore, line)
     }
 
     fun read(): String = synchronized(AppLogStore::class.java) {
@@ -60,28 +65,18 @@ class AppLogStore(
         entries.joinToString("\n").takeIf(String::isNotBlank) ?: "暂无日志"
     }
 
-    fun readLan(): String = synchronized(AppLogStore::class.java) {
-        runCatching {
-            val currentSlot = preferences.getInt(KEY_LAN_SLOT, 0)
-            (1..AppLanLogRetention.SLOT_COUNT)
-                .map { offset -> preferences.getString(lanSlotKey((currentSlot + offset) % AppLanLogRetention.SLOT_COUNT), "").orEmpty() }
-                .flatMap { value -> value.lineSequence().filter(String::isNotBlank).toList() }
-                .joinToString("\n")
-                .takeIf(String::isNotBlank)
-                ?: "暂无日志"
-        }.getOrDefault("暂无日志")
-    }
+    fun readLan(): String = runCatching { LanDiagnosticWriter.read(lanStore) }
+        .getOrDefault("")
+        .takeIf(String::isNotBlank)
+        ?: "暂无日志"
 
     fun clear() {
         synchronized(AppLogStore::class.java) {
             preferences.edit()
                 .remove(KEY_ENTRIES)
-                .remove(KEY_LAN_SLOT)
-                .also { editor ->
-                    repeat(AppLanLogRetention.SLOT_COUNT) { slot -> editor.remove(lanSlotKey(slot)) }
-                }
                 .apply()
         }
+        LanDiagnosticWriter.clear(lanStore)
     }
 
     private fun loadEntries(): List<String> = preferences.getString(KEY_ENTRIES, "")
@@ -98,6 +93,8 @@ class AppLogStore(
         private const val PREFERENCES_NAME = "app_logs"
         private const val KEY_ENTRIES = "entries"
         private const val KEY_LAN_SLOT = "lan_slot"
+        private const val LAN_DIRECTORY = "lan-diagnostics"
+        private val lanStores = ConcurrentHashMap<String, LanDiagnosticFileStore>()
 
         private fun lanSlotKey(slot: Int): String = "lan_entries_$slot"
 

@@ -5,7 +5,7 @@ namespace CodexQuotaTray.Core.TokenUsage;
 
 internal sealed class TokenUsageLedger(string databasePath)
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
 
     internal string DatabasePath { get; } = Path.GetFullPath(databasePath);
 
@@ -192,7 +192,18 @@ internal sealed class TokenUsageLedger(string databasePath)
         Add(command, "$timestamp", value.TimestampUtc.ToString("O", CultureInfo.InvariantCulture));
         Add(command, "$localDate", value.LocalDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
         AddCounters(command, value.Delta);
-        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+        var inserted = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0;
+        if (inserted)
+        {
+            await UpdateDailyAggregateAsync(
+                connection,
+                transaction,
+                value.LocalDate,
+                value.Delta,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return inserted;
     }
 
     internal static async Task CorrectEventAsync(
@@ -203,6 +214,28 @@ internal sealed class TokenUsageLedger(string databasePath)
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrEmpty(eventId) || difference.Total != 0)
+        {
+            return;
+        }
+
+        string? localDate;
+        await using (var lookup = connection.CreateCommand())
+        {
+            lookup.Transaction = transaction;
+            lookup.CommandText = "SELECT local_date FROM token_events WHERE event_id = $eventId;";
+            Add(lookup, "$eventId", eventId);
+            localDate = Convert.ToString(
+                await lookup.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false),
+                CultureInfo.InvariantCulture);
+        }
+
+        if (string.IsNullOrEmpty(localDate)
+            || !DateOnly.TryParseExact(
+                localDate,
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var date))
         {
             return;
         }
@@ -222,7 +255,15 @@ internal sealed class TokenUsageLedger(string databasePath)
         Add(command, "$cached", difference.Cached);
         Add(command, "$output", difference.Output);
         Add(command, "$reasoning", difference.Reasoning);
-        _ = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        if (await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) > 0)
+        {
+            await UpdateDailyAggregateAsync(
+                connection,
+                transaction,
+                date,
+                difference,
+                cancellationToken).ConfigureAwait(false);
+        }
     }
 
     internal static async Task<IReadOnlyList<TokenUsageDay>> QueryDaysAsync(
@@ -231,14 +272,8 @@ internal sealed class TokenUsageLedger(string databasePath)
     {
         await using var command = connection.CreateCommand();
         command.CommandText = """
-            SELECT local_date,
-                   SUM(total_tokens),
-                   CASE WHEN COUNT(*) = COUNT(input_tokens) THEN SUM(input_tokens) END,
-                   CASE WHEN COUNT(*) = COUNT(cached_input_tokens) THEN SUM(cached_input_tokens) END,
-                   CASE WHEN COUNT(*) = COUNT(output_tokens) THEN SUM(output_tokens) END,
-                   CASE WHEN COUNT(*) = COUNT(reasoning_tokens) THEN SUM(reasoning_tokens) END
-            FROM token_events
-            GROUP BY local_date
+            SELECT local_date, total_tokens, input_tokens, cached_input_tokens, output_tokens, reasoning_tokens
+            FROM token_daily_aggregate
             ORDER BY local_date;
             """;
         var result = new List<TokenUsageDay>();
@@ -316,10 +351,18 @@ internal sealed class TokenUsageLedger(string databasePath)
                 reasoning_tokens INTEGER
             );
             CREATE INDEX IF NOT EXISTS idx_token_events_local_date ON token_events(local_date);
+            CREATE TABLE IF NOT EXISTS token_daily_aggregate(
+                local_date TEXT PRIMARY KEY,
+                total_tokens INTEGER NOT NULL,
+                input_tokens INTEGER,
+                cached_input_tokens INTEGER,
+                output_tokens INTEGER,
+                reasoning_tokens INTEGER
+            );
             INSERT INTO ledger_meta(key, value) VALUES('schema_version', $schemaVersion)
             ON CONFLICT(key) DO NOTHING;
             """;
-        command.Parameters.AddWithValue("$schemaVersion", SchemaVersion.ToString(CultureInfo.InvariantCulture));
+        command.Parameters.AddWithValue("$schemaVersion", "1");
         _ = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
 
         await using var version = connection.CreateCommand();
@@ -327,12 +370,71 @@ internal sealed class TokenUsageLedger(string databasePath)
         version.CommandText = "SELECT value FROM ledger_meta WHERE key = 'schema_version';";
         var stored = Convert.ToString(await version.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false), CultureInfo.InvariantCulture);
         if (!int.TryParse(stored, NumberStyles.None, CultureInfo.InvariantCulture, out var parsed)
-            || parsed != SchemaVersion)
+            || parsed is < 1 or > SchemaVersion)
         {
             throw new InvalidDataException($"Unsupported Token usage ledger schema version '{stored}'.");
         }
 
+        if (parsed == 1)
+        {
+            await using var migrate = connection.CreateCommand();
+            migrate.Transaction = (SqliteTransaction)transaction;
+            migrate.CommandText = """
+                DELETE FROM token_daily_aggregate;
+                INSERT INTO token_daily_aggregate(
+                    local_date, total_tokens, input_tokens, cached_input_tokens, output_tokens, reasoning_tokens)
+                SELECT local_date,
+                       SUM(total_tokens),
+                       CASE WHEN COUNT(*) = COUNT(input_tokens) THEN SUM(input_tokens) END,
+                       CASE WHEN COUNT(*) = COUNT(cached_input_tokens) THEN SUM(cached_input_tokens) END,
+                       CASE WHEN COUNT(*) = COUNT(output_tokens) THEN SUM(output_tokens) END,
+                       CASE WHEN COUNT(*) = COUNT(reasoning_tokens) THEN SUM(reasoning_tokens) END
+                FROM token_events
+                GROUP BY local_date;
+                UPDATE ledger_meta SET value = $schemaVersion WHERE key = 'schema_version';
+                """;
+            migrate.Parameters.AddWithValue("$schemaVersion", SchemaVersion.ToString(CultureInfo.InvariantCulture));
+            _ = await migrate.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task UpdateDailyAggregateAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        DateOnly localDate,
+        TokenCounters delta,
+        CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO token_daily_aggregate(
+                local_date, total_tokens, input_tokens, cached_input_tokens, output_tokens, reasoning_tokens)
+            VALUES($localDate, $total, $input, $cached, $output, $reasoning)
+            ON CONFLICT(local_date) DO UPDATE SET
+                total_tokens = token_daily_aggregate.total_tokens + excluded.total_tokens,
+                input_tokens = CASE
+                    WHEN token_daily_aggregate.input_tokens IS NULL OR excluded.input_tokens IS NULL THEN NULL
+                    ELSE token_daily_aggregate.input_tokens + excluded.input_tokens
+                END,
+                cached_input_tokens = CASE
+                    WHEN token_daily_aggregate.cached_input_tokens IS NULL OR excluded.cached_input_tokens IS NULL THEN NULL
+                    ELSE token_daily_aggregate.cached_input_tokens + excluded.cached_input_tokens
+                END,
+                output_tokens = CASE
+                    WHEN token_daily_aggregate.output_tokens IS NULL OR excluded.output_tokens IS NULL THEN NULL
+                    ELSE token_daily_aggregate.output_tokens + excluded.output_tokens
+                END,
+                reasoning_tokens = CASE
+                    WHEN token_daily_aggregate.reasoning_tokens IS NULL OR excluded.reasoning_tokens IS NULL THEN NULL
+                    ELSE token_daily_aggregate.reasoning_tokens + excluded.reasoning_tokens
+                END;
+            """;
+        Add(command, "$localDate", localDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        AddCounters(command, delta);
+        _ = await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task ExecuteAsync(

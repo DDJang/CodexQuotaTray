@@ -7,6 +7,7 @@ using System.Text;
 using System.Text.Json;
 using CodexQuotaTray.Core.TokenUsage;
 using CodexQuotaTray.Core.Persistence;
+using Microsoft.Data.Sqlite;
 
 namespace CodexQuotaTray.Tests;
 
@@ -98,6 +99,93 @@ public sealed class TokenUsageTests
         Assert.AreEqual(1_800L, first.Summary.LifetimeTokens);
         Assert.AreEqual(1_800L, restarted.Summary.LifetimeTokens);
         Assert.AreEqual(0L, restartedScanner.LastBytesRead);
+    }
+
+    [TestMethod]
+    public async Task VersionOneLedgerBackfillsDailyAggregatesIdempotently()
+    {
+        using var corpus = new TokenCorpus();
+        var database = Path.Combine(corpus.Root, "version-one.sqlite3");
+        await CreateVersionOneLedgerAsync(database, """
+            INSERT INTO token_events VALUES
+                ('a', 'session', '2026-08-07T01:00:00Z', '2026-08-07', 10, 8, 4, 2, 1),
+                ('b', 'session', '2026-08-07T02:00:00Z', '2026-08-07', 15, 12, 6, 3, 2),
+                ('c', 'session', '2026-08-08T01:00:00Z', '2026-08-08', 20, NULL, NULL, 4, NULL);
+            """);
+        var ledger = new TokenUsageLedger(database);
+
+        await using (var first = await ledger.OpenAsync(CancellationToken.None))
+        {
+            var days = await TokenUsageLedger.QueryDaysAsync(first, CancellationToken.None);
+            Assert.AreEqual(25L, days[0].TotalTokens);
+            Assert.AreEqual(20L, days[0].InputTokens);
+            Assert.AreEqual(20L, days[1].TotalTokens);
+            Assert.IsNull(days[1].InputTokens);
+        }
+
+        await using (var restarted = await ledger.OpenAsync(CancellationToken.None))
+        {
+            var days = await TokenUsageLedger.QueryDaysAsync(restarted, CancellationToken.None);
+            Assert.AreEqual(2, days.Count);
+            Assert.AreEqual(45L, days.Sum(day => day.TotalTokens));
+            Assert.AreEqual("2", await ScalarStringAsync(
+                restarted,
+                "SELECT value FROM ledger_meta WHERE key = 'schema_version';"));
+        }
+    }
+
+    [TestMethod]
+    public async Task DuplicateAndCorrectionUpdateDailyAggregateExactlyOnce()
+    {
+        using var corpus = new TokenCorpus();
+        var ledger = new TokenUsageLedger(Path.Combine(corpus.Root, "aggregate.sqlite3"));
+        await using var connection = await ledger.OpenAsync(CancellationToken.None);
+        await using (var transaction = (SqliteTransaction)await connection.BeginTransactionAsync())
+        {
+            var value = new LedgerTokenEvent(
+                "event", "session", DateTimeOffset.Parse("2026-08-08T01:00:00Z"),
+                new DateOnly(2026, 8, 8), new TokenCounters(100, 80, 40, 20, 5));
+            Assert.IsTrue(await TokenUsageLedger.InsertEventAsync(connection, transaction, value, CancellationToken.None));
+            Assert.IsFalse(await TokenUsageLedger.InsertEventAsync(connection, transaction, value, CancellationToken.None));
+            await TokenUsageLedger.CorrectEventAsync(
+                connection, transaction, "event", new TokenCounters(0, 0, 10, 0, 2), CancellationToken.None);
+            await transaction.CommitAsync();
+        }
+
+        var day = (await TokenUsageLedger.QueryDaysAsync(connection, CancellationToken.None)).Single();
+        Assert.AreEqual(100L, day.TotalTokens);
+        Assert.AreEqual(80L, day.InputTokens);
+        Assert.AreEqual(50L, day.CachedInputTokens);
+        Assert.AreEqual(20L, day.OutputTokens);
+        Assert.AreEqual(7L, day.ReasoningTokens);
+    }
+
+    [TestMethod]
+    public async Task LargeVersionOneHistoryBackfillsWithoutLeavingQueriesOnEventTable()
+    {
+        using var corpus = new TokenCorpus();
+        var database = Path.Combine(corpus.Root, "large-version-one.sqlite3");
+        await CreateVersionOneLedgerAsync(database, """
+            WITH RECURSIVE values_to_insert(value) AS (
+                SELECT 0 UNION ALL SELECT value + 1 FROM values_to_insert WHERE value < 19999
+            )
+            INSERT INTO token_events
+            SELECT printf('event-%d', value), 'session', '2026-01-01T00:00:00Z',
+                   date('2026-01-01', printf('+%d days', value % 200)), 1, 1, 0, 0, 0
+            FROM values_to_insert;
+            """);
+        var ledger = new TokenUsageLedger(database);
+        await using var connection = await ledger.OpenAsync(CancellationToken.None);
+
+        var days = await TokenUsageLedger.QueryDaysAsync(connection, CancellationToken.None);
+
+        Assert.AreEqual(200, days.Count);
+        Assert.AreEqual(20_000L, days.Sum(day => day.TotalTokens));
+        Assert.AreEqual(200L, await ScalarInt64Async(connection, "SELECT COUNT(*) FROM token_daily_aggregate;"));
+        var plan = await QueryPlanAsync(
+            connection,
+            "SELECT local_date FROM token_daily_aggregate ORDER BY local_date;");
+        Assert.IsFalse(plan.Contains("token_events", StringComparison.OrdinalIgnoreCase));
     }
 
     [TestMethod]
@@ -1007,6 +1095,55 @@ public sealed class TokenUsageTests
 
     private static string Usage(long total) =>
         $"{{\"total_tokens\":{total},\"input_tokens\":{total},\"cached_input_tokens\":0,\"output_tokens\":0,\"reasoning_output_tokens\":0}}";
+
+    private static async Task CreateVersionOneLedgerAsync(string database, string seedSql)
+    {
+        var builder = new SqliteConnectionStringBuilder { DataSource = database, Pooling = false };
+        await using var connection = new SqliteConnection(builder.ToString());
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE ledger_meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO ledger_meta VALUES('schema_version', '1');
+            CREATE TABLE token_events(
+                event_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                local_date TEXT NOT NULL,
+                total_tokens INTEGER NOT NULL,
+                input_tokens INTEGER,
+                cached_input_tokens INTEGER,
+                output_tokens INTEGER,
+                reasoning_tokens INTEGER
+            );
+            """ + seedSql;
+        _ = await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task<string> ScalarStringAsync(SqliteConnection connection, string sql)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        return Convert.ToString(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture)
+            ?? string.Empty;
+    }
+
+    private static async Task<long> ScalarInt64Async(SqliteConnection connection, string sql)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        return Convert.ToInt64(await command.ExecuteScalarAsync(), System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private static async Task<string> QueryPlanAsync(SqliteConnection connection, string sql)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "EXPLAIN QUERY PLAN " + sql;
+        await using var reader = await command.ExecuteReaderAsync();
+        var details = new List<string>();
+        while (await reader.ReadAsync()) details.Add(reader.GetString(3));
+        return string.Join("\n", details);
+    }
 
     private static LanAddressCandidate Candidate(
         string address,

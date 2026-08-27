@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core.Updates;
 
 namespace CodexQuotaTray.Tests;
@@ -375,6 +376,147 @@ public sealed class WindowsUpdateTests
     }
 
     [TestMethod]
+    public async Task ServiceShutdownCancelsAndWaitsForActiveDownload()
+    {
+        var handler = new BlockingHttpHandler();
+        var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-service-test-" + Guid.NewGuid().ToString("N"));
+        using var client = new HttpClient(handler);
+        var coordinator = new WindowsUpdateCoordinator(
+            new FakeReleaseProvider(CreateRelease("0.7.0")), new MemoryStateStore(), Parse("0.6.6"));
+        var service = new WindowsUpdateService(
+            coordinator, new WindowsUpdateDownloader(root, client), new WindowsUpdateInstaller(), () => { });
+        try
+        {
+            _ = await service.CheckAsync(manual: true, CancellationToken.None);
+            var download = service.DownloadAsync(CancellationToken.None);
+            await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+            var shutdown = service.DisposeAsync().AsTask();
+
+            await handler.Cancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.IsFalse(shutdown.IsCompletedSuccessfully && !download.IsCompleted);
+            var result = await download.WaitAsync(TimeSpan.FromSeconds(2));
+            await shutdown.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.IsTrue(result.WasCancelled);
+        }
+        finally
+        {
+            await service.DisposeAsync();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ServiceHandlesCallerCancellationAndShutdownTogether()
+    {
+        var handler = new BlockingHttpHandler();
+        var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-service-test-" + Guid.NewGuid().ToString("N"));
+        using var client = new HttpClient(handler);
+        using var caller = new CancellationTokenSource();
+        var coordinator = new WindowsUpdateCoordinator(
+            new FakeReleaseProvider(CreateRelease("0.7.0")), new MemoryStateStore(), Parse("0.6.6"));
+        var service = new WindowsUpdateService(
+            coordinator, new WindowsUpdateDownloader(root, client), new WindowsUpdateInstaller(), () => { });
+        try
+        {
+            _ = await service.CheckAsync(manual: true, CancellationToken.None);
+            var download = service.DownloadAsync(caller.Token);
+            await handler.Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+            caller.Cancel();
+            var shutdown = service.DisposeAsync().AsTask();
+
+            var result = await download.WaitAsync(TimeSpan.FromSeconds(2));
+            await shutdown.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.IsTrue(result.WasCancelled);
+        }
+        finally
+        {
+            await service.DisposeAsync();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ServiceDisposeDrainsOperationPausedAfterAtomicEntry()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var continueEntry = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var caller = new CancellationTokenSource();
+        var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-service-test-" + Guid.NewGuid().ToString("N"));
+        var service = new WindowsUpdateService(
+            new WindowsUpdateCoordinator(
+                new FakeReleaseProvider((WindowsUpdateRelease?)null), new MemoryStateStore(), Parse("0.6.6")),
+            new WindowsUpdateDownloader(root),
+            new WindowsUpdateInstaller(),
+            () => { },
+            operationEntryHook: async () =>
+            {
+                entered.TrySetResult();
+                await continueEntry.Task;
+            });
+        try
+        {
+            var operation = service.DownloadAsync(caller.Token);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+            var shutdown = service.DisposeAsync().AsTask();
+            var duplicateShutdown = service.DisposeAsync().AsTask();
+            caller.Cancel();
+
+            Assert.IsFalse(shutdown.IsCompleted);
+            Assert.IsFalse(duplicateShutdown.IsCompleted);
+            await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+                service.CheckAsync(manual: true, CancellationToken.None));
+
+            continueEntry.TrySetResult();
+            await Assert.ThrowsAsync<OperationCanceledException>(async () => await operation);
+            await Task.WhenAll(shutdown, duplicateShutdown).WaitAsync(TimeSpan.FromSeconds(2));
+            service.Dispose();
+        }
+        finally
+        {
+            continueEntry.TrySetResult();
+            await service.DisposeAsync();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ServiceDoubleDisposeIsIdempotentAndSynchronousDisposeWaits()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-service-test-" + Guid.NewGuid().ToString("N"));
+        var service = new WindowsUpdateService(
+            new WindowsUpdateCoordinator(
+                new FakeReleaseProvider((WindowsUpdateRelease?)null), new MemoryStateStore(), Parse("0.6.6")),
+            new WindowsUpdateDownloader(root),
+            new WindowsUpdateInstaller(),
+            () => { });
+
+        await Task.WhenAll(service.DisposeAsync().AsTask(), service.DisposeAsync().AsTask());
+        service.Dispose();
+    }
+
+    [TestMethod]
+    public async Task ServiceRejectsOperationsAfterDispose()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-service-test-" + Guid.NewGuid().ToString("N"));
+        var service = new WindowsUpdateService(
+            new WindowsUpdateCoordinator(
+                new FakeReleaseProvider((WindowsUpdateRelease?)null), new MemoryStateStore(), Parse("0.6.6")),
+            new WindowsUpdateDownloader(root),
+            new WindowsUpdateInstaller(),
+            () => { });
+        await service.DisposeAsync();
+
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.CheckAsync(true, CancellationToken.None));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.DownloadAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => service.InstallPreparedAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+            service.SetAutomaticChecksEnabledAsync(true, CancellationToken.None));
+    }
+
+    [TestMethod]
     public async Task Coordinator_AutoLaunchSettingDefaultsFalseAndRoundTrips()
     {
         var store = new MemoryStateStore();
@@ -585,6 +727,31 @@ public sealed class WindowsUpdateTests
             var response = ResponseFactory(request);
             response.RequestMessage ??= request;
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class BlockingHttpHandler : HttpMessageHandler
+    {
+        internal TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource Cancelled { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Started.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("Unreachable");
+            }
+            catch (OperationCanceledException)
+            {
+                Cancelled.TrySetResult();
+                throw;
+            }
         }
     }
 
