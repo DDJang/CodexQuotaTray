@@ -1,4 +1,5 @@
 using CodexQuotaTray.Core.Models;
+using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Protocol;
 
 namespace CodexQuotaTray.Tests;
@@ -6,6 +7,48 @@ namespace CodexQuotaTray.Tests;
 [TestClass]
 public sealed class QuotaPresentationTests
 {
+    [TestMethod]
+    public void QuotaProgressGeometryKeepsLeftEdgeFixedAcrossHydrationAndValueChanges()
+    {
+        var values = new[] { 95d, 13d, 54d, 13d, 54d, 53d, 13d, 100d };
+
+        foreach (var value in values)
+        {
+            var geometry = QuotaProgressGeometry.Calculate(200, value);
+            Assert.AreEqual(0d, geometry.Left);
+            Assert.AreEqual(200 * value / 100, geometry.Width, 0.0001);
+        }
+
+        Assert.AreEqual(0d, QuotaProgressGeometry.Calculate(0, 54).Width);
+        Assert.AreEqual(108d, QuotaProgressGeometry.Calculate(200, 54).Width);
+    }
+
+    [TestMethod]
+    public void QuotaProgressGeometryKeepsTwoWindowsIndependent()
+    {
+        var primary = QuotaProgressGeometry.Calculate(200, 54);
+        var secondary = QuotaProgressGeometry.Calculate(200, 13);
+
+        Assert.AreEqual(0d, primary.Left);
+        Assert.AreEqual(108d, primary.Width, 0.0001);
+        Assert.AreEqual(0d, secondary.Left);
+        Assert.AreEqual(26d, secondary.Width, 0.0001);
+    }
+
+    [TestMethod]
+    [DataRow(-1d, 0d)]
+    [DataRow(0d, 0d)]
+    [DataRow(13d, 26d)]
+    [DataRow(100d, 200d)]
+    [DataRow(101d, 200d)]
+    public void QuotaProgressGeometryClampsPercent(double percent, double expectedWidth)
+    {
+        var geometry = QuotaProgressGeometry.Calculate(200, percent);
+
+        Assert.AreEqual(0d, geometry.Left);
+        Assert.AreEqual(expectedWidth, geometry.Width, 0.0001);
+    }
+
     [DataRow(100, false, true, QuotaTone.Accent)]
     [DataRow(51, false, true, QuotaTone.Accent)]
     [DataRow(50, false, true, QuotaTone.Warning)]

@@ -28,6 +28,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -96,6 +97,7 @@ class AboutActivity : ComponentActivity() {
                                 Image(
                                     painter = painterResource(R.drawable.ic_launcher_mark),
                                     contentDescription = "CodexQuota 图标",
+                                    colorFilter = ColorFilter.tint(palette.color(palette.title)),
                                     modifier = Modifier.size(112.dp),
                                 )
                                 Text(
