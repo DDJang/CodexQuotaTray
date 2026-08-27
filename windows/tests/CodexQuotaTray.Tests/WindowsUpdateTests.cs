@@ -438,6 +438,51 @@ public sealed class WindowsUpdateTests
     }
 
     [TestMethod]
+    public async Task ServiceDisposeDrainsOperationPausedAfterAtomicEntry()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var continueEntry = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var caller = new CancellationTokenSource();
+        var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-service-test-" + Guid.NewGuid().ToString("N"));
+        var service = new WindowsUpdateService(
+            new WindowsUpdateCoordinator(
+                new FakeReleaseProvider((WindowsUpdateRelease?)null), new MemoryStateStore(), Parse("0.6.6")),
+            new WindowsUpdateDownloader(root),
+            new WindowsUpdateInstaller(),
+            () => { },
+            operationEntryHook: async () =>
+            {
+                entered.TrySetResult();
+                await continueEntry.Task;
+            });
+        try
+        {
+            var operation = service.DownloadAsync(caller.Token);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+            var shutdown = service.DisposeAsync().AsTask();
+            var duplicateShutdown = service.DisposeAsync().AsTask();
+            caller.Cancel();
+
+            Assert.IsFalse(shutdown.IsCompleted);
+            Assert.IsFalse(duplicateShutdown.IsCompleted);
+            await Assert.ThrowsAsync<ObjectDisposedException>(() =>
+                service.CheckAsync(manual: true, CancellationToken.None));
+
+            continueEntry.TrySetResult();
+            await Assert.ThrowsAsync<OperationCanceledException>(async () => await operation);
+            await Task.WhenAll(shutdown, duplicateShutdown).WaitAsync(TimeSpan.FromSeconds(2));
+            service.Dispose();
+        }
+        finally
+        {
+            continueEntry.TrySetResult();
+            await service.DisposeAsync();
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ServiceDoubleDisposeIsIdempotentAndSynchronousDisposeWaits()
     {
         var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-update-service-test-" + Guid.NewGuid().ToString("N"));
