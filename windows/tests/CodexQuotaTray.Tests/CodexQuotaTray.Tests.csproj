@@ -29,6 +29,8 @@
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\SessionEndingPolicy.cs" Link="Services\SessionEndingPolicy.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TrayBalloonAttemptGate.cs" Link="Services\TrayBalloonAttemptGate.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TokenUsageCacheSettingsState.cs" Link="Services\TokenUsageCacheSettingsState.cs" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Services\WindowsUpdateInstaller.cs" Link="Services\WindowsUpdateInstaller.cs" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Services\WindowsUpdateService.cs" Link="Services\WindowsUpdateService.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Interop\NativeMethods.cs" Link="Interop\NativeMethods.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Interop\DnsSdServicePublisher.cs" Link="Interop\DnsSdServicePublisher.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\LanDiagnosticBuffer.cs" Link="Services\LanDiagnosticBuffer.cs" />

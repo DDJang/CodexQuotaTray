@@ -11,12 +11,15 @@ internal sealed class WindowsUpdateService : IWindowsUpdateController, IAsyncDis
     private readonly Action<string>? log;
     private readonly Action<Action>? dispatch;
     private readonly SemaphoreSlim downloadGate = new(1, 1);
+    private readonly CancellationTokenSource lifetime = new();
+    private readonly object disposeGate = new();
+    private readonly Lazy<Task> disposeTask;
     private readonly object progressGate = new();
     private string? preparedInstallerPath;
     private string? preparedInstallerSha256;
     private WindowsUpdateDownloadProgress downloadProgress = WindowsUpdateDownloadProgress.Idle;
     private long? expectedDownloadTotal;
-    private bool disposed;
+    private bool disposalStarted;
 
     internal WindowsUpdateService(
         WindowsUpdateCoordinator coordinator,
@@ -32,6 +35,7 @@ internal sealed class WindowsUpdateService : IWindowsUpdateController, IAsyncDis
         this.installerStarted = installerStarted;
         this.log = log;
         this.dispatch = dispatch;
+        disposeTask = new Lazy<Task>(DisposeCoreAsync, LazyThreadSafetyMode.ExecutionAndPublication);
         coordinator.Changed += OnCoordinatorChanged;
         coordinator.UpdateAvailable += OnUpdateAvailable;
     }
@@ -68,22 +72,26 @@ internal sealed class WindowsUpdateService : IWindowsUpdateController, IAsyncDis
     public event EventHandler<WindowsUpdateDownloadProgress>? DownloadProgressChanged;
 
     public Task SetAutomaticChecksEnabledAsync(bool enabled, CancellationToken cancellationToken) =>
-        coordinator.SetAutomaticChecksEnabledAsync(enabled, cancellationToken);
+        RunCoordinatorOperationAsync(token => coordinator.SetAutomaticChecksEnabledAsync(enabled, token), cancellationToken);
 
     public Task SetUpdateRemindersEnabledAsync(bool enabled, CancellationToken cancellationToken) =>
-        coordinator.SetUpdateRemindersEnabledAsync(enabled, cancellationToken);
+        RunCoordinatorOperationAsync(token => coordinator.SetUpdateRemindersEnabledAsync(enabled, token), cancellationToken);
 
     public Task SetAutoLaunchInstallerAfterDownloadAsync(bool enabled, CancellationToken cancellationToken) =>
-        coordinator.SetAutoLaunchInstallerAfterDownloadAsync(enabled, cancellationToken);
+        RunCoordinatorOperationAsync(token => coordinator.SetAutoLaunchInstallerAfterDownloadAsync(enabled, token), cancellationToken);
 
     public Task<WindowsUpdateCheckResult> CheckAsync(bool manual, CancellationToken cancellationToken) =>
-        coordinator.CheckAsync(
-            manual ? WindowsUpdateCheckReason.Manual : WindowsUpdateCheckReason.Automatic,
+        RunCoordinatorOperationAsync(
+            token => coordinator.CheckAsync(
+                manual ? WindowsUpdateCheckReason.Manual : WindowsUpdateCheckReason.Automatic,
+                token),
             cancellationToken);
 
     public async Task<WindowsUpdateDownloadResult> DownloadAsync(CancellationToken cancellationToken)
     {
-        if (!await downloadGate.WaitAsync(0, cancellationToken).ConfigureAwait(false))
+        ThrowIfDisposing();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
+        if (!await downloadGate.WaitAsync(0, linked.Token).ConfigureAwait(false))
         {
             return WindowsUpdateDownloadResult.Failed("更新下载正在进行中。");
         }
@@ -103,7 +111,7 @@ internal sealed class WindowsUpdateService : IWindowsUpdateController, IAsyncDis
                 WindowsUpdateDownloadPhase.Downloading,
                 TotalBytes: expectedDownloadTotal));
             var progress = new DelegateProgress<WindowsUpdateDownloadProgress>(PublishDownloadProgress);
-            var result = await downloader.DownloadAsync(release, progress, cancellationToken).ConfigureAwait(false);
+            var result = await downloader.DownloadAsync(release, progress, linked.Token).ConfigureAwait(false);
             if (result.Succeeded)
             {
                 preparedInstallerPath = result.InstallerPath;
@@ -129,6 +137,7 @@ internal sealed class WindowsUpdateService : IWindowsUpdateController, IAsyncDis
 
     public Task<bool> InstallPreparedAsync(CancellationToken cancellationToken)
     {
+        ThrowIfDisposing();
         cancellationToken.ThrowIfCancellationRequested();
         if (preparedInstallerPath is null || preparedInstallerSha256 is null)
         {
@@ -200,48 +209,83 @@ internal sealed class WindowsUpdateService : IWindowsUpdateController, IAsyncDis
         public void Report(T value) => report(value);
     }
 
-    public void Dispose()
+    private async Task RunCoordinatorOperationAsync(
+        Func<CancellationToken, Task> operation,
+        CancellationToken cancellationToken)
     {
-        if (disposed)
-        {
-            return;
-        }
+        ThrowIfDisposing();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
+        await operation(linked.Token).ConfigureAwait(false);
+    }
 
-        disposed = true;
-        coordinator.Changed -= OnCoordinatorChanged;
-        coordinator.UpdateAvailable -= OnUpdateAvailable;
-        downloader.Dispose();
-        downloadGate.Dispose();
-        if (coordinator is IAsyncDisposable)
+    private async Task<T> RunCoordinatorOperationAsync<T>(
+        Func<CancellationToken, Task<T>> operation,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfDisposing();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.Token);
+        return await operation(linked.Token).ConfigureAwait(false);
+    }
+
+    private void ThrowIfDisposing()
+    {
+        lock (disposeGate)
         {
-            _ = DisposeCoordinatorAsync();
+            if (disposalStarted)
+            {
+                throw new ObjectDisposedException(nameof(WindowsUpdateService));
+            }
         }
     }
 
-    private async Task DisposeCoordinatorAsync()
+    public void Dispose()
     {
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        lock (disposeGate)
+        {
+            disposalStarted = true;
+        }
+
+        return new ValueTask(disposeTask.Value);
+    }
+
+    private async Task DisposeCoreAsync()
+    {
+        coordinator.Changed -= OnCoordinatorChanged;
+        coordinator.UpdateAvailable -= OnUpdateAvailable;
         try
         {
-            await coordinator.DisposeAsync().ConfigureAwait(false);
+            lifetime.Cancel();
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
-            log?.Invoke($"Windows update shutdown failed: {error.GetType().Name}");
+            log?.Invoke($"Windows update cancellation failed: {error.GetType().Name}");
         }
-    }
 
-    public async ValueTask DisposeAsync()
-    {
-        if (disposed)
+        await downloadGate.WaitAsync().ConfigureAwait(false);
+        try
         {
-            return;
+            downloader.Dispose();
         }
-
-        disposed = true;
-        coordinator.Changed -= OnCoordinatorChanged;
-        coordinator.UpdateAvailable -= OnUpdateAvailable;
-        downloader.Dispose();
-        downloadGate.Dispose();
-        await coordinator.DisposeAsync().ConfigureAwait(false);
+        finally
+        {
+            downloadGate.Dispose();
+            try
+            {
+                await coordinator.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+            {
+                log?.Invoke($"Windows update shutdown failed: {error.GetType().Name}");
+            }
+            finally
+            {
+                lifetime.Dispose();
+            }
+        }
     }
 }
