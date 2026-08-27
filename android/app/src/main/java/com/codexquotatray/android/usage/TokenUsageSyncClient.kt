@@ -55,13 +55,13 @@ class TokenUsageSyncClient(
                     attempt.finishFailure("STALE")
                     throw LanAttemptStaleException(attempt)
                 }
-                attempt.finishSuccess()
                 val updatedPairing = TokenSyncEndpoint.markLanSuccess(pairing, attempt)
                 if (attempt.isStale()) {
                     attempt.finishFailure("STALE")
                     throw LanAttemptStaleException(attempt)
                 }
                 runCatching { pairingStore?.recordLanSuccess(pairing, attempt) }
+                attempt.finishSuccess()
                 return TokenUsageSyncResult(snapshot, updatedPairing)
             }
             val error = direct.exceptionOrNull()
@@ -96,13 +96,13 @@ class TokenUsageSyncClient(
                 attempt.finishFailure("STALE")
                 throw LanAttemptStaleException(attempt)
             }
-            attempt.finishSuccess()
             val updatedPairing = TokenSyncEndpoint.markLanSuccess(relocated, attempt)
             if (attempt.isStale()) {
                 attempt.finishFailure("STALE")
                 throw LanAttemptStaleException(attempt)
             }
             runCatching { pairingStore?.recordLanSuccess(pairing, attempt) }
+            attempt.finishSuccess()
             TokenUsageSyncResult(snapshot, updatedPairing)
         } catch (error: Throwable) {
             attempt.finishFailure()

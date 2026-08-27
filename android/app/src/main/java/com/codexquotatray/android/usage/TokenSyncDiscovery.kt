@@ -177,12 +177,11 @@ class AndroidNsdDiscovery(
         }
 
         runOnMainAndWait {
-            attempt?.nsdStart(timeoutMs)
-                ?: diagnostics.record("Windows NSD start requested timeoutMs=$timeoutMs")
+            if (attempt == null) diagnostics.record("Windows NSD start requested timeoutMs=$timeoutMs")
             manager.discoverServices(TokenSyncEndpoint.ServiceType, NsdManager.PROTOCOL_DNS_SD, listener)
         }
         if (!completed.await(timeoutMs, TimeUnit.MILLISECONDS)) {
-            attempt?.nsdTimeout() ?: diagnostics.record("Windows NSD discovery timeout")
+            if (attempt == null) diagnostics.record("Windows NSD discovery timeout")
         }
         runOnMainAndWait {
             runCatching { manager.stopServiceDiscovery(listener) }

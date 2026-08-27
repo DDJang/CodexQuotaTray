@@ -67,6 +67,10 @@ internal class LanHttpCallDiagnostics(
 
     fun failure(kind: String, error: IOException? = null) {
         if (attempt != null) {
+            // OkHttp already reported a concrete connect failure through the
+            // event listener. The outer catch only fills gaps such as a call
+            // timeout before a connect callback is delivered.
+            if (phase.failed) return
             if (kind.equals("TIMEOUT", ignoreCase = true)) {
                 attempt.connectFailed(
                     error ?: java.net.SocketTimeoutException("$label timeout"),
@@ -95,6 +99,8 @@ internal class LanHttpCallPhase {
 
     val connected: Boolean
         get() = value == Phase.CONNECTED || value == Phase.RESPONSE_HEADERS
+    val failed: Boolean
+        get() = value == Phase.CONNECT_FAILED
     val name: String
         get() = value.name
 

@@ -12,6 +12,8 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.SocketTimeoutException
+import java.net.ConnectException
+import java.net.NoRouteToHostException
 import java.util.Collections
 import java.util.concurrent.Callable
 import java.util.concurrent.Executors
@@ -85,6 +87,22 @@ class LanDiagnosticsTest {
         assertTrue(messages.any { it.contains("generation=12") && it.contains("NETWORK_LOST") })
     }
 
+    @Test fun quotaAndTokenCannotScheduleTheSameUnderlyingRecoveryTwice() {
+        val debounce = LanNetworkRecoveryDebounce()
+        val executor = Executors.newFixedThreadPool(2)
+        try {
+            val scheduled = listOf("quota", "token").map {
+                executor.submit(Callable { debounce.schedule(44L) })
+            }.map { it.get() }
+
+            assertEquals(1, scheduled.count { it })
+            assertTrue(debounce.consume(44L))
+            assertFalse(debounce.consume(44L))
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
     @Test fun staleAttemptDoesNotPublishLanSuccessOrEndpoint() {
         LanNetworkEpoch.resetForTest(20L)
         var recorded = false
@@ -135,6 +153,55 @@ class LanDiagnosticsTest {
         assertTrue(attemptLines.any { it.contains("NSD start") })
         assertTrue(attemptLines.any { it.contains("discovered endpoint") })
         assertTrue(attemptLines.any { it.contains("result=SUCCESS") })
+    }
+
+    @Test fun oneOperationDoesNotDuplicateNsdStartOrTimeoutEvents() {
+        val messages = mutableListOf<String>()
+        val pairing = pairing()
+        val discovery = object : TokenSyncDiscovery {
+            override fun find(deviceId: String, timeoutMs: Long): TokenSyncEndpoint.TokenSyncDiscoveryCandidate? = null
+        }
+
+        runCatching {
+            TokenUsageSyncClient(
+                client = client { throw SocketTimeoutException("connect timeout") },
+                discovery = discovery,
+                diagnostics = LanDiagnosticLogger(messages::add),
+            ).sync(pairing)
+        }
+
+        assertEquals(1, messages.count { it.contains("NSD start timeoutMs=") })
+        assertEquals(1, messages.count { it.contains("NSD timeout phase=") })
+    }
+
+    @Test fun directFailureClassificationSeparatesTimeoutRefusedAndRouteFailure() {
+        assertEquals("TCP_CONNECT_TIMEOUT", classifyLanConnectFailure(SocketTimeoutException("timeout")))
+        assertEquals("TCP_CONNECTION_REFUSED", classifyLanConnectFailure(ConnectException("ECONNREFUSED")))
+        assertEquals("ROUTE_FAILURE", classifyLanConnectFailure(NoRouteToHostException("no route")))
+        assertEquals("TCP_CONNECT_IO", classifyLanConnectFailure(java.io.IOException("reset")))
+    }
+
+    @Test fun androidErrnoAndRouteMessagesAreClassifiedAcrossCauseChain() {
+        assertEquals(
+            "ROUTE_FAILURE",
+            classifyLanConnectFailure(ConnectException("connect failed: ENETUNREACH")),
+        )
+        assertEquals(
+            "ROUTE_FAILURE",
+            classifyLanConnectFailure(java.io.IOException("wrapper", ConnectException("EHOSTUNREACH"))),
+        )
+        assertEquals(
+            "ROUTE_FAILURE",
+            classifyLanConnectFailure(java.io.IOException("Network is unreachable")),
+        )
+        assertEquals(
+            "ROUTE_FAILURE",
+            classifyLanConnectFailure(java.io.IOException("No route to host")),
+        )
+        assertEquals(
+            "TCP_CONNECT_IO",
+            classifyLanConnectFailure(ConnectException("failed to connect to 192.168.1.58")),
+        )
     }
 
     @Test fun directFailureAndNsdRetryShareOneQuotaAttemptId() {
@@ -228,6 +295,7 @@ class LanDiagnosticsTest {
         assertTrue(text.contains("Recent LAN events:"))
         assertTrue(text.contains("networkGeneration=14"))
         assertTrue(text.contains("lastNetworkChangeReason=LINK_PROPERTIES_CHANGED"))
+        assertTrue(text.contains("neighborCollection=unsupported_by_public_android_api"))
         assertFalse(text.contains("secret"))
         assertFalse(text.contains("Bearer"))
     }
@@ -236,6 +304,62 @@ class LanDiagnosticsTest {
         val text = AndroidLanDiagnosticsFormatter.format("test", null, LanNetworkDiagnostics(), "", 0L)
         assertTrue(text.contains("networkHandle=unavailable"))
         assertTrue(text.contains("SSID=unavailable"))
+    }
+
+    @Test fun formatterCorrelatesInterleavedQuotaAndTokenFieldsToLastAttempt() {
+        val text = AndroidLanDiagnosticsFormatter.format(
+            version = "test",
+            pairing = pairing().copy(lastLanAttemptId = 202L, lastLanAttemptChannel = "token"),
+            network = null,
+            recentEvents = """
+                LAN attempt=202 channel=token socketBinding boundToNetwork=true networkHandle=token-current bindingGeneration=22 attemptGeneration=22
+                LAN attempt=201 channel=quota socketBinding boundToNetwork=true networkHandle=quota-old bindingGeneration=11 attemptGeneration=11
+                LAN attempt=202 channel=token connectStart connectGeneration=22 generationChanged=false
+                LAN attempt=201 channel=quota connectStart connectGeneration=99 generationChanged=true
+            """.trimIndent(),
+            nowMillis = 0L,
+        )
+
+        assertTrue(text.contains("socketNetworkHandle=token-current"))
+        assertTrue(text.contains("socketNetworkGeneration=22"))
+        assertTrue(text.contains("connectNetworkGeneration=22"))
+        assertTrue(text.contains("generationChangedDuringConnect=false"))
+    }
+
+    @Test fun formatterDoesNotInheritBindingFromAnOlderAttempt() {
+        val text = AndroidLanDiagnosticsFormatter.format(
+            version = "test",
+            pairing = pairing().copy(lastLanAttemptId = 302L, lastLanAttemptChannel = "token"),
+            network = null,
+            recentEvents = """
+                LAN attempt=301 channel=quota socketBinding boundToNetwork=true networkHandle=old-network bindingGeneration=31 attemptGeneration=31
+                LAN attempt=302 channel=token connectStart connectGeneration=32 generationChanged=false
+            """.trimIndent(),
+            nowMillis = 0L,
+        )
+
+        assertTrue(text.contains("socketBoundToNetwork=unavailable"))
+        assertTrue(text.contains("socketNetworkHandle=unavailable"))
+        assertTrue(text.contains("socketNetworkGeneration=unavailable"))
+        assertTrue(text.contains("connectNetworkGeneration=32"))
+    }
+
+    @Test fun formatterKeepsGenerationFieldsWithinTheCorrelatedAttempt() {
+        val text = AndroidLanDiagnosticsFormatter.format(
+            version = "test",
+            pairing = pairing().copy(lastLanAttemptId = 402L, lastLanAttemptChannel = "quota"),
+            network = null,
+            recentEvents = """
+                LAN attempt=402 channel=quota socketBinding boundToNetwork=true networkHandle=current bindingGeneration=44 attemptGeneration=44
+                LAN attempt=402 channel=quota connectStart connectGeneration=45 generationChanged=true
+                LAN attempt=401 channel=token connectStart connectGeneration=99 generationChanged=false
+            """.trimIndent(),
+            nowMillis = 0L,
+        )
+
+        assertTrue(text.contains("socketNetworkGeneration=44"))
+        assertTrue(text.contains("connectNetworkGeneration=45"))
+        assertTrue(text.contains("generationChangedDuringConnect=true"))
     }
 
     @Test fun formatterDoesNotTreatNonLanSyncAsLanConnectionSuccess() {

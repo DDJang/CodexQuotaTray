@@ -34,6 +34,22 @@ internal object AndroidLanDiagnosticsFormatter {
             .takeLast(MAX_EVENTS)
             .joinToString("\n")
             .takeLast(MAX_RECENT_EVENT_CHARS)
+        val lastAttemptId = pairing?.lastLanAttemptId?.toString()
+        val recentFields: Map<String, String> = if (lastAttemptId == null) {
+            emptyMap()
+        } else {
+            recent.lineSequence()
+                .filter { it.contains("socketBinding ") || it.contains("connectStart ") }
+                .map { line ->
+                    line.split(' ').mapNotNull { token ->
+                        val separator = token.indexOf('=')
+                        if (separator <= 0) null else token.substring(0, separator) to token.substring(separator + 1)
+                    }.toMap()
+                }
+                .filter { fields -> fields["attempt"] == lastAttemptId }
+                .flatMap { fields -> fields.asSequence().map { it.key to it.value } }
+                .toMap()
+        }
 
         return buildString {
             appendLine("CodexQuotaTray LAN Diagnostics")
@@ -69,6 +85,13 @@ internal object AndroidLanDiagnosticsFormatter {
             appendLine("SSID=${network?.ssid ?: "unavailable"}")
             appendLine("BSSID=${network?.bssid ?: "unavailable"}")
             appendLine("frequency=${network?.frequencyMhz ?: "unavailable"}")
+            appendLine("socketBoundToNetwork=${recentFields["boundToNetwork"] ?: "unavailable"}")
+            appendLine("socketNetworkHandle=${recentFields["networkHandle"] ?: "unavailable"}")
+            appendLine("socketNetworkGeneration=${recentFields["bindingGeneration"] ?: "unavailable"}")
+            appendLine("connectNetworkGeneration=${recentFields["connectGeneration"] ?: "unavailable"}")
+            appendLine("generationChangedDuringConnect=${recentFields["generationChanged"] ?: "unavailable"}")
+            appendLine("neighborState=unavailable")
+            appendLine("neighborCollection=unsupported_by_public_android_api")
             appendLine("lastNetworkChange=${epoch.lastNetworkChangeAtMillis?.let(::formatUtc) ?: "unavailable"}")
             appendLine("lastNetworkChangeReason=${epoch.lastNetworkChangeReason ?: "unavailable"}")
             appendLine("lastRecoveryAction=${epoch.lastRecoveryAction ?: "unavailable"}")

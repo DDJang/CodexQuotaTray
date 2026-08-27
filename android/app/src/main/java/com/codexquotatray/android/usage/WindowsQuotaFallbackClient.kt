@@ -78,13 +78,13 @@ class WindowsQuotaFallbackClient(
                     correlation.finishFailure("STALE")
                     throw LanAttemptStaleException(correlation)
                 }
-                correlation.finishSuccess()
                 val updatedPairing = TokenSyncEndpoint.markLanSuccess(pairing, correlation)
                 if (correlation.isStale()) {
                     correlation.finishFailure("STALE")
                     throw LanAttemptStaleException(correlation)
                 }
                 runCatching { pairingStore?.recordLanSuccess(pairing, correlation) }
+                correlation.finishSuccess()
                 return WindowsQuotaFallbackResult(quota, updatedPairing)
             }
             val error = direct.exceptionOrNull()
@@ -127,13 +127,13 @@ class WindowsQuotaFallbackClient(
                 correlation.finishFailure("STALE")
                 throw LanAttemptStaleException(correlation)
             }
-            correlation.finishSuccess()
             val updatedPairing = TokenSyncEndpoint.markLanSuccess(relocated, correlation)
             if (correlation.isStale()) {
                 correlation.finishFailure("STALE")
                 throw LanAttemptStaleException(correlation)
             }
             runCatching { pairingStore?.recordLanSuccess(pairing, correlation) }
+            correlation.finishSuccess()
             WindowsQuotaFallbackResult(quota, updatedPairing)
         } catch (error: Throwable) {
             correlation.finishFailure()

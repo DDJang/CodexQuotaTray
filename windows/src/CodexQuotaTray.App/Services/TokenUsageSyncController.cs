@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Net;
-using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.Core.Persistence;
@@ -24,7 +23,8 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
     private readonly Action<string> diagnostic;
     private readonly Func<LanDiagnosticState>? diagnosticStateProvider;
     private readonly TimeSpan networkChangeDebounce;
-    private readonly Func<IPAddress, CancellationToken, Task<LanRepairProbeResult>> repairProbe;
+    private readonly Func<IPAddress, LanEndpointSelection, CancellationToken, Task<LanRepairProbeResult>> repairProbe;
+    private readonly Func<IPAddress, uint, LanNeighborSnapshot> neighborReader;
     private readonly Func<IPAddress, LanEndpointSelection, bool> repairRouteValidator;
     private readonly int port;
     private readonly string displayNameSuffix;
@@ -52,7 +52,8 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         Action<string>? diagnostic = null,
         Func<LanDiagnosticState>? diagnosticStateProvider = null,
         TimeSpan? networkChangeDebounce = null,
-        Func<IPAddress, CancellationToken, Task<LanRepairProbeResult>>? repairProbe = null,
+        Func<IPAddress, LanEndpointSelection, CancellationToken, Task<LanRepairProbeResult>>? repairProbe = null,
+        Func<IPAddress, uint, LanNeighborSnapshot>? neighborReader = null,
         Func<IPAddress, LanEndpointSelection, bool>? repairRouteValidator = null)
     {
         loadSettings = settingsService.LoadOrCreateAsync;
@@ -73,6 +74,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         this.diagnosticStateProvider = diagnosticStateProvider;
         this.networkChangeDebounce = networkChangeDebounce ?? DefaultNetworkChangeDebounce;
         this.repairProbe = repairProbe ?? ProbeOnceAsync;
+        this.neighborReader = neighborReader ?? WindowsLanNeighborReader.Read;
         this.repairRouteValidator = repairRouteValidator ?? TokenUsageSyncServer.HasOnLinkPrivateLanRoute;
         displayName = CreateDisplayName(displayNameSuffix);
     }
@@ -89,7 +91,8 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         Action<string>? diagnostic = null,
         Func<LanDiagnosticState>? diagnosticStateProvider = null,
         TimeSpan? networkChangeDebounce = null,
-        Func<IPAddress, CancellationToken, Task<LanRepairProbeResult>>? repairProbe = null,
+        Func<IPAddress, LanEndpointSelection, CancellationToken, Task<LanRepairProbeResult>>? repairProbe = null,
+        Func<IPAddress, uint, LanNeighborSnapshot>? neighborReader = null,
         Func<IPAddress, LanEndpointSelection, bool>? repairRouteValidator = null)
     {
         this.loadSettings = loadSettings;
@@ -104,6 +107,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         this.diagnosticStateProvider = diagnosticStateProvider;
         this.networkChangeDebounce = networkChangeDebounce ?? DefaultNetworkChangeDebounce;
         this.repairProbe = repairProbe ?? ProbeOnceAsync;
+        this.neighborReader = neighborReader ?? WindowsLanNeighborReader.Read;
         this.repairRouteValidator = repairRouteValidator ?? TokenUsageSyncServer.HasOnLinkPrivateLanRoute;
         displayName = CreateDisplayName(displayNameSuffix);
     }
@@ -270,18 +274,29 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             }
 
             lock (networkChangeGate) lastRepairAtUtc = now;
-            diagnostic($"LAN repair probe started remote={remote}");
+            var neighborBefore = neighborReader(remote, selection.InterfaceIndex);
+            diagnostic(
+                $"LAN repair probe started remote={remote} probeKind=ICMP_ECHO " +
+                $"localAddress={selection.Address} interfaceIndex={selection.InterfaceIndex} sourceBound=true " +
+                $"neighborBeforeState={neighborBefore.State} neighborBeforeMac={neighborBefore.MacAddress ?? "unavailable"} " +
+                $"neighborBeforeError={neighborBefore.CollectionError ?? "none"}");
             var probeResult = LanRepairProbeResult.IO;
             try
             {
-                probeResult = await repairProbe(remote, cancellationToken).ConfigureAwait(false);
+                probeResult = await repairProbe(remote, selection, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
             {
                 diagnostic($"LAN repair probe exception exceptionClass={error.GetType().Name}");
             }
 
-            diagnostic($"LAN repair probe completed remote={remote} probeResult={probeResult} actionResult=PROBE_SENT");
+            var neighborAfter = neighborReader(remote, selection.InterfaceIndex);
+            var failureKind = ClassifyRepairFailure(probeResult, neighborAfter);
+            diagnostic(
+                $"LAN repair probe completed remote={remote} probeResult={probeResult} actionResult=PROBE_SENT " +
+                $"failureKind={failureKind} localAddress={selection.Address} interfaceIndex={selection.InterfaceIndex} sourceBound=true " +
+                $"neighborAfterState={neighborAfter.State} neighborAfterMac={neighborAfter.MacAddress ?? "unavailable"} " +
+                $"neighborAfterError={neighborAfter.CollectionError ?? "none"}");
             return "已尝试修复，请在手机端重新刷新";
         }
         finally
@@ -494,36 +509,21 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
 
     private static string CreateDisplayName(string suffix) => string.Concat(Environment.MachineName, suffix);
 
-    private static async Task<LanRepairProbeResult> ProbeOnceAsync(
+    private static Task<LanRepairProbeResult> ProbeOnceAsync(
         IPAddress remote,
+        LanEndpointSelection selection,
         CancellationToken cancellationToken)
-    {
-        try
+        => WindowsBoundIcmpProbe.SendAsync(selection.Address, remote, RepairProbeTimeout, cancellationToken);
+
+    internal static string ClassifyRepairFailure(LanRepairProbeResult result, LanNeighborSnapshot neighbor) =>
+        result switch
         {
-            using var ping = new Ping();
-            var reply = await ping.SendPingAsync(
-                remote,
-                RepairProbeTimeout,
-                Array.Empty<byte>(),
-                new PingOptions(),
-                cancellationToken).ConfigureAwait(false);
-            return reply.Status == IPStatus.Success
-                ? LanRepairProbeResult.REPLY
-                : LanRepairProbeResult.TIMEOUT;
-        }
-        catch (Exception error) when (error is PingException or SocketException)
-        {
-            return LanRepairProbeResult.IO;
-        }
-        catch (OperationCanceledException)
-        {
-            return LanRepairProbeResult.IO;
-        }
-        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
-        {
-            return LanRepairProbeResult.IO;
-        }
-    }
+            LanRepairProbeResult.REPLY => "NONE",
+            _ when neighbor.State is "Incomplete" or "Unreachable/Failed" => "NEIGHBOR_RESOLUTION",
+            LanRepairProbeResult.TIMEOUT => "ICMP_TIMEOUT_OR_FILTERED",
+            LanRepairProbeResult.UNREACHABLE => "ROUTE_OR_REMOTE_UNREACHABLE",
+            _ => "PROBE_IO",
+        };
 }
 
 internal static class LanStatusTimeFormatter
@@ -554,6 +554,7 @@ internal enum LanRepairProbeResult
 {
     REPLY,
     TIMEOUT,
+    UNREACHABLE,
     IO,
 }
 

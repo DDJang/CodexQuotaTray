@@ -6,6 +6,7 @@ import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import javax.net.SocketFactory
 
@@ -63,6 +64,26 @@ class LanBoundHttpClientTest {
         assertThrows(LanAttemptStaleException::class.java) {
             OkHttpClient().bindToWifiLan(provider, "192.168.1.10", diagnostics = null, attempt = attempt)
         }
+        LanNetworkEpoch.resetForTest()
+    }
+
+    @Test fun correlatedBindingRecordsTheExactNetworkAndGeneration() {
+        LanNetworkEpoch.resetForTest(9L)
+        val messages = mutableListOf<String>()
+        val socketFactory = SocketFactory.getDefault()
+        val provider = object : LanAvailability {
+            override fun isAvailable() = true
+            override fun socketBindingForHostOrNull(host: String) =
+                LanSocketBinding(socketFactory, "wifi-42", networkGeneration = 9L)
+        }
+        val attempt = LanAttemptContext("token", 7L, LanDiagnosticLogger(messages::add), networkGeneration = 9L)
+
+        val bound = OkHttpClient().bindToWifiLan(provider, "192.168.1.10", null, attempt)
+
+        assertSame(socketFactory, bound.socketFactory)
+        assertTrue(messages.single { it.contains("socketBinding") }.contains("boundToNetwork=true"))
+        assertTrue(messages.single { it.contains("socketBinding") }.contains("networkHandle=wifi-42"))
+        assertTrue(messages.single { it.contains("socketBinding") }.contains("bindingGeneration=9"))
         LanNetworkEpoch.resetForTest()
     }
 }

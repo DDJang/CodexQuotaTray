@@ -566,7 +566,7 @@ public sealed class LanReliabilityTests
             diagnosticStateProvider: () => new LanDiagnosticState(
                 LastRemoteAddress: "192.168.1.92",
                 LastRequestResult: "AUTH_FAILED"),
-            repairProbe: (_, _) => { probes++; return Task.FromResult(LanRepairProbeResult.REPLY); });
+            repairProbe: (_, _, _) => { probes++; return Task.FromResult(LanRepairProbeResult.REPLY); });
 
         await controller.SetEnabledAsync(true, CancellationToken.None);
         var result = await controller.RepairPhoneConnectionAsync(CancellationToken.None);
@@ -594,7 +594,8 @@ public sealed class LanReliabilityTests
             diagnosticStateProvider: () => new LanDiagnosticState(
                 LastSuccessfulRemoteAddress: "192.168.1.92",
                 LastRequestResult: "SUCCESS"),
-            repairProbe: (_, _) => { probes++; return Task.FromResult(LanRepairProbeResult.TIMEOUT); },
+            repairProbe: (_, _, _) => { probes++; return Task.FromResult(LanRepairProbeResult.TIMEOUT); },
+            neighborReader: (_, index) => new LanNeighborSnapshot("Incomplete", null, index),
             repairRouteValidator: (_, _) => true);
 
         await controller.SetEnabledAsync(true, CancellationToken.None);
@@ -605,6 +606,68 @@ public sealed class LanReliabilityTests
         Assert.AreEqual(1, probes);
         Assert.AreEqual("请稍后再试", second);
         Assert.IsTrue(logs.Any(value => value.Contains("probeResult=TIMEOUT actionResult=PROBE_SENT", StringComparison.Ordinal)));
+        Assert.IsTrue(logs.Any(value => value.Contains("failureKind=NEIGHBOR_RESOLUTION", StringComparison.Ordinal)));
+        Assert.IsTrue(logs.Any(value => value.Contains("localAddress=192.168.1.58 interfaceIndex=7 sourceBound=true", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public async Task RepairIsSingleFlightWhileProbeIsRunning()
+    {
+        var probes = 0;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var settings = new TokenUsageSettings(2, Guid.NewGuid(), new string('a', 64));
+        await using var controller = new TokenUsageSyncController(
+            _ => Task.FromResult(settings),
+            _ => Task.FromResult(settings),
+            () => new LanEndpointSelection(IPAddress.Parse("192.168.1.58"), 7),
+            _ => new FakeLanServer(false, []),
+            (_, _) => new FakePublisher(),
+            43821,
+            "",
+            TimeSpan.FromSeconds(10),
+            diagnosticStateProvider: () => new LanDiagnosticState(
+                LastSuccessfulRemoteAddress: "192.168.1.92",
+                LastRequestResult: "SUCCESS"),
+            repairProbe: async (_, _, _) =>
+            {
+                probes++;
+                entered.SetResult();
+                await release.Task;
+                return LanRepairProbeResult.TIMEOUT;
+            },
+            neighborReader: (_, index) => new LanNeighborSnapshot("Reachable", "AA-BB-CC-DD-EE-FF", index),
+            repairRouteValidator: (_, _) => true);
+
+        await controller.SetEnabledAsync(true, CancellationToken.None);
+        var first = controller.RepairPhoneConnectionAsync(CancellationToken.None);
+        await entered.Task;
+        var concurrent = await controller.RepairPhoneConnectionAsync(CancellationToken.None);
+        release.SetResult();
+        await first;
+
+        Assert.AreEqual("正在尝试修复，请稍候", concurrent);
+        Assert.AreEqual(1, probes);
+    }
+
+    [TestMethod]
+    public void RepairFailureClassificationUsesNeighborEvidenceBeforeIcmpGuessing()
+    {
+        Assert.AreEqual(
+            "NEIGHBOR_RESOLUTION",
+            TokenUsageSyncController.ClassifyRepairFailure(
+                LanRepairProbeResult.TIMEOUT,
+                new LanNeighborSnapshot("Incomplete", null, 7)));
+        Assert.AreEqual(
+            "ICMP_TIMEOUT_OR_FILTERED",
+            TokenUsageSyncController.ClassifyRepairFailure(
+                LanRepairProbeResult.TIMEOUT,
+                new LanNeighborSnapshot("Reachable", "AA-BB-CC-DD-EE-FF", 7)));
+        Assert.AreEqual(
+            "ROUTE_OR_REMOTE_UNREACHABLE",
+            TokenUsageSyncController.ClassifyRepairFailure(
+                LanRepairProbeResult.UNREACHABLE,
+                new LanNeighborSnapshot("Stale", "AA-BB-CC-DD-EE-FF", 7)));
     }
 
     private static DnsSdServicePublisher Publisher(

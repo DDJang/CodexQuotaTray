@@ -33,7 +33,18 @@ internal sealed record LanDiagnosticState(
     DateTimeOffset? LastRepairProbeUtc = null,
     string? LastRepairProbeResult = null,
     string? LastRepairActionResult = null,
-    string? LastRepairRemote = null);
+    string? LastRepairRemote = null,
+    string? LastRepairProbeKind = null,
+    string? LastRepairLocalAddress = null,
+    uint? LastRepairInterfaceIndex = null,
+    bool? LastRepairSourceBound = null,
+    string? LastRepairFailureKind = null,
+    string? LastRepairNeighborBeforeState = null,
+    string? LastRepairNeighborBeforeMac = null,
+    string? LastRepairNeighborBeforeError = null,
+    string? LastRepairNeighborAfterState = null,
+    string? LastRepairNeighborAfterMac = null,
+    string? LastRepairNeighborAfterError = null);
 
 internal static class LanDiagnosticRedactor
 {
@@ -392,6 +403,27 @@ internal sealed class LanDiagnosticBuffer : IAsyncDisposable
                 LastRepairProbeResult = Value(line, "probeResult") ?? current.LastRepairProbeResult,
                 LastRepairActionResult = Value(line, "actionResult") ?? current.LastRepairActionResult,
                 LastRepairRemote = Value(line, "remote") ?? current.LastRepairRemote,
+                LastRepairFailureKind = Value(line, "failureKind") ?? current.LastRepairFailureKind,
+                LastRepairLocalAddress = Value(line, "localAddress") ?? current.LastRepairLocalAddress,
+                LastRepairInterfaceIndex = ParseUInt(Value(line, "interfaceIndex")) ?? current.LastRepairInterfaceIndex,
+                LastRepairSourceBound = ParseBool(Value(line, "sourceBound")) ?? current.LastRepairSourceBound,
+                LastRepairNeighborAfterState = Value(line, "neighborAfterState") ?? current.LastRepairNeighborAfterState,
+                LastRepairNeighborAfterMac = Value(line, "neighborAfterMac") ?? current.LastRepairNeighborAfterMac,
+                LastRepairNeighborAfterError = Value(line, "neighborAfterError") ?? current.LastRepairNeighborAfterError,
+            };
+        }
+
+        if (line.Contains("LAN repair probe started", StringComparison.OrdinalIgnoreCase))
+        {
+            next = next with
+            {
+                LastRepairProbeKind = Value(line, "probeKind") ?? current.LastRepairProbeKind,
+                LastRepairLocalAddress = Value(line, "localAddress") ?? current.LastRepairLocalAddress,
+                LastRepairInterfaceIndex = ParseUInt(Value(line, "interfaceIndex")) ?? current.LastRepairInterfaceIndex,
+                LastRepairSourceBound = ParseBool(Value(line, "sourceBound")) ?? current.LastRepairSourceBound,
+                LastRepairNeighborBeforeState = Value(line, "neighborBeforeState") ?? current.LastRepairNeighborBeforeState,
+                LastRepairNeighborBeforeMac = Value(line, "neighborBeforeMac") ?? current.LastRepairNeighborBeforeMac,
+                LastRepairNeighborBeforeError = Value(line, "neighborBeforeError") ?? current.LastRepairNeighborBeforeError,
             };
         }
 
@@ -411,4 +443,6 @@ internal sealed class LanDiagnosticBuffer : IAsyncDisposable
     private static int? ParseInt(string? value) => int.TryParse(value, out var result) ? result : null;
 
     private static uint? ParseUInt(string? value) => uint.TryParse(value, out var result) ? result : null;
+
+    private static bool? ParseBool(string? value) => bool.TryParse(value, out var result) ? result : null;
 }

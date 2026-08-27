@@ -30,5 +30,6 @@ internal fun OkHttpClient.bindToWifiLan(
         }
         attempt?.route(binding.diagnostics)
             ?: diagnostics?.record("LAN bound network=${binding.networkId ?: "unknown"}")
+        attempt?.socketBinding(binding.networkId, binding.networkGeneration)
         newBuilder().socketFactory(binding.socketFactory).build()
     }
