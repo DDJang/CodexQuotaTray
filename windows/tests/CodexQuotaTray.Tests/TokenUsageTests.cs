@@ -671,6 +671,144 @@ public sealed class TokenUsageTests
     }
 
     [TestMethod]
+    public async Task BurstClientsRespectFixedConcurrencyLimit()
+    {
+        using var corpus = new TokenCorpus();
+        var server = new TokenUsageSyncServer(
+            new TokenUsageScanner(),
+            "test-secret",
+            corpus.Root,
+            requestHeaderTimeout: TimeSpan.FromSeconds(5));
+        server.Start(IPAddress.Loopback, 0);
+        var clients = Enumerable.Range(0, TokenUsageSyncServer.MaximumConcurrentClients * 3)
+            .Select(_ => new TcpClient())
+            .ToArray();
+        try
+        {
+            foreach (var client in clients)
+            {
+                await client.ConnectAsync(IPAddress.Loopback, server.Port);
+                await client.GetStream().WriteAsync("GET /v1/token-usage HTTP/1.1\r\n"u8.ToArray());
+            }
+
+            await WaitUntilAsync(
+                () => server.ActiveClientCount == TokenUsageSyncServer.MaximumConcurrentClients,
+                TimeSpan.FromSeconds(2));
+
+            Assert.AreEqual(TokenUsageSyncServer.MaximumConcurrentClients, server.ActiveClientCount);
+            Assert.AreEqual(TokenUsageSyncServer.MaximumConcurrentClients, server.PeakActiveClientCount);
+        }
+        finally
+        {
+            await server.DisposeAsync();
+            foreach (var client in clients) client.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public async Task ShutdownDrainsActiveClientsAndClosesConnections()
+    {
+        using var corpus = new TokenCorpus();
+        var server = new TokenUsageSyncServer(
+            new TokenUsageScanner(),
+            "test-secret",
+            corpus.Root,
+            requestHeaderTimeout: TimeSpan.FromSeconds(30));
+        server.Start(IPAddress.Loopback, 0);
+        var clients = Enumerable.Range(0, 3).Select(_ => new TcpClient()).ToArray();
+        try
+        {
+            foreach (var client in clients)
+            {
+                await client.ConnectAsync(IPAddress.Loopback, server.Port);
+                await client.GetStream().WriteAsync("GET /v1/token-usage HTTP/1.1\r\n"u8.ToArray());
+            }
+            await WaitUntilAsync(() => server.ActiveClientCount == clients.Length, TimeSpan.FromSeconds(2));
+
+            await server.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(2));
+
+            var closed = await Task.WhenAll(clients.Select(client =>
+                WaitForConnectionClosedAsync(client.GetStream(), TimeSpan.FromSeconds(2))));
+            Assert.IsTrue(closed.All(value => value));
+            Assert.AreEqual(0, server.ActiveClientCount);
+        }
+        finally
+        {
+            await server.DisposeAsync();
+            foreach (var client in clients) client.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public async Task HandlerExceptionIsObservedAndClientIsReleased()
+    {
+        var diagnostics = new List<string>();
+        var server = new TokenUsageSyncServer(
+            _ => Task.FromResult(Snapshot(1, DateTimeOffset.UtcNow)),
+            "test-secret",
+            () => throw new InvalidOperationException("quota failed"),
+            diagnostic: message => diagnostics.Add(message));
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{server.Port}") };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-secret");
+        try
+        {
+            await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAsync("/v1/quota"));
+            await WaitUntilAsync(() => server.ActiveClientCount == 0, TimeSpan.FromSeconds(2));
+
+            Assert.IsTrue(diagnostics.Any(message => message.Contains("handler fault=InvalidOperationException", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            await server.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
+    public async Task DisposeDrainsBackgroundRefreshAndIsIdempotent()
+    {
+        var calls = 0;
+        var refreshStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var refreshStopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = new TokenUsageSyncServer(
+            async cancellationToken =>
+            {
+                if (Interlocked.Increment(ref calls) == 1) return Snapshot(1, DateTimeOffset.UtcNow);
+                refreshStarted.TrySetResult();
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                    return Snapshot(2, DateTimeOffset.UtcNow);
+                }
+                finally
+                {
+                    refreshStopped.TrySetResult();
+                }
+            },
+            "test-secret",
+            TimeSpan.Zero);
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{server.Port}") };
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", "test-secret");
+        try
+        {
+            Assert.AreEqual(1L, await LifetimeTokensAsync(client));
+            Assert.AreEqual(1L, await LifetimeTokensAsync(client));
+            await refreshStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+            var first = server.DisposeAsync().AsTask();
+            var second = server.DisposeAsync().AsTask();
+            await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(2));
+
+            Assert.IsTrue(refreshStopped.Task.IsCompleted);
+        }
+        finally
+        {
+            await server.DisposeAsync();
+        }
+    }
+
+    [TestMethod]
     public async Task LanServerReusesNormalCacheButForceRefreshScansAgain()
     {
         using var corpus = new TokenCorpus();
@@ -929,6 +1067,17 @@ public sealed class TokenUsageTests
         {
             return true;
         }
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        while (!condition() && stopwatch.Elapsed < timeout)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.IsTrue(condition(), $"Condition did not become true within {timeout}.");
     }
 
     private static Task<TokenUsageSnapshot> Scan(TokenCorpus corpus) => new TokenUsageScanner().ScanAsync(

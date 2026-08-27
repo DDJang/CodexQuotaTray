@@ -14,6 +14,8 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
 {
     public const int DefaultPort = 43821;
     private const int MaximumHeaderBytes = 16 * 1024;
+    internal const int MaximumConcurrentClients = 6;
+    private static readonly TimeSpan ShutdownDrainTimeout = TimeSpan.FromSeconds(2);
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
     private readonly Func<CancellationToken, Task<TokenUsageSnapshot>> scanAsync;
     private readonly string secret;
@@ -22,15 +24,20 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
     private readonly TimeSpan requestHeaderTimeout;
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim scanGate = new(1, 1);
+    private readonly SemaphoreSlim clientSlots = new(MaximumConcurrentClients, MaximumConcurrentClients);
     private readonly object cacheLock = new();
+    private readonly object clientTaskLock = new();
     private readonly Action<string> diagnostic;
     private readonly Action? requestObserved;
+    private readonly Lazy<Task> disposeTask;
     private TcpListener? listener;
     private Task? acceptTask;
     private TokenUsageSnapshot? cached;
     private DateTimeOffset cachedAtUtc;
     private long forcedScanGeneration;
     private Task? backgroundRefreshTask;
+    private readonly HashSet<Task> activeClientTasks = [];
+    private int peakActiveClientCount;
 
     public TokenUsageSyncServer(
         TokenUsageScanner scanner,
@@ -49,6 +56,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         this.quotaSnapshotProvider = quotaSnapshotProvider ?? (() => null);
         this.diagnostic = diagnostic ?? (_ => { });
         this.requestObserved = requestObserved;
+        disposeTask = new Lazy<Task>(DisposeCoreAsync, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     internal TokenUsageSyncServer(
@@ -65,6 +73,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         quotaSnapshotProvider = () => null;
         this.diagnostic = diagnostic ?? (_ => { });
         this.requestObserved = requestObserved;
+        disposeTask = new Lazy<Task>(DisposeCoreAsync, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public TokenUsageSyncServer(
@@ -83,6 +92,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         this.quotaSnapshotProvider = quotaSnapshotProvider;
         this.diagnostic = diagnostic ?? (_ => { });
         this.requestObserved = requestObserved;
+        disposeTask = new Lazy<Task>(DisposeCoreAsync, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public IPAddress? Address { get; private set; }
@@ -90,6 +100,8 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
     public int Port { get; private set; }
     public bool IsHealthy => listener is not null && acceptTask is { IsCompleted: false };
     public Exception? ListenerFault => acceptTask?.Exception?.GetBaseException();
+    internal int ActiveClientCount { get { lock (clientTaskLock) return activeClientTasks.Count; } }
+    internal int PeakActiveClientCount { get { lock (clientTaskLock) return peakActiveClientCount; } }
 
     public void Start(IPAddress address, int port = DefaultPort)
     {
@@ -259,7 +271,9 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
 
     private static int PrefixLength(IPAddress? mask) => mask?.GetAddressBytes().Sum(value => System.Numerics.BitOperations.PopCount(value)) ?? 0;
 
-    public async ValueTask DisposeAsync()
+    public ValueTask DisposeAsync() => new(disposeTask.Value);
+
+    private async Task DisposeCoreAsync()
     {
         lifetime.Cancel();
         listener?.Stop();
@@ -282,6 +296,17 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
             }
         }
 
+        await DrainTasksAsync(SnapshotActiveClientTasks(), "client handlers").ConfigureAwait(false);
+        Task? background;
+        lock (cacheLock)
+        {
+            background = backgroundRefreshTask;
+        }
+        if (background is not null)
+        {
+            await DrainTasksAsync([background], "background refresh").ConfigureAwait(false);
+        }
+
         lifetime.Dispose();
     }
 
@@ -289,16 +314,84 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            var client = await activeListener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-            diagnostic($"LAN accept remote={RemoteAddress(client)}");
-            _ = ObserveClientAsync(HandleClientAsync(client, cancellationToken));
+            await clientSlots.WaitAsync(cancellationToken).ConfigureAwait(false);
+            TcpClient? client = null;
+            var handedOff = false;
+            try
+            {
+                client = await activeListener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+                diagnostic($"LAN accept remote={RemoteAddress(client)}");
+                var task = HandleClientWithinSlotAsync(client, cancellationToken);
+                TrackClientTask(task);
+                handedOff = true;
+            }
+            finally
+            {
+                if (!handedOff)
+                {
+                    client?.Dispose();
+                    clientSlots.Release();
+                }
+            }
         }
     }
 
-    private async Task ObserveClientAsync(Task task)
+    private async Task HandleClientWithinSlotAsync(TcpClient client, CancellationToken cancellationToken)
     {
-        try { await task.ConfigureAwait(false); }
-        catch (Exception error) { diagnostic($"LAN client handler fault={error.GetType().Name}"); }
+        try
+        {
+            await HandleClientAsync(client, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            diagnostic($"LAN client handler fault={error.GetType().Name}");
+        }
+        finally
+        {
+            client.Dispose();
+            clientSlots.Release();
+        }
+    }
+
+    private void TrackClientTask(Task task)
+    {
+        lock (clientTaskLock)
+        {
+            activeClientTasks.Add(task);
+            peakActiveClientCount = Math.Max(peakActiveClientCount, activeClientTasks.Count);
+        }
+
+        _ = task.ContinueWith(
+            completed =>
+            {
+                _ = completed.Exception;
+                lock (clientTaskLock) activeClientTasks.Remove(completed);
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private Task[] SnapshotActiveClientTasks()
+    {
+        lock (clientTaskLock) return [.. activeClientTasks];
+    }
+
+    private async Task DrainTasksAsync(Task[] tasks, string description)
+    {
+        if (tasks.Length == 0) return;
+        try
+        {
+            await Task.WhenAll(tasks).WaitAsync(ShutdownDrainTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            diagnostic($"LAN shutdown drain timed out component={description} active={tasks.Count(task => !task.IsCompleted)}");
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            diagnostic($"LAN shutdown drain fault component={description} fault={error.GetType().Name}");
+        }
     }
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
