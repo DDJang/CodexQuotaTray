@@ -331,20 +331,40 @@ private fun TokenUsageStatusLine(status: String) {
     RefreshStatusLine(status)
 }
 
+private data class TokenUsagePresentation(
+    val first: List<Pair<String, Long?>>,
+    val second: List<Pair<String, Long?>>,
+    val categories: List<Pair<String, Long?>>,
+)
+
 @Composable
 private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
     val palette = LocalQuotaPalette.current
-    val first = listOf("今日 Token" to snapshot.summary.todayTokens, "7 天 Token" to snapshot.summary.last7DaysTokens, "30 天 Token" to snapshot.summary.last30DaysTokens, "累计 Token" to snapshot.summary.lifetimeTokens)
-    val second = listOf("峰值 Token" to snapshot.summary.peakDailyTokens, "当前连续" to snapshot.summary.currentStreak?.toLong(), "最长连续" to snapshot.summary.longestStreak?.toLong())
-    val categories = listOf(
-        "输入" to completeCategoryTotal(snapshot.days) { it.inputTokens },
-        "缓存输入" to completeCategoryTotal(snapshot.days) { it.cachedInputTokens },
-        "输出" to completeCategoryTotal(snapshot.days) { it.outputTokens },
-        "推理" to completeCategoryTotal(snapshot.days) { it.reasoningTokens },
-    )
+    val presentation = remember(snapshot) {
+        TokenUsagePresentation(
+            first = listOf(
+                "今日 Token" to snapshot.summary.todayTokens,
+                "7 天 Token" to snapshot.summary.last7DaysTokens,
+                "30 天 Token" to snapshot.summary.last30DaysTokens,
+                "累计 Token" to snapshot.summary.lifetimeTokens,
+            ),
+            second = listOf(
+                "峰值 Token" to snapshot.summary.peakDailyTokens,
+                "当前连续" to snapshot.summary.currentStreak?.toLong(),
+                "最长连续" to snapshot.summary.longestStreak?.toLong(),
+            ),
+            categories = listOf(
+                "输入" to completeCategoryTotal(snapshot.days) { it.inputTokens },
+                "缓存输入" to completeCategoryTotal(snapshot.days) { it.cachedInputTokens },
+                "输出" to completeCategoryTotal(snapshot.days) { it.outputTokens },
+                "推理" to completeCategoryTotal(snapshot.days) { it.reasoningTokens },
+            ),
+        )
+    }
     val tokenContentBackdrop = rememberLayerBackdrop()
     var selectedDate by remember { mutableStateOf<LocalDate?>(null) }
     var tooltipPresentation by remember { mutableStateOf<HeatmapTooltipPresentation?>(null) }
+    val tooltipNeedsBackdrop = selectedDate != null || tooltipPresentation != null
     val tooltipTarget = tooltipPresentation?.target
     val tooltipPositionAnimation = remember {
         Animatable(
@@ -380,13 +400,13 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .layerBackdrop(tokenContentBackdrop)
+                .then(if (tooltipNeedsBackdrop) Modifier.layerBackdrop(tokenContentBackdrop) else Modifier)
                 .background(palette.color(palette.background)),
         ) {
-            SummaryRow(first)
-            SummaryRow(second)
-            if (shouldShowTokenCategories(categories)) {
-                SummaryRow(categories)
+            SummaryRow(presentation.first)
+            SummaryRow(presentation.second)
+            if (shouldShowTokenCategories(presentation.categories)) {
+                SummaryRow(presentation.categories)
             }
             Spacer(Modifier.height(16.dp))
             TokenHeatmap(
@@ -479,7 +499,9 @@ private fun TokenHeatmap(
     val today = LocalDate.now()
     val range = remember(today) { tokenHeatmapRange(today) }
     val values = remember(days) { days.associateBy { it.date } }
-    val nonZero = remember(days) { days.map { it.totalTokens }.filter { it > 0L } }
+    val bucketScale = remember(days) {
+        HeatmapBuckets.prepare(days.map { it.totalTokens })
+    }
     val colors = remember(palette) {
         listOf(
             palette.color(palette.progressTrack),
@@ -517,6 +539,12 @@ private fun TokenHeatmap(
         val gridWidth = with(density) { geometry.contentWidthPx.toDp() }
         val gridHeight = with(density) { geometry.contentHeightPx.toDp() }
         val gridCellSize = with(density) { geometry.cellSizePx.toDp() }
+        val bucketIndices = remember(days, range.start, range.dayCount) {
+            IntArray(range.dayCount) { index ->
+                val date = range.start.plusDays(index.toLong())
+                bucketScale.bucket(values[date]?.totalTokens ?: 0L)
+            }
+        }
         val selectedIndex = selectedDate?.let { ChronoUnit.DAYS.between(range.start, it).toInt() }
         val selectedBounds = selectedIndex?.let(geometry::cellBounds)
         val selectedDay = if (selectedDate != null && selectedBounds != null) {
@@ -524,11 +552,17 @@ private fun TokenHeatmap(
         } else {
             null
         }
-        val currentVisualSelection = if (selectedDate != null && selectedBounds != null && selectedDay != null) {
+        val selectedBucket = selectedIndex?.let(bucketIndices::getOrNull)
+        val currentVisualSelection = if (
+            selectedDate != null &&
+            selectedBounds != null &&
+            selectedDay != null &&
+            selectedBucket != null
+        ) {
             HeatmapVisualSelection(
                 date = selectedDate,
                 bounds = selectedBounds,
-                color = colors[HeatmapBuckets.bucket(selectedDay.totalTokens, nonZero)],
+                color = colors[selectedBucket],
             )
         } else {
             null
@@ -660,12 +694,10 @@ private fun TokenHeatmap(
                 ) {
                     Canvas(Modifier.fillMaxSize()) {
                         repeat(range.dayCount) { index ->
-                            val date = range.start.plusDays(index.toLong())
-                            val tokens = values[date]?.totalTokens ?: 0L
                             val column = index / geometry.rowCount
                             val row = index % geometry.rowCount
                             drawRoundRect(
-                                color = colors[HeatmapBuckets.bucket(tokens, nonZero)],
+                                color = colors[bucketIndices[index]],
                                 topLeft = Offset(column * geometry.stridePx, row * geometry.stridePx),
                                 size = Size(geometry.cellSizePx, geometry.cellSizePx),
                                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(

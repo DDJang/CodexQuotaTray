@@ -21,6 +21,7 @@ import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import java.io.File
 import java.net.SocketTimeoutException
 import java.nio.file.Files
+import kotlin.math.ln
 
 class TokenUsageTest {
     @Test fun pairingUriParsesAndPublicOrInvalidEndpointsAreRejected() {
@@ -313,6 +314,50 @@ class TokenUsageTest {
         assertEquals(1, HeatmapBuckets.bucket(1, values))
         assertEquals(4, HeatmapBuckets.bucket(1_000_000_000L, values))
         assertTrue(HeatmapBuckets.bucket(100, values) >= 2)
+    }
+
+    @Test fun preparedHeatmapScaleMatchesLegacyBucketsAtQuantileBoundaries() {
+        val values = listOf(32L, -4L, 1L, 0L, 2L, 4L, 8L, 16L)
+        val scale = HeatmapBuckets.prepare(values)
+        val probes = listOf(Long.MIN_VALUE, -1L, 0L, 1L, 2L, 3L, 4L, 5L, 8L, 9L, 16L, 17L, 32L, Long.MAX_VALUE)
+
+        probes.forEach { value ->
+            val expected = legacyHeatmapBucket(value, values)
+            assertEquals(expected, scale.bucket(value))
+            assertEquals(expected, HeatmapBuckets.bucket(value, values))
+        }
+    }
+
+    @Test fun preparedHeatmapScalePreservesEmptyAndSmallSamples() {
+        listOf(
+            emptyList(),
+            listOf(-3L, 0L),
+            listOf(7L),
+            listOf(0L, 7L),
+            listOf(7L, 7L),
+        ).forEach { values ->
+            val scale = HeatmapBuckets.prepare(values)
+            listOf(-1L, 0L, 1L, 6L, 7L, 8L, Long.MAX_VALUE).forEach { value ->
+                assertEquals(legacyHeatmapBucket(value, values), scale.bucket(value))
+            }
+        }
+    }
+
+    private fun legacyHeatmapBucket(value: Long, nonZeroValues: List<Long>): Int {
+        if (value <= 0L) return 0
+        val sorted = nonZeroValues.filter { it > 0L }.sorted()
+        if (sorted.isEmpty()) return 0
+        val transformed = sorted.map { ln(it.toDouble() + 1.0) }
+        val current = ln(value.toDouble() + 1.0)
+        val q1 = transformed[(transformed.lastIndex * 0.25).toInt()]
+        val q2 = transformed[(transformed.lastIndex * 0.50).toInt()]
+        val q3 = transformed[(transformed.lastIndex * 0.75).toInt()]
+        return when {
+            current <= q1 -> 1
+            current <= q2 -> 2
+            current <= q3 -> 3
+            else -> 4
+        }
     }
 
     private fun pairing() = TokenSyncPairing("192.168.1.10", 43821, "secret")
