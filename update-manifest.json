@@ -13,15 +13,15 @@
     "publishedAt": "2026-08-28T05:25:41Z"
   },
   "android": {
-    "version": "0.10.4",
-    "tag": "android-v0.10.4",
+    "version": "0.10.5",
+    "tag": "android-v0.10.5",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.10.4.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.10.4/CodexQuotaTray-Android-v0.10.4.apk",
-      "sha256": "7fdd02e0a346c4883a723bdf8f7ff3dc696ed5ad50b0d2f1cf330ffb89ae2aa8",
-      "size": 27122896
+      "name": "CodexQuotaTray-Android-v0.10.5.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.10.5/CodexQuotaTray-Android-v0.10.5.apk",
+      "sha256": "f70510f201a0d628d3005e6863bce383272f25bd3656173df7c0e5f52ed8d7f0",
+      "size": 27123572
     },
-    "releaseNotes": "## Android\n\n### 局域网同步与稳定性\n\n- 改进额度与 Token 局域网同步的连接恢复和诊断摘要，让失败阶段与最近一次操作更清晰。\n- 限制诊断记录的存储增长，并在应用重启后保留近期脱敏记录，方便在设置中查看和复制。\n- 改进前后台切换与网络变化时的刷新生命周期，减少过期同步结果覆盖当前状态的情况。\n\n### 界面与主题\n\n- 修复主页面液态玻璃控件的内容采样，使底栏、刷新和设置控件正确反映页面内容。\n- 修复关于页图标在浅色主题下显示为深色，并随系统主题动态切换。\n",
-    "publishedAt": "2026-08-27T12:03:46Z"
+    "releaseNotes": "## Launcher icon\n\n- Restore the launcher artwork from the original dashboard SVG with crisp, scalable vector geometry.\n- Keep the standard, round, themed, and startup artwork visually consistent while giving the mark more balanced surrounding space.\n",
+    "publishedAt": "2026-08-28T05:26:22Z"
   }
 }
