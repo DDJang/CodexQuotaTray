@@ -35,10 +35,13 @@ class LauncherIconResourceTest {
     }
 
     @Test
-    fun splashUsesTheSameResolutionIndependentLauncherGeometry() {
+    fun splashKeepsItsExistingBitmapGeometry() {
         val styles = resourceText("values/styles.xml")
+        val splash = resourceText("drawable/ic_launcher_splash.xml")
 
-        assertTrue(styles.contains("@drawable/ic_launcher_foreground"))
+        assertTrue(styles.contains("@drawable/ic_launcher_splash"))
+        assertTrue(splash.contains("@drawable/ic_launcher_mark"))
+        assertTrue(splash.contains("android:inset=\"18dp\""))
     }
 
     @Test
