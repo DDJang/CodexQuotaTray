@@ -2,38 +2,34 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="108"
-    android:viewportHeight="108">
-    <!-- Keep splash geometry independent while matching the launcher mark. -->
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FFE6E6E6"
-        android:strokeWidth="5.5"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M38.8,75.75
-            C32.9,71 29.25,62.8 29.25,53.5
-            C29.25,41.2 40.3,31.25 54,31.25
-            C67.7,31.25 78.75,41.2 78.75,53.5
-            C78.75,62.8 75.1,71 69.2,75.75
-            L38.8,75.75 Z" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FFE6E6E6"
-        android:strokeWidth="5"
-        android:strokeLineCap="round"
-        android:pathData="M57.2,56.1 L66.3,47" />
-    <path
-        android:fillColor="#FFE6E6E6"
-        android:fillType="evenOdd"
-        android:pathData="M54,48
-            C58.556,48 62.25,51.694 62.25,56.25
-            C62.25,60.806 58.556,64.5 54,64.5
-            C49.444,64.5 45.75,60.806 45.75,56.25
-            C45.75,51.694 49.444,48 54,48 Z
-            M54,53.5
-            C55.519,53.5 56.75,54.731 56.75,56.25
-            C56.75,57.769 55.519,59 54,59
-            C52.481,59 51.25,57.769 51.25,56.25
-            C51.25,54.731 52.481,53.5 54,53.5 Z" />
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- Independent splash resource using the same dashboard.svg geometry. -->
+    <group
+        android:pivotX="12"
+        android:pivotY="12"
+        android:scaleX="0.61"
+        android:scaleY="0.61">
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="#FFE6E6E6"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M10,13a2,2 0 1,0 4,0a2,2 0 1,0 -4,0" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="#FFE6E6E6"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M13.45,11.55l2.05,-2.05" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="#FFE6E6E6"
+            android:strokeWidth="2"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M6.4,20a9,9 0 1,1 11.2,0l-11.2,0" />
+    </group>
 </vector>

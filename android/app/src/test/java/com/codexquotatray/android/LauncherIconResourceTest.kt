@@ -13,58 +13,66 @@ class LauncherIconResourceTest {
         val round = resourceText("mipmap-anydpi/ic_launcher_round.xml")
 
         listOf(launcher, round).forEach { source ->
-            assertTrue(source.contains("@color/launcher_background"))
-            assertTrue(source.contains("@drawable/ic_launcher_foreground"))
             assertTrue(source.contains("<background"))
+            assertTrue(source.contains("@color/launcher_background"))
             assertTrue(source.contains("<foreground"))
+            assertTrue(source.contains("@drawable/ic_launcher_foreground"))
             assertTrue(source.contains("<monochrome"))
             assertTrue(source.contains("<monochrome android:drawable=\"@drawable/ic_launcher_foreground\" />"))
         }
     }
 
     @Test
-    fun foregroundUsesClean108DpVectorGeometryAtTheSmallerTargetSize() {
+    fun foregroundPreservesDashboardSvgGeometryWithUniformScale() {
         val foreground = resourceText("drawable/ic_launcher_foreground.xml")
+        val compact = foreground.replace(Regex("\\s+"), "")
 
         assertTrue(foreground.contains("<vector"))
         assertTrue(foreground.contains("android:width=\"108dp\""))
         assertTrue(foreground.contains("android:height=\"108dp\""))
-        assertTrue(foreground.contains("android:viewportWidth=\"108\""))
-        assertTrue(foreground.contains("android:viewportHeight=\"108\""))
-        assertTrue(foreground.contains("approximately 55dp x 50dp"))
-        assertTrue(foreground.contains("android:strokeColor=\"#FFE6E6E6\""))
-        assertTrue(foreground.contains("android:strokeWidth=\"5.5\""))
+        assertTrue(foreground.contains("android:viewportWidth=\"24\""))
+        assertTrue(foreground.contains("android:viewportHeight=\"24\""))
+        assertTrue(foreground.contains("android:pivotX=\"12\""))
+        assertTrue(foreground.contains("android:pivotY=\"12\""))
+        assertTrue(foreground.contains("android:scaleX=\"0.61\""))
+        assertTrue(foreground.contains("android:scaleY=\"0.61\""))
+        assertTrue(foreground.contains("android:strokeWidth=\"2\""))
         assertTrue(foreground.contains("android:strokeLineCap=\"round\""))
         assertTrue(foreground.contains("android:strokeLineJoin=\"round\""))
-        assertTrue(foreground.contains("android:fillType=\"evenOdd\""))
-        assertTrue(foreground.contains("android:pathData=\"M38.8,75.75"))
-        assertTrue(foreground.contains("C29.25,41.2 40.3,31.25 54,31.25"))
-        assertTrue(foreground.contains("M54,53.5"))
-        assertTrue(foreground.contains("M57.2,56.1 L66.3,47"))
-        assertFalse(foreground.contains("<inset"))
-        assertFalse(foreground.contains("<bitmap"))
-        assertFalse(foreground.contains("android:scaleX"))
-        assertFalse(foreground.contains("android:translateX"))
-        assertFalse(foreground.contains("M19.5,120"))
+        assertEquals(3, foreground.countOccurrences("android:fillColor=\"@android:color/transparent\""))
+        assertEquals(3, foreground.countOccurrences("android:strokeColor=\"#FFE6E6E6\""))
+        assertEquals(3, foreground.countOccurrences("android:strokeWidth=\"2\""))
+        assertEquals(
+            listOf(
+                "M10,13a2,201,04,0a2,201,0-4,0",
+                "M13.45,11.55l2.05,-2.05",
+                "M6.4,20a9,901,111.2,0l-11.2,0",
+            ),
+            pathData(foreground).map { it.replace(Regex("\\s+"), "") },
+        )
 
-        val lineCommands = Regex("""(?<![A-Za-z])L(?=[0-9.-])""")
-            .findAll(foreground)
-            .count()
-        assertTrue("the geometry must not be a raster outline trace", lineCommands <= 2)
+        assertFalse(foreground.contains("<bitmap"))
+        assertFalse(foreground.contains("<inset"))
+        assertFalse(foreground.contains("android:translateX"))
+        assertFalse(foreground.contains("android:translateY"))
+        assertFalse(foreground.contains("M38.8,75.75"))
+        assertFalse(foreground.contains("M54,48"))
+        assertFalse(foreground.contains("M57.2,56.1"))
+        assertFalse(compact.contains("M19.5,120"))
     }
 
     @Test
-    fun splashIsIndependentButUsesTheSameCleanGeometry() {
+    fun splashIsIndependentButUsesTheSameDashboardSvgGeometry() {
         val styles = resourceText("values/styles.xml")
         val foreground = resourceText("drawable/ic_launcher_foreground.xml")
         val splash = resourceText("drawable/ic_launcher_splash.xml")
 
         assertTrue(styles.contains("@drawable/ic_launcher_splash"))
         assertTrue(splash.contains("<vector"))
-        assertTrue(splash.contains("android:width=\"108dp\""))
-        assertTrue(splash.contains("android:height=\"108dp\""))
-        assertFalse(splash.contains("<inset"))
+        assertTrue(splash.contains("android:viewportWidth=\"24\""))
+        assertTrue(splash.contains("android:viewportHeight=\"24\""))
         assertFalse(splash.contains("<bitmap"))
+        assertFalse(splash.contains("<inset"))
         assertEquals(vectorBody(foreground), vectorBody(splash))
     }
 
@@ -75,6 +83,15 @@ class LauncherIconResourceTest {
         assertTrue(manifest.contains("android:icon=\"@mipmap/ic_launcher\""))
         assertTrue(manifest.contains("android:roundIcon=\"@mipmap/ic_launcher_round\""))
     }
+
+    private fun pathData(source: String): List<String> =
+        Regex("""android:pathData=\"([^\"]+)\"""")
+            .findAll(source)
+            .map { it.groupValues[1] }
+            .toList()
+
+    private fun String.countOccurrences(value: String): Int =
+        windowed(value.length, 1).count { it == value }
 
     private fun vectorBody(source: String): String =
         source.substringAfter("<vector").substringBeforeLast("</vector>")
