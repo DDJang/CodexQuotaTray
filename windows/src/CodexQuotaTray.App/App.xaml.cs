@@ -39,6 +39,7 @@ public partial class App : Application
     private TokenUsageSourceResolver? tokenUsageSourceResolver;
     private TokenUsageViewModel? tokenUsageViewModel;
     private WindowsUpdateService? windowsUpdateService;
+    private WindowsAppNotificationService? appNotifications;
     private AppIdentity? applicationIdentity;
     private CrashSessionLog? crashSessionLog;
     private PreviousCrashInfo? previousCrashInfo;
@@ -66,6 +67,14 @@ public partial class App : Application
         {
             Exit();
             return;
+        }
+
+        if (!showDemo)
+        {
+            appNotifications = new WindowsAppNotificationService(OnAppNotificationInvoked);
+            var iconUri = new Uri(Path.GetFullPath(
+                Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.png")));
+            _ = appNotifications.TryRegister(identity.DisplayName, iconUri);
         }
 
         currentInstance.Activated += OnInstanceActivated;
@@ -100,7 +109,9 @@ public partial class App : Application
             var settingsService = new SettingsService(jsonStore, paths);
             tokenUsageSettingsTask = settingsService.LoadAsync(lifetime.Token);
             tokenUsageCacheSettingsStateTask = TokenUsageCacheSettingsState.CreateAsync(tokenUsageSettingsTask);
-            var notificationSink = new TrayNotificationSink(uiDispatcher);
+            var notificationSink = new TrayNotificationSink(
+                uiDispatcher,
+                appNotifications ?? throw new InvalidOperationException("App notifications are unavailable."));
             var cliFactory = new CodexAppServerClientFactory(new CodexClientOptions(ExplicitCodexBinary: explicitCodex));
             var oauthCredentials = new OAuthCredentialManager(
                 new DpapiOAuthCredentialStore(paths.OAuthCredentials),
@@ -354,9 +365,15 @@ public partial class App : Application
         {
             try
             {
+                if (appNotifications?.IsRegistered == true)
+                {
+                    appNotifications.ShowWindowsUpdateAvailable(release);
+                    return;
+                }
+
                 trayIcon?.ShowWindowsUpdateAvailable(release);
             }
-            catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
+            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
             {
                 System.Diagnostics.Debug.WriteLine($"Windows update notification failed: {error.GetType().Name}");
             }
@@ -608,6 +625,22 @@ public partial class App : Application
         });
     }
 
+    private void OnAppNotificationInvoked()
+    {
+        if (Volatile.Read(ref exitStarted) != 0)
+        {
+            return;
+        }
+
+        _ = uiDispatcher?.TryEnqueue(() =>
+        {
+            if (Volatile.Read(ref exitStarted) == 0)
+            {
+                mainWindow?.ShowPanel();
+            }
+        });
+    }
+
     private async Task<TokenUsageSnapshot> ScanTokenUsageAsync(
         TokenUsageScanner scanner,
         PreviewPersistence? persistence,
@@ -793,6 +826,7 @@ public partial class App : Application
     {
         try
         {
+            DisposeAppNotifications();
             crashSessionLog?.CompleteSession();
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
@@ -861,6 +895,7 @@ public partial class App : Application
 
         trayIcon?.Dispose();
         trayIcon = null;
+        DisposeAppNotifications();
         hostEvents?.Dispose();
         hostEvents = null;
         settingsWindow?.PrepareForExit();
@@ -872,6 +907,12 @@ public partial class App : Application
         lifetime.Dispose();
         crashSessionLog?.CompleteSession();
         Exit();
+    }
+
+    private void DisposeAppNotifications()
+    {
+        appNotifications?.Dispose();
+        appNotifications = null;
     }
 
     internal static bool HasArgument(IEnumerable<string> arguments, string expected) =>

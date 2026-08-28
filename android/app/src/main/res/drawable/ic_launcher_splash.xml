@@ -4,7 +4,7 @@
     android:height="108dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Source geometry: dashboard.svg. Only the uniform 0.61 scale is applied. -->
+    <!-- Independent splash resource using the same dashboard.svg geometry. -->
     <group
         android:pivotX="12"
         android:pivotY="12"

@@ -20,6 +20,21 @@ public sealed record NormalizedQuotaWindow(
     string? BucketId = null,
     string? SemanticIdentity = null);
 
+/// <summary>
+/// Reset metadata retained for alert evaluation when a successful quota
+/// response contains a window without a usable percentage. It is deliberately
+/// not a product window and is therefore not projected or cached.
+/// </summary>
+public sealed record NormalizedQuotaResetObservation(
+    string AlertKey,
+    string? LegacyAlertKey,
+    string? LimitName,
+    string SourceSlot,
+    long? WindowDurationMinutes,
+    DateTimeOffset? ResetAtUtc,
+    string? BucketId = null,
+    string? SemanticIdentity = null);
+
 public sealed record NormalizedQuotaSnapshot(
     IReadOnlyList<NormalizedQuotaWindow> Windows,
     ResetCreditViewState ResetCredits,
@@ -27,7 +42,8 @@ public sealed record NormalizedQuotaSnapshot(
     int IssueCount,
     bool ResetCreditsFieldPresent,
     long? AvailableCount,
-    int? CreditDetailCount);
+    int? CreditDetailCount,
+    IReadOnlyList<NormalizedQuotaResetObservation>? ResetObservations = null);
 
 public static class QuotaNormalizer
 {
@@ -36,6 +52,7 @@ public static class QuotaNormalizer
         var response = result.Response;
         var issues = 0;
         var windows = new List<NormalizedQuotaWindow>();
+        var resetObservations = new List<NormalizedQuotaResetObservation>();
         var snapshots = response.RateLimitsByLimitId is { Count: > 0 } buckets
             ? buckets.OrderBy(entry => entry.Key, StringComparer.Ordinal)
                 .Select(entry => (Bucket: (string?)entry.Key, Snapshot: entry.Value))
@@ -46,8 +63,24 @@ public static class QuotaNormalizer
         var fallbackOrdinal = 0;
         foreach (var entry in snapshots)
         {
-            Append(entry.Snapshot.Primary, "primary", entry.Bucket, entry.Snapshot, windows, ref issues, ref fallbackOrdinal);
-            Append(entry.Snapshot.Secondary, "secondary", entry.Bucket, entry.Snapshot, windows, ref issues, ref fallbackOrdinal);
+            Append(
+                entry.Snapshot.Primary,
+                "primary",
+                entry.Bucket,
+                entry.Snapshot,
+                windows,
+                resetObservations,
+                ref issues,
+                ref fallbackOrdinal);
+            Append(
+                entry.Snapshot.Secondary,
+                "secondary",
+                entry.Bucket,
+                entry.Snapshot,
+                windows,
+                resetObservations,
+                ref issues,
+                ref fallbackOrdinal);
         }
 
         if (windows.Count == 0)
@@ -66,7 +99,8 @@ public static class QuotaNormalizer
             issues,
             result.ResetCreditsFieldPresent,
             reset.AvailableCount,
-            reset.DetailCount);
+            reset.DetailCount,
+            resetObservations);
     }
 
     public static DateTimeOffset? ParseUnixSeconds(long? value)
@@ -92,6 +126,7 @@ public static class QuotaNormalizer
         string? bucket,
         RateLimitSnapshot snapshot,
         List<NormalizedQuotaWindow> output,
+        List<NormalizedQuotaResetObservation> resetObservations,
         ref int issues,
         ref int fallbackOrdinal)
     {
@@ -103,6 +138,35 @@ public static class QuotaNormalizer
         if (window.UsedPercent is null)
         {
             issues++;
+            var missingOrdinal = fallbackOrdinal++;
+            var bucketId = bucket ?? QuotaBucketPolicy.CanonicalBucketId;
+            var semanticIdentity = QuotaBucketPolicy.CreateSemanticIdentity(
+                bucketId,
+                window.WindowDurationMinutes);
+            var resetAtUtc = ParseUnixSeconds(window.ResetsAt);
+            if (window.WindowDurationMinutes is > 0)
+            {
+                resetObservations.Add(new NormalizedQuotaResetObservation(
+                    QuotaWindowIdentity.CreateAlertKey(
+                        snapshot.LimitId,
+                        bucket,
+                        slot,
+                        window.WindowDurationMinutes,
+                        missingOrdinal),
+                    QuotaWindowIdentity.CreateLegacyAlertKey(
+                        snapshot.LimitId,
+                        bucket,
+                        slot,
+                        window.WindowDurationMinutes,
+                        missingOrdinal),
+                    snapshot.LimitName,
+                    slot,
+                    window.WindowDurationMinutes,
+                    resetAtUtc,
+                    bucketId,
+                    semanticIdentity));
+            }
+
             return;
         }
 

@@ -13,6 +13,8 @@ namespace CodexQuotaTray.Tests;
 [TestClass]
 public sealed class AppServerPhase2Tests
 {
+    private static readonly long TestFutureResetAt = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds();
+
     [TestMethod]
     public void NpmShimUsesOneCmdPayloadAndPrecedesPackagedAliases()
     {
@@ -1788,8 +1790,8 @@ public sealed class AppServerPhase2Tests
 
     private sealed class IdentityReconnectClient(bool first) : ICodexAppServerClient
     {
-        private const long OldResetAt = 1_000_000;
-        private const long NewResetAt = OldResetAt + 18_000;
+        private static readonly long OldResetAt = TestFutureResetAt;
+        private static readonly long NewResetAt = OldResetAt + 18_000;
         private readonly TaskCompletionSource disconnect = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int disposed;
 
@@ -1899,7 +1901,7 @@ public sealed class AppServerPhase2Tests
                         {
                             UsedPercent = 25,
                             WindowDurationMinutes = 300,
-                            ResetsAt = 2_000,
+                            ResetsAt = TestFutureResetAt,
                         },
                     },
                 },
@@ -1994,7 +1996,7 @@ public sealed class AppServerPhase2Tests
                 {
                     UsedPercent = usedPercent,
                     WindowDurationMinutes = 300,
-                    ResetsAt = 2_000,
+                    ResetsAt = TestFutureResetAt,
                 },
             },
         };
@@ -2246,7 +2248,7 @@ public sealed class AppServerPhase2Tests
                 {
                     UsedPercent = usedPercent,
                     WindowDurationMinutes = 300,
-                    ResetsAt = 2_000,
+                    ResetsAt = TestFutureResetAt,
                 },
             },
         };
@@ -2293,7 +2295,7 @@ public sealed class AppServerPhase2Tests
                         {
                             UsedPercent = usedPercent,
                             WindowDurationMinutes = 300,
-                            ResetsAt = 2_000,
+                            ResetsAt = TestFutureResetAt,
                         },
                     },
                 },
@@ -2386,7 +2388,7 @@ public sealed class AppServerPhase2Tests
                         {
                             UsedPercent = usedPercent,
                             WindowDurationMinutes = 300,
-                            ResetsAt = 2_000,
+                            ResetsAt = TestFutureResetAt,
                         },
                     },
                 },

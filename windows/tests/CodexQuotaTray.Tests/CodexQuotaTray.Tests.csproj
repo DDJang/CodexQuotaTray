@@ -25,7 +25,9 @@
     <None Include="..\..\src\CodexQuotaTray.App\App.xaml.cs" Link="App.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\installer\CodexQuotaTray.iss" Link="Installer\CodexQuotaTray.iss" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\TrayNotificationSink.cs" Link="Services\TrayNotificationSink.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Services\WindowsAppNotificationService.cs" Link="Services\WindowsAppNotificationService.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\TrayIconService.cs" Link="Services\TrayIconService.cs" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Services\QuotaNotificationFormatter.cs" Link="Services\QuotaNotificationFormatter.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\SessionEndingPolicy.cs" Link="Services\SessionEndingPolicy.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TrayBalloonAttemptGate.cs" Link="Services\TrayBalloonAttemptGate.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TokenUsageCacheSettingsState.cs" Link="Services\TokenUsageCacheSettingsState.cs" />

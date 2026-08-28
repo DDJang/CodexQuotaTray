@@ -18,7 +18,7 @@ public sealed record QuotaThresholdWindow(
 
 public sealed record QuotaResetWindow(
     string WindowName,
-    int RemainingPercent,
+    int? RemainingPercent,
     DateTimeOffset? ResetAtUtc);
 
 public sealed record QuotaResetCreditExpiry(
@@ -27,7 +27,7 @@ public sealed record QuotaResetCreditExpiry(
     string? Title,
     string? ResetType);
 
-public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Threshold)
+public sealed record QuotaAlert(string WindowName, int? RemainingPercent, int Threshold)
 {
     public QuotaAlertKind Kind { get; init; } = QuotaAlertKind.Threshold;
 
@@ -108,11 +108,36 @@ public sealed record QuotaAlert(string WindowName, int RemainingPercent, int Thr
     }
 }
 
-public sealed record AlertReduction(AlertStateDocument State, QuotaAlert? Alert);
+public sealed record QuotaResetEvaluationDiagnostic(
+    string Window,
+    DateTimeOffset Now,
+    int? CurrentRemainingPercent,
+    int? PreviousRemainingPercent,
+    int? MinRemainingPercent,
+    DateTimeOffset? BaselineResetAtUtc,
+    DateTimeOffset? PreviousResetAtUtc,
+    DateTimeOffset? CurrentResetAtUtc,
+    DateTimeOffset? PendingResetDeadlineUtc,
+    DateTimeOffset? LastNotifiedResetDeadlineUtc,
+    bool DeadlineCrossed,
+    bool CumulativeRecovery,
+    bool CumulativeResetAtAdvance,
+    bool ResetDetected,
+    string? ResetCycleKey,
+    bool NotificationAttempted = false,
+    bool NotificationSucceeded = false);
+
+public sealed record AlertReduction(AlertStateDocument State, QuotaAlert? Alert)
+{
+    public IReadOnlyList<QuotaResetEvaluationDiagnostic> ResetDiagnostics { get; init; } = [];
+}
 
 public static class QuotaAlertReducer
 {
     private static readonly int[] AllThresholds = [50, 20, 10];
+    private static readonly TimeSpan ResetDeadlineGrace = TimeSpan.FromMinutes(3);
+    private const int RecoveryDelta = 50;
+    private const int RecoveryMinimum = 80;
 
     public static AlertReduction Reduce(
         AlertStateDocument? previous,
@@ -129,9 +154,9 @@ public static class QuotaAlertReducer
         var oldWindows = baseline ? new Dictionary<string, AlertWindowState>() : previous!.Windows;
         var output = new Dictionary<string, AlertWindowState>(oldWindows, StringComparer.Ordinal);
         var matchedOldKeys = new HashSet<string>(StringComparer.Ordinal);
-        var consumedCycleFingerprints = CollectConsumedCycleFingerprints(oldWindows.Values);
         var resetAlerts = new List<QuotaResetWindow>();
         var thresholdAlerts = new List<QuotaThresholdWindow>();
+        var resetDiagnostics = new List<QuotaResetEvaluationDiagnostic>();
         var hasValidWindow = false;
 
         foreach (var input in windows)
@@ -145,17 +170,6 @@ public static class QuotaAlertReducer
                 legacyKeyToRemove = legacyKey;
             }
 
-            if (!input.IsPercentageReliable || input.RemainingPercent is < 0 or > 100)
-            {
-                if (old is not null && legacyKeyToRemove is null)
-                {
-                    output[input.PseudonymousKey] = old;
-                }
-
-                continue;
-            }
-
-            hasValidWindow = true;
             var matchedOldKey = old is not null
                 ? legacyKeyToRemove ?? input.PseudonymousKey
                 : null;
@@ -180,6 +194,34 @@ public static class QuotaAlertReducer
                 }
             }
 
+            var evidenceCandidates = identityUncertain
+                ? FindResetEvidenceCandidates(
+                    oldWindows.Values,
+                    input,
+                    semanticIdentity,
+                    matchedOldKeys)
+                    : old is null
+                        ? []
+                        : [old];
+            var currentRemaining = input.IsPercentageReliable
+                ? NormalizePercent(input.RemainingPercent)
+                : null;
+            var percentageReliable = currentRemaining is not null;
+            var hasReliableResetMetadata = input.ResetAtUtc is not null;
+            var hasComparableHistory = evidenceCandidates.Any(candidate =>
+                IsDurationCompatible(candidate, input.WindowDurationMinutes));
+            if (!percentageReliable && !hasReliableResetMetadata && !hasComparableHistory)
+            {
+                if (old is not null && !identityUncertain && legacyKeyToRemove is null)
+                {
+                    output[input.PseudonymousKey] = old;
+                }
+
+                continue;
+            }
+
+            hasValidWindow |= percentageReliable || hasReliableResetMetadata;
+
             if (old is not null && matchedOldKey is not null)
             {
                 matchedOldKeys.Add(matchedOldKey);
@@ -196,138 +238,52 @@ public static class QuotaAlertReducer
             HashSet<int> handled = identityUncertain
                 ? []
                 : old?.HandledThresholds.ToHashSet() ?? [];
-            var resetAtAdvance = old is not null && IsReliableResetAtAdvance(old, input);
-            var strongRecovery = old is not null && IsStrongRecovery(old, input);
-            var metadataCatchUp = old is not null
-                && !strongRecovery
-                && old.ResetAlertAwaitingCycleMetadata
-                && IsCycleMetadataCatchUp(old, input, resetAtAdvance);
-            var cycleTransition = resetAtAdvance || strongRecovery;
-            // A migrated/unestablished baseline is deliberately not allowed
-            // to infer a reset from percentage recovery alone. A reliable
-            // resetAt advance can still prove a transition from persisted
-            // window history. Fresh installs have no old window to compare.
-            var newCycle = !metadataCatchUp
-                && cycleTransition
-                && (!resetBaseline || resetAtAdvance);
-            if (newCycle)
+            var evaluation = EvaluateReset(
+                input,
+                evidenceCandidates,
+                !resetBaseline,
+                identityChanged,
+                identityUncertain,
+                now);
+            var diagnostic = evaluation.ToDiagnostic(now);
+            resetDiagnostics.Add(diagnostic);
+
+            if (evaluation.ResetDetected)
             {
                 handled.Clear();
-            }
-
-            var resetAlertCycle = old?.LastResetAlertCycleUtc;
-            // Older state files only had LastResetAlertCycleUtc; treat an
-            // existing marker as already consumed when migrating them.
-            var resetAlertConsumed = old?.ResetAlertCycleConsumed
-                ?? old?.LastResetAlertCycleUtc is not null;
-            var awaitingCycleMetadata = old?.ResetAlertAwaitingCycleMetadata ?? false;
-            var resetCycleFingerprint = old?.LastResetAlertCycleFingerprint
-                ?? CreateResetCycleFingerprint(old?.WindowDurationMinutes, old?.LastResetAlertCycleUtc);
-            var currentCycleFingerprint = CreateResetCycleFingerprint(
-                input.WindowDurationMinutes,
-                input.ResetAtUtc);
-            var currentCycleAlreadyConsumed = currentCycleFingerprint is not null
-                && consumedCycleFingerprints.Contains(currentCycleFingerprint);
-
-            if (identityUncertain)
-            {
-                var evidenceCandidates = FindResetEvidenceCandidates(
-                    oldWindows.Values,
-                    input,
-                    semanticIdentity,
-                    matchedOldKeys);
-                var resetAtEvidence = evidenceCandidates.Any(candidate => IsReliableResetAtAdvance(candidate, input));
-                var strongRecoveryEvidence = evidenceCandidates.Any(candidate => IsStrongRecovery(candidate, input));
-                var hasResetEvidence = resetAtEvidence
-                    || (!resetBaseline && strongRecoveryEvidence);
-                if (hasResetEvidence)
-                {
-                    resetAlertCycle = input.ResetAtUtc ?? resetAlertCycle;
-                    resetAlertConsumed = true;
-                    resetCycleFingerprint = currentCycleFingerprint ?? resetCycleFingerprint;
-                    awaitingCycleMetadata = strongRecoveryEvidence && !resetAtEvidence;
-                    if (currentCycleFingerprint is not null)
-                    {
-                        consumedCycleFingerprints.Add(currentCycleFingerprint);
-                    }
-
-                    if (settings.ResetAfterCycle && !currentCycleAlreadyConsumed)
-                    {
-                        resetAlerts.Add(new QuotaResetWindow(
-                            input.WindowName,
-                            input.RemainingPercent,
-                            input.ResetAtUtc));
-                    }
-                }
-                else if (currentCycleAlreadyConsumed)
-                {
-                    // The current key may be a third representation of a cycle
-                    // already acknowledged under another identity. Carry only
-                    // the cycle marker; threshold history remains unmerged.
-                    resetAlertCycle = input.ResetAtUtc ?? resetAlertCycle;
-                    resetAlertConsumed = true;
-                    resetCycleFingerprint = currentCycleFingerprint;
-                }
-
-                output[input.PseudonymousKey] = new AlertWindowState(
-                    input.PseudonymousKey,
-                    input.WindowDurationMinutes,
-                    input.ResetAtUtc,
-                    input.RemainingPercent,
-                    [],
-                    resetAlertCycle,
-                    resetAlertConsumed,
-                    awaitingCycleMetadata,
-                    semanticIdentity,
-                    resetCycleFingerprint);
-                continue;
-            }
-
-            if (metadataCatchUp)
-            {
-                resetAlertCycle = input.ResetAtUtc;
-                awaitingCycleMetadata = false;
-                resetCycleFingerprint = currentCycleFingerprint ?? resetCycleFingerprint;
-            }
-            else if (newCycle)
-            {
-                var suppressChangedIdentityDuplicate = identityChanged && currentCycleAlreadyConsumed;
-                if (settings.ResetAfterCycle && !suppressChangedIdentityDuplicate)
+                if (settings.ResetAfterCycle)
                 {
                     resetAlerts.Add(new QuotaResetWindow(
                         input.WindowName,
-                        input.RemainingPercent,
+                        currentRemaining,
                         input.ResetAtUtc));
-                }
-
-                resetAlertCycle = input.ResetAtUtc ?? resetAlertCycle;
-                resetAlertConsumed = true;
-                resetCycleFingerprint = currentCycleFingerprint ?? resetCycleFingerprint;
-                // Strong recovery is a complete logical-cycle signal. If
-                // resetAt did not also advance reliably, remember that its
-                // later advance only labels this already-consumed cycle.
-                awaitingCycleMetadata = strongRecovery && !resetAtAdvance;
-                if (currentCycleFingerprint is not null)
-                {
-                    consumedCycleFingerprints.Add(currentCycleFingerprint);
                 }
             }
 
             var newlyEnabled = enabled.Except(previous?.BaselineThresholds ?? []).ToArray();
             foreach (var threshold in newlyEnabled)
             {
-                if (input.RemainingPercent <= threshold)
+                if (currentRemaining is { } observed && observed <= threshold)
                 {
                     handled.Add(threshold);
                 }
             }
 
-            var crossed = baseline || old?.LastReliableRemaining is null || newCycle
-                ? []
-                : enabled.Where(threshold =>
+            int[] crossed;
+            if (baseline
+                || old?.LastReliableRemaining is null
+                || evaluation.ResetDetected
+                || currentRemaining is not { } observedForThreshold)
+            {
+                crossed = [];
+            }
+            else
+            {
+                crossed = enabled.Where(threshold =>
                     !handled.Contains(threshold)
                     && old.LastReliableRemaining > threshold
-                    && input.RemainingPercent <= threshold).ToArray();
+                    && observedForThreshold <= threshold).ToArray();
+            }
             foreach (var threshold in crossed)
             {
                 handled.Add(threshold);
@@ -338,21 +294,17 @@ public static class QuotaAlertReducer
                 var threshold = crossed.Min();
                 thresholdAlerts.Add(new QuotaThresholdWindow(
                     input.WindowName,
-                    input.RemainingPercent,
+                    currentRemaining.GetValueOrDefault(),
                     threshold));
             }
 
-            output[input.PseudonymousKey] = new AlertWindowState(
-                input.PseudonymousKey,
-                input.WindowDurationMinutes,
-                input.ResetAtUtc,
-                input.RemainingPercent,
+            output[input.PseudonymousKey] = BuildState(
+                input,
+                evaluation,
                 handled.OrderDescending().ToArray(),
-                resetAlertCycle,
-                resetAlertConsumed,
-                awaitingCycleMetadata,
                 semanticIdentity,
-                resetCycleFingerprint);
+                identityUncertain && evaluation.CurrentCycleAlreadyAcknowledged && evaluation.Reference is null,
+                now);
         }
 
         var resetCreditStates = baseline
@@ -439,7 +391,10 @@ public static class QuotaAlertReducer
                 output,
                 baselineEstablished || hasValidWindow,
                 resetCreditStates),
-            alert);
+            alert)
+        {
+            ResetDiagnostics = resetDiagnostics,
+        };
     }
 
     private static bool IsValidResetCredit(ResetCreditExpiryInput input, DateTimeOffset now) =>
@@ -505,7 +460,10 @@ public static class QuotaAlertReducer
             QuotaBucketPolicy.LogicalWindowKind(right),
             StringComparison.Ordinal);
 
-    private static string? CreateResetCycleFingerprint(long? durationMinutes, DateTimeOffset? resetAtUtc)
+    private static int? NormalizePercent(int? value) =>
+        value is { } percent && percent is >= 0 and <= 100 ? percent : null;
+
+    private static string? CreateResetCycleKey(long? durationMinutes, DateTimeOffset? resetAtUtc)
     {
         if (resetAtUtc is not { } resetAt)
         {
@@ -515,102 +473,486 @@ public static class QuotaAlertReducer
         return $"window:{QuotaBucketPolicy.LogicalWindowKind(durationMinutes)}|resetAt:{resetAt.ToUnixTimeSeconds()}";
     }
 
-    private static HashSet<string> CollectConsumedCycleFingerprints(IEnumerable<AlertWindowState> states)
+    private static HashSet<string> CollectAcknowledgedCycleKeys(IEnumerable<AlertWindowState> states)
     {
         var result = new HashSet<string>(StringComparer.Ordinal);
         foreach (var state in states)
         {
-            var consumed = state.ResetAlertCycleConsumed
-                ?? state.LastResetAlertCycleUtc is not null
-                || state.LastResetAlertCycleFingerprint is not null;
-            if (!consumed)
+            if (state.LastNotifiedResetDeadlineUtc is { } lastNotified
+                && CreateResetCycleKey(state.WindowDurationMinutes, lastNotified) is { } notifiedKey)
             {
-                continue;
+                result.Add(notifiedKey);
             }
 
-            var fingerprint = state.LastResetAlertCycleFingerprint
-                ?? CreateResetCycleFingerprint(state.WindowDurationMinutes, state.LastResetAlertCycleUtc);
-            if (fingerprint is not null)
+            if (!HasExtendedResetState(state) && IsLegacyCycleConsumed(state))
             {
-                result.Add(fingerprint);
+                var key = state.LastResetAlertCycleFingerprint
+                    ?? CreateResetCycleKey(state.WindowDurationMinutes, state.LastResetAlertCycleUtc);
+                if (key is not null)
+                {
+                    result.Add(key);
+                }
             }
         }
 
         return result;
     }
 
-    public static bool IsCycleTransition(AlertWindowState previous, AlertInput current)
+    private static ResetEvaluation EvaluateReset(
+        AlertInput input,
+        IReadOnlyList<AlertWindowState> candidates,
+        bool allowRecovery,
+        bool identityChanged,
+        bool identityUncertain,
+        DateTimeOffset now)
     {
-        if (IsStrongRecovery(previous, current))
+        var currentRemaining = input.IsPercentageReliable
+            ? NormalizePercent(input.RemainingPercent)
+            : null;
+        var currentDuration = input.WindowDurationMinutes
+            ?? candidates.FirstOrDefault()?.WindowDurationMinutes;
+        var currentCycleKey = CreateResetCycleKey(currentDuration, input.ResetAtUtc);
+        var currentCycleAlreadyAcknowledged = currentCycleKey is not null
+            && CollectAcknowledgedCycleKeys(candidates).Contains(currentCycleKey);
+        var evidence = candidates
+            .Where(candidate => IsDurationCompatible(candidate, input.WindowDurationMinutes))
+            .Select(candidate => EvaluateEvidence(candidate, input, currentRemaining, now))
+            .ToArray();
+        if (evidence.Length == 0)
         {
-            return true;
+            return new ResetEvaluation(
+                null,
+                currentRemaining,
+                null,
+                null,
+                null,
+                null,
+                input.ResetAtUtc,
+                null,
+                null,
+                false,
+                false,
+                false,
+                false,
+                false,
+                null,
+                currentCycleAlreadyAcknowledged,
+                currentDuration);
         }
 
-        var resetAtAdvance = IsReliableResetAtAdvance(previous, current);
-        return resetAtAdvance
-            && !(previous.ResetAlertAwaitingCycleMetadata
-                && IsCycleMetadataCatchUp(previous, current, resetAtAdvance));
+        var deadlineCrossed = evidence.Any(value => value.DeadlineCrossed);
+        var cumulativeRecovery = evidence.Any(value => value.CumulativeRecovery);
+        var cumulativeResetAtAdvance = evidence.Any(value => value.CumulativeResetAtAdvance);
+        var advanceEvidence = evidence
+            .Where(value => value.CumulativeResetAtAdvance)
+            .ToArray();
+        var metadataCatchUp = advanceEvidence.Length > 0
+            && advanceEvidence.All(value => value.MetadataCatchUp);
+        var rawResetDetected = deadlineCrossed
+            || (allowRecovery && cumulativeRecovery)
+            || (cumulativeResetAtAdvance && !metadataCatchUp);
+        var reference = evidence.FirstOrDefault(value => value.DeadlineCrossed)
+            ?? (allowRecovery
+                ? evidence.FirstOrDefault(value => value.CumulativeRecovery)
+                : null)
+            ?? evidence.FirstOrDefault(value => value.CumulativeResetAtAdvance)
+            ?? evidence[0];
+        var sameAcknowledgedCycle = reference.PendingResetDeadlineUtc is { } pending
+            && reference.LastNotifiedResetDeadlineUtc == pending
+            && (input.ResetAtUtc is null || input.ResetAtUtc == pending);
+        var currentCycleMatchesConsumedMarker = currentCycleKey is not null
+            && IsLegacyCycleConsumed(reference.State)
+            && string.Equals(
+                reference.State.LastResetAlertCycleFingerprint
+                    ?? CreateResetCycleKey(
+                        reference.State.WindowDurationMinutes,
+                        reference.State.LastResetAlertCycleUtc),
+                currentCycleKey,
+                StringComparison.Ordinal);
+        var suppressAcknowledgedIdentity = currentCycleAlreadyAcknowledged
+            && !deadlineCrossed
+            && (identityChanged || identityUncertain);
+        var suppressConsumedMarkerDuplicate = currentCycleMatchesConsumedMarker
+            && (identityChanged || identityUncertain);
+        var resetDetected = rawResetDetected
+            && !suppressAcknowledgedIdentity
+            && !suppressConsumedMarkerDuplicate
+            && !(sameAcknowledgedCycle && !deadlineCrossed && !cumulativeRecovery);
+        var effectiveDuration = input.WindowDurationMinutes ?? reference.EffectiveDurationMinutes;
+        return new ResetEvaluation(
+            reference.State,
+            currentRemaining,
+            reference.PreviousRemainingPercent,
+            reference.MinRemainingPercent,
+            reference.BaselineResetAtUtc,
+            reference.PreviousResetAtUtc,
+            input.ResetAtUtc,
+            reference.PendingResetDeadlineUtc,
+            reference.LastNotifiedResetDeadlineUtc,
+            deadlineCrossed,
+            cumulativeRecovery,
+            cumulativeResetAtAdvance,
+            metadataCatchUp,
+            resetDetected,
+            CreateResetCycleKey(effectiveDuration, reference.PendingResetDeadlineUtc),
+            currentCycleAlreadyAcknowledged,
+            effectiveDuration);
     }
 
-    private static bool IsStrongRecovery(AlertWindowState previous, AlertInput current) =>
-        previous.LastReliableRemaining is { } last
-            && current.RemainingPercent - last >= 50
-            && current.RemainingPercent >= 80;
-
-    public static bool IsNewCycle(AlertWindowState previous, AlertInput current) =>
-        IsCycleTransition(previous, current);
-
-    public static bool IsResetCycle(AlertWindowState previous, AlertInput current)
+    private static ResetEvidence EvaluateEvidence(
+        AlertWindowState state,
+        AlertInput input,
+        int? currentRemaining,
+        DateTimeOffset now)
     {
-        return IsCycleTransition(previous, current);
+        var baselineResetAt = BaselineResetAt(state);
+        var pendingResetDeadline = PendingResetDeadline(state);
+        var lastNotifiedResetDeadline = LastNotifiedResetDeadline(state);
+        var effectiveDuration = input.WindowDurationMinutes ?? state.WindowDurationMinutes;
+        var currentReliable = input.IsPercentageReliable && currentRemaining is not null;
+        var hasTrustworthyCurrentSnapshot = currentReliable || input.ResetAtUtc is not null;
+        var canCatchUpLegacyDeadline = (!HasExtendedResetState(state) || state.ResetAlertMigrationPending)
+            && state.ResetAtUtc is not null
+            && hasTrustworthyCurrentSnapshot;
+        var canUsePersistedDeadline = canCatchUpLegacyDeadline
+            || (!state.ResetAlertMigrationPending
+                && (state.PendingResetDeadlineUtc is not null
+                    || (HasExtendedResetState(state) && state.BaselineResetAtUtc is not null)));
+        var deadlineCrossed = canUsePersistedDeadline
+            && pendingResetDeadline is { } pending
+            && lastNotifiedResetDeadline != pending
+            && now >= pending + ResetDeadlineGrace;
+        var cumulativeRecovery = currentReliable
+            && currentRemaining is { } observed
+            && (state.MinRemainingPercentSinceBaseline ?? state.LastReliableRemaining) is { } min
+            && observed - min >= RecoveryDelta
+            && observed >= RecoveryMinimum;
+        var cumulativeResetAtAdvance = input.ResetAtUtc is { } currentResetAt
+            && baselineResetAt is { } baseline
+            && HasMatchingPositiveDuration(state, input.WindowDurationMinutes)
+            && effectiveDuration is > 0
+            && currentResetAt - baseline >= TimeSpan.FromMinutes(effectiveDuration.Value / 2d);
+        var metadataCatchUp = state.ResetAlertAwaitingCycleMetadata
+            && input.ResetAtUtc is not null
+            && IsCycleMetadataCatchUp(state, input.ResetAtUtc.Value, effectiveDuration);
+        return new ResetEvidence(
+            state,
+            state.LastObservedRemainingPercent ?? state.LastReliableRemaining,
+            state.MinRemainingPercentSinceBaseline ?? state.LastReliableRemaining,
+            baselineResetAt,
+            state.LastObservedResetAtUtc ?? state.ResetAtUtc,
+            pendingResetDeadline,
+            lastNotifiedResetDeadline,
+            deadlineCrossed,
+            cumulativeRecovery,
+            cumulativeResetAtAdvance,
+            metadataCatchUp,
+            effectiveDuration);
     }
 
-    private static bool IsReliableResetAtAdvance(AlertWindowState previous, AlertInput current)
+    private static AlertWindowState BuildState(
+        AlertInput input,
+        ResetEvaluation evaluation,
+        IReadOnlyList<int> handledThresholds,
+        string semanticIdentity,
+        bool markCurrentCycleAcknowledged,
+        DateTimeOffset now)
     {
-        if (previous.ResetAtUtc is not { } before || current.ResetAtUtc is not { } after)
+        var old = evaluation.Reference;
+        var currentRemaining = evaluation.CurrentRemainingPercent;
+        var currentReliable = input.IsPercentageReliable && currentRemaining is not null;
+        var duration = input.WindowDurationMinutes ?? old?.WindowDurationMinutes;
+        var resetAt = input.ResetAtUtc ?? old?.ResetAtUtc;
+        var baselineResetAt = evaluation.BaselineResetAtUtc;
+        var pendingResetDeadline = evaluation.PendingResetDeadlineUtc;
+        var lastNotifiedResetDeadline = evaluation.LastNotifiedResetDeadlineUtc;
+        var minRemaining = evaluation.MinRemainingPercent;
+        var lastReliableRemaining = old?.LastReliableRemaining;
+        var lastObservedRemaining = old?.LastObservedRemainingPercent ?? old?.LastReliableRemaining;
+        var lastObservedResetAt = old?.LastObservedResetAtUtc ?? old?.ResetAtUtc;
+        var resetAlertCycle = old?.LastResetAlertCycleUtc;
+        var resetAlertConsumed = old is not null && IsLegacyCycleConsumed(old);
+        var awaitingCycleMetadata = old?.ResetAlertAwaitingCycleMetadata ?? false;
+        var resetCycleFingerprint = old?.LastResetAlertCycleFingerprint
+            ?? CreateResetCycleKey(old?.WindowDurationMinutes, old?.LastResetAlertCycleUtc);
+        var migratingLegacyState = old is not null && !HasExtendedResetState(old);
+        var resetAlertMigrationPending = old?.ResetAlertMigrationPending ?? false;
+        if (migratingLegacyState)
         {
-            return false;
+            resetAlertMigrationPending = true;
         }
 
-        if (previous.WindowDurationMinutes is not > 0
-            || current.WindowDurationMinutes is not > 0
-            || previous.WindowDurationMinutes != current.WindowDurationMinutes)
+        if (currentReliable)
         {
-            return false;
+            var observed = currentRemaining!.Value;
+            lastReliableRemaining = observed;
+            lastObservedRemaining = observed;
+            minRemaining = minRemaining is { } previousMin
+                ? Math.Min(previousMin, observed)
+                : observed;
+        }
+        if (input.ResetAtUtc is { } observedResetAt)
+        {
+            resetAt = observedResetAt;
+            lastObservedResetAt = observedResetAt;
         }
 
-        var tolerance = TimeSpan.FromMinutes(Math.Max(5, current.WindowDurationMinutes.Value / 2d));
-        return after - before >= tolerance;
+        baselineResetAt ??= input.ResetAtUtc;
+        if (!resetAlertMigrationPending)
+        {
+            pendingResetDeadline ??= input.ResetAtUtc;
+        }
+
+        if (evaluation.ResetDetected)
+        {
+            resetAlertMigrationPending = false;
+            resetAlertConsumed = true;
+            if (pendingResetDeadline is { } oldPending)
+            {
+                lastNotifiedResetDeadline = oldPending;
+            }
+            else if (input.ResetAtUtc is { } currentResetForNotification)
+            {
+                lastNotifiedResetDeadline = currentResetForNotification;
+            }
+
+            if (input.ResetAtUtc is { } currentResetAt)
+            {
+                baselineResetAt = currentResetAt;
+                pendingResetDeadline = currentResetAt;
+                resetAlertCycle = currentResetAt;
+                resetCycleFingerprint = CreateResetCycleKey(duration, currentResetAt);
+                if (evaluation.DeadlineCrossed
+                    && now >= currentResetAt + ResetDeadlineGrace)
+                {
+                    // One successful catch-up acknowledges every missed cycle
+                    // represented by this snapshot instead of replaying them
+                    // one at a time on subsequent evaluations.
+                    lastNotifiedResetDeadline = currentResetAt;
+                }
+            }
+
+            minRemaining = currentReliable ? currentRemaining : null;
+            lastReliableRemaining = currentReliable ? currentRemaining : null;
+            awaitingCycleMetadata = evaluation.CumulativeRecovery
+                && !evaluation.CumulativeResetAtAdvance
+                && !evaluation.DeadlineCrossed;
+        }
+        else if (evaluation.MetadataCatchUp)
+        {
+            resetAlertMigrationPending = false;
+            baselineResetAt = input.ResetAtUtc ?? baselineResetAt;
+            pendingResetDeadline = input.ResetAtUtc ?? pendingResetDeadline;
+            // This timestamp only labels a recovery event that was already
+            // acknowledged. Carry it as acknowledged so a later deadline
+            // check cannot replay the same logical reset.
+            lastNotifiedResetDeadline = input.ResetAtUtc ?? lastNotifiedResetDeadline;
+            resetAlertCycle = input.ResetAtUtc ?? resetAlertCycle;
+            resetCycleFingerprint = CreateResetCycleKey(duration, input.ResetAtUtc) ?? resetCycleFingerprint;
+            awaitingCycleMetadata = false;
+        }
+
+        if (markCurrentCycleAcknowledged && input.ResetAtUtc is { } currentCycle)
+        {
+            resetAlertConsumed = true;
+            baselineResetAt ??= currentCycle;
+            pendingResetDeadline ??= currentCycle;
+            lastNotifiedResetDeadline ??= currentCycle;
+            resetAlertCycle ??= currentCycle;
+            resetCycleFingerprint ??= CreateResetCycleKey(duration, currentCycle);
+        }
+
+        return new AlertWindowState(
+            input.PseudonymousKey,
+            duration,
+            resetAt,
+            lastReliableRemaining,
+            handledThresholds,
+            resetAlertCycle,
+            resetAlertConsumed,
+            awaitingCycleMetadata,
+            semanticIdentity,
+            resetCycleFingerprint,
+            baselineResetAt,
+            pendingResetDeadline,
+            lastNotifiedResetDeadline,
+            minRemaining,
+            lastObservedRemaining,
+            lastObservedResetAt,
+            resetAlertMigrationPending);
     }
+
+    private static DateTimeOffset? BaselineResetAt(AlertWindowState state) =>
+        state.BaselineResetAtUtc
+        ?? state.ResetAtUtc
+        ?? state.LastResetAlertCycleUtc;
+
+    private static DateTimeOffset? PendingResetDeadline(AlertWindowState state) =>
+        state.PendingResetDeadlineUtc
+        ?? state.BaselineResetAtUtc
+        ?? state.ResetAtUtc
+        ?? state.LastResetAlertCycleUtc;
+
+    private static DateTimeOffset? LastNotifiedResetDeadline(AlertWindowState state) =>
+        state.LastNotifiedResetDeadlineUtc
+        ?? (!HasExtendedResetState(state)
+            && state.LastResetAlertCycleUtc is not null && state.ResetAlertCycleConsumed is not false
+            ? state.LastResetAlertCycleUtc
+            : null);
+
+    private static bool HasExtendedResetState(AlertWindowState state) =>
+        state.BaselineResetAtUtc is not null
+        || state.PendingResetDeadlineUtc is not null
+        || state.LastNotifiedResetDeadlineUtc is not null
+        || state.MinRemainingPercentSinceBaseline is not null
+        || state.LastObservedRemainingPercent is not null
+        || state.LastObservedResetAtUtc is not null
+        || state.ResetAlertMigrationPending;
+
+    private static bool IsLegacyCycleConsumed(AlertWindowState state) =>
+        state.ResetAlertCycleConsumed
+        ?? (state.LastResetAlertCycleUtc is not null
+            || state.LastResetAlertCycleFingerprint is not null);
+
+    private static bool IsDurationCompatible(AlertWindowState state, long? currentDuration) =>
+        state.WindowDurationMinutes is not > 0
+        || currentDuration is not > 0
+        || state.WindowDurationMinutes == currentDuration;
+
+    private static bool HasMatchingPositiveDuration(AlertWindowState state, long? currentDuration) =>
+        state.WindowDurationMinutes is > 0
+        && currentDuration is > 0
+        && state.WindowDurationMinutes == currentDuration;
 
     private static bool IsCycleMetadataCatchUp(
         AlertWindowState previous,
-        AlertInput current,
-        bool resetAtAdvance)
+        DateTimeOffset currentResetAt,
+        long? effectiveDuration)
     {
-        if (current.ResetAtUtc is not { } after
-            || previous.WindowDurationMinutes is not > 0
-            || current.WindowDurationMinutes != previous.WindowDurationMinutes)
-        {
-            return false;
-        }
-
-        if (previous.ResetAtUtc is not null && !resetAtAdvance)
-        {
-            return false;
-        }
-
-        var before = previous.ResetAtUtc ?? previous.LastResetAlertCycleUtc;
+        var before = BaselineResetAt(previous);
         if (before is null)
         {
             return true;
         }
 
-        var advance = after - before.Value;
-        var duration = TimeSpan.FromMinutes(current.WindowDurationMinutes.Value);
-        // One window of resetAt movement can label the strong-recovery cycle
-        // already consumed. A larger jump proves at least one later cycle.
-        return advance > TimeSpan.Zero && advance <= duration;
+        return currentResetAt >= before.Value
+            && effectiveDuration is > 0
+            && currentResetAt - before.Value <= TimeSpan.FromMinutes(effectiveDuration.Value);
+    }
+
+    public static bool IsCycleTransition(AlertWindowState previous, AlertInput current)
+    {
+        if (previous.WindowDurationMinutes is not > 0
+            || current.WindowDurationMinutes is not > 0
+            || previous.WindowDurationMinutes != current.WindowDurationMinutes
+            || !current.IsPercentageReliable
+            || NormalizePercent(current.RemainingPercent) is not { } currentRemaining)
+        {
+            return false;
+        }
+
+        var min = previous.MinRemainingPercentSinceBaseline ?? previous.LastReliableRemaining;
+        var recovery = min is { } low
+            && currentRemaining - low >= RecoveryDelta
+            && currentRemaining >= RecoveryMinimum;
+        var advance = false;
+        DateTimeOffset currentResetAt = default;
+        if (current.ResetAtUtc is { } observedResetAt
+            && BaselineResetAt(previous) is { } baseline)
+        {
+            currentResetAt = observedResetAt;
+            advance = currentResetAt > baseline
+                && currentResetAt - baseline >= TimeSpan.FromMinutes(current.WindowDurationMinutes.Value / 2d);
+        }
+
+        return recovery
+            || (advance
+                && !(previous.ResetAlertAwaitingCycleMetadata
+                    && IsCycleMetadataCatchUp(previous, currentResetAt, current.WindowDurationMinutes)));
+    }
+
+    public static bool IsNewCycle(AlertWindowState previous, AlertInput current) =>
+        IsCycleTransition(previous, current);
+
+    public static bool IsResetCycle(AlertWindowState previous, AlertInput current) =>
+        IsCycleTransition(previous, current);
+
+    internal static string FormatResetEvaluation(QuotaResetEvaluationDiagnostic diagnostic) =>
+        string.Join(
+            " ",
+            "quota_reset_evaluation",
+            $"window={diagnostic.Window}",
+            $"now={diagnostic.Now:O}",
+            $"currentRemaining={FormatValue(diagnostic.CurrentRemainingPercent)}",
+            $"previousRemaining={FormatValue(diagnostic.PreviousRemainingPercent)}",
+            $"minRemaining={FormatValue(diagnostic.MinRemainingPercent)}",
+            $"baselineResetAt={FormatValue(diagnostic.BaselineResetAtUtc)}",
+            $"previousResetAt={FormatValue(diagnostic.PreviousResetAtUtc)}",
+            $"currentResetAt={FormatValue(diagnostic.CurrentResetAtUtc)}",
+            $"pendingResetDeadline={FormatValue(diagnostic.PendingResetDeadlineUtc)}",
+            $"lastNotifiedResetDeadline={FormatValue(diagnostic.LastNotifiedResetDeadlineUtc)}",
+            $"deadlineCrossed={diagnostic.DeadlineCrossed}",
+            $"cumulativeRecovery={diagnostic.CumulativeRecovery}",
+            $"cumulativeResetAtAdvance={diagnostic.CumulativeResetAtAdvance}",
+            $"resetDetected={diagnostic.ResetDetected}",
+            $"resetCycleKey={diagnostic.ResetCycleKey ?? "unknown"}",
+            $"notificationAttempted={diagnostic.NotificationAttempted}",
+            $"notificationSucceeded={diagnostic.NotificationSucceeded}");
+
+    private static string FormatValue(int? value) => value?.ToString() ?? "unknown";
+
+    private static string FormatValue(DateTimeOffset? value) => value?.ToString("O") ?? "unknown";
+
+    private sealed record ResetEvidence(
+        AlertWindowState State,
+        int? PreviousRemainingPercent,
+        int? MinRemainingPercent,
+        DateTimeOffset? BaselineResetAtUtc,
+        DateTimeOffset? PreviousResetAtUtc,
+        DateTimeOffset? PendingResetDeadlineUtc,
+        DateTimeOffset? LastNotifiedResetDeadlineUtc,
+        bool DeadlineCrossed,
+        bool CumulativeRecovery,
+        bool CumulativeResetAtAdvance,
+        bool MetadataCatchUp,
+        long? EffectiveDurationMinutes);
+
+    private sealed record ResetEvaluation(
+        AlertWindowState? Reference,
+        int? CurrentRemainingPercent,
+        int? PreviousRemainingPercent,
+        int? MinRemainingPercent,
+        DateTimeOffset? BaselineResetAtUtc,
+        DateTimeOffset? PreviousResetAtUtc,
+        DateTimeOffset? CurrentResetAtUtc,
+        DateTimeOffset? PendingResetDeadlineUtc,
+        DateTimeOffset? LastNotifiedResetDeadlineUtc,
+        bool DeadlineCrossed,
+        bool CumulativeRecovery,
+        bool CumulativeResetAtAdvance,
+        bool MetadataCatchUp,
+        bool ResetDetected,
+        string? ResetCycleKey,
+        bool CurrentCycleAlreadyAcknowledged,
+        long? EffectiveDurationMinutes)
+    {
+        public QuotaResetEvaluationDiagnostic ToDiagnostic(DateTimeOffset now) =>
+            new(
+                QuotaBucketPolicy.LogicalWindowKind(EffectiveDurationMinutes),
+                now,
+                CurrentRemainingPercent,
+                PreviousRemainingPercent,
+                MinRemainingPercent,
+                BaselineResetAtUtc,
+                PreviousResetAtUtc,
+                CurrentResetAtUtc,
+                PendingResetDeadlineUtc,
+                LastNotifiedResetDeadlineUtc,
+                DeadlineCrossed,
+                CumulativeRecovery,
+                CumulativeResetAtAdvance,
+                ResetDetected,
+                ResetCycleKey);
     }
 
     private static IEnumerable<int> Enabled(NotificationSettings settings)
@@ -635,7 +977,7 @@ public static class QuotaAlertReducer
 public sealed record AlertInput(
     string PseudonymousKey,
     string WindowName,
-    int RemainingPercent,
+    int? RemainingPercent,
     bool IsPercentageReliable,
     long? WindowDurationMinutes,
     DateTimeOffset? ResetAtUtc,
