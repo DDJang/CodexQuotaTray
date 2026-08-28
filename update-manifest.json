@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.10.4",
-    "tag": "windows-v0.10.4",
+    "version": "0.10.5",
+    "tag": "windows-v0.10.5",
     "installer": {
-      "name": "CodexQuotaTray-0.10.4-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.10.4/CodexQuotaTray-0.10.4-setup.exe",
-      "sha256": "f09696e288907cb373e83473c3b6deb9bd60c095961bb07e253772a7c9298667",
-      "size": 64059389
+      "name": "CodexQuotaTray-0.10.5-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.10.5/CodexQuotaTray-0.10.5-setup.exe",
+      "sha256": "2e53b95583ed979608cb2dc415597e481a8f6573ee937eb41145989252319f01",
+      "size": 64057634
     },
-    "releaseNotes": "## Windows\r\n\r\n### 手机同步与更新稳定性\r\n\r\n- 改进手机局域网同步的连接处理与诊断，在网络异常时提供更稳定的恢复体验。\r\n- 改进更新下载与关闭过程的并发处理，减少重复或悬挂的更新操作。\r\n\r\n### 额度与统计\r\n\r\n- Token 使用统计支持增量汇总，减少重复处理历史记录的开销。\r\n- 修复额度卡进度条在首次加载、额度大幅变化及窗口缩放时左右漂移的问题，进度指示器左端保持固定。\r\n",
-    "publishedAt": "2026-08-27T12:03:12Z"
+    "releaseNotes": "## Reset notifications\r\n\r\n- Make five-hour and seven-day quota reset alerts reliably catch up after missed deadlines, restarts, and legacy state migration.\r\n- Deliver reset alerts through the Windows notification center and retry transient notification failures until delivery succeeds.\r\n",
+    "publishedAt": "2026-08-28T05:25:41Z"
   },
   "android": {
     "version": "0.10.4",
