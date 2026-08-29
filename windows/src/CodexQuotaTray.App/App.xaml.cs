@@ -2,6 +2,7 @@ using System.Diagnostics;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.App.Views;
 using CodexQuotaTray.Core;
+using CodexQuotaTray.Core.Alerts;
 using CodexQuotaTray.Core.Auth;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Protocol;
@@ -500,9 +501,14 @@ public partial class App : Application
                 accountService);
             settingsViewModel.ThemeSaved += OnSettingsThemeSaved;
             settingsViewModel.DataSourcesChanged += OnSettingsDataSourcesChanged;
+            Func<CancellationToken, Task>? debugTestNotification = null;
+#if CODEXQUOTATRAY_DEV
+            debugTestNotification = pendingNotificationSink is null ? null : SendDebugTestNotificationAsync;
+#endif
             settingsWindow = new SettingsWindow(
                 settingsViewModel,
-                applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName);
+                applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName,
+                debugTestNotification);
         }
 
         settingsWindow.ApplyTheme(runtime.Settings.ThemeMode);
@@ -553,6 +559,12 @@ public partial class App : Application
         });
         return Task.CompletedTask;
     }
+
+#if CODEXQUOTATRAY_DEV
+    private Task SendDebugTestNotificationAsync(CancellationToken cancellationToken) =>
+        (pendingNotificationSink ?? throw new InvalidOperationException("The debug notification sink is unavailable."))
+            .ShowAsync(new QuotaAlert("Debug 测试通知", 42, 50), cancellationToken);
+#endif
 
     private sealed class DelegateSettingsPageActions(
         Func<CancellationToken, Task> refreshQuota,

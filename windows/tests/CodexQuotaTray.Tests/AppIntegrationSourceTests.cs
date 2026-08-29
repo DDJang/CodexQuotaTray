@@ -75,6 +75,23 @@ public sealed class AppIntegrationSourceTests
     }
 
     [TestMethod]
+    public void DebugSettingsExposeAnOptInTestNotificationButton()
+    {
+        var settingsXaml = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "SettingsWindow.xaml"));
+        var settingsSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "SettingsWindow.xaml.cs"));
+        var appSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+
+        StringAssert.Contains(settingsXaml, "x:Name=\"DebugTestNotificationCard\"");
+        StringAssert.Contains(settingsXaml, "Visibility=\"Collapsed\"");
+        StringAssert.Contains(settingsXaml, "x:Name=\"DebugTestNotificationButton\"");
+        StringAssert.Contains(settingsXaml, "Click=\"OnDebugTestNotificationRequested\"");
+        StringAssert.Contains(settingsSource, "#if CODEXQUOTATRAY_DEV");
+        StringAssert.Contains(settingsSource, "DebugTestNotificationCard.Visibility = Visibility.Visible;");
+        StringAssert.Contains(appSource, "pendingNotificationSink is null ? null : SendDebugTestNotificationAsync");
+        StringAssert.Contains(appSource, "new QuotaAlert(\"Debug 测试通知\", 42, 50)");
+    }
+
+    [TestMethod]
     public void WindowsAppSdkPackageVersionsStayAligned()
     {
         var packageVersions = XDocument.Load(

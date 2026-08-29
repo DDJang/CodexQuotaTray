@@ -24,6 +24,7 @@ public sealed partial class SettingsWindow : Window
     private const double MinimumWidthDips = 480;
     private const double MinimumHeightDips = 420;
     private readonly SettingsViewModel viewModel;
+    private readonly Func<CancellationToken, Task>? debugTestNotification;
     private readonly BackdropService backdrop = new();
     private readonly AppWindow appWindow;
     private SettingsContentPage? currentSettingsPage;
@@ -31,9 +32,13 @@ public sealed partial class SettingsWindow : Window
     private bool accountRefreshStarted;
     private bool exiting;
 
-    public SettingsWindow(SettingsViewModel viewModel, string displayName)
+    public SettingsWindow(
+        SettingsViewModel viewModel,
+        string displayName,
+        Func<CancellationToken, Task>? debugTestNotification = null)
     {
         this.viewModel = viewModel;
+        this.debugTestNotification = debugTestNotification;
         InitializeComponent();
         Title = $"{displayName} 设置";
         ApplyAboutIcon();
@@ -86,6 +91,13 @@ public sealed partial class SettingsWindow : Window
         appWindow.Closing += OnClosing;
 
         ApplyTheme(viewModel.SelectedThemeMode);
+
+#if CODEXQUOTATRAY_DEV
+        if (debugTestNotification is not null)
+        {
+            DebugTestNotificationCard.Visibility = Visibility.Visible;
+        }
+#endif
     }
 
     internal void ApplyTheme(ThemeMode mode)
@@ -316,6 +328,28 @@ public sealed partial class SettingsWindow : Window
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
             viewModel.ReportDataSourceApplyFailure();
+        }
+    }
+
+    private async void OnDebugTestNotificationRequested(object sender, RoutedEventArgs args)
+    {
+        if (debugTestNotification is null || sender is not Button button)
+        {
+            return;
+        }
+
+        button.IsEnabled = false;
+        try
+        {
+            await debugTestNotification(CancellationToken.None);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            Debug.WriteLine($"Debug test notification failed: {error.GetType().Name}");
+        }
+        finally
+        {
+            button.IsEnabled = true;
         }
     }
 
