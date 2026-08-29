@@ -57,12 +57,12 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "autostart"; Description: "登录 Windows 时自动启动 CodexQuotaTray"; GroupDescription: "启动选项："
 
 [Files]
+Source: "{#WindowsAppRuntimeInstaller}"; DestDir: "{tmp}"; DestName: "{#WindowsAppRuntimeInstallerFileName}"; Flags: dontcopy
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: ignoreversion restartreplace recursesubdirs createallsubdirs
 Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\PRIVACY.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\docs\DEPENDENCIES.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#WindowsAppRuntimeInstaller}"; DestDir: "{tmp}"; DestName: "{#WindowsAppRuntimeInstallerFileName}"; Flags: dontcopy
 
 [Icons]
 Name: "{autoprograms}\CodexQuotaTray"; Filename: "{app}\codex-quota-tray-gui.exe"; IconFilename: "{app}\Assets\AppIcon.ico"; IconIndex: 0; WorkingDir: "{app}"

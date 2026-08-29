@@ -485,6 +485,16 @@ public sealed class AppIntegrationSourceTests
         var uninstallStart = source.IndexOf("[UninstallRun]", StringComparison.Ordinal);
         var uninstallEnd = source.IndexOf("[UninstallDelete]", uninstallStart, StringComparison.Ordinal);
         var uninstall = source[uninstallStart..uninstallEnd];
+        var filesStart = source.IndexOf("[Files]", StringComparison.Ordinal);
+        var firstSource = source.IndexOf("Source:", filesStart, StringComparison.Ordinal);
+        var runtimeSource = source.IndexOf(
+            "Source: \"{#WindowsAppRuntimeInstaller}\"",
+            filesStart,
+            StringComparison.Ordinal);
+        var publishSource = source.IndexOf(
+            "Source: \"{#PublishDir}\\*\"",
+            filesStart,
+            StringComparison.Ordinal);
 
         StringAssert.Contains(source, "#ifndef WindowsAppRuntimeInstaller");
         StringAssert.Contains(source, "Source: \"{#WindowsAppRuntimeInstaller}\"; DestDir: \"{tmp}\"");
@@ -496,6 +506,9 @@ public sealed class AppIntegrationSourceTests
         StringAssert.Contains(prepare, "ewWaitUntilTerminated");
         StringAssert.Contains(prepare, "if RuntimeExitCode <> 0");
         StringAssert.Contains(prepare, "Windows App Runtime 安装失败");
+        Assert.IsTrue(filesStart >= 0);
+        Assert.AreEqual(firstSource, runtimeSource);
+        Assert.IsTrue(runtimeSource < publishSource);
         Assert.IsFalse(source.Contains("--force", StringComparison.Ordinal));
         Assert.IsFalse(uninstall.Contains("WindowsAppRuntimeInstall", StringComparison.Ordinal));
         Assert.IsFalse(uninstall.Contains("Remove-AppxPackage", StringComparison.Ordinal));
