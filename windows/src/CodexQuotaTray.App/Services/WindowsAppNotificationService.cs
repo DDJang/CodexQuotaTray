@@ -39,6 +39,10 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
 
     internal Exception? LastRegistrationError { get; private set; }
 
+    private string lastDeliveryChannel = "none";
+    private string lastAppNotificationDeliveryError = "none";
+    private string lastShellFallbackError = "none";
+
     internal bool TryRegister(string displayName, Uri iconUri)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
@@ -110,6 +114,42 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
     internal void ShowWindowsUpdateAvailable(WindowsUpdateRelease release) =>
         Show("CodexQuotaTray 更新", $"发现 Windows 新版本 {release.Version}，打开设置即可查看。", "windows-update");
 
+    internal void BeginDelivery()
+    {
+        lastDeliveryChannel = "none";
+        lastAppNotificationDeliveryError = "none";
+        lastShellFallbackError = "none";
+    }
+
+    internal void RecordAppNotificationDeliverySuccess()
+    {
+        lastDeliveryChannel = "AppNotification";
+        lastAppNotificationDeliveryError = "none";
+        lastShellFallbackError = "none";
+        LogDelivery("AppNotification", "none");
+    }
+
+    internal void RecordAppNotificationDeliveryFailure(Exception error)
+    {
+        lastDeliveryChannel = "none";
+        lastAppNotificationDeliveryError = FormatDeliveryError(error);
+        LogDelivery("AppNotificationFailed", lastAppNotificationDeliveryError);
+    }
+
+    internal void RecordShellFallbackDeliverySuccess()
+    {
+        lastDeliveryChannel = "ShellFallback";
+        lastShellFallbackError = "none";
+        LogDelivery("ShellFallback", "none");
+    }
+
+    internal void RecordShellFallbackDeliveryFailure(Exception error)
+    {
+        lastDeliveryChannel = "none";
+        lastShellFallbackError = FormatDeliveryError(error);
+        LogDelivery("ShellFallbackFailed", lastShellFallbackError);
+    }
+
     internal string CreateDiagnosticText()
     {
         var setting = FormatSetting();
@@ -126,7 +166,10 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
             $"appNotificationRuntimeResourcePresent: {(AppNotificationRuntimeResourcePresent ? "true" : "false")}",
             $"setting: {setting}",
             $"registrationError: {FormatRegistrationError(LastRegistrationError)}",
-            $"registrationHResult: {FormatHResult(LastRegistrationError)}");
+            $"registrationHResult: {FormatHResult(LastRegistrationError)}",
+            $"lastDeliveryChannel: {lastDeliveryChannel}",
+            $"lastAppNotificationDeliveryError: {lastAppNotificationDeliveryError}",
+            $"lastShellFallbackError: {lastShellFallbackError}");
     }
 
     private void Show(string title, string body, string kind)
@@ -184,6 +227,11 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
             + $"error={FormatRegistrationError(LastRegistrationError)} "
             + $"hresult={FormatHResult(LastRegistrationError)}");
 
+    private static void LogDelivery(string channel, string error) =>
+        System.Diagnostics.Debug.WriteLine(
+            $"Windows notification delivery: channel={channel} "
+            + $"error={error}");
+
     private static AppNotificationSetting? TryReadSetting(AppNotificationManager candidate)
     {
         try
@@ -230,6 +278,10 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
     private static string FormatHResult(Exception? error) => error is null
         ? "none"
         : $"0x{unchecked((uint)error.HResult):X8}";
+
+    private static string FormatDeliveryError(Exception? error) => error is null
+        ? "none"
+        : $"{error.GetType().Name}(0x{unchecked((uint)error.HResult):X8})";
 
     public void Dispose()
     {

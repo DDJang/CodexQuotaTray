@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core.Alerts;
 
@@ -7,15 +8,19 @@ namespace CodexQuotaTray.Tests;
 public sealed class AppIntegrationSourceTests
 {
     [TestMethod]
-    public void TrayNotificationSinkPrefersWindowsNotificationsAndKeepsTrayFallback()
+    public void TrayNotificationSinkRoutesAppFailureToShellFallback()
     {
         var source = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Services", "TrayNotificationSink.cs"));
 
-        StringAssert.Contains(source, "if (appNotifications.IsRegistered)");
+        StringAssert.Contains(source, "NotificationDeliveryRouter.DeliverAsync");
         StringAssert.Contains(source, "appNotifications.ShowQuotaAlert(alert)");
-        StringAssert.Contains(source, "?? throw new InvalidOperationException");
+        StringAssert.Contains(source, "appNotifications.RecordAppNotificationDeliveryFailure");
+        StringAssert.Contains(source, "appNotifications.RecordShellFallbackDeliverySuccess");
         StringAssert.Contains(source, "tray.ShowQuotaAlertAsync(alert, cancellationToken)");
+        StringAssert.Contains(source, "ContinueWith");
+        StringAssert.Contains(source, "completion.TrySetCanceled()");
+        Assert.IsFalse(source.Contains("catch (Exception", StringComparison.Ordinal));
         Assert.IsFalse(source.Contains("Tray?.ShowQuotaAlert", StringComparison.Ordinal));
     }
 
@@ -68,6 +73,24 @@ public sealed class AppIntegrationSourceTests
     }
 
     [TestMethod]
+    public void WindowsAppSdkPackageVersionsStayAligned()
+    {
+        var packageVersions = XDocument.Load(
+                Path.Combine(AppContext.BaseDirectory, "Directory.Packages.props"))
+            .Descendants("PackageVersion")
+            .Where(element => element.Attribute("Include") is not null)
+            .ToDictionary(
+                element => element.Attribute("Include")!.Value,
+                element => element.Attribute("Version")?.Value);
+
+        Assert.AreEqual("2.3.1", packageVersions["Microsoft.WindowsAppSDK"]);
+        if (packageVersions.TryGetValue("Microsoft.WindowsAppSDK.Runtime", out var runtimeVersion))
+        {
+            Assert.AreEqual(packageVersions["Microsoft.WindowsAppSDK"], runtimeVersion);
+        }
+    }
+
+    [TestMethod]
     public void WindowsNotificationRegistrationAndDiagnosticsDistinguishSupportAndFailure()
     {
         var serviceSource = File.ReadAllText(
@@ -84,8 +107,12 @@ public sealed class AppIntegrationSourceTests
         StringAssert.Contains(serviceSource, "RegistrationState = AppNotificationRegistrationState.Failed");
         StringAssert.Contains(serviceSource, "registrationHResult:");
         StringAssert.Contains(serviceSource, "appNotificationRuntimeResourcePresent:");
+        StringAssert.Contains(serviceSource, "lastDeliveryChannel:");
+        StringAssert.Contains(serviceSource, "lastAppNotificationDeliveryError:");
+        StringAssert.Contains(serviceSource, "lastShellFallbackError:");
         StringAssert.Contains(serviceSource, "Microsoft.WindowsAppRuntime.Insights.Resource.dll");
         StringAssert.Contains(serviceSource, "GetType().Name");
+        StringAssert.Contains(serviceSource, "FormatDeliveryError");
         StringAssert.Contains(serviceSource, "Windows notifications:");
         StringAssert.Contains(serviceSource, "mode:");
         StringAssert.Contains(serviceSource, ".AddText(title)");
@@ -94,6 +121,27 @@ public sealed class AppIntegrationSourceTests
         Assert.IsFalse(serviceSource.Contains("SetAppLogoOverride", StringComparison.Ordinal));
         Assert.IsFalse(serviceSource.Contains("SetHeroImage", StringComparison.Ordinal));
         Assert.IsFalse(serviceSource.Contains("SetInlineImage", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void WindowsUpdateNotificationsUseTheSameFallbackRouter()
+    {
+        var appSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+        var methodStart = appSource.IndexOf("private async Task DeliverWindowsUpdateNotificationAsync(", StringComparison.Ordinal);
+        var methodEnd = appSource.IndexOf(
+            "private async Task StartWindowsUpdateCheckAfterInitializationAsync(",
+            methodStart,
+            StringComparison.Ordinal);
+
+        Assert.IsTrue(methodStart >= 0);
+        Assert.IsTrue(methodEnd > methodStart);
+        var method = appSource[methodStart..methodEnd];
+        StringAssert.Contains(method, "NotificationDeliveryRouter.DeliverAsync");
+        StringAssert.Contains(method, "ShowWindowsUpdateAvailable(release)");
+        StringAssert.Contains(method, "RecordAppNotificationDeliveryFailure");
+        StringAssert.Contains(method, "RecordShellFallbackDeliverySuccess");
+        StringAssert.Contains(method, "CancellationToken.None");
+        StringAssert.Contains(appSource, "ObserveWindowsUpdateDelivery");
     }
 
     [TestMethod]

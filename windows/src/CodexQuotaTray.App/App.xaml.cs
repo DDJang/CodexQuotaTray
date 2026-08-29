@@ -363,21 +363,48 @@ public partial class App : Application
     {
         _ = uiDispatcher?.TryEnqueue(() =>
         {
-            try
-            {
-                if (appNotifications?.IsRegistered == true)
-                {
-                    appNotifications.ShowWindowsUpdateAvailable(release);
-                    return;
-                }
-
-                trayIcon?.ShowWindowsUpdateAvailable(release);
-            }
-            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
-            {
-                System.Diagnostics.Debug.WriteLine($"Windows update notification failed: {error.GetType().Name}");
-            }
+            _ = DeliverWindowsUpdateNotificationAsync(release).ContinueWith(
+                ObserveWindowsUpdateDelivery,
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         });
+    }
+
+    private async Task DeliverWindowsUpdateNotificationAsync(WindowsUpdateRelease release)
+    {
+        var notifications = appNotifications;
+        notifications?.BeginDelivery();
+
+        await NotificationDeliveryRouter.DeliverAsync(
+            notifications?.IsRegistered == true,
+            () => (notifications
+                ?? throw new InvalidOperationException("Windows app notifications are unavailable."))
+                .ShowWindowsUpdateAvailable(release),
+            _ =>
+            {
+                var tray = trayIcon
+                    ?? throw new InvalidOperationException("The tray notification service is unavailable.");
+                tray.ShowWindowsUpdateAvailable(release);
+                return Task.CompletedTask;
+            },
+            () => notifications?.RecordAppNotificationDeliverySuccess(),
+            error => notifications?.RecordAppNotificationDeliveryFailure(error),
+            () => notifications?.RecordShellFallbackDeliverySuccess(),
+            error => notifications?.RecordShellFallbackDeliveryFailure(error),
+            CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private static void ObserveWindowsUpdateDelivery(Task delivery)
+    {
+        if (!delivery.IsFaulted || delivery.Exception?.GetBaseException() is not { } error)
+        {
+            return;
+        }
+
+        System.Diagnostics.Debug.WriteLine(
+            $"Windows update notification failed: {error.GetType().Name} "
+            + $"hresult=0x{unchecked((uint)error.HResult):X8}");
     }
 
     private async Task StartWindowsUpdateCheckAfterInitializationAsync(

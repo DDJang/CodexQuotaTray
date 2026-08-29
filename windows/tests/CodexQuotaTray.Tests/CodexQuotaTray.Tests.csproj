@@ -9,6 +9,7 @@
     <ProjectReference Include="..\CodexQuotaTray.FakeAppServer\CodexQuotaTray.FakeAppServer.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\..\Directory.Packages.props" Link="Directory.Packages.props" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Themes\Colors.xaml" Link="Themes\Colors.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Themes\Controls.xaml" Link="Themes\Controls.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\MainWindow.xaml" Link="Views\MainWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
@@ -29,6 +30,7 @@
     <None Include="..\..\src\CodexQuotaTray.App\Services\WindowsAppNotificationService.cs" Link="Services\WindowsAppNotificationService.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\TrayIconService.cs" Link="Services\TrayIconService.cs" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\QuotaNotificationFormatter.cs" Link="Services\QuotaNotificationFormatter.cs" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Services\NotificationDeliveryRouter.cs" Link="Services\NotificationDeliveryRouter.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\SessionEndingPolicy.cs" Link="Services\SessionEndingPolicy.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TrayBalloonAttemptGate.cs" Link="Services\TrayBalloonAttemptGate.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TokenUsageCacheSettingsState.cs" Link="Services\TokenUsageCacheSettingsState.cs" />
