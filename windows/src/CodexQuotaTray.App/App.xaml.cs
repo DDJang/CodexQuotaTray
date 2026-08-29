@@ -374,7 +374,7 @@ public partial class App : Application
     private async Task DeliverWindowsUpdateNotificationAsync(WindowsUpdateRelease release)
     {
         var notifications = appNotifications;
-        notifications?.BeginDelivery();
+        var deliveryAttempt = notifications?.BeginDelivery();
 
         await NotificationDeliveryRouter.DeliverAsync(
             notifications?.IsRegistered == true,
@@ -388,10 +388,11 @@ public partial class App : Application
                 tray.ShowWindowsUpdateAvailable(release);
                 return Task.CompletedTask;
             },
-            () => notifications?.RecordAppNotificationDeliverySuccess(),
-            error => notifications?.RecordAppNotificationDeliveryFailure(error),
-            () => notifications?.RecordShellFallbackDeliverySuccess(),
-            error => notifications?.RecordShellFallbackDeliveryFailure(error),
+            () => notifications?.RecordAppNotificationDeliverySuccess(deliveryAttempt),
+            error => notifications?.RecordAppNotificationDeliveryFailure(deliveryAttempt, error),
+            () => notifications?.RecordSuppressedBySetting(deliveryAttempt),
+            () => notifications?.RecordShellFallbackDeliverySuccess(deliveryAttempt),
+            error => notifications?.RecordShellFallbackDeliveryFailure(deliveryAttempt, error),
             CancellationToken.None).ConfigureAwait(false);
     }
 

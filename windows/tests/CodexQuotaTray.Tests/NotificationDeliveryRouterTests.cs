@@ -12,7 +12,11 @@ public sealed class NotificationDeliveryRouterTests
 
         await NotificationDeliveryRouter.DeliverAsync(
             appNotificationAvailable: false,
-            showAppNotification: () => calls.Add("app"),
+            showAppNotification: () =>
+            {
+                calls.Add("app");
+                return AppNotificationAttemptResult.Delivered;
+            },
             showShellFallback: _ =>
             {
                 calls.Add("shell");
@@ -20,6 +24,7 @@ public sealed class NotificationDeliveryRouterTests
             },
             recordAppNotificationSuccess: () => calls.Add("app-success"),
             recordAppNotificationFailure: _ => calls.Add("app-failure"),
+            recordSuppressedBySetting: () => calls.Add("suppressed"),
             recordShellFallbackSuccess: () => calls.Add("shell-success"),
             recordShellFallbackFailure: _ => calls.Add("shell-failure"),
             CancellationToken.None);
@@ -34,7 +39,11 @@ public sealed class NotificationDeliveryRouterTests
 
         await NotificationDeliveryRouter.DeliverAsync(
             appNotificationAvailable: true,
-            showAppNotification: () => calls.Add("app"),
+            showAppNotification: () =>
+            {
+                calls.Add("app");
+                return AppNotificationAttemptResult.Delivered;
+            },
             showShellFallback: _ =>
             {
                 calls.Add("shell");
@@ -42,6 +51,7 @@ public sealed class NotificationDeliveryRouterTests
             },
             recordAppNotificationSuccess: () => calls.Add("app-success"),
             recordAppNotificationFailure: _ => calls.Add("app-failure"),
+            recordSuppressedBySetting: () => calls.Add("suppressed"),
             recordShellFallbackSuccess: () => calls.Add("shell-success"),
             recordShellFallbackFailure: _ => calls.Add("shell-failure"),
             CancellationToken.None);
@@ -70,12 +80,40 @@ public sealed class NotificationDeliveryRouterTests
                 calls.Add("app-failure");
                 recordedAppError = error;
             },
+            recordSuppressedBySetting: () => calls.Add("suppressed"),
             recordShellFallbackSuccess: () => calls.Add("shell-success"),
             recordShellFallbackFailure: _ => calls.Add("shell-failure"),
             CancellationToken.None);
 
         CollectionAssert.AreEqual(new[] { "app-failure", "shell", "shell-success" }, calls);
         Assert.AreSame(appError, recordedAppError);
+    }
+
+    [TestMethod]
+    public async Task DisabledAppNotificationDoesNotUseShellFallback()
+    {
+        var calls = new List<string>();
+
+        await NotificationDeliveryRouter.DeliverAsync(
+            appNotificationAvailable: true,
+            showAppNotification: () =>
+            {
+                calls.Add("app");
+                return AppNotificationAttemptResult.SuppressedBySetting;
+            },
+            showShellFallback: _ =>
+            {
+                calls.Add("shell");
+                return Task.CompletedTask;
+            },
+            recordAppNotificationSuccess: () => calls.Add("app-success"),
+            recordAppNotificationFailure: _ => calls.Add("app-failure"),
+            recordSuppressedBySetting: () => calls.Add("suppressed"),
+            recordShellFallbackSuccess: () => calls.Add("shell-success"),
+            recordShellFallbackFailure: _ => calls.Add("shell-failure"),
+            CancellationToken.None);
+
+        CollectionAssert.AreEqual(new[] { "app", "suppressed" }, calls);
     }
 
     [TestMethod]
@@ -102,6 +140,7 @@ public sealed class NotificationDeliveryRouterTests
                     calls.Add("app-failure");
                     recordedAppError = error;
                 },
+                recordSuppressedBySetting: () => calls.Add("suppressed"),
                 recordShellFallbackSuccess: () => calls.Add("shell-success"),
                 recordShellFallbackFailure: error =>
                 {
@@ -127,7 +166,11 @@ public sealed class NotificationDeliveryRouterTests
         await Assert.ThrowsExactlyAsync<OperationCanceledException>(() =>
             NotificationDeliveryRouter.DeliverAsync(
                 appNotificationAvailable: true,
-                showAppNotification: () => appCalled = true,
+                showAppNotification: () =>
+                {
+                    appCalled = true;
+                    return AppNotificationAttemptResult.Delivered;
+                },
                 showShellFallback: _ =>
                 {
                     shellCalled = true;
@@ -135,6 +178,7 @@ public sealed class NotificationDeliveryRouterTests
                 },
                 recordAppNotificationSuccess: null,
                 recordAppNotificationFailure: null,
+                recordSuppressedBySetting: null,
                 recordShellFallbackSuccess: null,
                 recordShellFallbackFailure: null,
                 cancellation.Token));
@@ -160,6 +204,7 @@ public sealed class NotificationDeliveryRouterTests
                 },
                 recordAppNotificationSuccess: null,
                 recordAppNotificationFailure: null,
+                recordSuppressedBySetting: null,
                 recordShellFallbackSuccess: null,
                 recordShellFallbackFailure: null,
                 CancellationToken.None));
@@ -184,6 +229,7 @@ public sealed class NotificationDeliveryRouterTests
                 },
                 recordAppNotificationSuccess: null,
                 recordAppNotificationFailure: null,
+                recordSuppressedBySetting: null,
                 recordShellFallbackSuccess: null,
                 recordShellFallbackFailure: null,
                 CancellationToken.None));

@@ -2,14 +2,21 @@ using System.Diagnostics;
 
 namespace CodexQuotaTray.App.Services;
 
+internal enum AppNotificationAttemptResult
+{
+    Delivered,
+    SuppressedBySetting,
+}
+
 internal static class NotificationDeliveryRouter
 {
     internal static async Task DeliverAsync(
         bool appNotificationAvailable,
-        Action showAppNotification,
+        Func<AppNotificationAttemptResult> showAppNotification,
         Func<CancellationToken, Task> showShellFallback,
         Action? recordAppNotificationSuccess,
         Action<Exception>? recordAppNotificationFailure,
+        Action? recordSuppressedBySetting,
         Action? recordShellFallbackSuccess,
         Action<Exception>? recordShellFallbackFailure,
         CancellationToken cancellationToken)
@@ -22,9 +29,19 @@ internal static class NotificationDeliveryRouter
         {
             try
             {
-                showAppNotification();
-                recordAppNotificationSuccess?.Invoke();
-                return;
+                var result = showAppNotification();
+                switch (result)
+                {
+                    case AppNotificationAttemptResult.Delivered:
+                        recordAppNotificationSuccess?.Invoke();
+                        return;
+                    case AppNotificationAttemptResult.SuppressedBySetting:
+                        recordSuppressedBySetting?.Invoke();
+                        return;
+                    default:
+                        throw new InvalidOperationException(
+                            $"Unknown app notification attempt result: {result}.");
+                }
             }
             catch (Exception error) when (IsRecoverable(error))
             {

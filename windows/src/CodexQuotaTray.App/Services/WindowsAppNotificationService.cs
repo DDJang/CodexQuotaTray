@@ -34,14 +34,9 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
 
     internal bool? IconExists { get; private set; }
 
-    internal bool AppNotificationRuntimeResourcePresent { get; } = File.Exists(
-        Path.Combine(AppContext.BaseDirectory, "Microsoft.WindowsAppRuntime.Insights.Resource.dll"));
-
     internal Exception? LastRegistrationError { get; private set; }
 
-    private string lastDeliveryChannel = "none";
-    private string lastAppNotificationDeliveryError = "none";
-    private string lastShellFallbackError = "none";
+    private readonly NotificationDeliveryDiagnostics deliveryDiagnostics = new();
 
     internal bool TryRegister(string displayName, Uri iconUri)
     {
@@ -105,74 +100,102 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
         }
     }
 
-    internal void ShowQuotaAlert(QuotaAlert alert)
+    internal AppNotificationAttemptResult ShowQuotaAlert(QuotaAlert alert)
     {
         var content = QuotaNotificationFormatter.Format(alert);
-        Show(content.Title, content.Body, "quota");
+        return Show(content.Title, content.Body, "quota");
     }
 
-    internal void ShowWindowsUpdateAvailable(WindowsUpdateRelease release) =>
+    internal AppNotificationAttemptResult ShowWindowsUpdateAvailable(WindowsUpdateRelease release) =>
         Show("CodexQuotaTray 更新", $"发现 Windows 新版本 {release.Version}，打开设置即可查看。", "windows-update");
 
-    internal void BeginDelivery()
-    {
-        lastDeliveryChannel = "none";
-        lastAppNotificationDeliveryError = "none";
-        lastShellFallbackError = "none";
-    }
+    internal NotificationDeliveryAttempt BeginDelivery() => deliveryDiagnostics.BeginDelivery();
 
-    internal void RecordAppNotificationDeliverySuccess()
+    internal void RecordAppNotificationDeliverySuccess(NotificationDeliveryAttempt? attempt)
     {
-        lastDeliveryChannel = "AppNotification";
-        lastAppNotificationDeliveryError = "none";
-        lastShellFallbackError = "none";
+        if (attempt is not { } value)
+        {
+            return;
+        }
+
+        deliveryDiagnostics.RecordAppNotificationSuccess(value);
         LogDelivery("AppNotification", "none");
     }
 
-    internal void RecordAppNotificationDeliveryFailure(Exception error)
+    internal void RecordAppNotificationDeliveryFailure(
+        NotificationDeliveryAttempt? attempt,
+        Exception error)
     {
-        lastDeliveryChannel = "none";
-        lastAppNotificationDeliveryError = FormatDeliveryError(error);
-        LogDelivery("AppNotificationFailed", lastAppNotificationDeliveryError);
+        if (attempt is not { } value)
+        {
+            return;
+        }
+
+        var formattedError = FormatDeliveryError(error);
+        deliveryDiagnostics.RecordAppNotificationFailure(value, formattedError);
+        LogDelivery("AppNotificationFailed", formattedError);
     }
 
-    internal void RecordShellFallbackDeliverySuccess()
+    internal void RecordSuppressedBySetting(NotificationDeliveryAttempt? attempt)
     {
-        lastDeliveryChannel = "ShellFallback";
-        lastShellFallbackError = "none";
+        if (attempt is not { } value)
+        {
+            return;
+        }
+
+        deliveryDiagnostics.RecordSuppressedBySetting(value);
+        LogDelivery("SuppressedBySetting", "none");
+    }
+
+    internal void RecordShellFallbackDeliverySuccess(NotificationDeliveryAttempt? attempt)
+    {
+        if (attempt is not { } value)
+        {
+            return;
+        }
+
+        deliveryDiagnostics.RecordShellFallbackSuccess(value);
         LogDelivery("ShellFallback", "none");
     }
 
-    internal void RecordShellFallbackDeliveryFailure(Exception error)
+    internal void RecordShellFallbackDeliveryFailure(
+        NotificationDeliveryAttempt? attempt,
+        Exception error)
     {
-        lastDeliveryChannel = "none";
-        lastShellFallbackError = FormatDeliveryError(error);
-        LogDelivery("ShellFallbackFailed", lastShellFallbackError);
+        if (attempt is not { } value)
+        {
+            return;
+        }
+
+        var formattedError = FormatDeliveryError(error);
+        deliveryDiagnostics.RecordShellFallbackFailure(value, formattedError);
+        LogDelivery("ShellFallbackFailed", formattedError);
     }
 
     internal string CreateDiagnosticText()
     {
         var setting = FormatSetting();
+        var delivery = deliveryDiagnostics.Snapshot;
         return string.Join(
             Environment.NewLine,
             "Windows notifications:",
-            $"mode: {(IsRegistered ? "AppNotification" : "ShellFallback")}",
+            $"registeredTransport: {(IsRegistered ? "AppNotification" : "ShellFallbackOnly")}",
             $"appNotificationSupported: {FormatBoolean(AppNotificationSupported)}",
             $"appNotificationRegistration: {RegistrationState}",
             $"registerAttempted: {RegisterAttempted}",
             $"displayName: {DisplayName ?? "none"}",
             $"iconPath: {IconPath ?? "none"}",
             $"iconExists: {FormatBoolean(IconExists)}",
-            $"appNotificationRuntimeResourcePresent: {(AppNotificationRuntimeResourcePresent ? "true" : "false")}",
+            "windowsAppSdkDeployment: FrameworkDependent",
             $"setting: {setting}",
             $"registrationError: {FormatRegistrationError(LastRegistrationError)}",
             $"registrationHResult: {FormatHResult(LastRegistrationError)}",
-            $"lastDeliveryChannel: {lastDeliveryChannel}",
-            $"lastAppNotificationDeliveryError: {lastAppNotificationDeliveryError}",
-            $"lastShellFallbackError: {lastShellFallbackError}");
+            $"lastDelivery: {delivery.LastDelivery}",
+            $"lastAppNotificationDeliveryError: {delivery.AppNotificationError}",
+            $"lastShellFallbackError: {delivery.ShellFallbackError}");
     }
 
-    private void Show(string title, string body, string kind)
+    private AppNotificationAttemptResult Show(string title, string body, string kind)
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         var current = manager
@@ -181,8 +204,9 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
         lastSetting = setting;
         if (setting != AppNotificationSetting.Enabled)
         {
-            throw new InvalidOperationException(
-                $"Windows app notifications are disabled: {setting}.");
+            System.Diagnostics.Debug.WriteLine(
+                $"Windows app notification delivery: channel=SuppressedBySetting kind={kind} setting={setting}");
+            return AppNotificationAttemptResult.SuppressedBySetting;
         }
 
         var notification = new AppNotificationBuilder()
@@ -193,6 +217,7 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
         System.Diagnostics.Debug.WriteLine(
             $"Windows app notification delivery: channel=AppNotification kind={kind} setting={setting}");
         current.Show(notification);
+        return AppNotificationAttemptResult.Delivered;
     }
 
     private void OnNotificationInvoked(
@@ -223,7 +248,7 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
             + $"attempted={RegisterAttempted} state={RegistrationState} "
             + $"displayName={DisplayName ?? "none"} iconPath={IconPath ?? "none"} "
             + $"iconExists={FormatBoolean(IconExists)} "
-            + $"runtimeResource={AppNotificationRuntimeResourcePresent} setting={FormatSetting()} "
+            + $"deployment=FrameworkDependent setting={FormatSetting()} "
             + $"error={FormatRegistrationError(LastRegistrationError)} "
             + $"hresult={FormatHResult(LastRegistrationError)}");
 

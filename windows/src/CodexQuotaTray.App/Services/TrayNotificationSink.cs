@@ -34,15 +34,16 @@ internal sealed class TrayNotificationSink(
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        appNotifications.BeginDelivery();
+        var deliveryAttempt = appNotifications.BeginDelivery();
         await NotificationDeliveryRouter.DeliverAsync(
             appNotifications.IsRegistered,
             () => appNotifications.ShowQuotaAlert(alert),
             cancellationToken => ShowShellFallbackAsync(alert, cancellationToken),
-            appNotifications.RecordAppNotificationDeliverySuccess,
-            appNotifications.RecordAppNotificationDeliveryFailure,
-            appNotifications.RecordShellFallbackDeliverySuccess,
-            appNotifications.RecordShellFallbackDeliveryFailure,
+            () => appNotifications.RecordAppNotificationDeliverySuccess(deliveryAttempt),
+            error => appNotifications.RecordAppNotificationDeliveryFailure(deliveryAttempt, error),
+            () => appNotifications.RecordSuppressedBySetting(deliveryAttempt),
+            () => appNotifications.RecordShellFallbackDeliverySuccess(deliveryAttempt),
+            error => appNotifications.RecordShellFallbackDeliveryFailure(deliveryAttempt, error),
             cancellationToken).ConfigureAwait(false);
     }
 

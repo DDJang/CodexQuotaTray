@@ -10,6 +10,8 @@ param(
     [string]$OutputPath = "",
     [Alias("PublishDir", "PublishDirectory")]
     [string]$PublishPath = "",
+    [Alias("RuntimeInstaller", "WindowsAppRuntimeInstallerPath")]
+    [string]$WindowsAppRuntimeInstaller = "",
     [switch]$SkipPublish
 )
 
@@ -68,6 +70,28 @@ try {
     $version = ([string]$versionNode.InnerText).Trim()
     if ([string]::IsNullOrWhiteSpace($version)) { throw "WinUI application version is empty" }
 
+    $runtimeScript = Join-Path $windowsRootPath "scripts\acquire-windows-app-runtime.ps1"
+    $runtimeArguments = @{}
+    if ($WindowsAppRuntimeInstaller) {
+        $runtimeArguments = @{ InstallerPath = $WindowsAppRuntimeInstaller }
+    }
+    $runtimeInfo = @(& $runtimeScript @runtimeArguments)
+    if ($runtimeInfo.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$runtimeInfo[0].Path)) {
+        throw "Windows App Runtime acquisition returned no validated installer path"
+    }
+    $runtimeInstallerPath = [IO.Path]::GetFullPath([string]$runtimeInfo[0].Path)
+
+    [xml]$packagesProps = Get-Content -LiteralPath (Join-Path $windowsRootPath "Directory.Packages.props") -Raw
+    $windowsAppSdkVersionNode = $packagesProps.SelectSingleNode(
+        '/Project/ItemGroup/PackageVersion[@Include="Microsoft.WindowsAppSDK"]/@Version')
+    if ($null -eq $windowsAppSdkVersionNode) {
+        throw "Microsoft.WindowsAppSDK central package version is missing"
+    }
+    $windowsAppSdkVersion = ([string]$windowsAppSdkVersionNode.Value).Trim()
+    if ($windowsAppSdkVersion -cne ([string]$runtimeInfo[0].Version).Trim()) {
+        throw "Microsoft.WindowsAppSDK version $windowsAppSdkVersion does not match Windows App Runtime version $($runtimeInfo[0].Version)"
+    }
+
     if (-not $SkipPublish) {
         & (Join-Path $windowsRootPath "scripts\publish-winui.ps1") -DotNet $DotNet -OutputDirectory $publishRoot
     }
@@ -79,7 +103,7 @@ try {
 
     New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
     $iss = Join-Path $windowsRootPath "installer\CodexQuotaTray.iss"
-    & $Iscc $iss "/DMyAppVersion=$version" "/DRepoRoot=$repoRootPath" "/DWindowsRoot=$windowsRootPath" "/DOutputDir=$outputRoot" "/DPublishDir=$publishRoot"
+    & $Iscc $iss "/DMyAppVersion=$version" "/DRepoRoot=$repoRootPath" "/DWindowsRoot=$windowsRootPath" "/DOutputDir=$outputRoot" "/DPublishDir=$publishRoot" "/DWindowsAppRuntimeInstaller=$runtimeInstallerPath"
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
 
     $artifact = Join-Path $outputRoot "CodexQuotaTray-$version-setup.exe"
