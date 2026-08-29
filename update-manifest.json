@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.10.5",
-    "tag": "windows-v0.10.5",
+    "version": "0.10.6",
+    "tag": "windows-v0.10.6",
     "installer": {
-      "name": "CodexQuotaTray-0.10.5-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.10.5/CodexQuotaTray-0.10.5-setup.exe",
-      "sha256": "2e53b95583ed979608cb2dc415597e481a8f6573ee937eb41145989252319f01",
-      "size": 64057634
+      "name": "CodexQuotaTray-0.10.6-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.10.6/CodexQuotaTray-0.10.6-setup.exe",
+      "sha256": "b10a57f9fbfe4d998ba2cc449fed4751d727aa7e91d2dd32920d577e4d873bf2",
+      "size": 160867198
     },
-    "releaseNotes": "## Reset notifications\r\n\r\n- Make five-hour and seven-day quota reset alerts reliably catch up after missed deadlines, restarts, and legacy state migration.\r\n- Deliver reset alerts through the Windows notification center and retry transient notification failures until delivery succeeds.\r\n",
-    "publishedAt": "2026-08-28T05:25:41Z"
+    "releaseNotes": "## Windows\r\n\r\n### 通知\r\n\r\n- 修复 Windows 通知中心中的应用名称和图标显示，统一使用 CodexQuotaTray 品牌。\r\n- 恢复 Windows 通知中心投递，并在系统不支持或投递失败时使用托盘通知作为后备，提升提醒可靠性。\r\n\r\n### 安装\r\n\r\n- Windows 安装器现在会自动安装固定版本的 Microsoft Windows App Runtime，减少首次使用前的手动准备工作。\r\n- 优化运行时安装包的提取顺序，减少安装器执行前置步骤时的等待时间。\r\n",
+    "publishedAt": "2026-08-29T09:19:24Z"
   },
   "android": {
     "version": "0.10.5",
