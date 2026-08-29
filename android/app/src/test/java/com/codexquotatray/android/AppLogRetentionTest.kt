@@ -2,6 +2,7 @@ package com.codexquotatray.android
 
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.TimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -90,6 +91,26 @@ class AppLogRetentionTest {
         assertEquals(AppLogRetention.MAX_ENTRIES, buffer.lines().size)
         assertFalse(buffer.lines().contains("legacy malformed line"))
         assertTrue(buffer.lines().last().endsWith("entry-119"))
+    }
+
+    @Test
+    fun formatterRefreshesWhenDefaultTimeZoneChanges() {
+        val originalLocale = Locale.getDefault()
+        val originalTimeZone = TimeZone.getDefault()
+        try {
+            Locale.setDefault(Locale.US)
+            TimeZone.setDefault(TimeZone.getTimeZone("GMT"))
+            assertEquals("1970-01-01 00:00:00", AppLogRetention.formatTimestamp(0L))
+
+            TimeZone.setDefault(TimeZone.getTimeZone("GMT+08:00"))
+
+            val shifted = AppLogRetention.formatTimestamp(0L)
+            assertEquals("1970-01-01 08:00:00", shifted)
+            assertEquals(0L, AppLogRetention.parseTimestamp("$shifted entry"))
+        } finally {
+            TimeZone.setDefault(originalTimeZone)
+            Locale.setDefault(originalLocale)
+        }
     }
 
     private fun parse(value: String): Long = SimpleDateFormat(

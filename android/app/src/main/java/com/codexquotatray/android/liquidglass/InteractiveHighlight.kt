@@ -35,6 +35,7 @@ class InteractiveHighlight(
     private val positionUpdater = ConflatedUpdater<Offset>(animationScope) { target ->
         positionAnimation.snapTo(target)
     }
+    private var positionGeneration: ConflatedUpdater.Generation? = null
 
     private var startPosition = Offset.Zero
     val pressProgress: Float get() = pressProgressAnimation.value
@@ -98,6 +99,7 @@ half4 main(float2 coord) {
         Modifier.pointerInput(animationScope) {
             inspectDragGestures(
                 onDragStart = { down ->
+                    positionGeneration = positionUpdater.beginGeneration()
                     startPosition = down.position
                     animationScope.launch {
                         launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
@@ -105,19 +107,28 @@ half4 main(float2 coord) {
                     }
                 },
                 onDragEnd = {
+                    invalidatePositionUpdates()
                     animationScope.launch {
                         launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
                         launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
                     }
                 },
                 onDragCancel = {
+                    invalidatePositionUpdates()
                     animationScope.launch {
                         launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
                         launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
                     }
                 },
             ) { change, _ ->
-                positionUpdater.submit(change.position)
+                positionGeneration?.let { generation ->
+                    positionUpdater.submit(generation, change.position)
+                }
             }
         }
+
+    private fun invalidatePositionUpdates() {
+        positionGeneration?.let(positionUpdater::invalidate)
+        positionGeneration = null
+    }
 }

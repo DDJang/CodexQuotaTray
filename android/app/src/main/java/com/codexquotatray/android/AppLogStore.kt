@@ -7,6 +7,7 @@ import java.util.ArrayDeque
 import java.util.Date
 import java.util.HashMap
 import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.ConcurrentHashMap
 
 class AppLogStore(
@@ -130,6 +131,7 @@ internal object AppLogRetention {
     private const val TIMESTAMP_PATTERN = "yyyy-MM-dd HH:mm:ss"
     private data class TimestampFormatter(
         val locale: Locale,
+        val timeZone: TimeZone,
         val formatter: SimpleDateFormat,
     )
     private val timestampFormatter = ThreadLocal<TimestampFormatter>()
@@ -158,10 +160,19 @@ internal object AppLogRetention {
 
     private fun formatter(): SimpleDateFormat {
         val locale = Locale.getDefault()
+        val timeZone = TimeZone.getDefault()
         val cached = timestampFormatter.get()
-        if (cached != null && cached.locale == locale) return cached.formatter
+        if (
+            cached != null &&
+            cached.locale == locale &&
+            cached.timeZone.id == timeZone.id &&
+            cached.timeZone.hasSameRules(timeZone)
+        ) {
+            return cached.formatter
+        }
         return SimpleDateFormat(TIMESTAMP_PATTERN, locale).also { formatter ->
-            timestampFormatter.set(TimestampFormatter(locale, formatter))
+            formatter.timeZone = timeZone
+            timestampFormatter.set(TimestampFormatter(locale, timeZone, formatter))
         }
     }
 }

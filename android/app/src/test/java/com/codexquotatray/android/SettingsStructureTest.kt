@@ -377,8 +377,10 @@ class SettingsStructureTest {
         val dockAnimations = sourceFile("BottomDockAnimations.kt")
         val interactiveHighlight = sourceFile("liquidglass/InteractiveHighlight.kt")
 
-        assertTrue(dockAnimations.contains("positionUpdater.submit(change.position)"))
-        assertTrue(interactiveHighlight.contains("positionUpdater.submit(change.position)"))
+        assertTrue(dockAnimations.contains("positionUpdater.submit(generation, change.position)"))
+        assertTrue(interactiveHighlight.contains("positionUpdater.submit(generation, change.position)"))
+        assertTrue(dockAnimations.contains("invalidatePositionUpdates()"))
+        assertTrue(interactiveHighlight.contains("invalidatePositionUpdates()"))
         assertFalse(
             dockAnimations.contains(
                 "animationScope.launch { positionAnimation.snapTo(change.position) }",
