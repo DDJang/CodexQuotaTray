@@ -20,6 +20,16 @@ class AppLogRetentionTest {
     }
 
     @Test
+    fun entryExactlyAtSevenDayBoundaryIsRetained() {
+        val now = parse("2026-08-08 12:00:00")
+        val boundary = AppLogRetention.formatTimestamp(now - SEVEN_DAYS_MILLIS) + " boundary"
+
+        val retained = AppLogRetention.prune(listOf(boundary), now)
+
+        assertEquals(listOf(boundary), retained)
+    }
+
+    @Test
     fun retentionStillKeepsOnlyLast120Entries() {
         val now = parse("2026-08-08 12:00:00")
         val entries = (1..121).map {
@@ -31,6 +41,55 @@ class AppLogRetentionTest {
         assertEquals(AppLogRetention.MAX_ENTRIES, retained.size)
         assertFalse(retained.first().contains("entry-1"))
         assertTrue(retained.last().contains("entry-121"))
+    }
+
+    @Test
+    fun cachedBufferParsesExistingTimestampsOnlyOnce() {
+        val now = parse("2026-08-08 12:00:00")
+        val existing = listOf(
+            "${AppLogRetention.formatTimestamp(now - 1_000L)} first",
+            "${AppLogRetention.formatTimestamp(now)} second",
+        )
+        var parseCount = 0
+        val buffer = AppLogBuffer(existing) { line ->
+            parseCount += 1
+            AppLogRetention.parseTimestamp(line)
+        }
+
+        buffer.prune(now)
+        buffer.prune(now + 1_000L)
+        buffer.append("${AppLogRetention.formatTimestamp(now + 2_000L)} third", now + 2_000L)
+        buffer.prune(now + 2_000L)
+
+        assertEquals(existing.size, parseCount)
+        assertEquals(3, buffer.lines().size)
+    }
+
+    @Test
+    fun cachedBufferKeepsBoundaryAndRemovesOnlyOlderEntries() {
+        val now = parse("2026-08-08 12:00:00")
+        val old = "${AppLogRetention.formatTimestamp(now - SEVEN_DAYS_MILLIS - 1_000L)} old"
+        val boundary = "${AppLogRetention.formatTimestamp(now - SEVEN_DAYS_MILLIS)} boundary"
+        val buffer = AppLogBuffer(listOf(old, boundary))
+
+        buffer.prune(now)
+
+        assertEquals(listOf(boundary), buffer.lines())
+    }
+
+    @Test
+    fun cachedBufferKeepsMalformedLinesAndLast120Entries() {
+        val now = parse("2026-08-08 12:00:00")
+        val buffer = AppLogBuffer(listOf("legacy malformed line"))
+
+        repeat(AppLogRetention.MAX_ENTRIES) { index ->
+            buffer.append("${AppLogRetention.formatTimestamp(now)} entry-$index", now)
+        }
+        buffer.prune(now)
+
+        assertEquals(AppLogRetention.MAX_ENTRIES, buffer.lines().size)
+        assertFalse(buffer.lines().contains("legacy malformed line"))
+        assertTrue(buffer.lines().last().endsWith("entry-119"))
     }
 
     private fun parse(value: String): Long = SimpleDateFormat(

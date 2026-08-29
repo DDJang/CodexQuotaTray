@@ -47,6 +47,9 @@ internal class GlassInteractiveHighlight(
     private val pressProgressAnimation = Animatable(0f, 0.001f)
     private val positionAnimation =
         Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
+    private val positionUpdater = ConflatedUpdater<Offset>(animationScope) { target ->
+        positionAnimation.snapTo(target)
+    }
     private var startPosition = Offset.Zero
     private val shader = if (isRuntimeShaderSupported()) {
         RuntimeShader(
@@ -115,7 +118,7 @@ internal class GlassInteractiveHighlight(
                 }
             },
         ) { change, _ ->
-            animationScope.launch { positionAnimation.snapTo(change.position) }
+            positionUpdater.submit(change.position)
         }
     }
 }

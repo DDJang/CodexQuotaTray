@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.util.fastCoerceIn
+import com.codexquotatray.android.ConflatedUpdater
 import com.kyant.backdrop.RuntimeShader
 import com.kyant.backdrop.asComposeShader
 import com.kyant.backdrop.isRuntimeShaderSupported
@@ -31,6 +32,9 @@ class InteractiveHighlight(
 
     private val pressProgressAnimation = Animatable(0f, 0.001f)
     private val positionAnimation = Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
+    private val positionUpdater = ConflatedUpdater<Offset>(animationScope) { target ->
+        positionAnimation.snapTo(target)
+    }
 
     private var startPosition = Offset.Zero
     val pressProgress: Float get() = pressProgressAnimation.value
@@ -113,7 +117,7 @@ half4 main(float2 coord) {
                     }
                 },
             ) { change, _ ->
-                animationScope.launch { positionAnimation.snapTo(change.position) }
+                positionUpdater.submit(change.position)
             }
         }
 }
