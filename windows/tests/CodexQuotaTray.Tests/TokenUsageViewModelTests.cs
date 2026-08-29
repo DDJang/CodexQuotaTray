@@ -339,6 +339,53 @@ public sealed class TokenUsageViewModelTests
     }
 
     [TestMethod]
+    public void BackgroundRefreshPolicyWaitsUntilTheActualNextDeadline()
+    {
+        var now = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
+
+        Assert.AreEqual(
+            TimeSpan.FromMinutes(4).Add(TimeSpan.FromSeconds(42)),
+            TokenUsageRefreshPolicy.DelayUntilNextRefresh(
+                RefreshMode.Every5Minutes,
+                now.AddSeconds(-18),
+                now));
+        Assert.AreEqual(
+            TimeSpan.Zero,
+            TokenUsageRefreshPolicy.DelayUntilNextRefresh(
+                RefreshMode.Every15Minutes,
+                now.AddMinutes(-16),
+                now));
+        Assert.AreEqual(
+            Timeout.InfiniteTimeSpan,
+            TokenUsageRefreshPolicy.DelayUntilNextRefresh(RefreshMode.ManualOnly, now, now));
+    }
+
+    [TestMethod]
+    public async Task ScheduleChangesWakeDeadlineWaitsAndRecomputeAllModeTransitions()
+    {
+        var now = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
+
+        await AssertScheduleTransitionAsync(
+            RefreshMode.ManualOnly,
+            RefreshMode.Every5Minutes,
+            now.AddMinutes(-6),
+            now,
+            TimeSpan.Zero);
+        await AssertScheduleTransitionAsync(
+            RefreshMode.Every30Minutes,
+            RefreshMode.Every5Minutes,
+            now.AddMinutes(-10),
+            now,
+            TimeSpan.Zero);
+        await AssertScheduleTransitionAsync(
+            RefreshMode.Every5Minutes,
+            RefreshMode.ManualOnly,
+            now.AddMinutes(-1),
+            now,
+            Timeout.InfiniteTimeSpan);
+    }
+
+    [TestMethod]
     public void PanelOpenRefreshPolicyIsIndependentAndDeduplicatesRapidReopen()
     {
         var now = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
@@ -347,6 +394,30 @@ public sealed class TokenUsageViewModelTests
         Assert.IsTrue(TokenUsageRefreshPolicy.ShouldRefreshOnPanelOpen(true, null, now));
         Assert.IsFalse(TokenUsageRefreshPolicy.ShouldRefreshOnPanelOpen(true, now.AddSeconds(-9), now));
         Assert.IsTrue(TokenUsageRefreshPolicy.ShouldRefreshOnPanelOpen(true, now.AddSeconds(-10), now));
+    }
+
+    private static async Task AssertScheduleTransitionAsync(
+        RefreshMode initialMode,
+        RefreshMode nextMode,
+        DateTimeOffset lastAttemptUtc,
+        DateTimeOffset nowUtc,
+        TimeSpan expectedNextDelay)
+    {
+        var schedule = new TokenUsageRefreshSchedule();
+        var revision = schedule.CaptureRevision();
+        var wait = schedule.WaitAsync(
+            revision,
+            initialMode,
+            lastAttemptUtc,
+            nowUtc,
+            CancellationToken.None);
+
+        Assert.IsFalse(wait.IsCompleted);
+        schedule.NotifyChanged();
+        await wait.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.AreEqual(
+            expectedNextDelay,
+            TokenUsageRefreshPolicy.DelayUntilNextRefresh(nextMode, lastAttemptUtc, nowUtc));
     }
 
     private static TokenUsageSnapshot CreateSnapshot(long todayTokens)

@@ -1,6 +1,7 @@
 package com.codexquotatray.android.usage
 
 import com.codexquotatray.android.auth.OAuthCredentials
+import com.codexquotatray.android.network.ProcessHttpClients
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.protocol.QuotaBucketPolicy
 import com.codexquotatray.android.protocol.QuotaWindow
@@ -383,7 +384,7 @@ class CodexUsageClient(
 
     companion object {
         const val PROFILE_URL = "https://chatgpt.com/backend-api/wham/profiles/me"
-        internal fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+        internal fun defaultClient(): OkHttpClient = ProcessHttpClients.internetBuilder()
             .connectTimeout(QuotaNetworkTimeouts.DIRECT_CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
             .readTimeout(QuotaNetworkTimeouts.DIRECT_READ_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
             .callTimeout(QuotaNetworkTimeouts.DIRECT_CALL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)

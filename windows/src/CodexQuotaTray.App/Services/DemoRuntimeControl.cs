@@ -18,10 +18,17 @@ internal sealed class DemoRuntimeControl : IQuotaRuntimeControl
         remove { }
     }
 
+    public event EventHandler? TokenRefreshScheduleChanged;
+
     public Task ApplySettingsAsync(AppSettings settings, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        var previousMode = Settings.TokenRefreshMode;
         Settings = settings with { Notifications = settings.EffectiveNotifications };
+        if (previousMode != Settings.TokenRefreshMode)
+        {
+            TokenRefreshScheduleChanged?.Invoke(this, EventArgs.Empty);
+        }
         return Task.CompletedTask;
     }
 

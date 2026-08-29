@@ -67,6 +67,12 @@ internal sealed class TokenUsageCacheRuntimeControl(
         remove => inner.StateChanged -= value;
     }
 
+    public event EventHandler? TokenRefreshScheduleChanged
+    {
+        add => inner.TokenRefreshScheduleChanged += value;
+        remove => inner.TokenRefreshScheduleChanged -= value;
+    }
+
     public async Task ApplySettingsAsync(AppSettings settings, CancellationToken cancellationToken)
     {
         var settingsState = await settingsStateTask.WaitAsync(cancellationToken).ConfigureAwait(false);

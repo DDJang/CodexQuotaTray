@@ -173,9 +173,9 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tokenUsageCode, "CreateHeatmapHighlightBrush(cell.Background, isEmptyCell)");
         StringAssert.Contains(tokenUsageCode, "new Thickness(isEmptyCell ? 1.5 : 1)");
         StringAssert.Contains(tokenUsageCode, "cell.Shadow = new ThemeShadow()");
-        StringAssert.Contains(mainWindowCode, "tokenUsageView.ResetHeatmapInteraction()");
-        StringAssert.Contains(mainWindowCode, "tokenUsageView.PrepareHeatmapInteraction()");
-        StringAssert.Contains(mainWindowCode, "tokenUsageView.Dispose()");
+        StringAssert.Contains(mainWindowCode, "tokenUsageView?.ResetHeatmapInteraction()");
+        StringAssert.Contains(mainWindowCode, "tokenUsageView?.PrepareHeatmapInteraction()");
+        StringAssert.Contains(mainWindowCode, "tokenUsageView?.Dispose()");
         StringAssert.Contains(tokenUsageCode, "sharedTooltipHasPosition = false");
         StringAssert.Contains(tokenUsageCode, "tokenUsageViewModel.ShowContent");
         StringAssert.Contains(tokenUsageCode, "heatmapInteractionEnabled");

@@ -982,9 +982,16 @@ public sealed class ViewModelTests
             remove { }
         }
 
+        public event EventHandler? TokenRefreshScheduleChanged;
+
         public Task ApplySettingsAsync(AppSettings settings, CancellationToken cancellationToken)
         {
+            var previousMode = Settings.TokenRefreshMode;
             Settings = settings;
+            if (previousMode != Settings.TokenRefreshMode)
+            {
+                TokenRefreshScheduleChanged?.Invoke(this, EventArgs.Empty);
+            }
             return Task.CompletedTask;
         }
 

@@ -86,6 +86,23 @@ public sealed class TokenUsageCacheSettingsStateTests
         Assert.IsFalse(state.PersistEnabled);
     }
 
+    [TestMethod]
+    public async Task RuntimeControlForwardsTokenRefreshScheduleChanges()
+    {
+        var runtime = new StubRuntimeControl(
+            AppSettings.Defaults with { TokenRefreshMode = RefreshMode.ManualOnly });
+        var state = await TokenUsageCacheSettingsState.CreateAsync(Task.FromResult(runtime.Settings));
+        var control = new TokenUsageCacheRuntimeControl(runtime, Task.FromResult(state));
+        var changes = 0;
+        control.TokenRefreshScheduleChanged += (_, _) => changes++;
+
+        await control.ApplySettingsAsync(
+            runtime.Settings with { TokenRefreshMode = RefreshMode.Every5Minutes },
+            CancellationToken.None);
+
+        Assert.AreEqual(1, changes);
+    }
+
     private sealed class StubRuntimeControl(
         AppSettings initialSettings,
         Action<AppSettings>? applied = null) : IQuotaRuntimeControl
@@ -98,11 +115,18 @@ public sealed class TokenUsageCacheSettingsStateTests
             remove { }
         }
 
+        public event EventHandler? TokenRefreshScheduleChanged;
+
         public Task ApplySettingsAsync(AppSettings settings, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             applied?.Invoke(settings);
+            var previousMode = Settings.TokenRefreshMode;
             Settings = settings;
+            if (previousMode != Settings.TokenRefreshMode)
+            {
+                TokenRefreshScheduleChanged?.Invoke(this, EventArgs.Empty);
+            }
             return Task.CompletedTask;
         }
 

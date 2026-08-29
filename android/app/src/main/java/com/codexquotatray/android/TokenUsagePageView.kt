@@ -126,7 +126,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         private set
     private var lastObservedPriority: DataSourcePriority? = null
 
-    val canSync get() = !syncing && (store.load() != null || oauthStore.load() != null)
+    val canSync get() = !syncing && (store.load() != null || oauthStore.hasCredentials())
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -158,7 +158,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     fun reconcilePairingState(): Boolean {
         val priorityChanged = observeTokenPriority()
         val currentPairing = store.load()
-        val hasOAuth = oauthStore.load() != null
+        val hasOAuth = oauthStore.hasCredentials()
         val cached = cache.loadForAvailableSources(currentPairing, hasOAuth)
         if (currentPairing == null && !hasOAuth) {
             paired = false
@@ -248,7 +248,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     }
 
     private fun loadCachedSnapshot(): TokenUsageSnapshot? =
-        cache.loadForAvailableSources(store.load(), oauthStore.load() != null)
+        cache.loadForAvailableSources(store.load(), oauthStore.hasCredentials())
 
     private fun observeTokenPriority(): Boolean {
         val currentPriority = sourcePriorityStore.load().token

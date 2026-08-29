@@ -31,6 +31,14 @@ internal object LegacyAuthMigrationPolicy {
     }
 }
 
+internal object OAuthCredentialAvailabilityPolicy {
+    fun hasCredentials(
+        hasEncryptedCredentials: Boolean,
+        migrationCompleted: Boolean,
+        hasLegacyCredentialsFile: () -> Boolean,
+    ): Boolean = hasEncryptedCredentials || !migrationCompleted && hasLegacyCredentialsFile()
+}
+
 /** Short coordination lock; network I/O must never run under this monitor. */
 internal object CodexProcessLock {
     val monitor = Any()
@@ -79,6 +87,15 @@ class OAuthStore(context: Context) {
             LegacyAuthLoadPath.UNAVAILABLE -> null
             LegacyAuthLoadPath.LEGACY -> migrateLegacyCredentials()
         }
+    }
+
+    /** Checks storage presence without decrypting or parsing credential contents. */
+    fun hasCredentials(): Boolean = synchronized(OAuthStoreLock.monitor) {
+        OAuthCredentialAvailabilityPolicy.hasCredentials(
+            hasEncryptedCredentials = preferences.contains(KEY_ENCRYPTED_CREDENTIALS),
+            migrationCompleted = preferences.getBoolean(KEY_LEGACY_MIGRATION_COMPLETED, false),
+            hasLegacyCredentialsFile = legacyAuthFile::isFile,
+        )
     }
 
     fun save(credentials: OAuthCredentials): Boolean = synchronized(OAuthStoreLock.monitor) {

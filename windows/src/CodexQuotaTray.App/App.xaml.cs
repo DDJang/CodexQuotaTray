@@ -20,6 +20,7 @@ public partial class App : Application
 {
     private static readonly TimeSpan ExitGracePeriod = TimeSpan.FromSeconds(5);
     private readonly CancellationTokenSource lifetime = new();
+    private readonly TokenUsageRefreshSchedule tokenUsageRefreshSchedule = new();
     private MainWindow? mainWindow;
     private TrayIconService? trayIcon;
     private AppInstance? currentInstance;
@@ -192,6 +193,7 @@ public partial class App : Application
             runtimeStateEventsAuthoritative);
         var presentationDispatcher = uiDispatcher
             ?? throw new InvalidOperationException("The WinUI dispatcher is unavailable.");
+        runtime!.TokenRefreshScheduleChanged += (_, _) => tokenUsageRefreshSchedule.NotifyChanged();
         tokenUsageViewModel = new TokenUsageViewModel(
             cancellationToken => ScanTokenUsageAsync(tokenUsageScanner, persistence, cancellationToken),
             (action, cancellationToken) => EnqueueAsync(presentationDispatcher, action, cancellationToken));
@@ -795,13 +797,20 @@ public partial class App : Application
 
             while (true)
             {
+                var scheduleRevision = tokenUsageRefreshSchedule.CaptureRevision();
                 var mode = runtime?.Settings.TokenRefreshMode ?? RefreshMode.ManualOnly;
                 if (TokenUsageRefreshPolicy.IsDue(mode, tokenUsageViewModel.LastAttemptUtc, DateTimeOffset.UtcNow))
                 {
                     await tokenUsageViewModel.RefreshNowAsync(cancellationToken);
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                mode = runtime?.Settings.TokenRefreshMode ?? RefreshMode.ManualOnly;
+                await tokenUsageRefreshSchedule.WaitAsync(
+                    scheduleRevision,
+                    mode,
+                    tokenUsageViewModel.LastAttemptUtc,
+                    DateTimeOffset.UtcNow,
+                    cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

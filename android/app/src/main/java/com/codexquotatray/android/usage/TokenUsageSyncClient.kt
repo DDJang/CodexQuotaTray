@@ -160,7 +160,7 @@ class TokenUsageSyncClient(
     }
 
     companion object {
-        private fun defaultClient() = OkHttpClient.Builder()
+        internal fun defaultClient() = OkHttpClient.Builder()
             .connectTimeout(4, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .callTimeout(12, TimeUnit.SECONDS)
