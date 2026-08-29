@@ -22,7 +22,7 @@ Windows 和 Android 正式版本均从
 [GitHub Releases](https://github.com/DDJang/CodexQuotaTray/releases) 下载：
 
 - Windows 安装包：`CodexQuotaTray-<version>-setup.exe`
-- Windows 免安装包：`CodexQuotaTray-<version>-win-x64.zip`
+- Windows 免安装包：`CodexQuotaTray-<version>-win-x64.zip`（需要系统已安装 Windows App Runtime；推荐安装包会自动处理该依赖）
 - Android APK：`CodexQuotaTray-Android-v<version>.apk`
 
 使用对应 Release 中的平台 `SHA256SUMS.txt` 校验下载文件。

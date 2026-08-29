@@ -45,9 +45,13 @@ Windows 与 Android 正式 Release 当前只支持严格的 `MAJOR.MINOR.PATCH` 
 
 ## 日常开发边界
 
-- Windows 本地只构建/运行 Debug 的 **CodexQuotaTray Dev**；Quick/Full 都验证 Debug/Dev。
+- Windows 日常运行应用只使用 Debug 的 **CodexQuotaTray Dev**；Quick/Full 都验证 Debug/Dev。影响
+  Release 输出的开发改动可按 [AGENTS.md](../AGENTS.md) 在本地运行 `verify-winui.ps1 -Mode Release`
+  进行 release-specific publish/artifact verification。
 - Android 本地只构建/安装 Debug 的 **CodexQuotaTray Dev**，使用默认 debug 签名。
-- 日常开发不生成、安装或签名 Production/Release，不读取 Release JKS 或 secret。
+- 本地 `-Mode Release` 验证不安装、签名或发布 Production；Android 本地开发也不读取 Release JKS 或 secret。
+- 正式 Production 的安装、产物构建与签名、平台 tag、GitHub Release 和正式发布只由既有发布状态机及
+  GitHub Actions 从 `main` 上的平台 tag 完成。
 - 真实账户、Explorer 托盘、系统通知和真机网络 smoke 都必须显式授权。
 
 ## 正式发布步骤

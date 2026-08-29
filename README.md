@@ -24,7 +24,7 @@ Official Windows and Android packages are available from
 [GitHub Releases](https://github.com/DDJang/CodexQuotaTray/releases):
 
 - Windows installer: `CodexQuotaTray-<version>-setup.exe`
-- Windows portable: `CodexQuotaTray-<version>-win-x64.zip`
+- Windows portable: `CodexQuotaTray-<version>-win-x64.zip` (requires Windows App Runtime; the recommended installer handles this dependency automatically)
 - Android APK: `CodexQuotaTray-Android-v<version>.apk`
 
 Use the platform-specific `SHA256SUMS.txt` from the corresponding release to verify downloaded files.

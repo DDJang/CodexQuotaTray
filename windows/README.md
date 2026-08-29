@@ -39,13 +39,16 @@ Production、Dev、Preview 使用独立单实例 key、托盘 GUID、数据目�
 ```powershell
 pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Quick
 pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Full
+pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Release
 ```
 
-Quick 与 Full 都构建 Debug/Dev；Full 额外运行格式检查和完整离线测试。`-Mode Release` 只供
-GitHub Actions 正式发布路径，执行 release-specific restore/publish 和产物检查，不重复 Full 的
-格式检查与离线测试。三种模式默认都不安装、不签名、不运行真实账户或 Explorer 托盘 smoke。
+Quick 与 Full 都构建 Debug/Dev；Full 额外运行格式检查和完整离线测试。`-Mode Release` 用于本地
+release-specific restore/publish 和产物检查，可按仓库 [Validation 规则](../AGENTS.md)验证影响最终
+Release 输出的开发改动，但不重复 Full 的格式检查与离线测试。三种模式默认都不安装、不签名、不运行
+真实账户或 Explorer 托盘 smoke；本地运行 `-Mode Release` 不等于安装、签名或发布 Production。
 
-正式发布规则集中在 [RELEASE.md](../docs/RELEASE.md)。
+正式 Production 产物仍只由 GitHub Actions 从 `main` 上的平台 tag 生成，正式发布入口与边界集中在
+[RELEASE.md](../docs/RELEASE.md)。
 
 ## NuGet 与环境恢复
 
