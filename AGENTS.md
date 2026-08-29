@@ -31,10 +31,12 @@ reset credit。
 
 ## Task lifecycle
 
-任务开始时报告仓库根目录、分支、HEAD、包含未跟踪文件的工作区状态和验证级别。修改前先读
-实现与测试，保留用户已有改动，只做满足任务的最小一致变更。
+任务开始时报告仓库根目录、分支、HEAD、包含未跟踪文件的工作区状态，并按改动范围选定验证级别。
+Quick 可以在开发过程中用于快速反馈，但不是最终交付必跑项。修改前先读实现与测试，保留用户已有改动，
+只做满足任务的最小一致变更。
 
-任务结束时只报告本轮改动、验证、跳过的 opt-in 检查、剩余风险和最终工作区状态。
+任务结束时只报告本轮改动、最终有效验证、明确请求后才运行的 opt-in 检查结果、剩余风险和最终工作区状态。
+开发过程中为了快速反馈运行的 Quick 不作为额外发布门禁重复报告；日常验证也不把未运行的 opt-in 检查当作普通测试结果。
 
 ## Architecture boundaries
 
@@ -117,11 +119,40 @@ fallback 事实，不是普通开发者的安装路径，也不是长期稳定�
 
 WinUI 从仓库根目录运行 `windows/scripts/verify-winui.ps1`：
 
-- `Quick`：仓库配置 restore、Debug/Dev x64 build、基础检查；
-- `Full`：Quick 加格式和完整离线测试，仍使用 Debug/Dev；
-- `Release`：Production Release build 与 publish 检查，只供正式发布流程。
+- `Quick`：仓库配置 restore、Debug/Dev x64 build、基础检查，仅用于开发过程快速反馈，不是最终交付必跑项；
+- `Full`：普通 Windows 代码修改的默认最终验证。它已覆盖 Quick 的 restore/build，并增加格式和完整离线测试，仍使用 Debug/Dev；
+- `Release`：Production Release build 与 publish 检查，不作为所有任务的默认验证。
 
-Core、协议、持久化和 runtime 改动至少运行 Full。真实账户和 Explorer 托盘 smoke 始终显式 opt-in。
+不要机械执行 `Quick` → `Full` → `Release`。如果最终需要 `Full`，不得为了“完整”先跑 `Quick`；成功完成
+`Full` 后也不需要补跑 `Quick`。
+
+只有以下改动需要在 `Full` 之外追加 `Release`：
+
+- `publish-winui.ps1`；
+- `.csproj` / MSBuild publish properties；
+- Windows App SDK deployment；
+- RID / self-contained / trimming / resources；
+- installer / packaging；
+- 其他会影响最终 `Release` publish 产物的修改。
+
+`Release` 不包含 `Full` 的日常离线单测，所以发布链修改的最终验证是 `Full` + `Release`，不是
+`Quick` + `Full` + `Release`。installer / packaging 修改在此基础上只追加对应的 Inno/package smoke，
+不重复其他低级验证。
+
+| 改动范围 | 最终有效验证 |
+| --- | --- |
+| 普通 Windows code | `Full` |
+| publish/deployment/package | `Full` + `Release` |
+| installer | `Full` + `Release` + installer compile |
+| docs only | targeted docs check + `git diff --check` |
+
+Core、协议、持久化和 runtime 改动至少运行 `Full`。文档或纯静态修改使用最小相关检查，不强制 `Full`。
+
+Live/真实账户、Explorer tray、GUI smoke 始终是 explicit opt-in，不计入日常自动验证；除非任务明确请求并满足
+运行条件，否则不要运行，也不要把“未执行”或 skip 作为普通测试结果报告。
+
+如果最终验证后又发生代码修改，只重新执行当前任务要求的最高最终验证；对于 `Full` + `Release` 任务保持该任务
+所需的最终验证组合，但不要补跑 `Quick`，也不要把所有低级验证重新串行跑一遍。
 
 Android 使用仓库 Gradle Wrapper、兼容的 Gradle JVM 和 Android SDK 35；项目 Java/Kotlin 编译 target
 仍为 Java 17：
