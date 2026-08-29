@@ -17,6 +17,11 @@
 #ifndef PublishDir
   #define PublishDir "{#RepoRoot}\target\winui-publish"
 #endif
+#ifndef WindowsAppRuntimeInstaller
+  #error WindowsAppRuntimeInstaller must be supplied by windows/scripts/package-inno.ps1
+#endif
+
+#define WindowsAppRuntimeInstallerFileName "WindowsAppRuntimeInstall-x64.exe"
 
 [Setup]
 AppId={{8F5D1A9B-2B4B-4A17-9D1E-8DAB4D2C4E61}
@@ -52,6 +57,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "autostart"; Description: "登录 Windows 时自动启动 CodexQuotaTray"; GroupDescription: "启动选项："
 
 [Files]
+Source: "{#WindowsAppRuntimeInstaller}"; DestDir: "{tmp}"; DestName: "{#WindowsAppRuntimeInstallerFileName}"; Flags: dontcopy
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: ignoreversion restartreplace recursesubdirs createallsubdirs
 Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -112,23 +118,47 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ShutdownProcessId: Integer;
+  RuntimeExitCode: Integer;
+  RuntimeInstallerPath: String;
 begin
   Result := '';
   NeedsRestart := False;
-  if not FileExists(ExpandConstant('{app}\codex-quota-tray-gui.exe')) then
-    exit;
+  if FileExists(ExpandConstant('{app}\codex-quota-tray-gui.exe')) then begin
+    // Older builds can block while redirecting the shutdown request to the
+    // current single-instance owner. Do not make the installer wait on that
+    // helper; CloseApplications below will handle any remaining file locks.
+    if not Exec(
+      ExpandConstant('{app}\codex-quota-tray-gui.exe'),
+      '--shutdown-existing',
+      '',
+      SW_HIDE,
+      ewNoWait,
+      ShutdownProcessId
+    ) then begin
+      Result := '无法请求旧版 CodexQuotaTray 正常退出。请先从托盘退出后重试。';
+      exit;
+    end;
+  end;
 
-  // Older builds can block while redirecting the shutdown request to the
-  // current single-instance owner. Do not make the installer wait on that
-  // helper; CloseApplications below will handle any remaining file locks.
+  RuntimeInstallerPath := ExpandConstant('{tmp}\{#WindowsAppRuntimeInstallerFileName}');
+  ExtractTemporaryFile('{#WindowsAppRuntimeInstallerFileName}');
+  if not FileExists(RuntimeInstallerPath) then begin
+    Result := 'Windows App Runtime 安装失败，CodexQuotaTray 未完成安装。';
+    exit;
+  end;
   if not Exec(
-    ExpandConstant('{app}\codex-quota-tray-gui.exe'),
-    '--shutdown-existing',
+    RuntimeInstallerPath,
+    '--quiet',
     '',
     SW_HIDE,
-    ewNoWait,
-    ShutdownProcessId
+    ewWaitUntilTerminated,
+    RuntimeExitCode
   ) then begin
-    Result := '无法请求旧版 CodexQuotaTray 正常退出。请先从托盘退出后重试。';
+    Result := 'Windows App Runtime 安装失败，CodexQuotaTray 未完成安装。';
+    exit;
+  end;
+  if RuntimeExitCode <> 0 then begin
+    Result := 'Windows App Runtime 安装失败（退出码 ' + IntToStr(RuntimeExitCode) +
+      '），CodexQuotaTray 未完成安装。';
   end;
 end;

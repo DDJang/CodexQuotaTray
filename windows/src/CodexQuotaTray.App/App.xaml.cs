@@ -2,6 +2,7 @@ using System.Diagnostics;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.App.Views;
 using CodexQuotaTray.Core;
+using CodexQuotaTray.Core.Alerts;
 using CodexQuotaTray.Core.Auth;
 using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.Core.Protocol;
@@ -72,8 +73,7 @@ public partial class App : Application
         if (!showDemo)
         {
             appNotifications = new WindowsAppNotificationService(OnAppNotificationInvoked);
-            var iconUri = new Uri(Path.GetFullPath(
-                Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.png")));
+            var iconUri = new Uri(WindowIconService.AppNotificationIconPath);
             _ = appNotifications.TryRegister(identity.DisplayName, iconUri);
         }
 
@@ -234,6 +234,7 @@ public partial class App : Application
             Environment.NewLine,
             diagnostics.CreateDiagnosticText(),
             lanDiagnosticBuffer.CreateDiagnosticText(),
+            appNotifications?.CreateDiagnosticText() ?? "Windows notifications: unavailable (demo)",
             trayIcon?.CreateDiagnosticText() ?? "托盘注册状态: NotStarted")));
         settingsPageActions = new DelegateSettingsPageActions(
             cancellationToken => viewModel.RefreshCommand.ExecuteAsync(cancellationToken),
@@ -363,21 +364,49 @@ public partial class App : Application
     {
         _ = uiDispatcher?.TryEnqueue(() =>
         {
-            try
-            {
-                if (appNotifications?.IsRegistered == true)
-                {
-                    appNotifications.ShowWindowsUpdateAvailable(release);
-                    return;
-                }
-
-                trayIcon?.ShowWindowsUpdateAvailable(release);
-            }
-            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
-            {
-                System.Diagnostics.Debug.WriteLine($"Windows update notification failed: {error.GetType().Name}");
-            }
+            _ = DeliverWindowsUpdateNotificationAsync(release).ContinueWith(
+                ObserveWindowsUpdateDelivery,
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
         });
+    }
+
+    private async Task DeliverWindowsUpdateNotificationAsync(WindowsUpdateRelease release)
+    {
+        var notifications = appNotifications;
+        var deliveryAttempt = notifications?.BeginDelivery();
+
+        await NotificationDeliveryRouter.DeliverAsync(
+            notifications?.IsRegistered == true,
+            () => (notifications
+                ?? throw new InvalidOperationException("Windows app notifications are unavailable."))
+                .ShowWindowsUpdateAvailable(release),
+            _ =>
+            {
+                var tray = trayIcon
+                    ?? throw new InvalidOperationException("The tray notification service is unavailable.");
+                tray.ShowWindowsUpdateAvailable(release);
+                return Task.CompletedTask;
+            },
+            () => notifications?.RecordAppNotificationDeliverySuccess(deliveryAttempt),
+            error => notifications?.RecordAppNotificationDeliveryFailure(deliveryAttempt, error),
+            () => notifications?.RecordSuppressedBySetting(deliveryAttempt),
+            () => notifications?.RecordShellFallbackDeliverySuccess(deliveryAttempt),
+            error => notifications?.RecordShellFallbackDeliveryFailure(deliveryAttempt, error),
+            CancellationToken.None).ConfigureAwait(false);
+    }
+
+    private static void ObserveWindowsUpdateDelivery(Task delivery)
+    {
+        if (!delivery.IsFaulted || delivery.Exception?.GetBaseException() is not { } error)
+        {
+            return;
+        }
+
+        System.Diagnostics.Debug.WriteLine(
+            $"Windows update notification failed: {error.GetType().Name} "
+            + $"hresult=0x{unchecked((uint)error.HResult):X8}");
     }
 
     private async Task StartWindowsUpdateCheckAfterInitializationAsync(
@@ -472,9 +501,14 @@ public partial class App : Application
                 accountService);
             settingsViewModel.ThemeSaved += OnSettingsThemeSaved;
             settingsViewModel.DataSourcesChanged += OnSettingsDataSourcesChanged;
+            Func<CancellationToken, Task>? debugTestNotification = null;
+#if CODEXQUOTATRAY_DEV
+            debugTestNotification = pendingNotificationSink is null ? null : SendDebugTestNotificationAsync;
+#endif
             settingsWindow = new SettingsWindow(
                 settingsViewModel,
-                applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName);
+                applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName,
+                debugTestNotification);
         }
 
         settingsWindow.ApplyTheme(runtime.Settings.ThemeMode);
@@ -525,6 +559,12 @@ public partial class App : Application
         });
         return Task.CompletedTask;
     }
+
+#if CODEXQUOTATRAY_DEV
+    private Task SendDebugTestNotificationAsync(CancellationToken cancellationToken) =>
+        (pendingNotificationSink ?? throw new InvalidOperationException("The debug notification sink is unavailable."))
+            .ShowAsync(new QuotaAlert("Debug 测试通知", 42, 50), cancellationToken);
+#endif
 
     private sealed class DelegateSettingsPageActions(
         Func<CancellationToken, Task> refreshQuota,

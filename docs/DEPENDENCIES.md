@@ -9,13 +9,17 @@ properties 为准。更新依赖时必须同步审查许可证、维护状态、
 
 | 依赖 | 用途 |
 | --- | --- |
-| Microsoft.WindowsAppSDK | WinUI 3 与 Windows App SDK runtime |
+| Microsoft.WindowsAppSDK | WinUI 3 编译时 SDK reference；版本以 `windows/Directory.Packages.props` 为准 |
+| Microsoft Windows App Runtime | unpackaged WinUI 3 的共享运行时；固定的 x64 standalone installer 版本、下载源、SHA-256 和 Microsoft Authenticode publisher 以 [`windows-app-runtime.json`](../windows/installer/windows-app-runtime.json) 为准 |
 | CommunityToolkit.Mvvm | ViewModel 与 MVVM 基础 |
 | ZXing.Net | 本地生成 Windows 配对二维码 |
 | MSTest.Sdk | 离线测试平台 |
 
-Self-contained publish 还包含 .NET runtime、Windows App SDK native/runtime 文件和传递依赖，
-分发时应保留相应许可证。
+Windows 客户端保持 unpackaged 普通 EXE；.NET runtime 继续使用 self-contained publish，用户不需要
+另装 .NET。Windows App Runtime 使用固定配置中的 Microsoft-signed x64 standalone installer，
+由 per-user Inno Setup 安装器嵌入、安装阶段提取到 `{tmp}` 并以 `--quiet` 执行，安装共享的
+Windows App SDK Framework/Main/Singleton/DDLM packages；runtime installer 不会永久写入 `{app}`。
+卸载 CodexQuotaTray 时不会卸载或删除这个共享 Windows App Runtime。
 
 ## Android
 

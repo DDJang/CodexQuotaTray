@@ -1,3 +1,5 @@
+using System.Text.Json;
+using System.Xml.Linq;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core.Alerts;
 
@@ -7,15 +9,20 @@ namespace CodexQuotaTray.Tests;
 public sealed class AppIntegrationSourceTests
 {
     [TestMethod]
-    public void TrayNotificationSinkPrefersWindowsNotificationsAndKeepsTrayFallback()
+    public void TrayNotificationSinkRoutesAppFailureToShellFallback()
     {
         var source = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Services", "TrayNotificationSink.cs"));
 
-        StringAssert.Contains(source, "if (appNotifications.IsRegistered)");
+        StringAssert.Contains(source, "NotificationDeliveryRouter.DeliverAsync");
         StringAssert.Contains(source, "appNotifications.ShowQuotaAlert(alert)");
-        StringAssert.Contains(source, "?? throw new InvalidOperationException");
+        StringAssert.Contains(source, "appNotifications.RecordAppNotificationDeliveryFailure");
+        StringAssert.Contains(source, "appNotifications.RecordSuppressedBySetting");
+        StringAssert.Contains(source, "appNotifications.RecordShellFallbackDeliverySuccess");
         StringAssert.Contains(source, "tray.ShowQuotaAlertAsync(alert, cancellationToken)");
+        StringAssert.Contains(source, "ContinueWith");
+        StringAssert.Contains(source, "completion.TrySetCanceled()");
+        Assert.IsFalse(source.Contains("catch (Exception", StringComparison.Ordinal));
         Assert.IsFalse(source.Contains("Tray?.ShowQuotaAlert", StringComparison.Ordinal));
     }
 
@@ -43,10 +50,193 @@ public sealed class AppIntegrationSourceTests
 
         StringAssert.Contains(serviceSource, "AppNotificationManager.IsSupported()");
         StringAssert.Contains(serviceSource, "candidate.Register(displayName, iconUri)");
-        StringAssert.Contains(serviceSource, "current.Setting != AppNotificationSetting.Enabled");
+        StringAssert.Contains(serviceSource, "setting != AppNotificationSetting.Enabled");
         StringAssert.Contains(serviceSource, "new AppNotificationBuilder()");
         StringAssert.Contains(serviceSource, "current.Show(notification)");
         StringAssert.Contains(serviceSource, "current.Unregister()");
+    }
+
+    [TestMethod]
+    public void WindowsNotificationsUseProductBrandingWithoutRenamingTheExecutable()
+    {
+        var appSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+        var projectSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "App", "CodexQuotaTray.App.csproj"));
+        var serviceSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "WindowsAppNotificationService.cs"));
+
+        StringAssert.Contains(projectSource, "<AssemblyName>codex-quota-tray-gui</AssemblyName>");
+        StringAssert.Contains(projectSource, "<AssemblyTitle>CodexQuotaTray</AssemblyTitle>");
+        StringAssert.Contains(projectSource, "<Product>CodexQuotaTray</Product>");
+        StringAssert.Contains(projectSource, "<Description>CodexQuotaTray</Description>");
+        StringAssert.Contains(appSource, "appNotifications.TryRegister(identity.DisplayName, iconUri)");
+        StringAssert.Contains(appSource, "WindowIconService.AppNotificationIconPath");
+        Assert.IsFalse(serviceSource.Contains("codex-quota-tray-gui", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void DebugSettingsExposeAnOptInTestNotificationButton()
+    {
+        var settingsXaml = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "SettingsWindow.xaml"));
+        var settingsSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "SettingsWindow.xaml.cs"));
+        var appSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+
+        StringAssert.Contains(settingsXaml, "x:Name=\"DebugTestNotificationCard\"");
+        StringAssert.Contains(settingsXaml, "Visibility=\"Collapsed\"");
+        StringAssert.Contains(settingsXaml, "x:Name=\"DebugTestNotificationButton\"");
+        StringAssert.Contains(settingsXaml, "Click=\"OnDebugTestNotificationRequested\"");
+        StringAssert.Contains(settingsSource, "#if CODEXQUOTATRAY_DEV");
+        StringAssert.Contains(settingsSource, "DebugTestNotificationCard.Visibility = Visibility.Visible;");
+        StringAssert.Contains(appSource, "pendingNotificationSink is null ? null : SendDebugTestNotificationAsync");
+        StringAssert.Contains(appSource, "new QuotaAlert(\"Debug 测试通知\", 42, 50)");
+    }
+
+    [TestMethod]
+    public void WindowsAppSdkPackageVersionsStayAligned()
+    {
+        var packageVersions = XDocument.Load(
+                Path.Combine(AppContext.BaseDirectory, "Directory.Packages.props"))
+            .Descendants("PackageVersion")
+            .Where(element => element.Attribute("Include") is not null)
+            .ToDictionary(
+                element => element.Attribute("Include")!.Value,
+                element => element.Attribute("Version")?.Value);
+
+        Assert.AreEqual("2.3.1", packageVersions["Microsoft.WindowsAppSDK"]);
+        Assert.IsFalse(packageVersions.ContainsKey("Microsoft.WindowsAppSDK.Runtime"));
+    }
+
+    [TestMethod]
+    public void WindowsDeploymentUsesThePinnedFrameworkDependentRuntimeConfiguration()
+    {
+        var projectSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "App", "CodexQuotaTray.App.csproj"));
+        var project = XDocument.Parse(projectSource);
+        var properties = project.Descendants()
+            .Where(element => element.Parent?.Name.LocalName == "PropertyGroup")
+            .Where(element => element.Name.LocalName is "WindowsPackageType" or "SelfContained")
+            .ToDictionary(element => element.Name.LocalName, element => element.Value);
+        var config = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Installer", "windows-app-runtime.json"))).RootElement;
+
+        Assert.AreEqual("None", properties["WindowsPackageType"]);
+        Assert.AreEqual("true", properties["SelfContained"]);
+        Assert.IsFalse(projectSource.Contains("<WindowsAppSDKSelfContained>true", StringComparison.Ordinal));
+        Assert.IsFalse(projectSource.Contains("<WindowsAppSdkUndockedRegFreeWinRTInitialize>", StringComparison.Ordinal));
+        Assert.IsFalse(projectSource.Contains("Microsoft.WindowsAppSDK.Runtime", StringComparison.Ordinal));
+
+        Assert.AreEqual("2.3.1", config.GetProperty("version").GetString());
+        Assert.AreEqual("x64", config.GetProperty("architecture").GetString());
+        Assert.AreEqual("WindowsAppRuntimeInstall-x64.exe", config.GetProperty("filename").GetString());
+        StringAssert.StartsWith(config.GetProperty("sourceUrl").GetString()!, "https://aka.ms/windowsappsdk/");
+        StringAssert.StartsWith(config.GetProperty("downloadUrl").GetString()!, "https://download.microsoft.com/");
+        Assert.IsFalse(config.GetProperty("downloadUrl").GetString()!.Contains("latest", StringComparison.OrdinalIgnoreCase));
+        StringAssert.Matches(config.GetProperty("sha256").GetString()!, new System.Text.RegularExpressions.Regex("^[0-9A-Fa-f]{64}$"));
+        var authenticode = config.GetProperty("authenticode");
+        StringAssert.Contains(authenticode.GetProperty("subject").GetString()!, "Microsoft Corporation");
+        StringAssert.Contains(authenticode.GetProperty("issuer").GetString()!, "Microsoft Corporation");
+        StringAssert.Matches(authenticode.GetProperty("thumbprint").GetString()!, new System.Text.RegularExpressions.Regex("^[0-9A-Fa-f]{40}$"));
+    }
+
+    [TestMethod]
+    public void WindowsNotificationRegistrationAndDiagnosticsDistinguishSupportAndFailure()
+    {
+        var serviceSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "WindowsAppNotificationService.cs"));
+
+        foreach (var state in new[] { "NotAttempted", "Unsupported", "Registered", "Failed" })
+        {
+            StringAssert.Contains(serviceSource, state);
+        }
+
+        StringAssert.Contains(serviceSource, "AppNotificationSupported = AppNotificationManager.IsSupported()");
+        StringAssert.Contains(serviceSource, "RegistrationState = AppNotificationRegistrationState.Unsupported");
+        StringAssert.Contains(serviceSource, "RegistrationState = AppNotificationRegistrationState.Registered");
+        StringAssert.Contains(serviceSource, "RegistrationState = AppNotificationRegistrationState.Failed");
+        StringAssert.Contains(serviceSource, "registrationHResult:");
+        StringAssert.Contains(serviceSource, "windowsAppSdkDeployment: FrameworkDependent");
+        StringAssert.Contains(serviceSource, "registeredTransport:");
+        StringAssert.Contains(serviceSource, "lastDelivery:");
+        StringAssert.Contains(serviceSource, "lastAppNotificationDeliveryError:");
+        StringAssert.Contains(serviceSource, "lastShellFallbackError:");
+        StringAssert.Contains(serviceSource, "NotificationDeliveryDiagnostics");
+        StringAssert.Contains(serviceSource, "SuppressedBySetting");
+        StringAssert.Contains(serviceSource, "GetType().Name");
+        StringAssert.Contains(serviceSource, "FormatDeliveryError");
+        StringAssert.Contains(serviceSource, "Windows notifications:");
+        StringAssert.Contains(serviceSource, ".AddText(title)");
+        StringAssert.Contains(serviceSource, ".AddText(body)");
+        Assert.IsFalse(serviceSource.Contains("mode:", StringComparison.Ordinal));
+        Assert.IsFalse(serviceSource.Contains("lastDeliveryChannel", StringComparison.Ordinal));
+        Assert.IsFalse(serviceSource.Contains("AddImage", StringComparison.Ordinal));
+        Assert.IsFalse(serviceSource.Contains("SetAppLogoOverride", StringComparison.Ordinal));
+        Assert.IsFalse(serviceSource.Contains("SetHeroImage", StringComparison.Ordinal));
+        Assert.IsFalse(serviceSource.Contains("SetInlineImage", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void WindowsUpdateNotificationsUseTheSameFallbackRouter()
+    {
+        var appSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+        var methodStart = appSource.IndexOf("private async Task DeliverWindowsUpdateNotificationAsync(", StringComparison.Ordinal);
+        var methodEnd = appSource.IndexOf(
+            "private async Task StartWindowsUpdateCheckAfterInitializationAsync(",
+            methodStart,
+            StringComparison.Ordinal);
+
+        Assert.IsTrue(methodStart >= 0);
+        Assert.IsTrue(methodEnd > methodStart);
+        var method = appSource[methodStart..methodEnd];
+        StringAssert.Contains(method, "NotificationDeliveryRouter.DeliverAsync");
+        StringAssert.Contains(method, "ShowWindowsUpdateAvailable(release)");
+        StringAssert.Contains(method, "RecordAppNotificationDeliveryFailure");
+        StringAssert.Contains(method, "RecordSuppressedBySetting");
+        StringAssert.Contains(method, "RecordShellFallbackDeliverySuccess");
+        StringAssert.Contains(method, "CancellationToken.None");
+        StringAssert.Contains(appSource, "ObserveWindowsUpdateDelivery");
+    }
+
+    [TestMethod]
+    public void ShellFallbackUsesNoBodyIconAndNoRealtimeFlags()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "TrayIconService.cs"));
+        var nativeSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Interop", "NativeMethods.cs"));
+
+        StringAssert.Contains(source, "WindowIconService.TrayIconPath");
+        StringAssert.Contains(source, "BalloonIcon = IntPtr.Zero");
+        StringAssert.Contains(source, "data.Flags |= NativeMethods.NifInfo;");
+        StringAssert.Contains(source, "data.InfoFlags = NativeMethods.NiifNone;");
+        StringAssert.Contains(nativeSource, "NiifNone = 0x00000000");
+        Assert.IsFalse(source.Contains("NativeMethods.NiifInfo", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("NativeMethods.NiifUser", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("NativeMethods.NiifLargeIcon", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("NativeMethods.NifRealtime", StringComparison.Ordinal));
+        Assert.IsFalse(nativeSource.Contains("NiifUser", StringComparison.Ordinal));
+        Assert.IsFalse(nativeSource.Contains("NiifLargeIcon", StringComparison.Ordinal));
+        Assert.IsFalse(nativeSource.Contains("NifRealtime", StringComparison.Ordinal));
+        StringAssert.Contains(nativeSource, "internal IntPtr BalloonIcon;");
+    }
+
+    [TestMethod]
+    public void TrayStartupRequiresOnlyTheSmallIcon()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "TrayIconService.cs"));
+
+        StringAssert.Contains(source, "var smallIcons = new IntPtr[1];");
+        StringAssert.Contains(
+            source,
+            "NativeMethods.ExtractIconEx(iconPath, 0, null, smallIcons, 1)");
+        StringAssert.Contains(source, "smallIconExtractResult != 1");
+        StringAssert.Contains(source, "smallIconHandlePresent != true");
+        StringAssert.Contains(source, "LogIconExtraction(\"tray icon loaded\")");
+        StringAssert.Contains(source, "托盘小图标提取结果:");
+        Assert.IsFalse(source.Contains("balloonIcon", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("largeIcons", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("TryLoadLargeBalloonIcon", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("气泡大图标", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -78,7 +268,7 @@ public sealed class AppIntegrationSourceTests
         StringAssert.Contains(source, "BalloonShowAcknowledgementTimeout");
         StringAssert.Contains(source, "BalloonCallbackDrainTimeout");
         StringAssert.Contains(source, "DrainCompletion.Task.WaitAsync");
-        StringAssert.Contains(source, "NativeMethods.NifRealtime");
+        Assert.IsFalse(source.Contains("NativeMethods.NifRealtime", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -292,9 +482,80 @@ public sealed class AppIntegrationSourceTests
         var methodEnd = source.IndexOf("\nend;", methodStart, StringComparison.Ordinal);
         Assert.IsTrue(methodEnd > methodStart);
         var method = source[methodStart..methodEnd];
+        var runtimeStart = method.IndexOf("RuntimeInstallerPath :=", StringComparison.Ordinal);
+        Assert.IsTrue(runtimeStart > 0);
 
+        StringAssert.Contains(method, "if FileExists(ExpandConstant('{app}\\codex-quota-tray-gui.exe')) then begin");
         StringAssert.Contains(method, "ewNoWait");
         StringAssert.Contains(source, "CloseApplications=force");
-        Assert.IsFalse(method.Contains("ewWaitUntilTerminated", StringComparison.Ordinal));
+        Assert.IsFalse(method[..runtimeStart].Contains("ewWaitUntilTerminated", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void InstallerEmbedsRuntimeOnlyAsATemporaryQuietPrerequisite()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Installer", "CodexQuotaTray.iss"));
+        var prepareStart = source.IndexOf("function PrepareToInstall(", StringComparison.Ordinal);
+        var prepareEnd = source.IndexOf("\nend;", prepareStart, StringComparison.Ordinal);
+        var prepare = source[prepareStart..prepareEnd];
+        var uninstallStart = source.IndexOf("[UninstallRun]", StringComparison.Ordinal);
+        var uninstallEnd = source.IndexOf("[UninstallDelete]", uninstallStart, StringComparison.Ordinal);
+        var uninstall = source[uninstallStart..uninstallEnd];
+        var filesStart = source.IndexOf("[Files]", StringComparison.Ordinal);
+        var firstSource = source.IndexOf("Source:", filesStart, StringComparison.Ordinal);
+        var runtimeSource = source.IndexOf(
+            "Source: \"{#WindowsAppRuntimeInstaller}\"",
+            filesStart,
+            StringComparison.Ordinal);
+        var publishSource = source.IndexOf(
+            "Source: \"{#PublishDir}\\*\"",
+            filesStart,
+            StringComparison.Ordinal);
+
+        StringAssert.Contains(source, "#ifndef WindowsAppRuntimeInstaller");
+        StringAssert.Contains(source, "Source: \"{#WindowsAppRuntimeInstaller}\"; DestDir: \"{tmp}\"");
+        StringAssert.Contains(source, "DestName: \"{#WindowsAppRuntimeInstallerFileName}\"");
+        StringAssert.Contains(source, "Flags: dontcopy");
+        StringAssert.Contains(prepare, "ExtractTemporaryFile('{#WindowsAppRuntimeInstallerFileName}')");
+        StringAssert.Contains(prepare, "FileExists(RuntimeInstallerPath)");
+        StringAssert.Contains(prepare, "'--quiet'");
+        StringAssert.Contains(prepare, "ewWaitUntilTerminated");
+        StringAssert.Contains(prepare, "if RuntimeExitCode <> 0");
+        StringAssert.Contains(prepare, "Windows App Runtime 安装失败");
+        Assert.IsTrue(filesStart >= 0);
+        Assert.AreEqual(firstSource, runtimeSource);
+        Assert.IsTrue(runtimeSource < publishSource);
+        Assert.IsFalse(source.Contains("--force", StringComparison.Ordinal));
+        Assert.IsFalse(uninstall.Contains("WindowsAppRuntimeInstall", StringComparison.Ordinal));
+        Assert.IsFalse(uninstall.Contains("Remove-AppxPackage", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void RuntimeAcquisitionValidatesFixedDownloadHashAndAuthenticode()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Scripts", "acquire-windows-app-runtime.ps1"));
+        var packageSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Scripts", "package-inno.ps1"));
+        var publishSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Scripts", "publish-winui.ps1"));
+
+        StringAssert.Contains(source, "Get-FileHash");
+        StringAssert.Contains(source, "Get-AuthenticodeSignature");
+        StringAssert.Contains(source, "SignatureStatus]::Valid");
+        StringAssert.Contains(source, "InstallerPath");
+        StringAssert.Contains(source, "Invoke-WebRequest");
+        StringAssert.Contains(source, "Move-Item");
+        StringAssert.Contains(packageSource, "acquire-windows-app-runtime.ps1");
+        StringAssert.Contains(packageSource, "WindowsAppRuntimeInstaller");
+        StringAssert.Contains(packageSource, "/DWindowsAppRuntimeInstaller=");
+        StringAssert.Contains(packageSource, "Microsoft.WindowsAppSDK central package version is missing");
+        StringAssert.Contains(packageSource, "does not match Windows App Runtime version");
+        StringAssert.Contains(publishSource, "--self-contained true");
+        StringAssert.Contains(publishSource, "WindowsAppSDKSelfContained=false");
+        Assert.IsFalse(source.Contains("Get-AppxPackage", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("Expand-Archive", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("Microsoft.WindowsAppRuntime.Insights.Resource.dll", StringComparison.Ordinal));
     }
 }

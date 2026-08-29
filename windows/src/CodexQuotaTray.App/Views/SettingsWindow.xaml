@@ -666,6 +666,29 @@
                                     VerticalAlignment="Center" />
                             </Border>
                     </Grid>
+                    <Border
+                        x:Name="DebugTestNotificationCard"
+                        Style="{StaticResource SettingsItemCardStyle}"
+                        Visibility="Collapsed">
+                        <Grid Style="{StaticResource SettingsRowStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                <TextBlock Text="测试通知" Style="{StaticResource SettingsLabelStyle}" />
+                                <TextBlock Text="发送一条 Debug 通知以验证 Windows 通知显示" Style="{StaticResource SettingsDescriptionStyle}" />
+                            </StackPanel>
+                            <Button
+                                x:Name="DebugTestNotificationButton"
+                                Grid.Column="1"
+                                Content="发送测试通知"
+                                Click="OnDebugTestNotificationRequested"
+                                AutomationProperties.Name="发送 Debug 测试通知"
+                                Style="{StaticResource SettingsActionButtonStyle}"
+                                MinWidth="128" />
+                        </Grid>
+                    </Border>
                     <TextBlock Text="重置卡提醒" Style="{StaticResource SettingsSectionHeaderStyle}" Margin="0,8,0,0" />
                     <Border Style="{StaticResource SettingsItemCardStyle}">
                         <StackPanel Spacing="8">

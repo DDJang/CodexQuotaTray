@@ -38,6 +38,10 @@ internal sealed class TrayIconService : IDisposable
     private IntPtr callbackWindow;
     private IntPtr broadcastWindow;
     private IntPtr icon;
+    private string? trayIconPath;
+    private bool? trayIconExists;
+    private uint? smallIconExtractResult;
+    private bool? smallIconHandlePresent;
     private TrayContextMenuWindow? contextMenu;
     private uint taskbarCreatedMessage;
     private volatile bool added;
@@ -131,17 +135,33 @@ internal sealed class TrayIconService : IDisposable
         Instances.Add(broadcastWindow, this);
         taskbarCreatedMessage = NativeMethods.RegisterWindowMessage("TaskbarCreated");
         var iconPath = WindowIconService.TrayIconPath;
+        trayIconPath = iconPath;
+        trayIconExists = File.Exists(iconPath);
         var smallIcons = new IntPtr[1];
-        if (!File.Exists(iconPath)
-            || NativeMethods.ExtractIconEx(iconPath, 0, null, smallIcons, 1) != 1
-            || smallIcons[0] == IntPtr.Zero)
+        smallIconExtractResult = trayIconExists == true
+            ? NativeMethods.ExtractIconEx(iconPath, 0, null, smallIcons, 1)
+            : 0;
+        smallIconHandlePresent = smallIcons[0] != IntPtr.Zero;
+        if (trayIconExists != true
+            || smallIconExtractResult != 1
+            || smallIconHandlePresent != true)
         {
+            ReleaseIcon(ref smallIcons[0]);
+            LogIconExtraction("required small tray icon unavailable");
             throw LastWin32("extract the embedded tray icon");
         }
 
         icon = smallIcons[0];
+        LogIconExtraction("tray icon loaded");
         BeginRegistration();
     }
+
+    private void LogIconExtraction(string phase) =>
+        System.Diagnostics.Debug.WriteLine(
+            $"Tray icon extraction: phase={phase} path={trayIconPath ?? "none"} "
+            + $"exists={FormatOptionalBoolean(trayIconExists)} "
+            + $"smallResult={FormatOptionalCount(smallIconExtractResult)} "
+            + $"smallHandle={FormatOptionalHandle(smallIconHandlePresent)}");
 
     private void RegisterWindowClass(string className)
     {
@@ -417,6 +437,7 @@ internal sealed class TrayIconService : IDisposable
             | NativeMethods.NifShowTip,
         CallbackMessage = NativeMethods.TrayCallbackMessage,
         Icon = icon,
+        BalloonIcon = IntPtr.Zero,
         Tip = identity.Tooltip,
         Info = string.Empty,
         InfoTitle = string.Empty,
@@ -516,11 +537,11 @@ internal sealed class TrayIconService : IDisposable
             }
 
             var data = CreateData();
-            data.Flags |= NativeMethods.NifInfo | NativeMethods.NifRealtime;
+            data.Flags |= NativeMethods.NifInfo;
             var content = QuotaNotificationFormatter.Format(alert);
             data.InfoTitle = content.Title;
             data.Info = content.Body;
-            data.InfoFlags = NativeMethods.NiifInfo;
+            data.InfoFlags = NativeMethods.NiifNone;
             if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
             {
                 throw LastWin32("show quota notification");
@@ -587,7 +608,7 @@ internal sealed class TrayIconService : IDisposable
         data.Flags |= NativeMethods.NifInfo;
         data.InfoTitle = "CodexQuotaTray 更新";
         data.Info = $"发现 Windows 新版本 {release.Version}，打开设置即可查看。";
-        data.InfoFlags = NativeMethods.NiifInfo;
+        data.InfoFlags = NativeMethods.NiifNone;
         if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
         {
             throw LastWin32("show update notification");
@@ -636,10 +657,10 @@ internal sealed class TrayIconService : IDisposable
         }
 
         var data = CreateData();
-        data.Flags |= NativeMethods.NifInfo | NativeMethods.NifRealtime;
+        data.Flags |= NativeMethods.NifInfo;
         data.Info = string.Empty;
         data.InfoTitle = string.Empty;
-        data.InfoFlags = NativeMethods.NiifInfo;
+        data.InfoFlags = NativeMethods.NiifNone;
         _ = NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data);
     }
 
@@ -660,6 +681,10 @@ internal sealed class TrayIconService : IDisposable
         $"托盘身份: {identity.Name}",
         $"托盘 GUID: {identity.Guid:D}",
         $"托盘提示: {identity.Tooltip}",
+        $"托盘图标路径: {trayIconPath ?? "none"}",
+        $"托盘图标存在: {FormatOptionalBoolean(trayIconExists)}",
+        $"托盘小图标提取结果: {FormatOptionalCount(smallIconExtractResult)}",
+        $"托盘小图标句柄: {FormatOptionalHandle(smallIconHandlePresent)}",
         $"托盘注册状态: {RegistrationState}",
         $"托盘注册错误: {(LastRegistrationError?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none")}",
         "托盘回调宿主: HWND_MESSAGE",
@@ -707,11 +732,7 @@ internal sealed class TrayIconService : IDisposable
             broadcastWindow = IntPtr.Zero;
         }
 
-        if (icon != IntPtr.Zero)
-        {
-            _ = NativeMethods.DestroyIcon(icon);
-            icon = IntPtr.Zero;
-        }
+        ReleaseIcon(ref icon);
 
         if (instance != IntPtr.Zero)
         {
@@ -726,6 +747,34 @@ internal sealed class TrayIconService : IDisposable
 
     private static Win32Exception LastWin32(string operation) =>
         new(Marshal.GetLastWin32Error(), $"Could not {operation}.");
+
+    private static string FormatOptionalBoolean(bool? value) => value switch
+    {
+        true => "true",
+        false => "false",
+        _ => "not-attempted",
+    };
+
+    private static string FormatOptionalCount(uint? value) =>
+        value?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "not-attempted";
+
+    private static string FormatOptionalHandle(bool? present) => present switch
+    {
+        true => "present",
+        false => "absent",
+        _ => "not-attempted",
+    };
+
+    private static void ReleaseIcon(ref IntPtr iconHandle)
+    {
+        if (iconHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _ = NativeMethods.DestroyIcon(iconHandle);
+        iconHandle = IntPtr.Zero;
+    }
 
     private void DeleteIcon()
     {

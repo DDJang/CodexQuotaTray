@@ -77,7 +77,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "WinUI restore failed" }
 
     & $dotnetCommand publish $project -c Release -p:Platform=x64 -r win-x64 --self-contained true `
-        --no-restore -o $output -p:WindowsAppSDKSelfContained=true `
+        --no-restore -o $output -p:WindowsAppSDKSelfContained=false `
         -p:PublishSingleFile=false -p:PublishTrimmed=false
     if ($LASTEXITCODE -ne 0) { throw "WinUI publish failed" }
 

@@ -14,6 +14,11 @@ internal static class WindowIconService
         "Assets",
         "AppIcon.ico");
 
+    internal static readonly string AppNotificationIconPath = Path.Combine(
+        AppContext.BaseDirectory,
+        "Assets",
+        "AppIcon.png");
+
     internal static bool TrySetIcon(AppWindow appWindow, bool isDarkTheme)
     {
         var iconPath = isDarkTheme ? TrayIconPath : LightThemeWindowIconPath;

@@ -9,6 +9,11 @@
     <ProjectReference Include="..\CodexQuotaTray.FakeAppServer\CodexQuotaTray.FakeAppServer.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\..\Directory.Packages.props" Link="Directory.Packages.props" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\installer\windows-app-runtime.json" Link="Installer\windows-app-runtime.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\scripts\acquire-windows-app-runtime.ps1" Link="Scripts\acquire-windows-app-runtime.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\scripts\package-inno.ps1" Link="Scripts\package-inno.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\scripts\publish-winui.ps1" Link="Scripts\publish-winui.ps1" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Themes\Colors.xaml" Link="Themes\Colors.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Themes\Controls.xaml" Link="Themes\Controls.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\MainWindow.xaml" Link="Views\MainWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
@@ -23,11 +28,14 @@
     <None Include="..\..\src\CodexQuotaTray.App\Interop\NativeMethods.cs" Link="Interop\NativeMethods.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\DiagnosticsClipboardService.cs" Link="Services\DiagnosticsClipboardService.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\App.xaml.cs" Link="App.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\CodexQuotaTray.App.csproj" Link="App\CodexQuotaTray.App.csproj" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\installer\CodexQuotaTray.iss" Link="Installer\CodexQuotaTray.iss" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\TrayNotificationSink.cs" Link="Services\TrayNotificationSink.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\WindowsAppNotificationService.cs" Link="Services\WindowsAppNotificationService.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\TrayIconService.cs" Link="Services\TrayIconService.cs" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\QuotaNotificationFormatter.cs" Link="Services\QuotaNotificationFormatter.cs" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Services\NotificationDeliveryRouter.cs" Link="Services\NotificationDeliveryRouter.cs" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Services\NotificationDeliveryDiagnostics.cs" Link="Services\NotificationDeliveryDiagnostics.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\SessionEndingPolicy.cs" Link="Services\SessionEndingPolicy.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TrayBalloonAttemptGate.cs" Link="Services\TrayBalloonAttemptGate.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TokenUsageCacheSettingsState.cs" Link="Services\TokenUsageCacheSettingsState.cs" />
