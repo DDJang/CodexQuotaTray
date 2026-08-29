@@ -34,6 +34,9 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
 
     internal bool? IconExists { get; private set; }
 
+    internal bool AppNotificationRuntimeResourcePresent { get; } = File.Exists(
+        Path.Combine(AppContext.BaseDirectory, "Microsoft.WindowsAppRuntime.Insights.Resource.dll"));
+
     internal Exception? LastRegistrationError { get; private set; }
 
     internal bool TryRegister(string displayName, Uri iconUri)
@@ -120,6 +123,7 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
             $"displayName: {DisplayName ?? "none"}",
             $"iconPath: {IconPath ?? "none"}",
             $"iconExists: {FormatBoolean(IconExists)}",
+            $"appNotificationRuntimeResourcePresent: {(AppNotificationRuntimeResourcePresent ? "true" : "false")}",
             $"setting: {setting}",
             $"registrationError: {FormatRegistrationError(LastRegistrationError)}",
             $"registrationHResult: {FormatHResult(LastRegistrationError)}");
@@ -175,7 +179,8 @@ internal sealed class WindowsAppNotificationService(Action activationRequested) 
             + $"supported={FormatBoolean(AppNotificationSupported)} "
             + $"attempted={RegisterAttempted} state={RegistrationState} "
             + $"displayName={DisplayName ?? "none"} iconPath={IconPath ?? "none"} "
-            + $"iconExists={FormatBoolean(IconExists)} setting={FormatSetting()} "
+            + $"iconExists={FormatBoolean(IconExists)} "
+            + $"runtimeResource={AppNotificationRuntimeResourcePresent} setting={FormatSetting()} "
             + $"error={FormatRegistrationError(LastRegistrationError)} "
             + $"hresult={FormatHResult(LastRegistrationError)}");
 

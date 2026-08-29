@@ -83,13 +83,21 @@ public sealed class AppIntegrationSourceTests
         StringAssert.Contains(serviceSource, "RegistrationState = AppNotificationRegistrationState.Registered");
         StringAssert.Contains(serviceSource, "RegistrationState = AppNotificationRegistrationState.Failed");
         StringAssert.Contains(serviceSource, "registrationHResult:");
+        StringAssert.Contains(serviceSource, "appNotificationRuntimeResourcePresent:");
+        StringAssert.Contains(serviceSource, "Microsoft.WindowsAppRuntime.Insights.Resource.dll");
         StringAssert.Contains(serviceSource, "GetType().Name");
         StringAssert.Contains(serviceSource, "Windows notifications:");
         StringAssert.Contains(serviceSource, "mode:");
+        StringAssert.Contains(serviceSource, ".AddText(title)");
+        StringAssert.Contains(serviceSource, ".AddText(body)");
+        Assert.IsFalse(serviceSource.Contains("AddImage", StringComparison.Ordinal));
+        Assert.IsFalse(serviceSource.Contains("SetAppLogoOverride", StringComparison.Ordinal));
+        Assert.IsFalse(serviceSource.Contains("SetHeroImage", StringComparison.Ordinal));
+        Assert.IsFalse(serviceSource.Contains("SetInlineImage", StringComparison.Ordinal));
     }
 
     [TestMethod]
-    public void ShellFallbackUsesTheCurrentAppBalloonIconInsteadOfInformationIcon()
+    public void ShellFallbackUsesNoBodyIconAndNoRealtimeFlags()
     {
         var source = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Services", "TrayIconService.cs"));
@@ -97,13 +105,38 @@ public sealed class AppIntegrationSourceTests
             Path.Combine(AppContext.BaseDirectory, "Interop", "NativeMethods.cs"));
 
         StringAssert.Contains(source, "WindowIconService.TrayIconPath");
-        StringAssert.Contains(source, "BalloonIcon = balloonIcon");
-        StringAssert.Contains(source, "NativeMethods.NiifUser | NativeMethods.NiifLargeIcon");
+        StringAssert.Contains(source, "BalloonIcon = IntPtr.Zero");
+        StringAssert.Contains(source, "data.Flags |= NativeMethods.NifInfo;");
+        StringAssert.Contains(source, "data.InfoFlags = NativeMethods.NiifNone;");
+        StringAssert.Contains(nativeSource, "NiifNone = 0x00000000");
         Assert.IsFalse(source.Contains("NativeMethods.NiifInfo", StringComparison.Ordinal));
-        StringAssert.Contains(nativeSource, "NiifUser = 0x00000004");
-        StringAssert.Contains(nativeSource, "NiifLargeIcon = 0x00000020");
+        Assert.IsFalse(source.Contains("NativeMethods.NiifUser", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("NativeMethods.NiifLargeIcon", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("NativeMethods.NifRealtime", StringComparison.Ordinal));
+        Assert.IsFalse(nativeSource.Contains("NiifUser", StringComparison.Ordinal));
+        Assert.IsFalse(nativeSource.Contains("NiifLargeIcon", StringComparison.Ordinal));
+        Assert.IsFalse(nativeSource.Contains("NifRealtime", StringComparison.Ordinal));
         StringAssert.Contains(nativeSource, "internal IntPtr BalloonIcon;");
-        StringAssert.Contains(source, "ReleaseIcon(ref balloonIcon)");
+    }
+
+    [TestMethod]
+    public void TrayStartupRequiresOnlyTheSmallIcon()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "TrayIconService.cs"));
+
+        StringAssert.Contains(source, "var smallIcons = new IntPtr[1];");
+        StringAssert.Contains(
+            source,
+            "NativeMethods.ExtractIconEx(iconPath, 0, null, smallIcons, 1)");
+        StringAssert.Contains(source, "smallIconExtractResult != 1");
+        StringAssert.Contains(source, "smallIconHandlePresent != true");
+        StringAssert.Contains(source, "LogIconExtraction(\"tray icon loaded\")");
+        StringAssert.Contains(source, "托盘小图标提取结果:");
+        Assert.IsFalse(source.Contains("balloonIcon", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("largeIcons", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("TryLoadLargeBalloonIcon", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("气泡大图标", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -135,7 +168,7 @@ public sealed class AppIntegrationSourceTests
         StringAssert.Contains(source, "BalloonShowAcknowledgementTimeout");
         StringAssert.Contains(source, "BalloonCallbackDrainTimeout");
         StringAssert.Contains(source, "DrainCompletion.Task.WaitAsync");
-        StringAssert.Contains(source, "NativeMethods.NifRealtime");
+        Assert.IsFalse(source.Contains("NativeMethods.NifRealtime", StringComparison.Ordinal));
     }
 
     [TestMethod]
