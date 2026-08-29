@@ -133,46 +133,35 @@ function Invoke-OfflineTests(
     [string]$NuGetConfig,
     [string]$Configuration)
 {
-    $previousLiveBinary = $env:CODEXQUOTATRAY_LIVE_CODEX_BIN
-    $env:CODEXQUOTATRAY_LIVE_CODEX_BIN = ""
-    try {
-        $arguments = @(
-            "test", $TestProject,
-            "-c", $Configuration,
-            # The solution maps the test project to Any CPU. Let dotnet test
-            # use that same default so it resolves the build output in
-            # bin\Release instead of looking under bin\x64\Release.
-            "-p:RestoreConfigFile=$NuGetConfig",
-            "--no-build",
-            "--no-restore"
-        )
-        $testOutput = @(& $DotNetPath @arguments 2>&1)
-        $testExitCode = $LASTEXITCODE
-        $testOutput | ForEach-Object { Write-Host $_ }
-        if ($testExitCode -ne 0) {
-            throw "Complete offline tests failed with exit code $testExitCode."
-        }
-
-        $text = Normalize-TestOutput $testOutput
-        $total = Get-TestCount $text @("Total", "总计")
-        $passed = Get-TestCount $text @("Passed", "Succeeded", "成功")
-        $failed = Get-TestCount $text @("Failed", "失败")
-        $skipped = Get-TestCount $text @("Skipped", "已跳过")
-        $expectedSkipped = "CodexQuotaTray.Tests.LiveResourceSmokeTests.RealAppServer_SerialReadAndLifecycleMeasurement"
-        $expectedReason = "CODEXQUOTATRAY_LIVE_CODEX_BIN is not set; this is an explicit opt-in real-account smoke."
-
-        if ($skipped -ne 1 `
-            -or -not $text.Contains("RealAppServer_SerialReadAndLifecycleMeasurement", [StringComparison]::Ordinal) `
-            -or -not $text.Contains("CODEXQUOTATRAY_LIVE_CODEX_BIN", [StringComparison]::Ordinal)) {
-            throw "Offline test skip set did not match the expected opt-in Live smoke."
-        }
-
-        Write-Host "Offline test summary: passed=$passed; failed=$failed; skipped=$skipped; total=$total"
-        Write-Host "Skipped test: $expectedSkipped"
-        Write-Host "Skipped reason: $expectedReason"
-    } finally {
-        $env:CODEXQUOTATRAY_LIVE_CODEX_BIN = $previousLiveBinary
+    $arguments = @(
+        "test", $TestProject,
+        "-c", $Configuration,
+        # The solution maps the test project to Any CPU. Let dotnet test
+        # use that same default so it resolves the build output in
+        # bin\Release instead of looking under bin\x64\Release.
+        "-p:RestoreConfigFile=$NuGetConfig",
+        "--no-build",
+        "--no-restore",
+        "--filter", "TestCategory!=Live"
+    )
+    $testOutput = @(& $DotNetPath @arguments 2>&1)
+    $testExitCode = $LASTEXITCODE
+    $testOutput | ForEach-Object { Write-Host $_ }
+    if ($testExitCode -ne 0) {
+        throw "Complete offline tests failed with exit code $testExitCode."
     }
+
+    $text = Normalize-TestOutput $testOutput
+    $total = Get-TestCount $text @("Total", "总计")
+    $passed = Get-TestCount $text @("Passed", "Succeeded", "成功")
+    $failed = Get-TestCount $text @("Failed", "失败")
+    $skipped = Get-TestCount $text @("Skipped", "已跳过")
+
+    if ($failed -ne 0 -or $skipped -ne 0) {
+        throw "Offline test summary contained failed or skipped tests: failed=$failed; skipped=$skipped."
+    }
+
+    Write-Host "Offline test summary: passed=$passed; failed=$failed; skipped=$skipped; total=$total"
 }
 
 $windowsRoot = Get-FullPath (Join-Path $PSScriptRoot "..")
