@@ -206,7 +206,10 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(tooltipWindowCode, "BackdropService");
         StringAssert.Contains(tooltipWindowCode, "backdrop.Apply(this)");
         StringAssert.Contains(tooltipWindowCode, "BackdropKind.DesktopAcrylic");
+        StringAssert.Contains(mainWindowCode, "presenter.IsAlwaysOnTop = true;");
         StringAssert.Contains(tooltipWindowCode, "NativeMethods.SetWindowPos");
+        StringAssert.Contains(tooltipWindowCode, "NativeMethods.HwndTopMost,");
+        Assert.IsFalse(tooltipWindowCode.Contains("NativeMethods.HwndTop,", StringComparison.Ordinal));
         StringAssert.Contains(tooltipWindowCode, "LogGeometryDiagnostics(\"after-first-show-frame\")");
         StringAssert.Contains(tooltipWindowCode, "NativeMethods.GetWindowRect");
         Assert.IsFalse(tooltipWindowCode.Contains("ExtendsContentIntoTitleBar = true", StringComparison.Ordinal));
@@ -231,7 +234,9 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(nativeMethods, "WsExToolWindow");
         StringAssert.Contains(nativeMethods, "WsExNoActivate");
         StringAssert.Contains(nativeMethods, "WsExTransparent");
+        StringAssert.Contains(nativeMethods, "HwndTopMost = new(-1)");
         StringAssert.Contains(nativeMethods, "GwlHwndParent");
+        StringAssert.Contains(nativeMethods, "SetWindowLongPtr(hwnd, GwlHwndParent, owner)");
         StringAssert.Contains(nativeMethods, "GwlStyle = -16");
         StringAssert.Contains(nativeMethods, "WsDlgFrame = 0x00400000");
         StringAssert.Contains(nativeMethods, "WsBorder = 0x00800000");
@@ -242,6 +247,7 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(nativeMethods, "StyleStructNewOffset = sizeof(int)");
         StringAssert.Contains(nativeMethods, "WmNcHitTest = 0x0084");
         StringAssert.Contains(nativeMethods, "HtTransparent = -1");
+        StringAssert.Contains(tooltipWindowCode, "return new IntPtr(NativeMethods.HtTransparent);");
         StringAssert.Contains(nativeMethods, "DwmwaBorderColor = 34");
         StringAssert.Contains(nativeMethods, "DwmColorNone = unchecked((int)0xFFFFFFFE)");
         StringAssert.Contains(nativeMethods, "DwmGetWindowAttribute");

@@ -97,7 +97,7 @@ internal sealed partial class HeatmapTooltipWindow : Window, IDisposable
         var height = Math.Max(1, (int)Math.Round(TooltipHeightDips * rasterizationScale));
         var positioned = NativeMethods.SetWindowPos(
             hwnd,
-            NativeMethods.HwndTop,
+            NativeMethods.HwndTopMost,
             screenPosition.X,
             screenPosition.Y,
             width,
