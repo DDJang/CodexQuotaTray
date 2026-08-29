@@ -31,7 +31,7 @@ class QuotaRefreshWorker(
             AppLogStore.record(applicationContext, "额度后台任务已跳过：设置已关闭")
             return Result.success()
         }
-        val hasOAuth = OAuthStore(applicationContext).hasCredentials()
+        val hasOAuth = OAuthStore(applicationContext).load() != null
         val hasWindowsPairing = TokenSyncStore(applicationContext).load() != null
         AndroidWorkerNetworkDiagnostics.record(
             applicationContext,
@@ -102,7 +102,7 @@ object QuotaRefreshScheduler {
         val appContext = context.applicationContext
         val settings = QuotaRefreshSettingsStore(appContext).load()
         val workManager = WorkManager.getInstance(appContext)
-        val hasOAuth = OAuthStore(appContext).hasCredentials()
+        val hasOAuth = OAuthStore(appContext).load() != null
         val hasWindowsPairing = TokenSyncStore(appContext).load() != null
         if (!shouldSchedule(settings, hasOAuth, hasWindowsPairing)) {
             cancel(appContext)

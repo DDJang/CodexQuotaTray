@@ -442,13 +442,16 @@ public sealed class AppIntegrationSourceTests
         var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
         var methodStart = source.IndexOf("private async Task RunTokenUsageRefreshLoopAsync(", StringComparison.Ordinal);
         var methodEnd = source.IndexOf(
-            "private static async Task WaitForNextTokenUsageRefreshAsync(",
+            "private void OnApplicationUnhandledException(",
             methodStart,
             StringComparison.Ordinal);
         var method = source[methodStart..methodEnd];
 
-        StringAssert.Contains(method, "WaitForNextTokenUsageRefreshAsync(runtime, tokenUsageViewModel, cancellationToken)");
+        StringAssert.Contains(method, "tokenUsageRefreshSchedule.CaptureRevision()");
+        StringAssert.Contains(method, "tokenUsageRefreshSchedule.WaitAsync(");
         Assert.IsFalse(method.Contains("TimeSpan.FromSeconds(30)", StringComparison.Ordinal));
+        Assert.IsFalse(method.Contains("runtime.StateChanged", StringComparison.Ordinal));
+        StringAssert.Contains(source, "runtime!.TokenRefreshScheduleChanged += (_, _) => tokenUsageRefreshSchedule.NotifyChanged()");
     }
 
     [TestMethod]

@@ -25,6 +25,8 @@ public interface IQuotaRuntimeControl
 
     event EventHandler<AppUiState>? StateChanged;
 
+    event EventHandler? TokenRefreshScheduleChanged;
+
     Task ApplySettingsAsync(AppSettings settings, CancellationToken cancellationToken);
 
     ValueTask RequestAsync(RefreshReason reason, CancellationToken cancellationToken = default);
@@ -132,6 +134,8 @@ public sealed class QuotaRuntimeService :
     }
 
     public event EventHandler<AppUiState>? StateChanged;
+
+    public event EventHandler? TokenRefreshScheduleChanged;
 
     // Test-only synchronization point: this fires after the coordinator has
     // applied the result and settled the current refresh, before any handoff
@@ -346,6 +350,10 @@ public sealed class QuotaRuntimeService :
         var sourceChanged = previous.QuotaDataSource != settings.QuotaDataSource;
         await settingsService.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
         Settings = settings with { Notifications = settings.EffectiveNotifications };
+        if (previous.TokenRefreshMode != Settings.TokenRefreshMode)
+        {
+            TokenRefreshScheduleChanged?.Invoke(this, EventArgs.Empty);
+        }
         coordinator.SetMode(Settings.RefreshMode);
         if (previous.PersistQuotaCache && !Settings.PersistQuotaCache)
         {
@@ -414,7 +422,12 @@ public sealed class QuotaRuntimeService :
                 return;
             }
 
+            var previousTokenRefreshMode = Settings.TokenRefreshMode;
             Settings = await settingsService.LoadAsync(cancellationToken).ConfigureAwait(false);
+            if (previousTokenRefreshMode != Settings.TokenRefreshMode)
+            {
+                TokenRefreshScheduleChanged?.Invoke(this, EventArgs.Empty);
+            }
             coordinator.SetMode(Settings.RefreshMode);
             alertState = await persistence.LoadAlertStateAsync(cancellationToken).ConfigureAwait(false);
             await RestoreCacheAsync(cancellationToken).ConfigureAwait(false);

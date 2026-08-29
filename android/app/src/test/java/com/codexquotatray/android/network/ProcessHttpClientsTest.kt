@@ -5,6 +5,7 @@ import com.codexquotatray.android.usage.CodexUsageClient
 import com.codexquotatray.android.usage.TokenUsageSyncClient
 import com.codexquotatray.android.usage.WindowsQuotaFallbackClient
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Test
 
@@ -20,12 +21,11 @@ class ProcessHttpClientsTest {
     }
 
     @Test
-    fun lanClientsShareProcessPoolAndKeepRedirectsDisabled() {
+    fun dynamicallyBoundLanClientsKeepIndependentPoolsAndRedirectsDisabled() {
         val token = TokenUsageSyncClient.defaultClient()
         val quota = WindowsQuotaFallbackClient.defaultClient()
 
-        assertSame(token.connectionPool, quota.connectionPool)
-        assertSame(token.dispatcher, quota.dispatcher)
+        assertNotSame(token.connectionPool, quota.connectionPool)
         assertFalse(token.followRedirects)
         assertFalse(token.followSslRedirects)
         assertFalse(quota.followRedirects)

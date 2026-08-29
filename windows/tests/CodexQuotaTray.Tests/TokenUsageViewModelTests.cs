@@ -361,6 +361,31 @@ public sealed class TokenUsageViewModelTests
     }
 
     [TestMethod]
+    public async Task ScheduleChangesWakeDeadlineWaitsAndRecomputeAllModeTransitions()
+    {
+        var now = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
+
+        await AssertScheduleTransitionAsync(
+            RefreshMode.ManualOnly,
+            RefreshMode.Every5Minutes,
+            now.AddMinutes(-6),
+            now,
+            TimeSpan.Zero);
+        await AssertScheduleTransitionAsync(
+            RefreshMode.Every30Minutes,
+            RefreshMode.Every5Minutes,
+            now.AddMinutes(-10),
+            now,
+            TimeSpan.Zero);
+        await AssertScheduleTransitionAsync(
+            RefreshMode.Every5Minutes,
+            RefreshMode.ManualOnly,
+            now.AddMinutes(-1),
+            now,
+            Timeout.InfiniteTimeSpan);
+    }
+
+    [TestMethod]
     public void PanelOpenRefreshPolicyIsIndependentAndDeduplicatesRapidReopen()
     {
         var now = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
@@ -369,6 +394,30 @@ public sealed class TokenUsageViewModelTests
         Assert.IsTrue(TokenUsageRefreshPolicy.ShouldRefreshOnPanelOpen(true, null, now));
         Assert.IsFalse(TokenUsageRefreshPolicy.ShouldRefreshOnPanelOpen(true, now.AddSeconds(-9), now));
         Assert.IsTrue(TokenUsageRefreshPolicy.ShouldRefreshOnPanelOpen(true, now.AddSeconds(-10), now));
+    }
+
+    private static async Task AssertScheduleTransitionAsync(
+        RefreshMode initialMode,
+        RefreshMode nextMode,
+        DateTimeOffset lastAttemptUtc,
+        DateTimeOffset nowUtc,
+        TimeSpan expectedNextDelay)
+    {
+        var schedule = new TokenUsageRefreshSchedule();
+        var revision = schedule.CaptureRevision();
+        var wait = schedule.WaitAsync(
+            revision,
+            initialMode,
+            lastAttemptUtc,
+            nowUtc,
+            CancellationToken.None);
+
+        Assert.IsFalse(wait.IsCompleted);
+        schedule.NotifyChanged();
+        await wait.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.AreEqual(
+            expectedNextDelay,
+            TokenUsageRefreshPolicy.DelayUntilNextRefresh(nextMode, lastAttemptUtc, nowUtc));
     }
 
     private static TokenUsageSnapshot CreateSnapshot(long todayTokens)

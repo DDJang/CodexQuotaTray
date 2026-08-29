@@ -8,12 +8,6 @@ import okhttp3.OkHttpClient
  */
 internal object ProcessHttpClients {
     private val internet = OkHttpClient()
-    private val lan = OkHttpClient.Builder()
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .build()
 
     fun internetBuilder(): OkHttpClient.Builder = internet.newBuilder()
-
-    fun lanBuilder(): OkHttpClient.Builder = lan.newBuilder()
 }

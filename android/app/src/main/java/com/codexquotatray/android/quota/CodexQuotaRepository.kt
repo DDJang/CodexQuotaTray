@@ -123,11 +123,11 @@ class CodexQuotaRepository(
 
     fun refresh(): DirectQuotaResult {
         val generation = CredentialGeneration.current()
-        val hasOpenAI = credentialStore.hasCredentials()
+        val loaded = credentialStore.load()
         val pairing = tokenSyncStore.load()
         val resolved = sourceRouter.read(
             priority = sourcePriorityStore.load().quota,
-            hasOpenAI = hasOpenAI,
+            hasOpenAI = loaded != null,
             hasWindows = pairing != null,
             openAI = {
                 var credentials = currentCredentialsOrThrow(generation)

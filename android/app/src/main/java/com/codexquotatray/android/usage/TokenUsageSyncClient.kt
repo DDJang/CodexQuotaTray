@@ -1,7 +1,6 @@
 package com.codexquotatray.android.usage
 
 import android.content.Context
-import com.codexquotatray.android.network.ProcessHttpClients
 import com.codexquotatray.android.quota.AndroidLanAvailability
 import com.codexquotatray.android.quota.LanAvailability
 import okhttp3.OkHttpClient
@@ -161,7 +160,7 @@ class TokenUsageSyncClient(
     }
 
     companion object {
-        internal fun defaultClient() = ProcessHttpClients.lanBuilder()
+        internal fun defaultClient() = OkHttpClient.Builder()
             .connectTimeout(4, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .callTimeout(12, TimeUnit.SECONDS)

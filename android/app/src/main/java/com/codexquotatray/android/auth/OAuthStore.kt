@@ -35,8 +35,8 @@ internal object OAuthCredentialAvailabilityPolicy {
     fun hasCredentials(
         hasEncryptedCredentials: Boolean,
         migrationCompleted: Boolean,
-        hasLegacyCredentialsFile: Boolean,
-    ): Boolean = hasEncryptedCredentials || !migrationCompleted && hasLegacyCredentialsFile
+        hasLegacyCredentialsFile: () -> Boolean,
+    ): Boolean = hasEncryptedCredentials || !migrationCompleted && hasLegacyCredentialsFile()
 }
 
 /** Short coordination lock; network I/O must never run under this monitor. */
@@ -94,7 +94,7 @@ class OAuthStore(context: Context) {
         OAuthCredentialAvailabilityPolicy.hasCredentials(
             hasEncryptedCredentials = preferences.contains(KEY_ENCRYPTED_CREDENTIALS),
             migrationCompleted = preferences.getBoolean(KEY_LEGACY_MIGRATION_COMPLETED, false),
-            hasLegacyCredentialsFile = legacyAuthFile.isFile,
+            hasLegacyCredentialsFile = legacyAuthFile::isFile,
         )
     }
 

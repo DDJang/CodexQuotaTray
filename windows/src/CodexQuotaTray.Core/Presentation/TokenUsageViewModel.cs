@@ -382,6 +382,90 @@ public static class TokenUsageRefreshPolicy
         && (lastAttemptUtc is null || nowUtc - lastAttemptUtc.Value >= PanelOpenDeduplicationInterval);
 }
 
+public sealed class TokenUsageRefreshSchedule
+{
+    private readonly object gate = new();
+    private long revision;
+    private TaskCompletionSource changed = NewSignal();
+
+    public long CaptureRevision()
+    {
+        lock (gate)
+        {
+            return revision;
+        }
+    }
+
+    public void NotifyChanged()
+    {
+        TaskCompletionSource previous;
+        lock (gate)
+        {
+            revision++;
+            previous = changed;
+            changed = NewSignal();
+        }
+
+        previous.TrySetResult();
+    }
+
+    public async Task WaitAsync(
+        long observedRevision,
+        RefreshMode mode,
+        DateTimeOffset? lastAttemptUtc,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        Task changedTask;
+        lock (gate)
+        {
+            if (observedRevision != revision)
+            {
+                return;
+            }
+
+            changedTask = changed.Task;
+        }
+
+        var delay = TokenUsageRefreshPolicy.DelayUntilNextRefresh(mode, lastAttemptUtc, nowUtc);
+        if (delay == TimeSpan.Zero)
+        {
+            return;
+        }
+
+        using var waitCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var deadline = Task.Delay(delay, waitCancellation.Token);
+        var scheduleChanged = changedTask.WaitAsync(waitCancellation.Token);
+        try
+        {
+            var winner = await Task.WhenAny(deadline, scheduleChanged).ConfigureAwait(false);
+            await winner.ConfigureAwait(false);
+        }
+        finally
+        {
+            await waitCancellation.CancelAsync().ConfigureAwait(false);
+            try
+            {
+                await deadline.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (waitCancellation.IsCancellationRequested)
+            {
+            }
+
+            try
+            {
+                await scheduleChanged.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (waitCancellation.IsCancellationRequested)
+            {
+            }
+        }
+    }
+
+    private static TaskCompletionSource NewSignal() =>
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+}
+
 public sealed record TokenHeatmapCell(
     DateOnly Date,
     long TotalTokens,
