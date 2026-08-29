@@ -21,7 +21,7 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan PageResizeDuration = TimeSpan.FromMilliseconds(180);
     private readonly MainViewModel viewModel;
     private readonly TokenUsageViewModel tokenUsageViewModel;
-    private readonly TokenUsageView tokenUsageView;
+    private TokenUsageView? tokenUsageView;
     private readonly WindowPlacementService placement = new();
     private readonly BackdropService backdrop = new();
     private readonly WindowVisibilityController visibility = new();
@@ -47,8 +47,6 @@ public sealed partial class MainWindow : Window
         hwnd = WindowNative.GetWindowHandle(this);
         ContentRoot.DataContext = viewModel;
         QuotaPageHost.Children.Add(new QuotaView());
-        tokenUsageView = new TokenUsageView(tokenUsageViewModel, hwnd);
-        TokenPageHost.Children.Add(tokenUsageView);
 
         var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         appWindow = AppWindow.GetFromWindowId(windowId);
@@ -136,7 +134,7 @@ public sealed partial class MainWindow : Window
 
     internal void HidePanel()
     {
-        tokenUsageView.ResetHeatmapInteraction();
+        tokenUsageView?.ResetHeatmapInteraction();
         visibility.Hide();
         appWindow.Hide();
     }
@@ -145,7 +143,7 @@ public sealed partial class MainWindow : Window
     {
         exiting = true;
         Interlocked.Increment(ref pageTransitionRevision);
-        tokenUsageView.Dispose();
+        tokenUsageView?.Dispose();
         visibility.Hide();
         backdrop.Dispose();
     }
@@ -234,7 +232,7 @@ public sealed partial class MainWindow : Window
         appWindow.Show();
         if (showingTokenPage)
         {
-            tokenUsageView.PrepareHeatmapInteraction();
+            tokenUsageView?.PrepareHeatmapInteraction();
         }
 
         // The first measure can still see the hidden window's old ScrollViewer
@@ -321,6 +319,7 @@ public sealed partial class MainWindow : Window
 
     private void OnTokenTabClick(object sender, RoutedEventArgs args)
     {
+        _ = EnsureTokenUsageView();
         if (!tokenUsageViewModel.HasLoaded && !tokenUsageViewModel.IsRefreshing)
         {
             _ = tokenUsageViewModel.RefreshCommand.ExecuteAsync(null);
@@ -331,6 +330,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ShowPageAsync(bool showToken)
     {
+        var tokenView = showToken ? EnsureTokenUsageView() : tokenUsageView;
         if (showingTokenPage == showToken)
         {
             UpdateTabSelectionVisuals();
@@ -346,7 +346,7 @@ public sealed partial class MainWindow : Window
         var outgoing = showToken ? QuotaPageHost : TokenPageHost;
         if (!showToken)
         {
-            tokenUsageView.ResetHeatmapInteraction();
+            tokenView?.ResetHeatmapInteraction();
         }
 
         var startHeight = PageHost.ActualHeight > 0
@@ -360,7 +360,7 @@ public sealed partial class MainWindow : Window
         outgoing.IsHitTestVisible = false;
         if (showToken)
         {
-            tokenUsageView.PrepareHeatmapInteraction();
+            tokenView!.PrepareHeatmapInteraction();
         }
 
         var availableWidth = PageHost.ActualWidth > 0
@@ -440,6 +440,18 @@ public sealed partial class MainWindow : Window
         AutomationProperties.SetName(RefreshButton, refreshName);
     }
 
+    private TokenUsageView EnsureTokenUsageView()
+    {
+        if (tokenUsageView is not null)
+        {
+            return tokenUsageView;
+        }
+
+        tokenUsageView = new TokenUsageView(tokenUsageViewModel, hwnd);
+        TokenPageHost.Children.Add(tokenUsageView);
+        return tokenUsageView;
+    }
+
     private void OnTabSelectorSizeChanged(object sender, SizeChangedEventArgs args) => UpdateTabSelectionVisuals();
 
     private void UpdateTabSelectionVisuals()
@@ -465,7 +477,7 @@ public sealed partial class MainWindow : Window
     {
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
-            tokenUsageView.ResetHeatmapInteraction();
+            tokenUsageView?.ResetHeatmapInteraction();
             return;
         }
 
@@ -475,7 +487,7 @@ public sealed partial class MainWindow : Window
             ApplyBackdrop();
             if (showingTokenPage)
             {
-                tokenUsageView.PrepareHeatmapInteraction();
+                tokenUsageView?.PrepareHeatmapInteraction();
             }
         }
     }

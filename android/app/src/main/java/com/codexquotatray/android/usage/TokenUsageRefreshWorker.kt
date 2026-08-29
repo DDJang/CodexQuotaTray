@@ -37,7 +37,7 @@ class TokenUsageRefreshWorker(
     override fun doWork(): Result {
         AppLogStore.record(applicationContext, "Token 后台任务已启动")
         val settings = TokenUsageRefreshSettingsStore(applicationContext).load()
-        val hasOAuth = OAuthStore(applicationContext).load() != null
+        val hasOAuth = OAuthStore(applicationContext).hasCredentials()
         val hasWindowsPairing = TokenSyncStore(applicationContext).load() != null
         AndroidWorkerNetworkDiagnostics.record(
             applicationContext,
@@ -139,7 +139,7 @@ object TokenUsageRefreshScheduler {
     fun schedule(context: Context) {
         val appContext = context.applicationContext
         val settings = TokenUsageRefreshSettingsStore(appContext).load()
-        val hasOAuth = OAuthStore(appContext).load() != null
+        val hasOAuth = OAuthStore(appContext).hasCredentials()
         val hasWindowsPairing = TokenSyncStore(appContext).load() != null
         if (!shouldSchedule(settings, hasOAuth, hasWindowsPairing)) {
             cancel(appContext)

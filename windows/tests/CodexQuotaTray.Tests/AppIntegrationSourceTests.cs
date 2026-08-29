@@ -422,6 +422,36 @@ public sealed class AppIntegrationSourceTests
     }
 
     [TestMethod]
+    public void TokenUsageUiIsCreatedOnlyWhenTheStatisticsPageIsRequested()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var constructorStart = source.IndexOf("public MainWindow(", StringComparison.Ordinal);
+        var constructorEnd = source.IndexOf("internal void ConfigureWindow()", constructorStart, StringComparison.Ordinal);
+        var constructor = source[constructorStart..constructorEnd];
+
+        Assert.IsFalse(constructor.Contains("new TokenUsageView(", StringComparison.Ordinal));
+        StringAssert.Contains(source, "private TokenUsageView EnsureTokenUsageView()");
+        StringAssert.Contains(source, "tokenUsageView = new TokenUsageView(tokenUsageViewModel, hwnd);");
+        StringAssert.Contains(source, "var tokenView = showToken ? EnsureTokenUsageView() : tokenUsageView;");
+    }
+
+    [TestMethod]
+    public void TokenUsageBackgroundLoopWaitsForItsDeadlineInsteadOfPollingEveryThirtySeconds()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+        var methodStart = source.IndexOf("private async Task RunTokenUsageRefreshLoopAsync(", StringComparison.Ordinal);
+        var methodEnd = source.IndexOf(
+            "private static async Task WaitForNextTokenUsageRefreshAsync(",
+            methodStart,
+            StringComparison.Ordinal);
+        var method = source[methodStart..methodEnd];
+
+        StringAssert.Contains(method, "WaitForNextTokenUsageRefreshAsync(runtime, tokenUsageViewModel, cancellationToken)");
+        Assert.IsFalse(method.Contains("TimeSpan.FromSeconds(30)", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void TokenUsageCacheRestoreStillUsesStartupSettingsWithoutQuotaInitialization()
     {
         var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));

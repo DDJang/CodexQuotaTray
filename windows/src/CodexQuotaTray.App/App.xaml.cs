@@ -801,11 +801,57 @@ public partial class App : Application
                     await tokenUsageViewModel.RefreshNowAsync(cancellationToken);
                 }
 
-                await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                await WaitForNextTokenUsageRefreshAsync(runtime, tokenUsageViewModel, cancellationToken);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
+        }
+    }
+
+    private static async Task WaitForNextTokenUsageRefreshAsync(
+        IQuotaRuntimeControl? runtime,
+        TokenUsageViewModel tokenUsageViewModel,
+        CancellationToken cancellationToken)
+    {
+        var settingsChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler<CodexQuotaTray.Core.Models.AppUiState>? onRuntimeStateChanged = null;
+        if (runtime is not null)
+        {
+            onRuntimeStateChanged = (_, _) => settingsChanged.TrySetResult();
+            runtime.StateChanged += onRuntimeStateChanged;
+        }
+
+        try
+        {
+            var mode = runtime?.Settings.TokenRefreshMode ?? RefreshMode.ManualOnly;
+            var delay = TokenUsageRefreshPolicy.DelayUntilNextRefresh(
+                mode,
+                tokenUsageViewModel.LastAttemptUtc,
+                DateTimeOffset.UtcNow);
+            if (delay == TimeSpan.Zero)
+            {
+                return;
+            }
+
+            using var delayCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            var deadline = Task.Delay(delay, delayCancellation.Token);
+            if (runtime is null)
+            {
+                await deadline;
+                return;
+            }
+
+            _ = await Task.WhenAny(deadline, settingsChanged.Task);
+            await delayCancellation.CancelAsync();
+            cancellationToken.ThrowIfCancellationRequested();
+        }
+        finally
+        {
+            if (runtime is not null && onRuntimeStateChanged is not null)
+            {
+                runtime.StateChanged -= onRuntimeStateChanged;
+            }
         }
     }
 

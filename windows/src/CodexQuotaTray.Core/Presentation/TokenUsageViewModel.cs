@@ -354,6 +354,26 @@ public static class TokenUsageRefreshPolicy
             && (lastAttemptUtc is null || nowUtc - lastAttemptUtc.Value >= interval.Value);
     }
 
+    public static TimeSpan DelayUntilNextRefresh(
+        RefreshMode mode,
+        DateTimeOffset? lastAttemptUtc,
+        DateTimeOffset nowUtc)
+    {
+        var interval = Interval(mode);
+        if (interval is null)
+        {
+            return Timeout.InfiniteTimeSpan;
+        }
+
+        if (lastAttemptUtc is null)
+        {
+            return TimeSpan.Zero;
+        }
+
+        var remaining = lastAttemptUtc.Value + interval.Value - nowUtc;
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+    }
+
     public static bool ShouldRefreshOnPanelOpen(
         bool enabled,
         DateTimeOffset? lastAttemptUtc,

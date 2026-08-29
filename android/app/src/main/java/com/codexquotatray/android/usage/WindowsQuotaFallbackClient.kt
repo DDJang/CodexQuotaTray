@@ -1,6 +1,7 @@
 package com.codexquotatray.android.usage
 
 import android.content.Context
+import com.codexquotatray.android.network.ProcessHttpClients
 import com.codexquotatray.android.quota.AndroidLanAvailability
 import com.codexquotatray.android.quota.LanAvailability
 import com.codexquotatray.android.protocol.DirectQuotaResult
@@ -189,7 +190,7 @@ class WindowsQuotaFallbackClient(
     }
 
     companion object {
-        internal fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+        internal fun defaultClient(): OkHttpClient = ProcessHttpClients.lanBuilder()
             .connectTimeout(QuotaNetworkTimeouts.WINDOWS_CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
             .readTimeout(QuotaNetworkTimeouts.WINDOWS_READ_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
             .callTimeout(QuotaNetworkTimeouts.WINDOWS_CALL_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)

@@ -35,7 +35,7 @@ internal class TokenUsageSourceRouter(
 ) {
     constructor(context: Context) : this(
         priorityStore = AndroidDataSourcePriorityStore(context),
-        hasOpenAI = { OAuthStore(context).load() != null },
+        hasOpenAI = { OAuthStore(context).hasCredentials() },
         hasWindows = { TokenSyncStore(context).load() != null },
         openAI = OpenAIAccountTokenUsageProvider(context),
         windows = WindowsTokenUsageProvider(context),

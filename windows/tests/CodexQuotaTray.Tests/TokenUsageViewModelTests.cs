@@ -339,6 +339,28 @@ public sealed class TokenUsageViewModelTests
     }
 
     [TestMethod]
+    public void BackgroundRefreshPolicyWaitsUntilTheActualNextDeadline()
+    {
+        var now = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
+
+        Assert.AreEqual(
+            TimeSpan.FromMinutes(4).Add(TimeSpan.FromSeconds(42)),
+            TokenUsageRefreshPolicy.DelayUntilNextRefresh(
+                RefreshMode.Every5Minutes,
+                now.AddSeconds(-18),
+                now));
+        Assert.AreEqual(
+            TimeSpan.Zero,
+            TokenUsageRefreshPolicy.DelayUntilNextRefresh(
+                RefreshMode.Every15Minutes,
+                now.AddMinutes(-16),
+                now));
+        Assert.AreEqual(
+            Timeout.InfiniteTimeSpan,
+            TokenUsageRefreshPolicy.DelayUntilNextRefresh(RefreshMode.ManualOnly, now, now));
+    }
+
+    [TestMethod]
     public void PanelOpenRefreshPolicyIsIndependentAndDeduplicatesRapidReopen()
     {
         var now = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);

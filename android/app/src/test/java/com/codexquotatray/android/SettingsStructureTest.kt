@@ -55,7 +55,8 @@ class SettingsStructureTest {
 
         assertTrue(source.contains("private val oauthStore by lazy { OAuthStore(this) }"))
         assertTrue(source.contains("private var codexLoggedIn by mutableStateOf(false)"))
-        assertTrue(source.contains("codexLoggedIn = oauthStore.load() != null"))
+        assertTrue(source.contains("codexLoggedIn = oauthStore.hasCredentials()"))
+        assertFalse(source.contains("codexLoggedIn = oauthStore.load() != null"))
         assertTrue(source.contains("trailing = if (codexLoggedIn) \"已登录\" else \"未登录\""))
         assertTrue(source.contains("trailing = pairing?.displayName ?: \"未配对\""))
         assertTrue(source.contains("SettingsNavigationRow(\"数据\")"))

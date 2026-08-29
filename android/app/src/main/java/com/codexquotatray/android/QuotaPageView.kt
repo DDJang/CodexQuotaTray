@@ -334,7 +334,7 @@ internal class QuotaPageController(private val host: MainActivity) {
     }
 
     private fun hasQuotaSource(): Boolean = quotaSourceAvailable(
-        oauthAvailable = OAuthStore(host).load() != null,
+        oauthAvailable = OAuthStore(host).hasCredentials(),
         windowsPairingAvailable = pairingStore.load() != null,
     )
 

@@ -661,7 +661,7 @@ class SettingsActivity : ComponentActivity() {
 
     private fun renderState() {
         val alert = alertStore.load()
-        codexLoggedIn = oauthStore.load() != null
+        codexLoggedIn = oauthStore.hasCredentials()
         val refresh = refreshStore.load()
         lowQuota = alert.lowQuotaEnabled
         resetAlert = alert.resetEnabled

@@ -1,5 +1,6 @@
 package com.codexquotatray.android.auth
 
+import com.codexquotatray.android.network.ProcessHttpClients
 import okhttp3.FormBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -252,7 +253,7 @@ class CodexOAuthClient(
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
 
-        private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
+        internal fun defaultClient(): OkHttpClient = ProcessHttpClients.internetBuilder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .callTimeout(45, TimeUnit.SECONDS)
