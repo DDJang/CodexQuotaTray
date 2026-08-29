@@ -199,7 +199,8 @@ public sealed class PrivacyAndThemeTests
         Assert.IsFalse(tokenUsageCode.Contains("MeasureSharedHeatmapTooltipIfNeeded", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsageCode.Contains("CreateVector3KeyFrameAnimation", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsageCode.Contains("StartAnimation(\"Scale\"", StringComparison.Ordinal));
-        StringAssert.Contains(tokenUsageCode, "new AccessibilitySettings().HighContrast");
+        StringAssert.Contains(tokenUsageCode, "if (accessibilitySettings.HighContrast)");
+        Assert.IsFalse(tokenUsageCode.Contains("new AccessibilitySettings().HighContrast", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsageCode.Contains("SystemBackdropElement", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsageCode.Contains("AcrylicBrush", StringComparison.Ordinal));
         StringAssert.Contains(tooltipWindowCode, "BackdropService");

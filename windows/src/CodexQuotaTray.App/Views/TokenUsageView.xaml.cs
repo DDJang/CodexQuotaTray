@@ -25,6 +25,7 @@ public sealed partial class TokenUsageView : UserControl
     private readonly TokenUsageViewModel tokenUsageViewModel;
     private readonly IntPtr hostWindowHandle;
     private readonly HeatmapTooltipWindow sharedTooltipWindow;
+    private readonly AccessibilitySettings accessibilitySettings = new();
     private Border? activeHeatmapCell;
     private int? activeHeatmapIndex;
     private bool sharedTooltipHasPosition;
@@ -342,14 +343,14 @@ public sealed partial class TokenUsageView : UserControl
             : (0, 0);
     }
 
-    private static Brush CreateHeatmapHighlightBrush(Brush background, bool isEmptyCell)
+    private Brush CreateHeatmapHighlightBrush(Brush background, bool isEmptyCell)
     {
         if (isEmptyCell)
         {
             return (Brush)Application.Current.Resources["TokenHeatmapEmptyCellHighlightBrush"];
         }
 
-        if (new AccessibilitySettings().HighContrast)
+        if (accessibilitySettings.HighContrast)
         {
             return (Brush)Application.Current.Resources["TokenHeatmapCellBorderBrush"];
         }

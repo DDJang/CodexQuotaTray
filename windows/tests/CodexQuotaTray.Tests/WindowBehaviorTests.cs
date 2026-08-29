@@ -218,6 +218,61 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
+    public void PageHeightAnimation_PerformsLayoutOnlyThroughPosition()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var animationStart = source.IndexOf(
+            "private async Task<bool> AnimatePageHeightAsync(",
+            StringComparison.Ordinal);
+        var animationEnd = source.IndexOf(
+            "private void CompletePageSwitch(",
+            animationStart,
+            StringComparison.Ordinal);
+        var positionStart = source.IndexOf("private void Position(", StringComparison.Ordinal);
+        var positionEnd = source.IndexOf(
+            "private double MeasureVisibleContentHeight(",
+            positionStart,
+            StringComparison.Ordinal);
+
+        Assert.IsTrue(animationStart >= 0);
+        Assert.IsTrue(animationEnd > animationStart);
+        Assert.IsTrue(positionStart >= 0);
+        Assert.IsTrue(positionEnd > positionStart);
+
+        var animation = source[animationStart..animationEnd];
+        var position = source[positionStart..positionEnd];
+        Assert.AreEqual(
+            0,
+            animation.Split("ContentRoot.UpdateLayout();", StringSplitOptions.None).Length - 1);
+        Assert.AreEqual(
+            2,
+            animation.Split("Position(forceResize: true);", StringSplitOptions.None).Length - 1);
+        Assert.AreEqual(
+            1,
+            position.Split("ContentRoot.UpdateLayout();", StringSplitOptions.None).Length - 1);
+        StringAssert.Contains(animation, "PageResizeDuration");
+        StringAssert.Contains(animation, "PopupPlacement.InterpolateContentHeight");
+        StringAssert.Contains(animation, "Task.Delay(TimeSpan.FromMilliseconds(16))");
+    }
+
+    [TestMethod]
+    public void TokenHeatmap_ReusesAccessibilitySettingsAndReadsCurrentHighContrastValue()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml.cs"));
+
+        Assert.AreEqual(
+            1,
+            source.Split(
+                "private readonly AccessibilitySettings accessibilitySettings = new();",
+                StringSplitOptions.None).Length - 1);
+        StringAssert.Contains(source, "if (accessibilitySettings.HighContrast)");
+        Assert.IsFalse(source.Contains("new AccessibilitySettings().HighContrast", StringComparison.Ordinal));
+        Assert.IsFalse(source.Contains("bool highContrast", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void TrayRegistration_UsesFiniteRetries()
     {
         CollectionAssert.AreEqual(new[] { 0, 250, 500, 1000 }, TrayRegistrationPolicy.RetryDelaysMilliseconds.ToArray());
