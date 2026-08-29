@@ -77,8 +77,10 @@ UI 不得直接解析 raw JSON/RPC。前后台读取必须复用同一数据提�
 - Windows Release/Production 保持既有实例、托盘、数据、启动项和安装器身份；Debug 使用独立 Dev
   身份；Demo/isolated preview 使用 Preview 身份。
 - Android Release 保持正式 application ID；Debug 使用 `.debug` 后缀和独立应用数据。
-- 日常开发只构建/运行 Dev 或 Debug，不安装或签名正式版。
-- 正式 Release 只由 GitHub Actions 从 `main` 上的平台 tag 构建。
+- 日常开发运行应用只使用 Dev 或 Debug；涉及 Release publish 产物的开发验证可按 Validation 规则在本地
+  执行 release-specific publish/artifact verification，但不安装或签名 Production。
+- 本地 release-specific 验证不改变正式发布边界；Production 安装、签名、平台 tag、GitHub Release 与
+  正式发布遵循 [RELEASE](docs/RELEASE.md)。
 
 未经明确授权，不修改产品版本、协议基线、依赖版本、target framework/SDK、Production identity、
 tray GUID 或 Installer AppId。
@@ -121,17 +123,17 @@ WinUI 从仓库根目录运行 `windows/scripts/verify-winui.ps1`：
 
 - `Quick`：仓库配置 restore、Debug/Dev x64 build、基础检查，仅用于开发过程快速反馈，不是最终交付必跑项；
 - `Full`：普通 Windows 代码修改的默认最终验证。它已覆盖 Quick 的 restore/build，并增加格式和完整离线测试，仍使用 Debug/Dev；
-- `Release`：Production Release build 与 publish 检查，不作为所有任务的默认验证。
+- `Release`：本地 release-specific restore/publish 与 artifact verification，不作为所有任务的默认验证，也不等于安装、签名或发布 Production。
 
 不要机械执行 `Quick` → `Full` → `Release`。如果最终需要 `Full`，不得为了“完整”先跑 `Quick`；成功完成
 `Full` 后也不需要补跑 `Quick`。
 
 只有以下改动需要在 `Full` 之外追加 `Release`：
 
-- `publish-winui.ps1`；
+- publish，包括 `publish-winui.ps1`；
 - `.csproj` / MSBuild publish properties；
-- Windows App SDK deployment；
-- RID / self-contained / trimming / resources；
+- Windows App SDK / deployment；
+- RID / self-contained / trimming / 会影响 Release 输出的 resources；
 - installer / packaging；
 - 其他会影响最终 `Release` publish 产物的修改。
 
