@@ -38,6 +38,7 @@ internal sealed class TrayIconService : IDisposable
     private IntPtr callbackWindow;
     private IntPtr broadcastWindow;
     private IntPtr icon;
+    private IntPtr balloonIcon;
     private TrayContextMenuWindow? contextMenu;
     private uint taskbarCreatedMessage;
     private volatile bool added;
@@ -131,15 +132,20 @@ internal sealed class TrayIconService : IDisposable
         Instances.Add(broadcastWindow, this);
         taskbarCreatedMessage = NativeMethods.RegisterWindowMessage("TaskbarCreated");
         var iconPath = WindowIconService.TrayIconPath;
+        var largeIcons = new IntPtr[1];
         var smallIcons = new IntPtr[1];
         if (!File.Exists(iconPath)
-            || NativeMethods.ExtractIconEx(iconPath, 0, null, smallIcons, 1) != 1
+            || NativeMethods.ExtractIconEx(iconPath, 0, largeIcons, smallIcons, 1) != 1
+            || largeIcons[0] == IntPtr.Zero
             || smallIcons[0] == IntPtr.Zero)
         {
-            throw LastWin32("extract the embedded tray icon");
+            ReleaseIcon(ref largeIcons[0]);
+            ReleaseIcon(ref smallIcons[0]);
+            throw LastWin32("extract the embedded tray and balloon icons");
         }
 
         icon = smallIcons[0];
+        balloonIcon = largeIcons[0];
         BeginRegistration();
     }
 
@@ -417,6 +423,7 @@ internal sealed class TrayIconService : IDisposable
             | NativeMethods.NifShowTip,
         CallbackMessage = NativeMethods.TrayCallbackMessage,
         Icon = icon,
+        BalloonIcon = balloonIcon,
         Tip = identity.Tooltip,
         Info = string.Empty,
         InfoTitle = string.Empty,
@@ -520,7 +527,7 @@ internal sealed class TrayIconService : IDisposable
             var content = QuotaNotificationFormatter.Format(alert);
             data.InfoTitle = content.Title;
             data.Info = content.Body;
-            data.InfoFlags = NativeMethods.NiifInfo;
+            data.InfoFlags = NativeMethods.NiifUser | NativeMethods.NiifLargeIcon;
             if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
             {
                 throw LastWin32("show quota notification");
@@ -587,7 +594,7 @@ internal sealed class TrayIconService : IDisposable
         data.Flags |= NativeMethods.NifInfo;
         data.InfoTitle = "CodexQuotaTray 更新";
         data.Info = $"发现 Windows 新版本 {release.Version}，打开设置即可查看。";
-        data.InfoFlags = NativeMethods.NiifInfo;
+        data.InfoFlags = NativeMethods.NiifUser | NativeMethods.NiifLargeIcon;
         if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data))
         {
             throw LastWin32("show update notification");
@@ -639,7 +646,7 @@ internal sealed class TrayIconService : IDisposable
         data.Flags |= NativeMethods.NifInfo | NativeMethods.NifRealtime;
         data.Info = string.Empty;
         data.InfoTitle = string.Empty;
-        data.InfoFlags = NativeMethods.NiifInfo;
+        data.InfoFlags = NativeMethods.NiifUser | NativeMethods.NiifLargeIcon;
         _ = NativeMethods.ShellNotifyIcon(NativeMethods.NimModify, ref data);
     }
 
@@ -707,11 +714,8 @@ internal sealed class TrayIconService : IDisposable
             broadcastWindow = IntPtr.Zero;
         }
 
-        if (icon != IntPtr.Zero)
-        {
-            _ = NativeMethods.DestroyIcon(icon);
-            icon = IntPtr.Zero;
-        }
+        ReleaseIcon(ref icon);
+        ReleaseIcon(ref balloonIcon);
 
         if (instance != IntPtr.Zero)
         {
@@ -726,6 +730,17 @@ internal sealed class TrayIconService : IDisposable
 
     private static Win32Exception LastWin32(string operation) =>
         new(Marshal.GetLastWin32Error(), $"Could not {operation}.");
+
+    private static void ReleaseIcon(ref IntPtr iconHandle)
+    {
+        if (iconHandle == IntPtr.Zero)
+        {
+            return;
+        }
+
+        _ = NativeMethods.DestroyIcon(iconHandle);
+        iconHandle = IntPtr.Zero;
+    }
 
     private void DeleteIcon()
     {

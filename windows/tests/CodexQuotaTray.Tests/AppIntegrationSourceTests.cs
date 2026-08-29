@@ -43,10 +43,67 @@ public sealed class AppIntegrationSourceTests
 
         StringAssert.Contains(serviceSource, "AppNotificationManager.IsSupported()");
         StringAssert.Contains(serviceSource, "candidate.Register(displayName, iconUri)");
-        StringAssert.Contains(serviceSource, "current.Setting != AppNotificationSetting.Enabled");
+        StringAssert.Contains(serviceSource, "setting != AppNotificationSetting.Enabled");
         StringAssert.Contains(serviceSource, "new AppNotificationBuilder()");
         StringAssert.Contains(serviceSource, "current.Show(notification)");
         StringAssert.Contains(serviceSource, "current.Unregister()");
+    }
+
+    [TestMethod]
+    public void WindowsNotificationsUseProductBrandingWithoutRenamingTheExecutable()
+    {
+        var appSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+        var projectSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "App", "CodexQuotaTray.App.csproj"));
+        var serviceSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "WindowsAppNotificationService.cs"));
+
+        StringAssert.Contains(projectSource, "<AssemblyName>codex-quota-tray-gui</AssemblyName>");
+        StringAssert.Contains(projectSource, "<AssemblyTitle>CodexQuotaTray</AssemblyTitle>");
+        StringAssert.Contains(projectSource, "<Product>CodexQuotaTray</Product>");
+        StringAssert.Contains(projectSource, "<Description>CodexQuotaTray</Description>");
+        StringAssert.Contains(appSource, "appNotifications.TryRegister(identity.DisplayName, iconUri)");
+        StringAssert.Contains(appSource, "WindowIconService.AppNotificationIconPath");
+        Assert.IsFalse(serviceSource.Contains("codex-quota-tray-gui", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void WindowsNotificationRegistrationAndDiagnosticsDistinguishSupportAndFailure()
+    {
+        var serviceSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "WindowsAppNotificationService.cs"));
+
+        foreach (var state in new[] { "NotAttempted", "Unsupported", "Registered", "Failed" })
+        {
+            StringAssert.Contains(serviceSource, state);
+        }
+
+        StringAssert.Contains(serviceSource, "AppNotificationSupported = AppNotificationManager.IsSupported()");
+        StringAssert.Contains(serviceSource, "RegistrationState = AppNotificationRegistrationState.Unsupported");
+        StringAssert.Contains(serviceSource, "RegistrationState = AppNotificationRegistrationState.Registered");
+        StringAssert.Contains(serviceSource, "RegistrationState = AppNotificationRegistrationState.Failed");
+        StringAssert.Contains(serviceSource, "registrationHResult:");
+        StringAssert.Contains(serviceSource, "GetType().Name");
+        StringAssert.Contains(serviceSource, "Windows notifications:");
+        StringAssert.Contains(serviceSource, "mode:");
+    }
+
+    [TestMethod]
+    public void ShellFallbackUsesTheCurrentAppBalloonIconInsteadOfInformationIcon()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "TrayIconService.cs"));
+        var nativeSource = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Interop", "NativeMethods.cs"));
+
+        StringAssert.Contains(source, "WindowIconService.TrayIconPath");
+        StringAssert.Contains(source, "BalloonIcon = balloonIcon");
+        StringAssert.Contains(source, "NativeMethods.NiifUser | NativeMethods.NiifLargeIcon");
+        Assert.IsFalse(source.Contains("NativeMethods.NiifInfo", StringComparison.Ordinal));
+        StringAssert.Contains(nativeSource, "NiifUser = 0x00000004");
+        StringAssert.Contains(nativeSource, "NiifLargeIcon = 0x00000020");
+        StringAssert.Contains(nativeSource, "internal IntPtr BalloonIcon;");
+        StringAssert.Contains(source, "ReleaseIcon(ref balloonIcon)");
     }
 
     [TestMethod]

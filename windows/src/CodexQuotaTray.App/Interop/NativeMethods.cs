@@ -19,7 +19,8 @@ internal static class NativeMethods
     internal const uint NifShowTip = 0x00000080;
     internal const uint NifInfo = 0x00000010;
     internal const uint NifRealtime = 0x00000040;
-    internal const uint NiifInfo = 0x00000001;
+    internal const uint NiifUser = 0x00000004;
+    internal const uint NiifLargeIcon = 0x00000020;
     internal const uint NinBalloonShow = 0x0402;
     internal const uint NinBalloonHide = 0x0403;
     internal const uint NinBalloonTimeout = 0x0404;

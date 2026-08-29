@@ -4,6 +4,10 @@
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
     <AssemblyName>codex-quota-tray-gui</AssemblyName>
+    <AssemblyTitle>CodexQuotaTray</AssemblyTitle>
+    <Product>CodexQuotaTray</Product>
+    <Company>CodexQuotaTray</Company>
+    <Description>CodexQuotaTray</Description>
     <RootNamespace>CodexQuotaTray.App</RootNamespace>
     <Version>0.10.5</Version>
     <ApplicationIcon>..\..\assets\app-icon.ico</ApplicationIcon>

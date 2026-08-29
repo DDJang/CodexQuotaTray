@@ -72,8 +72,7 @@ public partial class App : Application
         if (!showDemo)
         {
             appNotifications = new WindowsAppNotificationService(OnAppNotificationInvoked);
-            var iconUri = new Uri(Path.GetFullPath(
-                Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.png")));
+            var iconUri = new Uri(WindowIconService.AppNotificationIconPath);
             _ = appNotifications.TryRegister(identity.DisplayName, iconUri);
         }
 
@@ -234,6 +233,7 @@ public partial class App : Application
             Environment.NewLine,
             diagnostics.CreateDiagnosticText(),
             lanDiagnosticBuffer.CreateDiagnosticText(),
+            appNotifications?.CreateDiagnosticText() ?? "Windows notifications: unavailable (demo)",
             trayIcon?.CreateDiagnosticText() ?? "托盘注册状态: NotStarted")));
         settingsPageActions = new DelegateSettingsPageActions(
             cancellationToken => viewModel.RefreshCommand.ExecuteAsync(cancellationToken),
