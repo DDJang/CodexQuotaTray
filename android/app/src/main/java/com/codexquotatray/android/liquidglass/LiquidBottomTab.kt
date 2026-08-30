@@ -1,6 +1,5 @@
-// Codex pre-V2 / P2 generation + ConflatedUpdater baseline.
-// Adapted and extensively modified from Kyant0/AndroidLiquidGlass.
-// Reference implementation commit: b18eb0ff12c616546a68c72e7d0097f1ab286c87.
+// Adapted and modified from Kyant0/AndroidLiquidGlass.
+// Pinned commit: b18eb0ff12c616546a68c72e7d0097f1ab286c87.
 // Apache License 2.0.
 package com.codexquotatray.android.liquidglass
 
@@ -20,15 +19,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.kyant.shapes.Capsule
 
-internal val LocalLegacyCodexLiquidBottomTabScale = staticCompositionLocalOf { { 1f } }
+internal val LocalLiquidBottomTabScale = staticCompositionLocalOf { { 1f } }
 
 @Composable
-fun RowScope.LegacyCodexLiquidBottomTab(
+fun RowScope.LiquidBottomTab(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val scale = LocalLegacyCodexLiquidBottomTabScale.current
+    val scale = LocalLiquidBottomTabScale.current
     Column(
         modifier
             .clip(Capsule())

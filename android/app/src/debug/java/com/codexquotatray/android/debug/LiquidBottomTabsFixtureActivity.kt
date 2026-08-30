@@ -46,9 +46,8 @@ import com.codexquotatray.android.R
 import com.codexquotatray.android.ThemeMode
 import com.codexquotatray.android.ThemePalette
 import com.codexquotatray.android.color
-import com.codexquotatray.android.liquidglass.CodexLiquidMainTabs
-import com.codexquotatray.android.liquidglass.LegacyCodexLiquidBottomTab
-import com.codexquotatray.android.liquidglass.LegacyCodexLiquidBottomTabs
+import com.codexquotatray.android.liquidglass.LiquidBottomTab
+import com.codexquotatray.android.liquidglass.LiquidBottomTabs
 import com.codexquotatray.android.liquidglass.UpstreamLiquidBottomTab
 import com.codexquotatray.android.liquidglass.UpstreamLiquidBottomTabs
 import com.kyant.backdrop.Backdrop
@@ -79,10 +78,8 @@ class LiquidBottomTabsFixtureActivity : ComponentActivity() {
 private fun LiquidBottomTabsFixtureScreen(palette: ThemePalette) {
     val backdrop = rememberLayerBackdrop()
     var upstreamSelected by remember { mutableIntStateOf(0) }
-    var legacySelected by remember { mutableIntStateOf(0) }
     var productionSelected by remember { mutableIntStateOf(0) }
     val upstreamState = rememberUpdatedState(upstreamSelected)
-    val legacyState = rememberUpdatedState(legacySelected)
     val contentColor = palette.color(palette.body)
 
     Box(Modifier.fillMaxSize().background(palette.color(palette.background))) {
@@ -118,24 +115,8 @@ private fun LiquidBottomTabsFixtureScreen(palette: ThemePalette) {
                     }
                 }
             }
-            FixtureSection("B · Legacy Codex · pre-V2", legacySelected) {
-                LegacyCodexLiquidBottomTabs(
-                    selectedTabIndex = { legacyState.value },
-                    onTabSelected = { legacySelected = it },
-                    backdrop = backdrop,
-                    tabsCount = 2,
-                    modifier = fixtureDockModifier(),
-                ) {
-                    LegacyCodexLiquidBottomTab(onClick = { legacySelected = 0 }) {
-                        FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
-                    }
-                    LegacyCodexLiquidBottomTab(onClick = { legacySelected = 1 }) {
-                        FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
-                    }
-                }
-            }
-            FixtureSection("C · Codex Main Dock V2 · production", productionSelected) {
-                CodexLiquidMainTabs(
+            FixtureSection("B · Codex production glass", productionSelected) {
+                ProductionLiquidTabs(
                     selectedIndex = productionSelected,
                     onSelected = { productionSelected = it },
                     backdrop = backdrop,
@@ -145,7 +126,7 @@ private fun LiquidBottomTabsFixtureScreen(palette: ThemePalette) {
             }
             IntegratedTransitionFixture(backdrop, contentColor)
             Text(
-                "A/B/C and the integrated demo share one backdrop; no OAuth, LAN, API, worker, or network access.",
+                "A/B/C share one backdrop; no OAuth, LAN, API, worker, or network access.",
                 color = Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -160,7 +141,7 @@ private fun IntegratedTransitionFixture(backdrop: Backdrop, contentColor: Color)
     var stressJob by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Codex V2 · integrated page transition", color = Color.White, style = MaterialTheme.typography.titleMedium)
+        Text("C · Integrated optimized switching", color = Color.White, style = MaterialTheme.typography.titleMedium)
         Box(
             Modifier.fillMaxWidth().height(132.dp)
                 .background(Color.Black.copy(alpha = 0.22f), RoundedCornerShape(20.dp)),
@@ -170,7 +151,7 @@ private fun IntegratedTransitionFixture(backdrop: Backdrop, contentColor: Color)
             }
         }
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            CodexLiquidMainTabs(
+            ProductionLiquidTabs(
                 selectedIndex = selectedIndex,
                 onSelected = { expectedIndex = it; selectedIndex = it },
                 backdrop = backdrop,
@@ -196,6 +177,31 @@ private fun IntegratedTransitionFixture(backdrop: Backdrop, contentColor: Color)
             color = Color.White.copy(alpha = 0.78f),
             style = MaterialTheme.typography.bodySmall,
         )
+    }
+}
+
+@Composable
+private fun ProductionLiquidTabs(
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    backdrop: Backdrop,
+    contentColor: Color,
+    modifier: Modifier,
+) {
+    val selectedState = rememberUpdatedState(selectedIndex)
+    LiquidBottomTabs(
+        selectedTabIndex = { selectedState.value },
+        onTabSelected = onSelected,
+        backdrop = backdrop,
+        tabsCount = 2,
+        modifier = modifier,
+    ) {
+        LiquidBottomTab(onClick = { onSelected(0) }) {
+            FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
+        }
+        LiquidBottomTab(onClick = { onSelected(1) }) {
+            FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
+        }
     }
 }
 

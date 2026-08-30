@@ -8,33 +8,44 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.paint
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.TextStyle
 import androidx.annotation.DrawableRes
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.lerp
-import com.codexquotatray.android.liquidglass.CodexLiquidMainTabs
+import com.codexquotatray.android.liquidglass.LiquidBottomTab
+import com.codexquotatray.android.liquidglass.LiquidBottomTabs
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
@@ -181,6 +192,37 @@ internal fun GlassIconButton(
     }
 }
 @Composable
+private fun DockTabContent(
+    @DrawableRes iconRes: Int,
+    label: String,
+    contentColor: Color,
+    iconWidth: Dp = 27.dp,
+    iconHeight: Dp = 27.dp,
+) {
+    Box(
+        Modifier.size(27.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .size(width = iconWidth, height = iconHeight)
+                .paint(
+                    painter = painterResource(iconRes),
+                    colorFilter = ColorFilter.tint(contentColor),
+                ),
+        )
+    }
+    BasicText(
+        text = label,
+        style = TextStyle(
+            color = contentColor,
+            fontSize = 11.sp,
+            lineHeight = 12.sp,
+        ),
+    )
+}
+
+@Composable
 internal fun LiquidMainDock(
     selectedIndex: Int,
     onSelected: (Int) -> Unit,
@@ -199,14 +241,42 @@ internal fun LiquidMainDock(
         val navigationWidth = minOf(preferredNavigationWidth, maxWidth - actionSize - minimumGap)
         val palette = LocalQuotaPalette.current
         val contentColor = palette.color(palette.body)
+        val selectedIndexState = rememberUpdatedState(selectedIndex)
+        val onSelectedState = rememberUpdatedState(onSelected)
+        var requestedIndex by remember { mutableIntStateOf(selectedIndex) }
+        LaunchedEffect(selectedIndex) {
+            requestedIndex = selectedIndex
+        }
+        val requestedIndexState = rememberUpdatedState(requestedIndex)
+        val selectedIndexProvider = remember { { requestedIndexState.value } }
+        val selectionSink = remember { { index: Int -> onSelectedState.value(index) } }
+        val hapticFeedback = LocalHapticFeedback.current
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            CodexLiquidMainTabs(
-                selectedIndex = selectedIndex,
-                onSelected = onSelected,
+            LiquidBottomTabs(
+                selectedTabIndex = selectedIndexProvider,
+                onTabSelected = { index ->
+                    if (selectedIndexState.value != index) {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)
+                        selectionSink(index)
+                    }
+                },
                 backdrop = backdrop,
-                contentColor = contentColor,
+                tabsCount = 2,
                 modifier = Modifier.size(width = navigationWidth, height = navigationHeight),
-            )
+            ) {
+                LiquidBottomTab(onClick = { requestedIndex = 0 }) {
+                    DockTabContent(
+                        R.drawable.ic_quota_tray,
+                        "额度",
+                        contentColor,
+                        iconWidth = 22.dp,
+                        iconHeight = 24.dp,
+                    )
+                }
+                LiquidBottomTab(onClick = { requestedIndex = 1 }) {
+                    DockTabContent(R.drawable.ic_usage, "统计", contentColor)
+                }
+            }
             androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
             LiquidIconButton(
                 iconRes = R.drawable.ic_refresh,

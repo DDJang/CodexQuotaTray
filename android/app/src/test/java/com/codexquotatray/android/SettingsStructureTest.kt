@@ -254,15 +254,26 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun liquidMainDockUsesMainActivitySelectionAsItsSingleSourceOfTruth() {
+    fun liquidMainDockUsesStableAdaptersForExternalSelectionState() {
         val source = sourceFile("GlassComponents.kt")
         val dock = source.substringAfter("internal fun LiquidMainDock(")
 
-        assertTrue(dock.contains("CodexLiquidMainTabs("))
-        assertTrue(dock.contains("selectedIndex = selectedIndex"))
-        assertTrue(dock.contains("onSelected = onSelected"))
-        assertFalse(dock.contains("requestedIndex"))
-        assertFalse(dock.contains("selectedIndexProvider"))
+        assertTrue(dock.contains("rememberUpdatedState(selectedIndex)"))
+        assertTrue(dock.contains("rememberUpdatedState(onSelected)"))
+        assertTrue(dock.contains("var requestedIndex by remember { mutableIntStateOf(selectedIndex) }"))
+        assertTrue(dock.contains("LaunchedEffect(selectedIndex)"))
+        assertTrue(dock.contains("requestedIndex = selectedIndex"))
+        assertTrue(dock.contains("val requestedIndexState = rememberUpdatedState(requestedIndex)"))
+        assertTrue(dock.contains("val selectedIndexProvider = remember { { requestedIndexState.value } }"))
+        assertTrue(dock.contains("val selectionSink = remember { { index: Int -> onSelectedState.value(index) } }"))
+        assertTrue(dock.contains("val hapticFeedback = LocalHapticFeedback.current"))
+        assertTrue(dock.contains("selectedTabIndex = selectedIndexProvider"))
+        assertTrue(dock.contains("onTabSelected = { index ->"))
+        assertTrue(dock.contains("if (selectedIndexState.value != index)"))
+        assertTrue(dock.contains("hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)"))
+        assertTrue(dock.contains("selectionSink(index)"))
+        assertTrue(dock.contains("LiquidBottomTab(onClick = { requestedIndex = 0 })"))
+        assertTrue(dock.contains("LiquidBottomTab(onClick = { requestedIndex = 1 })"))
     }
 
     @Test
@@ -395,20 +406,22 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun liquidMainTabsUseTwoGlassPassesAndOnePointerPipeline() {
-        val source = sourceFile("liquidglass/CodexLiquidMainTabs.kt")
+    fun liquidBottomTabsKeepTheProductionCombinedBackdropRenderGraph() {
+        val source = sourceFile("liquidglass/LiquidBottomTabs.kt")
 
-        assertEquals(2, source.split(".drawBackdrop(").size - 1)
-        assertEquals(1, source.split(".pointerInput(").size - 1)
+        assertTrue(source.contains("val tabsBackdrop = rememberLayerBackdrop()"))
+        assertTrue(source.contains("CompositionLocalProvider"))
+        assertTrue(source.contains("lerp(1f, 1.2f, dampedDragAnimation.pressProgress)"))
+        assertTrue(source.contains(".alpha(0f)"))
+        assertTrue(source.contains(".layerBackdrop(tabsBackdrop)"))
         assertTrue(source.contains("ColorFilter.tint(accentColor)"))
+        assertTrue(source.contains("backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)"))
+        assertTrue(source.contains("tabsBackdrop"))
         assertTrue(source.contains("backdrop = backdrop"))
         assertTrue(source.contains("chromaticAberration = true"))
-        assertFalse(source.contains("rememberLayerBackdrop"))
-        assertFalse(source.contains("rememberCombinedBackdrop"))
-        assertFalse(source.contains("layerBackdrop("))
-        assertFalse(source.contains(".alpha(0f)"))
-        assertFalse(source.contains("InteractiveHighlight"))
-        assertFalse(source.contains("DampedDragAnimation"))
+        assertTrue(source.contains("pressedScale = 78f / 56f"))
+        assertTrue(source.contains("InteractiveHighlight("))
+        assertTrue(source.contains("DampedDragAnimation("))
     }
 
     @Test
@@ -445,8 +458,9 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("val backdrop = rememberLayerBackdrop()"))
         assertTrue(fixture.contains(".layerBackdrop(backdrop)"))
         assertTrue(fixture.contains("UpstreamLiquidBottomTabs"))
-        assertTrue(fixture.contains("LegacyCodexLiquidBottomTabs"))
-        assertTrue(fixture.contains("CodexLiquidMainTabs("))
+        assertTrue(fixture.contains("LiquidBottomTabs("))
+        assertTrue(fixture.contains("B · Codex production glass"))
+        assertTrue(fixture.contains("C · Integrated optimized switching"))
         assertTrue(fixture.contains("MainPageSwitcher("))
         assertTrue(fixture.contains("Auto stress ×100"))
         assertTrue(fixture.contains("repeat(100)"))
