@@ -421,6 +421,52 @@ public sealed class AppIntegrationSourceTests
     }
 
     [TestMethod]
+    public void MainWindowPresentationWaitersCleanupEventsAfterReturningToTheUiContext()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var loadedStart = source.IndexOf("private async Task AwaitLoadedAsync(", StringComparison.Ordinal);
+        var renderingStart = source.IndexOf(
+            "private static async Task WaitForRenderingAsync(",
+            loadedStart,
+            StringComparison.Ordinal);
+        var renderingEnd = source.IndexOf(
+            "private bool SetFirstPresentationCloaked(",
+            renderingStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(loadedStart >= 0);
+        Assert.IsTrue(renderingStart > loadedStart);
+        Assert.IsTrue(renderingEnd > renderingStart);
+
+        var loadedWaiter = source[loadedStart..renderingStart];
+        var renderingWaiter = source[renderingStart..renderingEnd];
+        AssertWaiterCleanupContract(
+            loadedWaiter,
+            "ContentRoot.Loaded -= loaded;");
+        AssertWaiterCleanupContract(
+            renderingWaiter,
+            "CompositionTarget.Rendering -= rendering;");
+    }
+
+    private static void AssertWaiterCleanupContract(string waiter, string unsubscribe)
+    {
+        const string cancellation = "() => completion.TrySetCanceled(cancellationToken));";
+        var registration = waiter.IndexOf("cancellationToken.Register(", StringComparison.Ordinal);
+        var cancellationCompletion = waiter.IndexOf(cancellation, registration, StringComparison.Ordinal);
+        var awaitCompletion = waiter.IndexOf("await completion.Task;", cancellationCompletion, StringComparison.Ordinal);
+        var finallyCleanup = waiter.IndexOf("finally", awaitCompletion, StringComparison.Ordinal);
+        var unsubscribeIndex = waiter.IndexOf(unsubscribe, StringComparison.Ordinal);
+
+        Assert.IsTrue(registration >= 0);
+        Assert.IsTrue(cancellationCompletion > registration);
+        Assert.IsTrue(awaitCompletion > cancellationCompletion);
+        Assert.IsTrue(finallyCleanup > awaitCompletion);
+        Assert.IsTrue(unsubscribeIndex > finallyCleanup);
+        Assert.AreEqual(unsubscribeIndex, waiter.LastIndexOf(unsubscribe, StringComparison.Ordinal));
+        Assert.IsFalse(waiter.Contains("ConfigureAwait(false)", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void MainWindowUsesNativeDpiWhenXamlRootIsUnavailable()
     {
         var source = File.ReadAllText(

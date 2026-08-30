@@ -331,13 +331,11 @@ public sealed partial class MainWindow : Window
         RoutedEventHandler? loaded = null;
         loaded = (_, _) =>
         {
-            ContentRoot.Loaded -= loaded;
             completion.TrySetResult();
         };
         ContentRoot.Loaded += loaded;
         if (ContentRoot.IsLoaded)
         {
-            ContentRoot.Loaded -= loaded;
             completion.TrySetResult();
         }
 
@@ -349,12 +347,16 @@ public sealed partial class MainWindow : Window
         RoutedEventHandler loaded,
         CancellationToken cancellationToken)
     {
-        using var registration = cancellationToken.Register(() =>
+        using var registration = cancellationToken.Register(
+            () => completion.TrySetCanceled(cancellationToken));
+        try
+        {
+            await completion.Task;
+        }
+        finally
         {
             ContentRoot.Loaded -= loaded;
-            completion.TrySetCanceled(cancellationToken);
-        });
-        await completion.Task;
+        }
     }
 
     private static async Task WaitForRenderingAsync(CancellationToken cancellationToken)
@@ -363,16 +365,19 @@ public sealed partial class MainWindow : Window
         EventHandler<object>? rendering = null;
         rendering = (_, _) =>
         {
-            CompositionTarget.Rendering -= rendering;
             completion.TrySetResult();
         };
         CompositionTarget.Rendering += rendering;
-        using var registration = cancellationToken.Register(() =>
+        using var registration = cancellationToken.Register(
+            () => completion.TrySetCanceled(cancellationToken));
+        try
+        {
+            await completion.Task;
+        }
+        finally
         {
             CompositionTarget.Rendering -= rendering;
-            completion.TrySetCanceled(cancellationToken);
-        });
-        await completion.Task;
+        }
     }
 
     private bool SetFirstPresentationCloaked(bool value)
