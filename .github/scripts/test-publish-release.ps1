@@ -94,6 +94,8 @@ Assert-Contains -Text $source -Needle 'DRY RUN: skips platform builds/tests;' `
     -Message 'DryRun must explicitly skip platform builds and tests.'
 Assert-Contains -Text $source -Needle "'--json', 'number,url,headRefName,headRefOid,baseRefName,baseRefOid'" `
     -Message 'Release PR lookup must record both the PR head and base commit SHAs.'
+Assert-Contains -Text $source -Needle 'function Get-ReleasePrInfo' `
+    -Message 'Release planner must support refreshing PR head/base identity before merge.'
 Assert-Contains -Text $source -Needle 'Assert-ReleasePrHeadMatchesHead' `
     -Message 'Release planner must fail closed when the PR head SHA differs from the refreshed branch HEAD.'
 Assert-Contains -Text $source -Needle 'function Get-ReleasePrBaseSha' `
@@ -101,13 +103,16 @@ Assert-Contains -Text $source -Needle 'function Get-ReleasePrBaseSha' `
 Assert-Contains -Text $source -Needle 'function Assert-ReleasePrBaseUnchanged' `
     -Message 'Release planner must guard against main drift after PR checks.'
 $waitChecksIndex = $source.IndexOf('Wait-PrChecks -Number $prNumber', [StringComparison]::Ordinal)
-$headGuardIndex = $source.IndexOf('Assert-ReleasePrHeadMatchesHead -Pr $pr', [StringComparison]::Ordinal)
+$prRefreshIndex = $source.IndexOf('$pr = Get-ReleasePrInfo -Identifier ([string]$prNumber)', [StringComparison]::Ordinal)
+$refreshedHeadGuardIndex = $source.IndexOf('Assert-ReleasePrHeadMatchesHead -Pr $pr', $prRefreshIndex, [StringComparison]::Ordinal)
+$refreshedBaseReadIndex = $source.IndexOf('$releasePrBaseSha = Get-ReleasePrBaseSha -Pr $pr', $prRefreshIndex, [StringComparison]::Ordinal)
 $baseGuardIndex = $source.IndexOf('Assert-ReleasePrBaseUnchanged -Number $prNumber', [StringComparison]::Ordinal)
 $mergeIndex = $source.IndexOf("Write-Step 'Merging the release PR with squash merge.'", [StringComparison]::Ordinal)
-if ($headGuardIndex -lt 0 -or $waitChecksIndex -lt 0 -or $headGuardIndex -ge $waitChecksIndex) {
-    throw 'Release planner must guard the PR head SHA before waiting for checks or merging.'
+if ($prRefreshIndex -lt 0 -or $waitChecksIndex -lt 0 -or $prRefreshIndex -le $waitChecksIndex -or
+    $refreshedHeadGuardIndex -le $prRefreshIndex -or $refreshedBaseReadIndex -le $refreshedHeadGuardIndex) {
+    throw 'Release planner must refresh PR identity and guard the head SHA after checks pass.'
 }
-if ($baseGuardIndex -le $waitChecksIndex -or $mergeIndex -le $baseGuardIndex) {
+if ($baseGuardIndex -le $refreshedBaseReadIndex -or $mergeIndex -le $baseGuardIndex) {
     throw 'Release planner must guard the recorded PR base SHA after checks pass and before merge.'
 }
 Assert-Contains -Text $source -Needle 'synchronize the release branch with main and rerun PR CI' `
@@ -493,6 +498,10 @@ if "%1"=="pr" if "%2"=="list" (
   )
   exit /b 0
 )
+if "%1"=="pr" if "%2"=="view" (
+  for /f "delims=" %%H in ('git rev-parse HEAD') do echo [{"number":44,"url":"https://github.com/example/test/pull/44","headRefName":"$firstRunBranch","headRefOid":"%%H","baseRefName":"main","baseRefOid":"$firstRunBaseSha"}]
+  exit /b 0
+)
 if "%1"=="pr" if "%2"=="checks" (
   echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
   exit /b 0
@@ -591,6 +600,10 @@ if "%1"=="pr" if "%2"=="list" (
   echo [{"number":43,"url":"https://github.com/example/test/pull/43","headRefName":"$baseGuardBranch","headRefOid":"$baseGuardPreparationHead","baseRefName":"main","baseRefOid":"$baseGuardMainSha"}]
   exit /b 0
 )
+if "%1"=="pr" if "%2"=="view" (
+  echo [{"number":43,"url":"https://github.com/example/test/pull/43","headRefName":"$baseGuardBranch","headRefOid":"$baseGuardPreparationHead","baseRefName":"main","baseRefOid":"$baseGuardMainSha"}]
+  exit /b 0
+)
 if "%1"=="pr" if "%2"=="checks" (
   echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
   exit /b 0
@@ -616,6 +629,74 @@ exit /b 99
         throw 'Unchanged-main guard regression incorrectly rejected an unchanged base.'
     }
 
+    Write-Host 'Running release PR head drift regression test.'
+    $headDriftBranch = 'codex/head-drift-test'
+    $headDriftVersion = '0.8.9'
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', 'main')
+    $headDriftBaseSha = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', '-c', $headDriftBranch)
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath "windows/release-notes/$headDriftVersion.md" -Content "# Windows $headDriftVersion" | Out-Null
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', "windows/release-notes/$headDriftVersion.md")
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', "docs: add Windows $headDriftVersion notes")
+    $headDriftVersionText = [IO.File]::ReadAllText($baseGuardVersionPath).Replace('<Version>0.8.8</Version>', "<Version>$headDriftVersion</Version>")
+    [IO.File]::WriteAllText($baseGuardVersionPath, $headDriftVersionText, [Text.UTF8Encoding]::new($false))
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', "release: prepare Windows $headDriftVersion")
+    $headDriftPreparationHead = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('push', '--set-upstream', 'origin', $headDriftBranch)
+
+    $headDriftGhShim = @"
+@echo off
+if "%1"=="auth" exit /b 0
+if "%1"=="repo" (
+  echo example/test
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="list" (
+  echo [{"number":45,"url":"https://github.com/example/test/pull/45","headRefName":"$headDriftBranch","headRefOid":"$headDriftPreparationHead","baseRefName":"main","baseRefOid":"$headDriftBaseSha"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="view" (
+  for /f "delims=" %%H in ('git rev-parse HEAD') do echo [{"number":45,"url":"https://github.com/example/test/pull/45","headRefName":"$headDriftBranch","headRefOid":"%%H","baseRefName":"main","baseRefOid":"$headDriftBaseSha"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="checks" (
+  echo head advanced after checks> head-drift-after-checks.txt
+  git add -- head-drift-after-checks.txt >nul 2>nul
+  if errorlevel 1 exit /b 90
+  git commit -m "test: advance release branch after CI" >nul 2>nul
+  if errorlevel 1 exit /b 91
+  git push origin HEAD:$headDriftBranch >nul 2>nul
+  if errorlevel 1 exit /b 92
+  echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="merge" (
+  echo HEAD_DRIFT_MERGE_SENTINEL
+  exit /b 42
+)
+exit /b 99
+"@
+    Write-ResumeTestFile -Root $resumeShim -RelativePath 'gh.cmd' -Content $headDriftGhShim | Out-Null
+    $headDriftOutput = @(& $testPwshCommand -NoProfile -File (Join-Path $resumeRepo 'scripts/publish-release.ps1') `
+        -Platform Windows -Version $headDriftVersion -TimeoutMinutes 5 2>&1 | ForEach-Object {
+            [string]$_
+        })
+    $headDriftExitCode = $LASTEXITCODE
+    $headDriftText = ($headDriftOutput -join [Environment]::NewLine)
+    if ($headDriftExitCode -eq 0 -or
+        $headDriftText -notmatch 'All visible PR checks passed for #45' -or
+        $headDriftText -notmatch 'headRefOid .* does not match release branch HEAD') {
+        throw "Release PR head-drift regression did not fail closed after successful CI. Output: $headDriftText"
+    }
+    if ($headDriftText -match 'HEAD_DRIFT_MERGE_SENTINEL') {
+        throw 'Release PR head-drift regression reached the merge command.'
+    }
+    $headDriftAfterChecksSha = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+    if ($headDriftAfterChecksSha -ceq $headDriftPreparationHead) {
+        throw 'Release PR head-drift fixture did not advance the branch during CI.'
+    }
+
     Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', 'main')
     Write-ResumeTestFile -Root $resumeRepo -RelativePath 'main-guard-drift.txt' -Content 'main moved after PR checks' | Out-Null
     Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'main-guard-drift.txt')
@@ -630,6 +711,10 @@ if "%1"=="repo" (
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="list" (
+  echo [{"number":43,"url":"https://github.com/example/test/pull/43","headRefName":"$baseGuardBranch","headRefOid":"$baseGuardPreparationHead","baseRefName":"main","baseRefOid":"$baseGuardMainSha"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="view" (
   echo [{"number":43,"url":"https://github.com/example/test/pull/43","headRefName":"$baseGuardBranch","headRefOid":"$baseGuardPreparationHead","baseRefName":"main","baseRefOid":"$baseGuardMainSha"}]
   exit /b 0
 )

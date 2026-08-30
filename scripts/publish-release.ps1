@@ -700,6 +700,13 @@ function Get-OpenReleasePr {
     return $prs[0]
 }
 
+function Get-ReleasePrInfo {
+    param([Parameter(Mandatory = $true)][string]$Identifier)
+    return Read-GhJson -Arguments @(
+        'pr', 'view', $Identifier, '--json', 'number,url,headRefName,headRefOid,baseRefName,baseRefOid'
+    )
+}
+
 function Assert-ReleasePrHeadMatchesHead {
     param([Parameter(Mandatory = $true)]$Pr)
     $headRefOidProperty = $Pr.PSObject.Properties['headRefOid']
@@ -1271,9 +1278,7 @@ if ($null -eq $pr) {
         'pr', 'create', '--base', 'main', '--head', $script:Branch,
         '--title', $releaseSubject, '--body', $body
     )
-    $pr = Read-GhJson -Arguments @(
-        'pr', 'view', $prUrl.Trim(), '--json', 'number,url,headRefName,headRefOid,baseRefName,baseRefOid'
-    )
+    $pr = Get-ReleasePrInfo -Identifier $prUrl.Trim()
 }
 $prNumber = [int]$pr.number
 Assert-ReleasePrHeadMatchesHead -Pr $pr
@@ -1284,6 +1289,9 @@ if ($releasePrBaseSha -cne $script:MainSha) {
 Write-Host "Release PR #$prNumber CI base/main SHA: $releasePrBaseSha"
 Write-Host "Release PR: #$prNumber $($pr.url)"
 Wait-PrChecks -Number $prNumber
+$pr = Get-ReleasePrInfo -Identifier ([string]$prNumber)
+Assert-ReleasePrHeadMatchesHead -Pr $pr
+$releasePrBaseSha = Get-ReleasePrBaseSha -Pr $pr
 Assert-ReleasePrBaseUnchanged -Number $prNumber -ExpectedBaseSha $releasePrBaseSha | Out-Null
 
 Write-Step 'Merging the release PR with squash merge.'
