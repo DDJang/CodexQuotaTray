@@ -1291,7 +1291,10 @@ Write-Host "Release PR: #$prNumber $($pr.url)"
 Wait-PrChecks -Number $prNumber
 $pr = Get-ReleasePrInfo -Identifier ([string]$prNumber)
 Assert-ReleasePrHeadMatchesHead -Pr $pr
-$releasePrBaseSha = Get-ReleasePrBaseSha -Pr $pr
+$refreshedPrBaseSha = Get-ReleasePrBaseSha -Pr $pr
+if ($refreshedPrBaseSha -cne $releasePrBaseSha) {
+    throw "Release PR #$prNumber baseRefOid changed after PR checks from $releasePrBaseSha to $refreshedPrBaseSha; refusing to merge."
+}
 Assert-ReleasePrBaseUnchanged -Number $prNumber -ExpectedBaseSha $releasePrBaseSha | Out-Null
 
 Write-Step 'Merging the release PR with squash merge.'

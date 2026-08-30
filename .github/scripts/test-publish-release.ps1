@@ -96,6 +96,8 @@ Assert-Contains -Text $source -Needle "'--json', 'number,url,headRefName,headRef
     -Message 'Release PR lookup must record both the PR head and base commit SHAs.'
 Assert-Contains -Text $source -Needle 'function Get-ReleasePrInfo' `
     -Message 'Release planner must support refreshing PR head/base identity before merge.'
+Assert-Contains -Text $source -Needle '$refreshedPrBaseSha' `
+    -Message 'Release planner must keep the post-CI PR base SHA separate from the CI baseline.'
 Assert-Contains -Text $source -Needle 'Assert-ReleasePrHeadMatchesHead' `
     -Message 'Release planner must fail closed when the PR head SHA differs from the refreshed branch HEAD.'
 Assert-Contains -Text $source -Needle 'function Get-ReleasePrBaseSha' `
@@ -105,12 +107,14 @@ Assert-Contains -Text $source -Needle 'function Assert-ReleasePrBaseUnchanged' `
 $waitChecksIndex = $source.IndexOf('Wait-PrChecks -Number $prNumber', [StringComparison]::Ordinal)
 $prRefreshIndex = $source.IndexOf('$pr = Get-ReleasePrInfo -Identifier ([string]$prNumber)', [StringComparison]::Ordinal)
 $refreshedHeadGuardIndex = $source.IndexOf('Assert-ReleasePrHeadMatchesHead -Pr $pr', $prRefreshIndex, [StringComparison]::Ordinal)
-$refreshedBaseReadIndex = $source.IndexOf('$releasePrBaseSha = Get-ReleasePrBaseSha -Pr $pr', $prRefreshIndex, [StringComparison]::Ordinal)
-$baseGuardIndex = $source.IndexOf('Assert-ReleasePrBaseUnchanged -Number $prNumber', [StringComparison]::Ordinal)
+$refreshedBaseReadIndex = $source.IndexOf('$refreshedPrBaseSha = Get-ReleasePrBaseSha -Pr $pr', $prRefreshIndex, [StringComparison]::Ordinal)
+$refreshedBaseCompareIndex = $source.IndexOf('if ($refreshedPrBaseSha -cne $releasePrBaseSha)', $refreshedBaseReadIndex, [StringComparison]::Ordinal)
+$baseGuardIndex = $source.IndexOf('Assert-ReleasePrBaseUnchanged -Number $prNumber -ExpectedBaseSha $releasePrBaseSha', [StringComparison]::Ordinal)
 $mergeIndex = $source.IndexOf("Write-Step 'Merging the release PR with squash merge.'", [StringComparison]::Ordinal)
 if ($prRefreshIndex -lt 0 -or $waitChecksIndex -lt 0 -or $prRefreshIndex -le $waitChecksIndex -or
-    $refreshedHeadGuardIndex -le $prRefreshIndex -or $refreshedBaseReadIndex -le $refreshedHeadGuardIndex) {
-    throw 'Release planner must refresh PR identity and guard the head SHA after checks pass.'
+    $refreshedHeadGuardIndex -le $prRefreshIndex -or $refreshedBaseReadIndex -le $refreshedHeadGuardIndex -or
+    $refreshedBaseCompareIndex -le $refreshedBaseReadIndex) {
+    throw 'Release planner must refresh PR identity, guard the head SHA, and compare the refreshed base after checks pass.'
 }
 if ($baseGuardIndex -le $refreshedBaseReadIndex -or $mergeIndex -le $baseGuardIndex) {
     throw 'Release planner must guard the recorded PR base SHA after checks pass and before merge.'
@@ -746,6 +750,78 @@ exit /b 99
     if ($baseGuardDriftText -notmatch 'synchronize the release branch with' -or
         $baseGuardDriftText -notmatch 'and rerun PR CI') {
         throw "Main-drift guard regression did not provide the synchronization instruction. Output: $baseGuardDriftText"
+    }
+
+    Write-Host 'Running release PR refreshed-base drift regression test.'
+    $baseRefDriftBranch = 'codex/base-ref-drift-test'
+    $baseRefDriftVersion = '0.8.10'
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', 'main')
+    $baseRefDriftBaseSha = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('switch', '-c', $baseRefDriftBranch)
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath "windows/release-notes/$baseRefDriftVersion.md" -Content "# Windows $baseRefDriftVersion" | Out-Null
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', "windows/release-notes/$baseRefDriftVersion.md")
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', "docs: add Windows $baseRefDriftVersion notes")
+    $baseRefDriftVersionText = [IO.File]::ReadAllText($baseGuardVersionPath).Replace('<Version>0.8.8</Version>', "<Version>$baseRefDriftVersion</Version>")
+    [IO.File]::WriteAllText($baseGuardVersionPath, $baseRefDriftVersionText, [Text.UTF8Encoding]::new($false))
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('add', 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('commit', '-m', "release: prepare Windows $baseRefDriftVersion")
+    $baseRefDriftPreparationHead = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'HEAD')
+    Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('push', '--set-upstream', 'origin', $baseRefDriftBranch)
+
+    $baseRefDriftGhShim = @"
+@echo off
+if "%1"=="auth" exit /b 0
+if "%1"=="repo" (
+  echo example/test
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="list" (
+  echo [{"number":46,"url":"https://github.com/example/test/pull/46","headRefName":"$baseRefDriftBranch","headRefOid":"$baseRefDriftPreparationHead","baseRefName":"main","baseRefOid":"$baseRefDriftBaseSha"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="view" (
+  for /f "delims=" %%B in ('git rev-parse main') do echo [{"number":46,"url":"https://github.com/example/test/pull/46","headRefName":"$baseRefDriftBranch","headRefOid":"$baseRefDriftPreparationHead","baseRefName":"main","baseRefOid":"%%B"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="checks" (
+  git switch main >nul 2>nul
+  if errorlevel 1 exit /b 90
+  echo main advanced after checks> base-ref-drift-after-checks.txt
+  git add -- base-ref-drift-after-checks.txt >nul 2>nul
+  if errorlevel 1 exit /b 91
+  git commit -m "test: advance main after CI" >nul 2>nul
+  if errorlevel 1 exit /b 92
+  git push origin HEAD:main >nul 2>nul
+  if errorlevel 1 exit /b 93
+  git switch $baseRefDriftBranch >nul 2>nul
+  if errorlevel 1 exit /b 94
+  echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="merge" (
+  echo BASE_REF_DRIFT_MERGE_SENTINEL
+  exit /b 42
+)
+exit /b 99
+"@
+    Write-ResumeTestFile -Root $resumeShim -RelativePath 'gh.cmd' -Content $baseRefDriftGhShim | Out-Null
+    $baseRefDriftOutput = @(& $testPwshCommand -NoProfile -File (Join-Path $resumeRepo 'scripts/publish-release.ps1') `
+        -Platform Windows -Version $baseRefDriftVersion -TimeoutMinutes 5 2>&1 | ForEach-Object {
+            [string]$_
+        })
+    $baseRefDriftExitCode = $LASTEXITCODE
+    $baseRefDriftText = ($baseRefDriftOutput -join [Environment]::NewLine)
+    if ($baseRefDriftExitCode -eq 0 -or
+        $baseRefDriftText -notmatch 'All visible PR checks passed for #46' -or
+        $baseRefDriftText -notmatch 'baseRefOid changed after PR checks') {
+        throw "Release PR refreshed-base drift regression did not fail closed after main advanced. Output: $baseRefDriftText"
+    }
+    if ($baseRefDriftText -match 'BASE_REF_DRIFT_MERGE_SENTINEL') {
+        throw 'Release PR refreshed-base drift regression reached the merge command.'
+    }
+    $baseRefDriftMainAfterChecksSha = Invoke-ResumeTestGit -WorkingDirectory $resumeRepo -Arguments @('rev-parse', 'main')
+    if ($baseRefDriftMainAfterChecksSha -ceq $baseRefDriftBaseSha) {
+        throw 'Release PR refreshed-base drift fixture did not advance origin/main during CI.'
     }
 
     Write-Host 'Running final-HEAD release preparation regression test.'
