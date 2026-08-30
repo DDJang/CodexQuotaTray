@@ -390,9 +390,9 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun mainPageUsesTheSinglePageSwitcherInsideTheStaticChromeBackdrop() {
+    fun mainPageUsesTheBaselineAnimatedContentInsideTheStaticChromeBackdrop() {
         val source = sourceFile("MainActivity.kt")
-        val chrome = source.substringAfter("val chromeBackdrop = rememberLayerBackdrop()")
+        val chrome = source.substringAfter("val chromeBackdrop = rememberLayerBackdrop")
             .substringBefore("Box(Modifier.align(Alignment.TopEnd)")
         val staticSource = chrome.substringBefore("Column(")
         val dynamicPage = chrome.substringAfter("Column(")
@@ -400,8 +400,13 @@ class SettingsStructureTest {
         assertTrue(staticSource.contains(".layerBackdrop(chromeBackdrop)"))
         assertTrue(staticSource.contains(".background(palette.color(palette.background))"))
         assertFalse(staticSource.contains("AnimatedContent("))
-        assertTrue(dynamicPage.contains("MainPageSwitcher("))
-        assertFalse(dynamicPage.contains("AnimatedContent("))
+        assertTrue(dynamicPage.contains("AnimatedContent("))
+        assertTrue(dynamicPage.contains("fadeIn(animationSpec = tween(200))"))
+        assertTrue(dynamicPage.contains("initialOffsetX = { width -> direction * width / 20 }"))
+        assertTrue(dynamicPage.contains("fadeOut(animationSpec = tween(160))"))
+        assertTrue(dynamicPage.contains("targetOffsetX = { width -> -direction * width / 28 }"))
+        assertFalse(source.contains("MainPageSwitcher("))
+        assertTrue(source.contains("if (targetIndex == selectedIndex) return"))
         assertTrue(source.contains("backdrop = chromeBackdrop"))
     }
 
@@ -460,8 +465,12 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("UpstreamLiquidBottomTabs"))
         assertTrue(fixture.contains("LiquidBottomTabs("))
         assertTrue(fixture.contains("B · Codex production glass"))
-        assertTrue(fixture.contains("C · Integrated optimized switching"))
-        assertTrue(fixture.contains("MainPageSwitcher("))
+        assertTrue(fixture.contains("C · Integrated production switching"))
+        assertTrue(fixture.contains("AnimatedContent("))
+        assertTrue(fixture.contains("fadeIn(animationSpec = tween(200))"))
+        assertTrue(fixture.contains("initialOffsetX = { width -> direction * width / 20 }"))
+        assertTrue(fixture.contains("fadeOut(animationSpec = tween(160))"))
+        assertTrue(fixture.contains("targetOffsetX = { width -> -direction * width / 28 }"))
         assertTrue(fixture.contains("Auto stress ×100"))
         assertTrue(fixture.contains("repeat(100)"))
 

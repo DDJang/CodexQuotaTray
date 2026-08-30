@@ -9,6 +9,13 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -136,17 +143,28 @@ class MainActivity : ComponentActivity() {
                                 Text("CodexQuota", color = palette.color(palette.title), fontSize = 28.sp, fontWeight = FontWeight.Bold)
                             }
                             Box(Modifier.weight(1f)) {
-                                MainPageSwitcher(
-                                    selectedIndex = selectedIndex,
+                                AnimatedContent(
+                                    targetState = selectedIndex,
                                     modifier = Modifier.fillMaxSize(),
-                                ) { pageIndex, pageModifier ->
-                                    Box(pageModifier.fillMaxSize()) {
-                                        if (pageIndex == 0) {
-                                            QuotaPage(quota)
-                                        } else {
-                                            TokenUsagePage(usage, ::scanTokenPairing)
-                                        }
-                                    }
+                                    transitionSpec = {
+                                        val direction = if (targetState > initialState) 1 else -1
+                                        (
+                                            fadeIn(animationSpec = tween(200)) +
+                                                slideInHorizontally(
+                                                    animationSpec = tween(200),
+                                                    initialOffsetX = { width -> direction * width / 20 },
+                                                )
+                                            ) togetherWith (
+                                            fadeOut(animationSpec = tween(160)) +
+                                                slideOutHorizontally(
+                                                    animationSpec = tween(160),
+                                                    targetOffsetX = { width -> -direction * width / 28 },
+                                                )
+                                            )
+                                    },
+                                    label = "main-page-transition",
+                                ) { pageIndex ->
+                                    if (pageIndex == 0) QuotaPage(quota) else TokenUsagePage(usage, ::scanTokenPairing)
                                 }
                             }
                         }

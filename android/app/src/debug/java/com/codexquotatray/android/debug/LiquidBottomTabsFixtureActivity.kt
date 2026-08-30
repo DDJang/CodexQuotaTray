@@ -3,6 +3,13 @@ package com.codexquotatray.android.debug
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,7 +48,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.AppTheme
 import com.codexquotatray.android.CodexQuotaTheme
-import com.codexquotatray.android.MainPageSwitcher
 import com.codexquotatray.android.R
 import com.codexquotatray.android.ThemeMode
 import com.codexquotatray.android.ThemePalette
@@ -141,13 +147,33 @@ private fun IntegratedTransitionFixture(backdrop: Backdrop, contentColor: Color)
     var stressJob by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("C · Integrated optimized switching", color = Color.White, style = MaterialTheme.typography.titleMedium)
+        Text("C · Integrated production switching", color = Color.White, style = MaterialTheme.typography.titleMedium)
         Box(
             Modifier.fillMaxWidth().height(132.dp)
                 .background(Color.Black.copy(alpha = 0.22f), RoundedCornerShape(20.dp)),
         ) {
-            MainPageSwitcher(selectedIndex, Modifier.fillMaxSize()) { pageIndex, pageModifier ->
-                FakePageCard(pageIndex, pageModifier.fillMaxSize())
+            AnimatedContent(
+                targetState = selectedIndex,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val direction = if (targetState > initialState) 1 else -1
+                    (
+                        fadeIn(animationSpec = tween(200)) +
+                            slideInHorizontally(
+                                animationSpec = tween(200),
+                                initialOffsetX = { width -> direction * width / 20 },
+                            )
+                        ) togetherWith (
+                        fadeOut(animationSpec = tween(160)) +
+                            slideOutHorizontally(
+                                animationSpec = tween(160),
+                                targetOffsetX = { width -> -direction * width / 28 },
+                            )
+                        )
+                },
+                label = "fixture-main-page-transition",
+            ) { pageIndex ->
+                FakePageCard(pageIndex, Modifier.fillMaxSize())
             }
         }
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
