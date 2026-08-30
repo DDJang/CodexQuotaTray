@@ -657,6 +657,9 @@ function Update-VersionFiles {
             ('${1}' + $VersionCode + '${2}'),
             1)
         [IO.File]::WriteAllText($AndroidInfo.Path, $androidText, [Text.UTF8Encoding]::new($false))
+        $AndroidInfo.Content = $androidText
+        $AndroidInfo.Version = $Version
+        $AndroidInfo.VersionCode = $VersionCode
     }
     if (Test-PlatformSelected -Name 'Windows') {
         if ($null -eq $WindowsInfo) {
@@ -668,6 +671,8 @@ function Update-VersionFiles {
             ('${1}' + $Version + '${2}'),
             1)
         [IO.File]::WriteAllText($WindowsInfo.Path, $windowsText, [Text.UTF8Encoding]::new($false))
+        $WindowsInfo.Content = $windowsText
+        $WindowsInfo.Version = $Version
     }
 }
 
@@ -685,7 +690,7 @@ function Run-ReleasePreparationChecks {
 function Get-OpenReleasePr {
     $prs = @(Read-GhJson @(
         'pr', 'list', '--head', $script:Branch, '--base', 'main', '--state', 'open',
-        '--json', 'number,url,headRefName,baseRefName,baseRefOid'
+        '--json', 'number,url,headRefName,headRefOid,baseRefName,baseRefOid'
     ))
     if ($prs.Count -eq 0) { return $null }
     if ($prs.Count -gt 1) {
@@ -693,6 +698,19 @@ function Get-OpenReleasePr {
         return $null
     }
     return $prs[0]
+}
+
+function Assert-ReleasePrHeadMatchesHead {
+    param([Parameter(Mandatory = $true)]$Pr)
+    $headRefOidProperty = $Pr.PSObject.Properties['headRefOid']
+    if ($null -eq $headRefOidProperty -or
+        [string]::IsNullOrWhiteSpace([string]$headRefOidProperty.Value)) {
+        throw "Release PR #$($Pr.number) did not expose headRefOid; refusing to wait for CI or merge without a current branch HEAD identity."
+    }
+    $headRefOid = ([string]$headRefOidProperty.Value).Trim()
+    if ($headRefOid -cne $script:HeadSha) {
+        throw "Release PR #$($Pr.number) headRefOid $headRefOid does not match release branch HEAD $($script:HeadSha); refusing to wait for CI or merge."
+    }
 }
 
 function Get-ReleasePrBaseSha {
@@ -1240,6 +1258,9 @@ if ($staged.Count -eq 0) {
 } else {
     Invoke-External -FilePath $script:Git -Arguments @('commit', '-m', $releaseSubject)
 }
+$script:HeadSha = (Read-ExternalText -FilePath $script:Git -Arguments @(
+    'rev-parse', 'HEAD'
+)).Trim()
 Invoke-External -FilePath $script:Git -Arguments @('push', 'origin', $script:Branch)
 
 Write-Step 'Creating or reusing the release PR.'
@@ -1251,10 +1272,11 @@ if ($null -eq $pr) {
         '--title', $releaseSubject, '--body', $body
     )
     $pr = Read-GhJson -Arguments @(
-        'pr', 'view', $prUrl.Trim(), '--json', 'number,url,headRefName,baseRefName,baseRefOid'
+        'pr', 'view', $prUrl.Trim(), '--json', 'number,url,headRefName,headRefOid,baseRefName,baseRefOid'
     )
 }
 $prNumber = [int]$pr.number
+Assert-ReleasePrHeadMatchesHead -Pr $pr
 $releasePrBaseSha = Get-ReleasePrBaseSha -Pr $pr
 if ($releasePrBaseSha -cne $script:MainSha) {
     throw "Release PR #$prNumber is based on $releasePrBaseSha, but the preflight origin/main is $($script:MainSha); synchronize the release branch with main and rerun PR CI."

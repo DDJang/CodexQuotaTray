@@ -92,16 +92,22 @@ if ($dryRunStart -lt 0 -or $preparationCall -lt $dryRunStart) {
 }
 Assert-Contains -Text $source -Needle 'DRY RUN: skips platform builds/tests;' `
     -Message 'DryRun must explicitly skip platform builds and tests.'
-Assert-Contains -Text $source -Needle 'baseRefOid' `
-    -Message 'Release PR lookup must record the PR base commit SHA.'
+Assert-Contains -Text $source -Needle "'--json', 'number,url,headRefName,headRefOid,baseRefName,baseRefOid'" `
+    -Message 'Release PR lookup must record both the PR head and base commit SHAs.'
+Assert-Contains -Text $source -Needle 'Assert-ReleasePrHeadMatchesHead' `
+    -Message 'Release planner must fail closed when the PR head SHA differs from the refreshed branch HEAD.'
 Assert-Contains -Text $source -Needle 'function Get-ReleasePrBaseSha' `
     -Message 'Release planner must validate and record the release PR base SHA.'
 Assert-Contains -Text $source -Needle 'function Assert-ReleasePrBaseUnchanged' `
     -Message 'Release planner must guard against main drift after PR checks.'
 $waitChecksIndex = $source.IndexOf('Wait-PrChecks -Number $prNumber', [StringComparison]::Ordinal)
+$headGuardIndex = $source.IndexOf('Assert-ReleasePrHeadMatchesHead -Pr $pr', [StringComparison]::Ordinal)
 $baseGuardIndex = $source.IndexOf('Assert-ReleasePrBaseUnchanged -Number $prNumber', [StringComparison]::Ordinal)
 $mergeIndex = $source.IndexOf("Write-Step 'Merging the release PR with squash merge.'", [StringComparison]::Ordinal)
-if ($waitChecksIndex -lt 0 -or $baseGuardIndex -le $waitChecksIndex -or $mergeIndex -le $baseGuardIndex) {
+if ($headGuardIndex -lt 0 -or $waitChecksIndex -lt 0 -or $headGuardIndex -ge $waitChecksIndex) {
+    throw 'Release planner must guard the PR head SHA before waiting for checks or merging.'
+}
+if ($baseGuardIndex -le $waitChecksIndex -or $mergeIndex -le $baseGuardIndex) {
     throw 'Release planner must guard the recorded PR base SHA after checks pass and before merge.'
 }
 Assert-Contains -Text $source -Needle 'synchronize the release branch with main and rerun PR CI' `
@@ -147,6 +153,11 @@ $staging = $source.Substring($stageStart, $stageEnd - $stageStart)
 if ($staging.Contains('$androidNotesPath', [StringComparison]::Ordinal) -or
     $staging.Contains('$windowsNotesPath', [StringComparison]::Ordinal)) {
     throw 'Release preparation staging must not stage release notes.'
+}
+$preparationPushIndex = $source.IndexOf("Invoke-External -FilePath `$script:Git -Arguments @('push', 'origin', `$script:Branch)", [StringComparison]::Ordinal)
+$headRefreshIndex = $source.LastIndexOf("`$script:HeadSha = (Read-ExternalText -FilePath `$script:Git", [StringComparison]::Ordinal)
+if ($preparationPushIndex -lt 0 -or $headRefreshIndex -lt 0 -or $headRefreshIndex -ge $preparationPushIndex) {
+    throw 'Release preparation must refresh HEAD after creating or reusing the preparation commit and before pushing it.'
 }
 Assert-Contains -Text $source -Needle 'Test-ExistingReleasePreparationState' `
     -Message 'Release preparation reruns must validate an existing preparation commit before resuming.'
@@ -265,7 +276,7 @@ if "%1"=="repo" (
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="list" (
-  echo [{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","baseRefName":"main","baseRefOid":"$seedHead"}]
+  echo [{"number":42,"url":"https://github.com/example/test/pull/42","headRefName":"codex/resume-test","headRefOid":"$preparationHead","baseRefName":"main","baseRefOid":"$seedHead"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="checks" (
@@ -274,7 +285,7 @@ if "%1"=="pr" if "%2"=="checks" (
 )
 exit /b 99
 '@
-    $windowsGhShim = $windowsGhShim.Replace('$seedHead', $seedHead)
+    $windowsGhShim = $windowsGhShim.Replace('$seedHead', $seedHead).Replace('$preparationHead', $preparationHead)
     $unixGhShim = @'
 #!/bin/sh
 if [ "$1" = "auth" ]; then exit 0; fi
@@ -434,6 +445,123 @@ exit /b 99
     }
     if ($negativeText -match 'POST_MERGE_NEGATIVE_RELEASE_SENTINEL') {
         throw 'Post-merge identity counterexample incorrectly reached the Release workflow.'
+    }
+
+    Write-Host 'Running single-run release preparation and post-merge regression test.'
+    $firstRunRoot = Join-Path ([IO.Path]::GetTempPath()) ('codex-release-first-run-' + [Guid]::NewGuid().ToString('N'))
+    $firstRunRemote = Join-Path $firstRunRoot 'remote.git'
+    $firstRunRepo = Join-Path $firstRunRoot 'repo'
+    $firstRunShim = Join-Path $firstRunRoot 'bin'
+    $firstRunBranch = 'codex/first-run-preparation-test'
+    $firstRunVersion = '0.8.11'
+    try {
+        New-Item -ItemType Directory -Force -Path $firstRunRoot, $firstRunShim | Out-Null
+        & $testGitCommand clone --bare --no-local $resumeRemote $firstRunRemote *> $null
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Could not clone the single-run release preparation fixture remote.'
+        }
+        & $testGitCommand clone --no-local $firstRunRemote $firstRunRepo *> $null
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Could not clone the single-run release preparation fixture.'
+        }
+        Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('config', 'user.name', 'Release First-Run Test')
+        Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('config', 'user.email', 'release-first-run@example.invalid')
+        Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('switch', '--track', '-c', 'main', 'origin/main')
+        Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('switch', '-c', $firstRunBranch)
+        Write-ResumeTestFile -Root $firstRunRepo -RelativePath "windows/release-notes/$firstRunVersion.md" -Content "# Windows $firstRunVersion" | Out-Null
+        Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('add', "windows/release-notes/$firstRunVersion.md")
+        Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('commit', '-m', "docs: add Windows $firstRunVersion notes")
+        $firstRunBaseSha = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('rev-parse', 'main')
+        $firstRunStartSha = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('rev-parse', 'HEAD')
+        $firstRunStartSubject = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('log', '-1', '--format=%s', 'HEAD')
+        if ($firstRunStartSubject -like 'release: prepare*') {
+            throw 'Single-run fixture unexpectedly started with a release preparation commit.'
+        }
+
+        $firstRunGhShim = @"
+@echo off
+if "%1"=="auth" exit /b 0
+if "%1"=="repo" (
+  echo example/test
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="list" (
+  if exist "%~dp0merged.marker" (
+    for /f "delims=" %%H in ('git rev-parse HEAD') do for /f "delims=" %%M in ('git rev-parse refs/remotes/origin/main') do echo [{"number":44,"url":"https://github.com/example/test/pull/44","headRefName":"$firstRunBranch","headRefOid":"%%H","baseRefName":"main","baseRefOid":"$firstRunBaseSha","mergeCommit":{"oid":"%%M"}}]
+  ) else (
+    for /f "delims=" %%H in ('git rev-parse HEAD') do echo [{"number":44,"url":"https://github.com/example/test/pull/44","headRefName":"$firstRunBranch","headRefOid":"%%H","baseRefName":"main","baseRefOid":"$firstRunBaseSha"}]
+  )
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="checks" (
+  echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
+  exit /b 0
+)
+if "%1"=="pr" if "%2"=="merge" (
+  git switch main >nul 2>nul
+  if errorlevel 1 exit /b 90
+  git merge --squash $firstRunBranch >nul 2>nul
+  if errorlevel 1 exit /b 91
+  git commit -m "release: prepare Windows $firstRunVersion" >nul 2>nul
+  if errorlevel 1 exit /b 92
+  git push origin main >nul 2>nul
+  if errorlevel 1 exit /b 93
+  git switch $firstRunBranch >nul 2>nul
+  if errorlevel 1 exit /b 94
+  >"%~dp0merged.marker" echo merged
+  exit /b 0
+)
+if "%1"=="run" if "%2"=="list" (
+  echo FIRST_RUN_RELEASE_WORKFLOW_SENTINEL
+  exit /b 42
+)
+exit /b 99
+"@
+        Write-ResumeTestFile -Root $firstRunShim -RelativePath 'gh.cmd' -Content $firstRunGhShim | Out-Null
+        $env:PATH = (($firstRunShim, $gitDirectory, $pwshDirectory) + $systemDirectories | Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_)
+        }) -join ';'
+
+        $firstRunOutput = @(& $testPwshCommand -NoProfile -File (Join-Path $firstRunRepo 'scripts/publish-release.ps1') `
+            -Platform Windows -Version $firstRunVersion -TimeoutMinutes 5 2>&1 | ForEach-Object {
+                [string]$_
+            })
+        $firstRunExitCode = $LASTEXITCODE
+        $firstRunText = ($firstRunOutput -join [Environment]::NewLine)
+        if ($firstRunExitCode -eq 0) {
+            throw 'Single-run release preparation fixture unexpectedly completed without reaching the Release workflow sentinel.'
+        }
+        if ($firstRunText -notmatch 'FIRST_RUN_RELEASE_WORKFLOW_SENTINEL') {
+            throw "Single-run release preparation did not reach the Release workflow after post-merge verification. Output: $firstRunText"
+        }
+        if ($firstRunText -match 'headRefOid .* does not match release branch HEAD') {
+            throw 'Single-run release preparation used a stale branch HEAD for PR identity.'
+        }
+        if ($firstRunText -notmatch 'Creating the release preparation commit\.' -or
+            $firstRunText -notmatch 'Release PR: #44' -or
+            $firstRunText -notmatch 'Creating and pushing annotated selected platform tag\(s\)\.') {
+            throw "Single-run release preparation did not create the preparation commit, merge the PR, and pass post-merge verification in one run. Output: $firstRunText"
+        }
+        $firstRunHead = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('rev-parse', 'HEAD')
+        if ($firstRunHead -ceq $firstRunStartSha) {
+            throw 'Single-run release preparation did not create a new preparation commit.'
+        }
+        $firstRunHeadSubject = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('log', '-1', '--format=%s', 'HEAD')
+        if ($firstRunHeadSubject -cne "release: prepare Windows $firstRunVersion") {
+            throw 'Single-run release preparation did not leave the expected preparation commit on the release branch.'
+        }
+        $firstRunMainHead = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('rev-parse', 'refs/remotes/origin/main')
+        $firstRunMainSubject = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('log', '-1', '--format=%s', $firstRunMainHead)
+        if ($firstRunMainSubject -cne "release: prepare Windows $firstRunVersion") {
+            throw 'Single-run release preparation fixture did not create the expected squash merge on main.'
+        }
+    } finally {
+        $env:PATH = (($resumeShim, $gitDirectory, $pwshDirectory) + $systemDirectories | Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_)
+        }) -join ';'
+        if (Test-Path -LiteralPath $firstRunRoot) {
+            Remove-Item -LiteralPath $firstRunRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 
     Write-Host 'Running release PR base/main SHA guard regression tests.'
