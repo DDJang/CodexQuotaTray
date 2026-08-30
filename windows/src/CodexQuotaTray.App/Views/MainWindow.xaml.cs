@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window
     private readonly UISettings uiSettings = new();
     private readonly AppWindow appWindow;
     private readonly IntPtr hwnd;
+    private readonly bool initiallyCloaked;
     private bool exiting;
     private bool trayAvailable = true;
     private bool positionQueued;
@@ -53,7 +54,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Title = displayName;
         hwnd = WindowNative.GetWindowHandle(this);
-        _ = SetFirstPresentationCloaked(true);
+        initiallyCloaked = SetFirstPresentationCloaked(true);
         ContentRoot.DataContext = viewModel;
         QuotaPageHost.Children.Add(new QuotaView());
 
@@ -292,7 +293,7 @@ public sealed partial class MainWindow : Window
                 () => OnPanelRevealed(raisePanelShown),
                 FirstPresentationTimeout,
                 presentationLifetime.Token,
-                alreadyCloaked: true);
+                alreadyCloaked: initiallyCloaked);
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
