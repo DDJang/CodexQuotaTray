@@ -387,12 +387,12 @@ public sealed class AppIntegrationSourceTests
     }
 
     [TestMethod]
-    public void MainWindowPreparesItsFirstPresentationBeforeShowing()
+    public void MainWindowGatesItsFirstPresentationBeforeShowing()
     {
         var source = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
-        var methodStart = source.IndexOf("private void ShowPanelCore(", StringComparison.Ordinal);
-        var methodEnd = source.IndexOf("internal void ApplyTheme(", methodStart, StringComparison.Ordinal);
+        var methodStart = source.IndexOf("private void PresentPanelCore()", StringComparison.Ordinal);
+        var methodEnd = source.IndexOf("private void OnPanelRevealed(", methodStart, StringComparison.Ordinal);
         Assert.IsTrue(methodStart >= 0);
         Assert.IsTrue(methodEnd > methodStart);
         var method = source[methodStart..methodEnd];
@@ -410,6 +410,14 @@ public sealed class AppIntegrationSourceTests
         Assert.IsTrue(activate > position);
         Assert.IsTrue(show > activate);
         Assert.IsTrue(correction > show);
+
+        StringAssert.Contains(source, "private readonly FirstPresentationGate firstPresentation = new();");
+        StringAssert.Contains(source, "SetFirstPresentationCloaked");
+        StringAssert.Contains(source, "WaitForFirstPresentationReadyAsync");
+        StringAssert.Contains(source, "ContentRoot.Loaded += loaded;");
+        StringAssert.Contains(source, "CompositionTarget.Rendering += rendering;");
+        StringAssert.Contains(source, "NativeMethods.DwmFlush()");
+        StringAssert.Contains(source, "() => !exiting && visibility.DesiredVisible");
     }
 
     [TestMethod]
