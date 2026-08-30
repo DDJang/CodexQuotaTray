@@ -102,6 +102,11 @@ public sealed partial class SettingsWindow : Window
 
     internal void ApplyTheme(ThemeMode mode)
     {
+        if (exiting)
+        {
+            return;
+        }
+
         SettingsRoot.RequestedTheme = mode switch
         {
             ThemeMode.Light => ElementTheme.Light,
@@ -118,6 +123,11 @@ public sealed partial class SettingsWindow : Window
         ApplyBackdrop();
         _ = DispatcherQueue.TryEnqueue(() =>
         {
+            if (exiting)
+            {
+                return;
+            }
+
             ApplyAboutIcon();
             _ = WindowIconService.TrySetIcon(
                 appWindow,
@@ -130,13 +140,32 @@ public sealed partial class SettingsWindow : Window
 
     internal void PrepareForExit()
     {
+        if (exiting)
+        {
+            return;
+        }
+
         exiting = true;
+        try
+        {
+            appWindow.Hide();
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            Debug.WriteLine($"Settings window hide failed during exit: {error.GetType().Name}");
+        }
+
         backdrop.Dispose();
     }
 
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
+        if (exiting)
+        {
+            return;
+        }
+
         _ = WindowIconService.TrySetIcon(appWindow, SettingsRoot.ActualTheme == ElementTheme.Dark);
         ApplyTitleBarTheme(viewModel.SelectedThemeMode);
         if (args.WindowActivationState != WindowActivationState.Deactivated)

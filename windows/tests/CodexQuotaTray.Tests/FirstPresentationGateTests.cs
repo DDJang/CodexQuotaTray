@@ -117,6 +117,35 @@ public sealed class FirstPresentationGateTests
     }
 
     [TestMethod]
+    public async Task ExitCancellationWhileGateIsRunningHidesBeforeUncloakAndNeverReveals()
+    {
+        var gate = new FirstPresentationGate();
+        var events = new List<string>();
+        var waiting = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+
+        var presentation = gate.PresentAsync(
+            value => { events.Add(value ? "cloak" : "uncloak"); return true; },
+            () => events.Add("present"),
+            token =>
+            {
+                waiting.TrySetResult();
+                return Task.Delay(Timeout.InfiniteTimeSpan, token);
+            },
+            () => false,
+            () => events.Add("hide"),
+            () => events.Add("revealed"),
+            TimeSpan.FromSeconds(1),
+            cancellation.Token);
+
+        await waiting.Task;
+        cancellation.Cancel();
+
+        Assert.AreEqual(FirstPresentationOutcome.First, await presentation);
+        CollectionAssert.AreEqual(new[] { "cloak", "present", "hide", "uncloak" }, events);
+    }
+
+    [TestMethod]
     public async Task HideFailureStillUncloaksAndCompletesTheGate()
     {
         var gate = new FirstPresentationGate();

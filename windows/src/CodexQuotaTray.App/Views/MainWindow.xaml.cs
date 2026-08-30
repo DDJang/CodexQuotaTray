@@ -40,6 +40,7 @@ public sealed partial class MainWindow : Window
     private bool showingTokenPage;
     private bool pageTransitionRunning;
     private bool firstShowRequestedLogged;
+    private Task? firstPresentationTask;
     private Stopwatch? firstPresentationStopwatch;
 #if DEBUG
     private readonly List<string> firstPresentationTiming = [];
@@ -123,6 +124,11 @@ public sealed partial class MainWindow : Window
 
     internal void TogglePanel()
     {
+        if (exiting)
+        {
+            return;
+        }
+
         if (visibility.Toggle())
         {
             ShowPanelCore();
@@ -135,6 +141,11 @@ public sealed partial class MainWindow : Window
 
     internal void ShowPanel()
     {
+        if (exiting)
+        {
+            return;
+        }
+
         var wasHidden = !visibility.DesiredVisible;
         visibility.Show();
         ShowPanelCore(wasHidden);
@@ -149,13 +160,23 @@ public sealed partial class MainWindow : Window
 
     internal void PrepareForExit()
     {
+        if (exiting)
+        {
+            return;
+        }
+
         exiting = true;
         presentationLifetime.Cancel();
         Interlocked.Increment(ref pageTransitionRevision);
+        tokenUsageView?.ResetHeatmapInteraction();
         tokenUsageView?.Dispose();
         visibility.Hide();
+        TryHideForExit();
         backdrop.Dispose();
     }
+
+    internal Task WaitForFirstPresentationCompletionAsync() =>
+        firstPresentationTask ?? Task.CompletedTask;
 
     internal async Task<bool> ShowPreviousCrashNoticeAsync(PreviousCrashInfo crashInfo)
     {
@@ -229,6 +250,11 @@ public sealed partial class MainWindow : Window
 
     private void ShowPanelCore(bool raisePanelShown = true)
     {
+        if (exiting)
+        {
+            return;
+        }
+
         if (!firstShowRequestedLogged)
         {
             firstShowRequestedLogged = true;
@@ -236,7 +262,22 @@ public sealed partial class MainWindow : Window
             TraceFirstPresentation("ShowPanel requested");
         }
 
-        _ = PresentPanelAsync(raisePanelShown);
+        var presentation = PresentPanelAsync(raisePanelShown);
+        firstPresentationTask ??= presentation;
+    }
+
+    private void TryHideForExit()
+    {
+        try
+        {
+            appWindow.Hide();
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Exiting and DesiredVisible were updated first, so a recoverable
+            // AppWindow failure cannot allow a pending presentation to reveal.
+            Debug.WriteLine($"Main window hide failed during exit: {error.GetType().Name}");
+        }
     }
 
     private async Task PresentPanelAsync(bool raisePanelShown)
