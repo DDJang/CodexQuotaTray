@@ -1,5 +1,6 @@
-// Adapted and modified from Kyant0/AndroidLiquidGlass.
-// Pinned commit: b18eb0ff12c616546a68c72e7d0097f1ab286c87.
+// Codex pre-V2 / P2 generation + ConflatedUpdater baseline.
+// Adapted and extensively modified from Kyant0/AndroidLiquidGlass.
+// Reference implementation commit: b18eb0ff12c616546a68c72e7d0097f1ab286c87.
 // Apache License 2.0.
 package com.codexquotatray.android.liquidglass
 
@@ -58,7 +59,7 @@ import kotlin.math.abs
 import kotlin.math.sign
 
 @Composable
-fun LiquidBottomTabs(
+fun LegacyCodexLiquidBottomTabs(
     selectedTabIndex: () -> Int,
     onTabSelected: (index: Int) -> Unit,
     backdrop: Backdrop,
@@ -189,7 +190,7 @@ fun LiquidBottomTabs(
         )
 
         CompositionLocalProvider(
-            LocalLiquidBottomTabScale provides {
+            LocalLegacyCodexLiquidBottomTabScale provides {
                 lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
             },
         ) {
