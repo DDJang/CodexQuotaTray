@@ -37,6 +37,7 @@
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\NotificationDeliveryRouter.cs" Link="Services\NotificationDeliveryRouter.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\NotificationDeliveryDiagnostics.cs" Link="Services\NotificationDeliveryDiagnostics.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\SessionEndingPolicy.cs" Link="Services\SessionEndingPolicy.cs" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Services\FirstPresentationGate.cs" Link="Services\FirstPresentationGate.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TrayBalloonAttemptGate.cs" Link="Services\TrayBalloonAttemptGate.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TokenUsageCacheSettingsState.cs" Link="Services\TokenUsageCacheSettingsState.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\WindowsUpdateInstaller.cs" Link="Services\WindowsUpdateInstaller.cs" />

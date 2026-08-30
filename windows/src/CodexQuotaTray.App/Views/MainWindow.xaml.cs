@@ -19,15 +19,19 @@ public sealed partial class MainWindow : Window
 {
     private const double PanelWidthDips = 420;
     private static readonly TimeSpan PageResizeDuration = TimeSpan.FromMilliseconds(180);
+    private static readonly TimeSpan FirstPresentationTimeout = TimeSpan.FromSeconds(1);
     private readonly MainViewModel viewModel;
     private readonly TokenUsageViewModel tokenUsageViewModel;
     private TokenUsageView? tokenUsageView;
     private readonly WindowPlacementService placement = new();
     private readonly BackdropService backdrop = new();
     private readonly WindowVisibilityController visibility = new();
+    private readonly FirstPresentationGate firstPresentation = new();
+    private readonly CancellationTokenSource presentationLifetime = new();
     private readonly UISettings uiSettings = new();
     private readonly AppWindow appWindow;
     private readonly IntPtr hwnd;
+    private readonly bool initiallyCloaked;
     private bool exiting;
     private bool trayAvailable = true;
     private bool positionQueued;
@@ -36,6 +40,11 @@ public sealed partial class MainWindow : Window
     private bool windowConfigured;
     private bool showingTokenPage;
     private bool pageTransitionRunning;
+    private bool firstShowRequestedLogged;
+    private Stopwatch? firstPresentationStopwatch;
+#if DEBUG
+    private readonly List<string> firstPresentationTiming = [];
+#endif
     private long pageTransitionRevision;
 
     public MainWindow(MainViewModel viewModel, TokenUsageViewModel tokenUsageViewModel, string displayName)
@@ -45,6 +54,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Title = displayName;
         hwnd = WindowNative.GetWindowHandle(this);
+        initiallyCloaked = SetFirstPresentationCloaked(true);
         ContentRoot.DataContext = viewModel;
         QuotaPageHost.Children.Add(new QuotaView());
 
@@ -115,6 +125,11 @@ public sealed partial class MainWindow : Window
 
     internal void TogglePanel()
     {
+        if (exiting)
+        {
+            return;
+        }
+
         if (visibility.Toggle())
         {
             ShowPanelCore();
@@ -127,6 +142,11 @@ public sealed partial class MainWindow : Window
 
     internal void ShowPanel()
     {
+        if (exiting)
+        {
+            return;
+        }
+
         var wasHidden = !visibility.DesiredVisible;
         visibility.Show();
         ShowPanelCore(wasHidden);
@@ -141,12 +161,23 @@ public sealed partial class MainWindow : Window
 
     internal void PrepareForExit()
     {
+        if (exiting)
+        {
+            return;
+        }
+
         exiting = true;
+        presentationLifetime.Cancel();
         Interlocked.Increment(ref pageTransitionRevision);
+        tokenUsageView?.ResetHeatmapInteraction();
         tokenUsageView?.Dispose();
         visibility.Hide();
+        TryHideForExit();
         backdrop.Dispose();
     }
+
+    internal Task WaitForFirstPresentationCompletionAsync() =>
+        firstPresentation.CompletionTask;
 
     internal async Task<bool> ShowPreviousCrashNoticeAsync(PreviousCrashInfo crashInfo)
     {
@@ -220,15 +251,72 @@ public sealed partial class MainWindow : Window
 
     private void ShowPanelCore(bool raisePanelShown = true)
     {
+        if (exiting)
+        {
+            return;
+        }
+
+        if (!firstShowRequestedLogged)
+        {
+            firstShowRequestedLogged = true;
+            firstPresentationStopwatch = Stopwatch.StartNew();
+            TraceFirstPresentation("ShowPanel requested");
+        }
+
+        _ = PresentPanelAsync(raisePanelShown);
+    }
+
+    private void TryHideForExit()
+    {
+        try
+        {
+            appWindow.Hide();
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Exiting and DesiredVisible were updated first, so a recoverable
+            // AppWindow failure cannot allow a pending presentation to reveal.
+            Debug.WriteLine($"Main window hide failed during exit: {error.GetType().Name}");
+        }
+    }
+
+    private async Task PresentPanelAsync(bool raisePanelShown)
+    {
+        try
+        {
+            _ = await firstPresentation.PresentAsync(
+                SetFirstPresentationCloaked,
+                PresentPanelCore,
+                WaitForFirstPresentationReadyAsync,
+                () => !exiting && visibility.DesiredVisible,
+                appWindow.Hide,
+                () => OnPanelRevealed(raisePanelShown),
+                FirstPresentationTimeout,
+                presentationLifetime.Token,
+                alreadyCloaked: initiallyCloaked);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            Debug.WriteLine($"First presentation readiness failed: {error.GetType().Name}");
+        }
+    }
+
+    private void PresentPanelCore()
+    {
         if (!windowConfigured)
         {
             ConfigureWindow();
             windowConfigured = true;
+            TraceFirstPresentation("ConfigureWindow complete");
         }
 
         ApplyBackdrop();
+        TraceFirstPresentation("ApplyBackdrop complete");
         Position();
+        TraceFirstPresentation("Position complete");
+        TraceFirstPresentation("Activate called");
         Activate();
+        TraceFirstPresentation("Activate returned");
         appWindow.Show();
         if (showingTokenPage)
         {
@@ -239,10 +327,153 @@ public sealed partial class MainWindow : Window
         // viewport. Re-measure after the window is shown so the client height is
         // based on the actual footer boundary instead of that stale viewport.
         QueuePositionIfVisible(forceResize: true);
-        if (raisePanelShown)
+    }
+
+    private void OnPanelRevealed(bool raisePanelShown)
+    {
+        if (raisePanelShown && !exiting && visibility.DesiredVisible)
         {
             PanelShown?.Invoke(this, EventArgs.Empty);
         }
+    }
+
+    private async Task WaitForFirstPresentationReadyAsync(CancellationToken cancellationToken)
+    {
+        await WaitForContentLoadedAsync(cancellationToken);
+        TraceFirstPresentation("ContentRoot Loaded");
+
+        var firstRendering = true;
+        do
+        {
+            await WaitForRenderingAsync(cancellationToken);
+            if (firstRendering)
+            {
+                firstRendering = false;
+                TraceFirstPresentation("first post-Loaded Rendering");
+            }
+        }
+        while (ContentRoot.ActualWidth <= 0
+            || ContentRoot.ActualHeight <= 0
+            || PanelContent.ActualWidth <= 0
+            || PanelContent.ActualHeight <= 0);
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var flushResult = NativeMethods.DwmFlush();
+        TraceFirstPresentation($"DwmFlush complete hresult=0x{flushResult:X8}");
+    }
+
+    private Task WaitForContentLoadedAsync(CancellationToken cancellationToken)
+    {
+        if (ContentRoot.IsLoaded)
+        {
+            return Task.CompletedTask;
+        }
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        RoutedEventHandler? loaded = null;
+        loaded = (_, _) =>
+        {
+            completion.TrySetResult();
+        };
+        ContentRoot.Loaded += loaded;
+        if (ContentRoot.IsLoaded)
+        {
+            completion.TrySetResult();
+        }
+
+        return AwaitLoadedAsync(completion, loaded, cancellationToken);
+    }
+
+    private async Task AwaitLoadedAsync(
+        TaskCompletionSource completion,
+        RoutedEventHandler loaded,
+        CancellationToken cancellationToken)
+    {
+        using var registration = cancellationToken.Register(
+            () => completion.TrySetCanceled(cancellationToken));
+        try
+        {
+            await completion.Task;
+        }
+        finally
+        {
+            ContentRoot.Loaded -= loaded;
+        }
+    }
+
+    private static async Task WaitForRenderingAsync(CancellationToken cancellationToken)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler<object>? rendering = null;
+        rendering = (_, _) =>
+        {
+            completion.TrySetResult();
+        };
+        CompositionTarget.Rendering += rendering;
+        using var registration = cancellationToken.Register(
+            () => completion.TrySetCanceled(cancellationToken));
+        try
+        {
+            await completion.Task;
+        }
+        finally
+        {
+            CompositionTarget.Rendering -= rendering;
+        }
+    }
+
+    private bool SetFirstPresentationCloaked(bool value)
+    {
+        var enabled = value ? 1 : 0;
+        var result = NativeMethods.DwmSetWindowAttribute(
+            hwnd,
+            NativeMethods.DwmwaCloak,
+            ref enabled,
+            sizeof(int));
+        TraceFirstPresentation(value
+            ? $"cloak hresult=0x{result:X8}"
+            : $"uncloak hresult=0x{result:X8}");
+        if (!value)
+        {
+            firstPresentationStopwatch?.Stop();
+            FlushFirstPresentationTiming();
+        }
+
+        return result == 0;
+    }
+
+    [Conditional("DEBUG")]
+    private void TraceFirstPresentation(string message)
+    {
+#if DEBUG
+        if (firstPresentationStopwatch is { IsRunning: true } stopwatch)
+        {
+            var line = $"pid={Environment.ProcessId} +{stopwatch.ElapsedMilliseconds}ms {message}";
+            Debug.WriteLine($"First presentation {line}");
+            firstPresentationTiming.Add(line);
+        }
+#endif
+    }
+
+    [Conditional("DEBUG")]
+    private void FlushFirstPresentationTiming()
+    {
+#if DEBUG
+        var lines = firstPresentationTiming.ToArray();
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                File.AppendAllLines(
+                    Path.Combine(Path.GetTempPath(), "CodexQuotaTray-first-presentation.log"),
+                    lines.Append(string.Empty));
+            }
+            catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+            {
+                Debug.WriteLine($"First presentation timing log failed: {error.GetType().Name}");
+            }
+        });
+#endif
     }
 
     internal void ApplyTheme(ThemeMode mode)

@@ -367,7 +367,7 @@ public sealed class AppIntegrationSourceTests
         StringAssert.Contains(source, "crashSessionLog?.CompleteSession();");
         StringAssert.Contains(source, "Environment.Exit(0);");
 
-        var deadlineStart = source.IndexOf("private static async Task ForceExitAfterGracePeriodAsync()", StringComparison.Ordinal);
+        var deadlineStart = source.IndexOf("private async Task ForceExitAfterGracePeriodAsync()", StringComparison.Ordinal);
         var fallbackStart = source.IndexOf("private void FallbackExitWithoutUiDispatcher()", deadlineStart, StringComparison.Ordinal);
         Assert.IsTrue(deadlineStart >= 0);
         Assert.IsTrue(fallbackStart > deadlineStart);
@@ -387,12 +387,128 @@ public sealed class AppIntegrationSourceTests
     }
 
     [TestMethod]
-    public void MainWindowPreparesItsFirstPresentationBeforeShowing()
+    public void ExitLifecycleQuiescesWindowsAndTrayBeforeItsFirstAwait()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+        var cleanupStart = source.IndexOf("private async Task CompleteExitAsync()", StringComparison.Ordinal);
+        var cleanupEnd = source.IndexOf("private void StartExitTiming()", cleanupStart, StringComparison.Ordinal);
+        Assert.IsTrue(cleanupStart >= 0);
+        Assert.IsTrue(cleanupEnd > cleanupStart);
+        var cleanup = source[cleanupStart..cleanupEnd];
+
+        var cancel = cleanup.IndexOf("lifetime.Cancel();", StringComparison.Ordinal);
+        var main = cleanup.IndexOf("mainWindow?.PrepareForExit();", cancel, StringComparison.Ordinal);
+        var settings = cleanup.IndexOf("settingsWindow?.PrepareForExit();", main, StringComparison.Ordinal);
+        var windowsHidden = cleanup.IndexOf("TraceExitTiming(\"UI windows hidden\");", settings, StringComparison.Ordinal);
+        var trayDispose = cleanup.IndexOf("trayIcon?.Dispose();", windowsHidden, StringComparison.Ordinal);
+        var trayDisposed = cleanup.IndexOf("TraceExitTiming(\"tray disposed\");", trayDispose, StringComparison.Ordinal);
+        var firstAwait = cleanup.IndexOf("await ", StringComparison.Ordinal);
+
+        Assert.IsTrue(cancel >= 0);
+        Assert.IsTrue(main > cancel);
+        Assert.IsTrue(settings > main);
+        Assert.IsTrue(windowsHidden > settings);
+        Assert.IsTrue(trayDispose > windowsHidden);
+        Assert.IsTrue(trayDisposed > trayDispose);
+        Assert.IsTrue(firstAwait > trayDisposed);
+
+        var runtime = cleanup.IndexOf("await providerLifetime.DisposeAsync();", firstAwait, StringComparison.Ordinal);
+        var account = cleanup.IndexOf("await accountService.DisposeAsync();", runtime, StringComparison.Ordinal);
+        var tokenSync = cleanup.IndexOf("await tokenUsageSync.DisposeAsync();", account, StringComparison.Ordinal);
+        var lan = cleanup.IndexOf("await lanDiagnostics.DisposeAsync();", tokenSync, StringComparison.Ordinal);
+        var update = cleanup.IndexOf("await windowsUpdateService.DisposeAsync();", lan, StringComparison.Ordinal);
+        var presentation = cleanup.IndexOf("await mainWindow.WaitForFirstPresentationCompletionAsync();", update, StringComparison.Ordinal);
+        var close = cleanup.IndexOf("mainWindow?.Close();", presentation, StringComparison.Ordinal);
+
+        Assert.IsTrue(runtime > firstAwait);
+        Assert.IsTrue(account > runtime);
+        Assert.IsTrue(tokenSync > account);
+        Assert.IsTrue(lan > tokenSync);
+        Assert.IsTrue(update > lan);
+        Assert.IsTrue(presentation > update);
+        Assert.IsTrue(close > presentation);
+    }
+
+    [TestMethod]
+    public void WindowsEnterAnIdempotentHiddenExitStateBeforeDisposingBackdrop()
+    {
+        var main = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var mainStart = main.IndexOf("internal void PrepareForExit()", StringComparison.Ordinal);
+        var mainEnd = main.IndexOf("internal Task WaitForFirstPresentationCompletionAsync()", mainStart, StringComparison.Ordinal);
+        Assert.IsTrue(mainStart >= 0);
+        Assert.IsTrue(mainEnd > mainStart);
+        var mainExit = main[mainStart..mainEnd];
+
+        var guard = mainExit.IndexOf("if (exiting)", StringComparison.Ordinal);
+        var exiting = mainExit.IndexOf("exiting = true;", guard, StringComparison.Ordinal);
+        var cancel = mainExit.IndexOf("presentationLifetime.Cancel();", exiting, StringComparison.Ordinal);
+        var revision = mainExit.IndexOf("Interlocked.Increment(ref pageTransitionRevision);", cancel, StringComparison.Ordinal);
+        var reset = mainExit.IndexOf("tokenUsageView?.ResetHeatmapInteraction();", revision, StringComparison.Ordinal);
+        var disposeToken = mainExit.IndexOf("tokenUsageView?.Dispose();", reset, StringComparison.Ordinal);
+        var visibility = mainExit.IndexOf("visibility.Hide();", disposeToken, StringComparison.Ordinal);
+        var hide = mainExit.IndexOf("TryHideForExit();", visibility, StringComparison.Ordinal);
+        var backdrop = mainExit.IndexOf("backdrop.Dispose();", hide, StringComparison.Ordinal);
+
+        Assert.IsTrue(guard >= 0);
+        Assert.IsTrue(exiting > guard);
+        Assert.IsTrue(cancel > exiting);
+        Assert.IsTrue(revision > cancel);
+        Assert.IsTrue(reset > revision);
+        Assert.IsTrue(disposeToken > reset);
+        Assert.IsTrue(visibility > disposeToken);
+        Assert.IsTrue(hide > visibility);
+        Assert.IsTrue(backdrop > hide);
+        StringAssert.Contains(main, "private void TryHideForExit()");
+        StringAssert.Contains(main, "appWindow.Hide();");
+
+        var settings = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "SettingsWindow.xaml.cs"));
+        var settingsStart = settings.IndexOf("internal void PrepareForExit()", StringComparison.Ordinal);
+        var settingsEnd = settings.IndexOf("private void OnActivated(", settingsStart, StringComparison.Ordinal);
+        Assert.IsTrue(settingsStart >= 0);
+        Assert.IsTrue(settingsEnd > settingsStart);
+        var settingsExit = settings[settingsStart..settingsEnd];
+        var settingsGuard = settingsExit.IndexOf("if (exiting)", StringComparison.Ordinal);
+        var settingsExiting = settingsExit.IndexOf("exiting = true;", settingsGuard, StringComparison.Ordinal);
+        var settingsHide = settingsExit.IndexOf("appWindow.Hide();", settingsExiting, StringComparison.Ordinal);
+        var settingsBackdrop = settingsExit.IndexOf("backdrop.Dispose();", settingsHide, StringComparison.Ordinal);
+
+        Assert.IsTrue(settingsGuard >= 0);
+        Assert.IsTrue(settingsExiting > settingsGuard);
+        Assert.IsTrue(settingsHide > settingsExiting);
+        Assert.IsTrue(settingsBackdrop > settingsHide);
+    }
+
+    [TestMethod]
+    public void ExitStatePreventsWindowShowCallbacksFromRevealingUi()
+    {
+        var app = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+        var main = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+
+        StringAssert.Contains(app, "if (Volatile.Read(ref exitStarted) != 0");
+        AssertMethodStartsWithExitGuard(main, "internal void TogglePanel()");
+        AssertMethodStartsWithExitGuard(main, "internal void ShowPanel()");
+        AssertMethodStartsWithExitGuard(main, "private void ShowPanelCore(bool raisePanelShown = true)");
+    }
+
+    private static void AssertMethodStartsWithExitGuard(string source, string signature)
+    {
+        var start = source.IndexOf(signature, StringComparison.Ordinal);
+        Assert.IsTrue(start >= 0);
+        var body = source[start..Math.Min(source.Length, start + 180)];
+        StringAssert.Contains(body, "if (exiting)");
+        StringAssert.Contains(body, "return;");
+    }
+
+    [TestMethod]
+    public void MainWindowGatesItsFirstPresentationBeforeShowing()
     {
         var source = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
-        var methodStart = source.IndexOf("private void ShowPanelCore(", StringComparison.Ordinal);
-        var methodEnd = source.IndexOf("internal void ApplyTheme(", methodStart, StringComparison.Ordinal);
+        var methodStart = source.IndexOf("private void PresentPanelCore()", StringComparison.Ordinal);
+        var methodEnd = source.IndexOf("private void OnPanelRevealed(", methodStart, StringComparison.Ordinal);
         Assert.IsTrue(methodStart >= 0);
         Assert.IsTrue(methodEnd > methodStart);
         var method = source[methodStart..methodEnd];
@@ -410,6 +526,60 @@ public sealed class AppIntegrationSourceTests
         Assert.IsTrue(activate > position);
         Assert.IsTrue(show > activate);
         Assert.IsTrue(correction > show);
+
+        StringAssert.Contains(source, "private readonly FirstPresentationGate firstPresentation = new();");
+        StringAssert.Contains(source, "SetFirstPresentationCloaked");
+        StringAssert.Contains(source, "WaitForFirstPresentationReadyAsync");
+        StringAssert.Contains(source, "ContentRoot.Loaded += loaded;");
+        StringAssert.Contains(source, "CompositionTarget.Rendering += rendering;");
+        StringAssert.Contains(source, "NativeMethods.DwmFlush()");
+        StringAssert.Contains(source, "() => !exiting && visibility.DesiredVisible");
+    }
+
+    [TestMethod]
+    public void MainWindowPresentationWaitersCleanupEventsAfterReturningToTheUiContext()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var loadedStart = source.IndexOf("private async Task AwaitLoadedAsync(", StringComparison.Ordinal);
+        var renderingStart = source.IndexOf(
+            "private static async Task WaitForRenderingAsync(",
+            loadedStart,
+            StringComparison.Ordinal);
+        var renderingEnd = source.IndexOf(
+            "private bool SetFirstPresentationCloaked(",
+            renderingStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(loadedStart >= 0);
+        Assert.IsTrue(renderingStart > loadedStart);
+        Assert.IsTrue(renderingEnd > renderingStart);
+
+        var loadedWaiter = source[loadedStart..renderingStart];
+        var renderingWaiter = source[renderingStart..renderingEnd];
+        AssertWaiterCleanupContract(
+            loadedWaiter,
+            "ContentRoot.Loaded -= loaded;");
+        AssertWaiterCleanupContract(
+            renderingWaiter,
+            "CompositionTarget.Rendering -= rendering;");
+    }
+
+    private static void AssertWaiterCleanupContract(string waiter, string unsubscribe)
+    {
+        const string cancellation = "() => completion.TrySetCanceled(cancellationToken));";
+        var registration = waiter.IndexOf("cancellationToken.Register(", StringComparison.Ordinal);
+        var cancellationCompletion = waiter.IndexOf(cancellation, registration, StringComparison.Ordinal);
+        var awaitCompletion = waiter.IndexOf("await completion.Task;", cancellationCompletion, StringComparison.Ordinal);
+        var finallyCleanup = waiter.IndexOf("finally", awaitCompletion, StringComparison.Ordinal);
+        var unsubscribeIndex = waiter.IndexOf(unsubscribe, StringComparison.Ordinal);
+
+        Assert.IsTrue(registration >= 0);
+        Assert.IsTrue(cancellationCompletion > registration);
+        Assert.IsTrue(awaitCompletion > cancellationCompletion);
+        Assert.IsTrue(finallyCleanup > awaitCompletion);
+        Assert.IsTrue(unsubscribeIndex > finallyCleanup);
+        Assert.AreEqual(unsubscribeIndex, waiter.LastIndexOf(unsubscribe, StringComparison.Ordinal));
+        Assert.IsFalse(waiter.Contains("ConfigureAwait(false)", StringComparison.Ordinal));
     }
 
     [TestMethod]

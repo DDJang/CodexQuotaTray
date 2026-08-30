@@ -290,4 +290,7 @@ internal static class NativeMethods
         int attribute,
         out int value,
         int valueSize);
+
+    [DllImport("dwmapi.dll", SetLastError = false)]
+    internal static extern int DwmFlush();
 }

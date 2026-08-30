@@ -46,6 +46,12 @@ public partial class App : Application
     private CrashSessionLog? crashSessionLog;
     private PreviousCrashInfo? previousCrashInfo;
     private int exitStarted;
+#if DEBUG
+    private readonly object exitTimingLock = new();
+    private readonly List<string> exitTiming = [];
+    private Stopwatch? exitStopwatch;
+    private bool exitTimingFlushed;
+#endif
 
     protected override async void OnLaunched(LaunchActivatedEventArgs args)
     {
@@ -488,7 +494,10 @@ public partial class App : Application
 
     private void ShowSettings()
     {
-        if (runtime is null || settingsActions is null || settingsPageActions is null)
+        if (Volatile.Read(ref exitStarted) != 0
+            || runtime is null
+            || settingsActions is null
+            || settingsPageActions is null)
         {
             return;
         }
@@ -841,6 +850,7 @@ public partial class App : Application
             return;
         }
 
+        StartExitTiming();
         // Cleanup is best-effort, but an updater must never be left waiting on a
         // background component that does not observe cancellation promptly.
         crashSessionLog?.MarkExpectedTermination();
@@ -865,9 +875,11 @@ public partial class App : Application
         }
     }
 
-    private static async Task ForceExitAfterGracePeriodAsync()
+    private async Task ForceExitAfterGracePeriodAsync()
     {
         await Task.Delay(ExitGracePeriod).ConfigureAwait(false);
+        TraceExitTiming("Force exit");
+        FlushExitTiming();
         Environment.Exit(0);
     }
 
@@ -884,6 +896,8 @@ public partial class App : Application
         }
         finally
         {
+            TraceExitTiming("Application.Exit (fallback)");
+            FlushExitTiming();
             Environment.Exit(0);
         }
     }
@@ -891,6 +905,13 @@ public partial class App : Application
     private async Task CompleteExitAsync()
     {
         lifetime.Cancel();
+        mainWindow?.PrepareForExit();
+        settingsWindow?.PrepareForExit();
+        TraceExitTiming("UI windows hidden");
+        trayIcon?.Dispose();
+        trayIcon = null;
+        TraceExitTiming("tray disposed");
+
         if (initializationTask is not null)
         {
             try
@@ -905,6 +926,7 @@ public partial class App : Application
                 Debug.WriteLine("WinUI initialization did not finish during shutdown.");
             }
         }
+        TraceExitTiming("initialization wait finished");
 
         if (tokenUsageRefreshTask is not null)
         {
@@ -917,45 +939,110 @@ public partial class App : Application
             await providerLifetime.DisposeAsync();
             providerLifetime = null;
         }
+        TraceExitTiming("runtime disposed");
 
         if (accountService is not null)
         {
             await accountService.DisposeAsync();
             accountService = null;
         }
+        TraceExitTiming("account disposed");
 
         if (tokenUsageSync is not null)
         {
             await tokenUsageSync.DisposeAsync();
             tokenUsageSync = null;
         }
+        TraceExitTiming("token sync disposed");
 
         if (lanDiagnostics is not null)
         {
             await lanDiagnostics.DisposeAsync();
             lanDiagnostics = null;
         }
+        TraceExitTiming("LAN diagnostics disposed");
 
         if (windowsUpdateService is not null)
         {
             await windowsUpdateService.DisposeAsync();
             windowsUpdateService = null;
         }
+        TraceExitTiming("update service disposed");
 
-        trayIcon?.Dispose();
-        trayIcon = null;
         DisposeAppNotifications();
         hostEvents?.Dispose();
         hostEvents = null;
-        settingsWindow?.PrepareForExit();
-        mainWindow?.PrepareForExit();
+        if (mainWindow is not null)
+        {
+            await mainWindow.WaitForFirstPresentationCompletionAsync();
+        }
+
         mainWindow?.Close();
         settingsWindow?.Close();
+        TraceExitTiming("window close");
         settingsWindow = null;
         currentInstance = null;
         lifetime.Dispose();
         crashSessionLog?.CompleteSession();
+        TraceExitTiming("Application.Exit");
+        FlushExitTiming();
         Exit();
+    }
+
+    [Conditional("DEBUG")]
+    private void StartExitTiming()
+    {
+#if DEBUG
+        lock (exitTimingLock)
+        {
+            exitStopwatch = Stopwatch.StartNew();
+            exitTiming.Add($"pid={Environment.ProcessId} +0ms Exit requested");
+        }
+#endif
+    }
+
+    [Conditional("DEBUG")]
+    private void TraceExitTiming(string message)
+    {
+#if DEBUG
+        lock (exitTimingLock)
+        {
+            if (exitStopwatch is not null)
+            {
+                exitTiming.Add(
+                    $"pid={Environment.ProcessId} +{exitStopwatch.ElapsedMilliseconds}ms {message}");
+            }
+        }
+#endif
+    }
+
+    [Conditional("DEBUG")]
+    private void FlushExitTiming()
+    {
+#if DEBUG
+        string[] lines;
+        lock (exitTimingLock)
+        {
+            if (exitTimingFlushed)
+            {
+                return;
+            }
+
+            exitTimingFlushed = true;
+            lines = exitTiming.Append(string.Empty).ToArray();
+        }
+
+        try
+        {
+            File.AppendAllLines(
+                Path.Combine(Path.GetTempPath(), "CodexQuotaTray-exit-timing.log"),
+                lines);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            Debug.WriteLine($"Exit timing log failed: {error.GetType().Name}");
+        }
+#endif
     }
 
     private void DisposeAppNotifications()
