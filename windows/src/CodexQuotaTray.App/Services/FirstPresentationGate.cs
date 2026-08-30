@@ -12,7 +12,13 @@ internal sealed class FirstPresentationGate
     private const int Pending = 0;
     private const int Running = 1;
     private const int Completed = 2;
+    private readonly TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private int state;
+
+    internal Task CompletionTask =>
+        Volatile.Read(ref state) == Pending
+            ? Task.CompletedTask
+            : completion.Task;
 
     internal async Task<FirstPresentationOutcome> PresentAsync(
         Func<bool, bool> setCloaked,
@@ -22,7 +28,8 @@ internal sealed class FirstPresentationGate
         Action hide,
         Action revealed,
         TimeSpan timeout,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool alreadyCloaked = false)
     {
         var observed = Interlocked.CompareExchange(ref state, Running, Pending);
         if (observed == Running)
@@ -46,7 +53,7 @@ internal sealed class FirstPresentationGate
         var shouldReveal = false;
         try
         {
-            var cloaked = setCloaked(true);
+            var cloaked = alreadyCloaked || setCloaked(true);
             present();
             if (cloaked)
             {
@@ -81,9 +88,16 @@ internal sealed class FirstPresentationGate
                 finally
                 {
                     Volatile.Write(ref state, Completed);
-                    if (shouldReveal)
+                    try
                     {
-                        revealed();
+                        if (shouldReveal)
+                        {
+                            revealed();
+                        }
+                    }
+                    finally
+                    {
+                        completion.TrySetResult();
                     }
                 }
             }

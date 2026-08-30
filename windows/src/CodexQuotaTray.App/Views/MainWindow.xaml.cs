@@ -40,7 +40,6 @@ public sealed partial class MainWindow : Window
     private bool showingTokenPage;
     private bool pageTransitionRunning;
     private bool firstShowRequestedLogged;
-    private Task? firstPresentationTask;
     private Stopwatch? firstPresentationStopwatch;
 #if DEBUG
     private readonly List<string> firstPresentationTiming = [];
@@ -54,6 +53,7 @@ public sealed partial class MainWindow : Window
         InitializeComponent();
         Title = displayName;
         hwnd = WindowNative.GetWindowHandle(this);
+        _ = SetFirstPresentationCloaked(true);
         ContentRoot.DataContext = viewModel;
         QuotaPageHost.Children.Add(new QuotaView());
 
@@ -176,7 +176,7 @@ public sealed partial class MainWindow : Window
     }
 
     internal Task WaitForFirstPresentationCompletionAsync() =>
-        firstPresentationTask ?? Task.CompletedTask;
+        firstPresentation.CompletionTask;
 
     internal async Task<bool> ShowPreviousCrashNoticeAsync(PreviousCrashInfo crashInfo)
     {
@@ -262,8 +262,7 @@ public sealed partial class MainWindow : Window
             TraceFirstPresentation("ShowPanel requested");
         }
 
-        var presentation = PresentPanelAsync(raisePanelShown);
-        firstPresentationTask ??= presentation;
+        _ = PresentPanelAsync(raisePanelShown);
     }
 
     private void TryHideForExit()
@@ -292,7 +291,8 @@ public sealed partial class MainWindow : Window
                 appWindow.Hide,
                 () => OnPanelRevealed(raisePanelShown),
                 FirstPresentationTimeout,
-                presentationLifetime.Token);
+                presentationLifetime.Token,
+                alreadyCloaked: true);
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
