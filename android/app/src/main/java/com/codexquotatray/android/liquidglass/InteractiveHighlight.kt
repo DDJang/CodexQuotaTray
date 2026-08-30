@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.util.fastCoerceIn
+import com.codexquotatray.android.ConflatedUpdater
 import com.kyant.backdrop.RuntimeShader
 import com.kyant.backdrop.asComposeShader
 import com.kyant.backdrop.isRuntimeShaderSupported
@@ -31,6 +32,10 @@ class InteractiveHighlight(
 
     private val pressProgressAnimation = Animatable(0f, 0.001f)
     private val positionAnimation = Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
+    private val positionUpdater = ConflatedUpdater<Offset>(animationScope) { target ->
+        positionAnimation.snapTo(target)
+    }
+    private var positionGeneration: ConflatedUpdater.Generation? = null
 
     private var startPosition = Offset.Zero
     val pressProgress: Float get() = pressProgressAnimation.value
@@ -94,6 +99,7 @@ half4 main(float2 coord) {
         Modifier.pointerInput(animationScope) {
             inspectDragGestures(
                 onDragStart = { down ->
+                    positionGeneration = positionUpdater.beginGeneration()
                     startPosition = down.position
                     animationScope.launch {
                         launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
@@ -101,19 +107,28 @@ half4 main(float2 coord) {
                     }
                 },
                 onDragEnd = {
+                    invalidatePositionUpdates()
                     animationScope.launch {
                         launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
                         launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
                     }
                 },
                 onDragCancel = {
+                    invalidatePositionUpdates()
                     animationScope.launch {
                         launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
                         launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
                     }
                 },
             ) { change, _ ->
-                animationScope.launch { positionAnimation.snapTo(change.position) }
+                positionGeneration?.let { generation ->
+                    positionUpdater.submit(generation, change.position)
+                }
             }
         }
+
+    private fun invalidatePositionUpdates() {
+        positionGeneration?.let(positionUpdater::invalidate)
+        positionGeneration = null
+    }
 }

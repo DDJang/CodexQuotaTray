@@ -400,7 +400,6 @@ public sealed partial class MainWindow : Window
 
             var progress = Math.Clamp(stopwatch.Elapsed.TotalMilliseconds / duration.TotalMilliseconds, 0, 1);
             PageHost.Height = PopupPlacement.InterpolateContentHeight(startHeight, targetHeight, progress);
-            ContentRoot.UpdateLayout();
             Position(forceResize: true);
             await Task.Delay(TimeSpan.FromMilliseconds(16));
         }
@@ -411,7 +410,6 @@ public sealed partial class MainWindow : Window
         }
 
         PageHost.Height = targetHeight;
-        ContentRoot.UpdateLayout();
         Position(forceResize: true);
         return true;
     }

@@ -4,6 +4,16 @@ pluginManagement {
         mavenCentral()
         gradlePluginPortal()
     }
+
+    buildscript {
+        repositories {
+            google()
+            mavenCentral()
+        }
+        dependencies {
+            classpath("com.android.tools:r8:8.13.19")
+        }
+    }
 }
 
 dependencyResolutionManagement {

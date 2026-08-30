@@ -373,6 +373,27 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun interactiveHighlightsDoNotLaunchACoroutineForEveryPointerMove() {
+        val dockAnimations = sourceFile("BottomDockAnimations.kt")
+        val interactiveHighlight = sourceFile("liquidglass/InteractiveHighlight.kt")
+
+        assertTrue(dockAnimations.contains("positionUpdater.submit(generation, change.position)"))
+        assertTrue(interactiveHighlight.contains("positionUpdater.submit(generation, change.position)"))
+        assertTrue(dockAnimations.contains("invalidatePositionUpdates()"))
+        assertTrue(interactiveHighlight.contains("invalidatePositionUpdates()"))
+        assertFalse(
+            dockAnimations.contains(
+                "animationScope.launch { positionAnimation.snapTo(change.position) }",
+            ),
+        )
+        assertFalse(
+            interactiveHighlight.contains(
+                "animationScope.launch { positionAnimation.snapTo(change.position) }",
+            ),
+        )
+    }
+
+    @Test
     fun mainPageKeepsAnimatedContentOutsideTheStaticChromeBackdrop() {
         val source = sourceFile("MainActivity.kt")
         val chrome = source.substringAfter("val chromeBackdrop = rememberLayerBackdrop()")

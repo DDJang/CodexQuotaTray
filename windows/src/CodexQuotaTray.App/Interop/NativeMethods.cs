@@ -60,7 +60,7 @@ internal static class NativeMethods
     internal const uint SwpNoActivate = 0x0010;
     internal const uint SwpShowWindow = 0x0040;
     internal static readonly IntPtr HwndMessage = new(-3);
-    internal static readonly IntPtr HwndTop = IntPtr.Zero;
+    internal static readonly IntPtr HwndTopMost = new(-1);
 
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     internal delegate IntPtr WindowProcedure(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);

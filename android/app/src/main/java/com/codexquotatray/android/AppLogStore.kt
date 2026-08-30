@@ -3,8 +3,11 @@ package com.codexquotatray.android
 import android.content.Context
 import java.text.ParsePosition
 import java.text.SimpleDateFormat
+import java.util.ArrayDeque
 import java.util.Date
+import java.util.HashMap
 import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.ConcurrentHashMap
 
 class AppLogStore(
@@ -15,6 +18,7 @@ class AppLogStore(
         PREFERENCES_NAME,
         Context.MODE_PRIVATE,
     )
+    private val appLogCacheKey = context.applicationContext.filesDir.absolutePath
     private val lanStore = lanStores.computeIfAbsent(context.applicationContext.filesDir.absolutePath) {
         LanDiagnosticFileStore(
             context.applicationContext.filesDir.resolve(LAN_DIRECTORY),
@@ -45,10 +49,12 @@ class AppLogStore(
     fun append(message: String, level: String = "INFO") {
         synchronized(AppLogStore::class.java) {
             val now = nowMillis()
-            val previous = AppLogRetention.prune(loadEntries(), now)
+            val entries = cachedEntries()
+            entries.prune(now)
             val line = "${AppLogRetention.formatTimestamp(now)} [${level.uppercase(Locale.ROOT)}] " +
                 AppLogSanitizer.sanitize(message)
-            persist((previous + line).takeLast(AppLogRetention.MAX_ENTRIES))
+            entries.append(line, now)
+            persist(entries.lines())
         }
     }
 
@@ -60,9 +66,13 @@ class AppLogStore(
     }
 
     fun read(): String = synchronized(AppLogStore::class.java) {
-        val entries = AppLogRetention.prune(loadEntries(), nowMillis())
-        persist(entries)
-        entries.joinToString("\n").takeIf(String::isNotBlank) ?: "暂无日志"
+        val entries = cachedEntries()
+        val changed = entries.prune(nowMillis())
+        val lines = entries.lines()
+        if (changed) {
+            persist(lines)
+        }
+        lines.joinToString("\n").takeIf(String::isNotBlank) ?: "暂无日志"
     }
 
     fun readLan(): String = runCatching { LanDiagnosticWriter.read(lanStore) }
@@ -72,6 +82,7 @@ class AppLogStore(
 
     fun clear() {
         synchronized(AppLogStore::class.java) {
+            appLogCaches.remove(appLogCacheKey)
             preferences.edit()
                 .remove(KEY_ENTRIES)
                 .apply()
@@ -85,6 +96,10 @@ class AppLogStore(
         .filter(String::isNotBlank)
         .toList()
 
+    private fun cachedEntries(): AppLogBuffer = appLogCaches.getOrPut(appLogCacheKey) {
+        AppLogBuffer(loadEntries())
+    }
+
     private fun persist(entries: List<String>) {
         preferences.edit().putString(KEY_ENTRIES, entries.joinToString("\n")).apply()
     }
@@ -94,6 +109,7 @@ class AppLogStore(
         private const val KEY_ENTRIES = "entries"
         private const val KEY_LAN_SLOT = "lan_slot"
         private const val LAN_DIRECTORY = "lan-diagnostics"
+        private val appLogCaches = HashMap<String, AppLogBuffer>()
         private val lanStores = ConcurrentHashMap<String, LanDiagnosticFileStore>()
 
         private fun lanSlotKey(slot: Int): String = "lan_entries_$slot"
@@ -110,9 +126,15 @@ class AppLogStore(
 
 internal object AppLogRetention {
     const val MAX_ENTRIES = 120
-    private const val RETENTION_MILLIS = 7L * 24L * 60L * 60L * 1_000L
+    internal const val RETENTION_MILLIS = 7L * 24L * 60L * 60L * 1_000L
     private const val TIMESTAMP_LENGTH = 19
     private const val TIMESTAMP_PATTERN = "yyyy-MM-dd HH:mm:ss"
+    private data class TimestampFormatter(
+        val locale: Locale,
+        val timeZone: TimeZone,
+        val formatter: SimpleDateFormat,
+    )
+    private val timestampFormatter = ThreadLocal<TimestampFormatter>()
 
     fun prune(entries: List<String>, nowMillis: Long): List<String> {
         val cutoff = nowMillis - RETENTION_MILLIS
@@ -124,19 +146,77 @@ internal object AppLogRetention {
             .takeLast(MAX_ENTRIES)
     }
 
-    fun formatTimestamp(millis: Long): String = SimpleDateFormat(
-        TIMESTAMP_PATTERN,
-        Locale.getDefault(),
-    ).format(Date(millis))
+    fun formatTimestamp(millis: Long): String = formatter().format(Date(millis))
 
-    private fun parseTimestamp(line: String): Long? {
+    internal fun parseTimestamp(line: String): Long? {
         if (line.length < TIMESTAMP_LENGTH) return null
         val position = ParsePosition(0)
-        val date = SimpleDateFormat(TIMESTAMP_PATTERN, Locale.getDefault()).parse(
+        val date = formatter().parse(
             line.substring(0, TIMESTAMP_LENGTH),
             position,
         ) ?: return null
         return date.time.takeIf { position.index == TIMESTAMP_LENGTH }
+    }
+
+    private fun formatter(): SimpleDateFormat {
+        val locale = Locale.getDefault()
+        val timeZone = TimeZone.getDefault()
+        val cached = timestampFormatter.get()
+        if (
+            cached != null &&
+            cached.locale == locale &&
+            cached.timeZone.id == timeZone.id &&
+            cached.timeZone.hasSameRules(timeZone)
+        ) {
+            return cached.formatter
+        }
+        return SimpleDateFormat(TIMESTAMP_PATTERN, locale).also { formatter ->
+            formatter.timeZone = timeZone
+            timestampFormatter.set(TimestampFormatter(locale, timeZone, formatter))
+        }
+    }
+}
+
+internal class AppLogBuffer(
+    lines: List<String>,
+    timestampParser: (String) -> Long? = AppLogRetention::parseTimestamp,
+) {
+    private data class Entry(val line: String, val timestampMillis: Long?)
+
+    private val entries = ArrayDeque<Entry>(lines.size)
+
+    init {
+        lines.forEach { line -> entries.addLast(Entry(line, timestampParser(line))) }
+    }
+
+    fun append(line: String, timestampMillis: Long) {
+        entries.addLast(Entry(line, timestampMillis))
+        trimToLimit()
+    }
+
+    fun prune(nowMillis: Long): Boolean {
+        val cutoff = nowMillis - AppLogRetention.RETENTION_MILLIS
+        var changed = false
+        val iterator = entries.iterator()
+        while (iterator.hasNext()) {
+            val timestampMillis = iterator.next().timestampMillis
+            if (timestampMillis != null && timestampMillis < cutoff) {
+                iterator.remove()
+                changed = true
+            }
+        }
+        return trimToLimit() || changed
+    }
+
+    fun lines(): List<String> = entries.map(Entry::line)
+
+    private fun trimToLimit(): Boolean {
+        var changed = false
+        while (entries.size > AppLogRetention.MAX_ENTRIES) {
+            entries.removeFirst()
+            changed = true
+        }
+        return changed
     }
 }
 

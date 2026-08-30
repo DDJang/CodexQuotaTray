@@ -47,6 +47,10 @@ internal class GlassInteractiveHighlight(
     private val pressProgressAnimation = Animatable(0f, 0.001f)
     private val positionAnimation =
         Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
+    private val positionUpdater = ConflatedUpdater<Offset>(animationScope) { target ->
+        positionAnimation.snapTo(target)
+    }
+    private var positionGeneration: ConflatedUpdater.Generation? = null
     private var startPosition = Offset.Zero
     private val shader = if (isRuntimeShaderSupported()) {
         RuntimeShader(
@@ -96,6 +100,7 @@ internal class GlassInteractiveHighlight(
     val gestureModifier: Modifier = Modifier.pointerInput(animationScope) {
         inspectBottomDockDragGestures(
             onDragStart = { down ->
+                positionGeneration = positionUpdater.beginGeneration()
                 startPosition = down.position
                 animationScope.launch {
                     launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
@@ -103,20 +108,29 @@ internal class GlassInteractiveHighlight(
                 }
             },
             onDragEnd = {
+                invalidatePositionUpdates()
                 animationScope.launch {
                     launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
                     launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
                 }
             },
             onDragCancel = {
+                invalidatePositionUpdates()
                 animationScope.launch {
                     launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
                     launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
                 }
             },
         ) { change, _ ->
-            animationScope.launch { positionAnimation.snapTo(change.position) }
+            positionGeneration?.let { generation ->
+                positionUpdater.submit(generation, change.position)
+            }
         }
+    }
+
+    private fun invalidatePositionUpdates() {
+        positionGeneration?.let(positionUpdater::invalidate)
+        positionGeneration = null
     }
 }
 
