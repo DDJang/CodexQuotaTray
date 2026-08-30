@@ -13,15 +13,15 @@
     "publishedAt": "2026-08-30T15:51:18Z"
   },
   "android": {
-    "version": "0.10.5",
-    "tag": "android-v0.10.5",
+    "version": "0.11.0",
+    "tag": "android-v0.11.0",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.10.5.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.10.5/CodexQuotaTray-Android-v0.10.5.apk",
-      "sha256": "f70510f201a0d628d3005e6863bce383272f25bd3656173df7c0e5f52ed8d7f0",
-      "size": 27123572
+      "name": "CodexQuotaTray-Android-v0.11.0.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.0/CodexQuotaTray-Android-v0.11.0.apk",
+      "sha256": "23dab4bcff283d35615ead68e57df54e9c4aa6d2e05d7deefc95e984f0bc9799",
+      "size": 3208974
     },
-    "releaseNotes": "## Launcher icon\n\n- Restore the launcher artwork from the original dashboard SVG with crisp, scalable vector geometry.\n- Keep the standard, round, themed, and startup artwork visually consistent while giving the mark more balanced surrounding space.\n",
-    "publishedAt": "2026-08-28T05:26:22Z"
+    "releaseNotes": "## Android\n\n### 主页面与液态玻璃底栏\n\n- 重构主页面切换与液态玻璃底栏交互，改善选中状态、内容采样、拖拽反馈和页面切换的一致性。\n- 修复刷新与设置等底栏操作在不同页面和主题下的视觉表现。\n\n### 稳定性与性能\n\n- 优化高频手势与状态更新，减少重复工作并提升底栏交互响应速度。\n- 改进后台日志与同步处理的生命周期，降低长期运行时的额外开销。\n",
+    "publishedAt": "2026-08-30T15:52:54Z"
   }
 }
