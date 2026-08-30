@@ -274,10 +274,6 @@ class SettingsStructureTest {
         assertTrue(dock.contains("selectionSink(index)"))
         assertTrue(dock.contains("LiquidBottomTab(onClick = { requestedIndex = 0 })"))
         assertTrue(dock.contains("LiquidBottomTab(onClick = { requestedIndex = 1 })"))
-        assertFalse(dock.contains("selectedTabIndex = { selectedIndex }"))
-        assertFalse(dock.contains("onTabSelected = selectionSink"))
-        assertFalse(dock.contains("LiquidBottomTab(onClick = { selectionSink(0) })"))
-        assertFalse(dock.contains("LiquidBottomTab(onClick = { selectionSink(1) })"))
     }
 
     @Test
@@ -394,9 +390,9 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun mainPageKeepsAnimatedContentOutsideTheStaticChromeBackdrop() {
+    fun mainPageUsesTheBaselineAnimatedContentInsideTheStaticChromeBackdrop() {
         val source = sourceFile("MainActivity.kt")
-        val chrome = source.substringAfter("val chromeBackdrop = rememberLayerBackdrop()")
+        val chrome = source.substringAfter("val chromeBackdrop = rememberLayerBackdrop")
             .substringBefore("Box(Modifier.align(Alignment.TopEnd)")
         val staticSource = chrome.substringBefore("Column(")
         val dynamicPage = chrome.substringAfter("Column(")
@@ -406,28 +402,31 @@ class SettingsStructureTest {
         assertFalse(staticSource.contains("AnimatedContent("))
         assertTrue(dynamicPage.contains("AnimatedContent("))
         assertTrue(dynamicPage.contains("fadeIn(animationSpec = tween(200))"))
-        assertTrue(dynamicPage.contains("slideInHorizontally("))
+        assertTrue(dynamicPage.contains("initialOffsetX = { width -> direction * width / 20 }"))
         assertTrue(dynamicPage.contains("fadeOut(animationSpec = tween(160))"))
-        assertTrue(dynamicPage.contains("slideOutHorizontally("))
+        assertTrue(dynamicPage.contains("targetOffsetX = { width -> -direction * width / 28 }"))
+        assertFalse(source.contains("MainPageSwitcher("))
+        assertTrue(source.contains("if (targetIndex == selectedIndex) return"))
         assertTrue(source.contains("backdrop = chromeBackdrop"))
     }
 
     @Test
-    fun liquidBottomTabsUseKyantTabsBackdropWithUpstreamHiddenTabScaling() {
+    fun liquidBottomTabsKeepTheProductionCombinedBackdropRenderGraph() {
         val source = sourceFile("liquidglass/LiquidBottomTabs.kt")
 
         assertTrue(source.contains("val tabsBackdrop = rememberLayerBackdrop()"))
         assertTrue(source.contains("CompositionLocalProvider"))
         assertTrue(source.contains("lerp(1f, 1.2f, dampedDragAnimation.pressProgress)"))
-        assertFalse(source.contains("LocalLiquidBottomTabScale provides { 1f }"))
         assertTrue(source.contains(".alpha(0f)"))
         assertTrue(source.contains(".layerBackdrop(tabsBackdrop)"))
         assertTrue(source.contains("ColorFilter.tint(accentColor)"))
-        assertTrue(source.contains("backdrop = rememberCombinedBackdrop("))
+        assertTrue(source.contains("backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)"))
         assertTrue(source.contains("tabsBackdrop"))
         assertTrue(source.contains("backdrop = backdrop"))
         assertTrue(source.contains("chromaticAberration = true"))
         assertTrue(source.contains("pressedScale = 78f / 56f"))
+        assertTrue(source.contains("InteractiveHighlight("))
+        assertTrue(source.contains("DampedDragAnimation("))
     }
 
     @Test
@@ -465,13 +464,24 @@ class SettingsStructureTest {
         assertTrue(fixture.contains(".layerBackdrop(backdrop)"))
         assertTrue(fixture.contains("UpstreamLiquidBottomTabs"))
         assertTrue(fixture.contains("LiquidBottomTabs("))
-        assertTrue(fixture.contains("tabsCount = 3"))
-        assertTrue(fixture.contains("tabsCount = 2"))
+        assertTrue(fixture.contains("B · Codex production glass"))
+        assertTrue(fixture.contains("C · Integrated production switching"))
+        assertTrue(fixture.contains("AnimatedContent("))
+        assertTrue(fixture.contains("fadeIn(animationSpec = tween(200))"))
+        assertTrue(fixture.contains("initialOffsetX = { width -> direction * width / 20 }"))
+        assertTrue(fixture.contains("fadeOut(animationSpec = tween(160))"))
+        assertTrue(fixture.contains("targetOffsetX = { width -> -direction * width / 28 }"))
+        assertTrue(fixture.contains("Auto stress ×100"))
+        assertTrue(fixture.contains("repeat(100)"))
 
         val upstreamTabs = debugSourceFile("liquidglass/UpstreamLiquidBottomTabs.kt")
         assertTrue(upstreamTabs.contains("lerp(1f, 1.2f, dampedDragAnimation.pressProgress)"))
         assertTrue(upstreamTabs.contains("rememberCombinedBackdrop(backdrop, tabsBackdrop)"))
         assertTrue(upstreamTabs.contains("ColorFilter.tint(accentColor)"))
+        assertTrue(upstreamTabs.contains("UpstreamDampedDragAnimation("))
+        assertTrue(upstreamTabs.contains("UpstreamInteractiveHighlight("))
+        assertFalse(upstreamTabs.contains("            DampedDragAnimation("))
+        assertFalse(upstreamTabs.contains("            InteractiveHighlight("))
     }
 
     @Test

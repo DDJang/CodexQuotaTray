@@ -102,7 +102,7 @@ fun UpstreamLiquidBottomTabs(
             mutableIntStateOf(selectedTabIndex())
         }
         val dampedDragAnimation = remember(animationScope) {
-            DampedDragAnimation(
+            UpstreamDampedDragAnimation(
                 animationScope = animationScope,
                 initialValue = selectedTabIndex().toFloat(),
                 valueRange = 0f..(tabsCount - 1).toFloat(),
@@ -148,7 +148,7 @@ fun UpstreamLiquidBottomTabs(
         }
 
         val interactiveHighlight = remember(animationScope) {
-            InteractiveHighlight(
+            UpstreamInteractiveHighlight(
                 animationScope = animationScope,
                 position = { size, _ ->
                     Offset(

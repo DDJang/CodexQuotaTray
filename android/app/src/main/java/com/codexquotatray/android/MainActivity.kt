@@ -276,7 +276,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun selectTab(index: Int) {
-        selectedIndex = index.coerceIn(0, 1)
+        val targetIndex = index.coerceIn(0, 1)
+        if (targetIndex == selectedIndex) return
+        selectedIndex = targetIndex
         if (selectedIndex == 1) {
             quota.onHidden()
             usage.onVisible()

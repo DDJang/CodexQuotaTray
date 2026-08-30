@@ -3,6 +3,13 @@ package com.codexquotatray.android.debug
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,13 +27,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,8 +56,12 @@ import com.codexquotatray.android.liquidglass.LiquidBottomTab
 import com.codexquotatray.android.liquidglass.LiquidBottomTabs
 import com.codexquotatray.android.liquidglass.UpstreamLiquidBottomTab
 import com.codexquotatray.android.liquidglass.UpstreamLiquidBottomTabs
+import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class LiquidBottomTabsFixtureActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,40 +76,20 @@ class LiquidBottomTabsFixtureActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppTheme.applySystemBars(this)
         val palette = AppTheme.palette(this, selectedTheme)
-        setContent {
-            CodexQuotaTheme(palette) {
-                LiquidBottomTabsFixtureScreen(palette)
-            }
-        }
+        setContent { CodexQuotaTheme(palette) { LiquidBottomTabsFixtureScreen(palette) } }
     }
 }
 
 @Composable
 private fun LiquidBottomTabsFixtureScreen(palette: ThemePalette) {
     val backdrop = rememberLayerBackdrop()
-    var upstreamThreeSelected by remember { mutableIntStateOf(0) }
-    var upstreamCodexSelected by remember { mutableIntStateOf(0) }
+    var upstreamSelected by remember { mutableIntStateOf(0) }
     var productionSelected by remember { mutableIntStateOf(0) }
-    val upstreamThreeSelectedState = rememberUpdatedState(upstreamThreeSelected)
-    val upstreamCodexSelectedState = rememberUpdatedState(upstreamCodexSelected)
-    val productionSelectedState = rememberUpdatedState(productionSelected)
-    val upstreamThreeProvider = remember { { upstreamThreeSelectedState.value } }
-    val upstreamCodexProvider = remember { { upstreamCodexSelectedState.value } }
-    val productionProvider = remember { { productionSelectedState.value } }
+    val upstreamState = rememberUpdatedState(upstreamSelected)
     val contentColor = palette.color(palette.body)
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(palette.color(palette.background)),
-    ) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .layerBackdrop(backdrop),
-        ) {
-            FixtureBackdrop()
-        }
+    Box(Modifier.fillMaxSize().background(palette.color(palette.background))) {
+        Box(Modifier.fillMaxSize().layerBackdrop(backdrop)) { FixtureBackdrop() }
         Column(
             Modifier
                 .fillMaxSize()
@@ -105,90 +99,40 @@ private fun LiquidBottomTabsFixtureScreen(palette: ThemePalette) {
                 .padding(horizontal = 18.dp, vertical = 20.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
+            Text("Liquid Bottom Tabs Fixture", color = Color.White, style = MaterialTheme.typography.headlineSmall)
             Text(
-                "Liquid Bottom Tabs Fixture",
-                color = Color.White,
-                style = MaterialTheme.typography.headlineSmall,
-            )
-            Text(
-                "Same colorful backdrop · tap, hold, drag",
+                "Same colorful backdrop · tap, hold, slow drag, fast drag",
                 color = Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodyMedium,
             )
-            FixtureSection(
-                title = "Kyant upstream · 3 tabs",
-                selectedIndex = upstreamThreeSelected,
-            ) {
+            FixtureSection("A · Kyant pinned upstream", upstreamSelected) {
                 UpstreamLiquidBottomTabs(
-                    selectedTabIndex = upstreamThreeProvider,
-                    onTabSelected = { upstreamThreeSelected = it },
-                    backdrop = backdrop,
-                    tabsCount = 3,
-                    modifier = fixtureDockModifier(),
-                ) {
-                    UpstreamLiquidBottomTab(onClick = { upstreamThreeSelected = 0 }) {
-                        FixtureTabContent(R.drawable.ic_quota_tray, "A", contentColor)
-                    }
-                    UpstreamLiquidBottomTab(onClick = { upstreamThreeSelected = 1 }) {
-                        FixtureTabContent(R.drawable.ic_usage, "B", contentColor)
-                    }
-                    UpstreamLiquidBottomTab(onClick = { upstreamThreeSelected = 2 }) {
-                        FixtureTabContent(R.drawable.ic_settings, "C", contentColor)
-                    }
-                }
-            }
-            FixtureSection(
-                title = "Kyant upstream · 2 tabs / Codex geometry",
-                selectedIndex = upstreamCodexSelected,
-            ) {
-                UpstreamLiquidBottomTabs(
-                    selectedTabIndex = upstreamCodexProvider,
-                    onTabSelected = { upstreamCodexSelected = it },
+                    selectedTabIndex = { upstreamState.value },
+                    onTabSelected = { upstreamSelected = it },
                     backdrop = backdrop,
                     tabsCount = 2,
                     modifier = fixtureDockModifier(),
                 ) {
-                    UpstreamLiquidBottomTab(onClick = { upstreamCodexSelected = 0 }) {
-                        FixtureTabContent(
-                            R.drawable.ic_quota_tray,
-                            "额度",
-                            contentColor,
-                            iconWidth = 22.dp,
-                            iconHeight = 24.dp,
-                        )
+                    UpstreamLiquidBottomTab(onClick = { upstreamSelected = 0 }) {
+                        FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
                     }
-                    UpstreamLiquidBottomTab(onClick = { upstreamCodexSelected = 1 }) {
+                    UpstreamLiquidBottomTab(onClick = { upstreamSelected = 1 }) {
                         FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
                     }
                 }
             }
-            FixtureSection(
-                title = "Current production",
-                selectedIndex = productionSelected,
-            ) {
-                LiquidBottomTabs(
-                    selectedTabIndex = productionProvider,
-                    onTabSelected = { productionSelected = it },
+            FixtureSection("B · Codex production glass", productionSelected) {
+                ProductionLiquidTabs(
+                    selectedIndex = productionSelected,
+                    onSelected = { productionSelected = it },
                     backdrop = backdrop,
-                    tabsCount = 2,
+                    contentColor = contentColor,
                     modifier = fixtureDockModifier(),
-                ) {
-                    LiquidBottomTab(onClick = { productionSelected = 0 }) {
-                        FixtureTabContent(
-                            R.drawable.ic_quota_tray,
-                            "额度",
-                            contentColor,
-                            iconWidth = 22.dp,
-                            iconHeight = 24.dp,
-                        )
-                    }
-                    LiquidBottomTab(onClick = { productionSelected = 1 }) {
-                        FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
-                    }
-                }
+                )
             }
+            IntegratedTransitionFixture(backdrop, contentColor)
             Text(
-                "A/B/C use one page backdrop source; no quota, token, OAuth, LAN, worker, or network access.",
+                "A/B/C share one backdrop; no OAuth, LAN, API, worker, or network access.",
                 color = Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -197,23 +141,115 @@ private fun LiquidBottomTabsFixtureScreen(palette: ThemePalette) {
 }
 
 @Composable
-private fun FixtureSection(
-    title: String,
-    selectedIndex: Int,
-    content: @Composable () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            title,
-            color = Color.White,
-            style = MaterialTheme.typography.titleMedium,
-        )
+private fun IntegratedTransitionFixture(backdrop: Backdrop, contentColor: Color) {
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    var expectedIndex by remember { mutableIntStateOf(0) }
+    var stressJob by remember { mutableStateOf<Job?>(null) }
+    val scope = rememberCoroutineScope()
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("C · Integrated production switching", color = Color.White, style = MaterialTheme.typography.titleMedium)
         Box(
-            Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center,
+            Modifier.fillMaxWidth().height(132.dp)
+                .background(Color.Black.copy(alpha = 0.22f), RoundedCornerShape(20.dp)),
         ) {
-            content()
+            AnimatedContent(
+                targetState = selectedIndex,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val direction = if (targetState > initialState) 1 else -1
+                    (
+                        fadeIn(animationSpec = tween(200)) +
+                            slideInHorizontally(
+                                animationSpec = tween(200),
+                                initialOffsetX = { width -> direction * width / 20 },
+                            )
+                        ) togetherWith (
+                        fadeOut(animationSpec = tween(160)) +
+                            slideOutHorizontally(
+                                animationSpec = tween(160),
+                                targetOffsetX = { width -> -direction * width / 28 },
+                            )
+                        )
+                },
+                label = "fixture-main-page-transition",
+            ) { pageIndex ->
+                FakePageCard(pageIndex, Modifier.fillMaxSize())
+            }
         }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            ProductionLiquidTabs(
+                selectedIndex = selectedIndex,
+                onSelected = { expectedIndex = it; selectedIndex = it },
+                backdrop = backdrop,
+                contentColor = contentColor,
+                modifier = fixtureDockModifier(),
+            )
+        }
+        Button(
+            onClick = {
+                stressJob?.cancel()
+                stressJob = scope.launch {
+                    repeat(100) { iteration ->
+                        val target = (iteration + 1) % 2
+                        expectedIndex = target
+                        selectedIndex = target
+                        delay(70)
+                    }
+                }
+            },
+        ) { Text("Auto stress ×100") }
+        Text(
+            "expected selected index: $expectedIndex · actual selected index: $selectedIndex",
+            color = Color.White.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun ProductionLiquidTabs(
+    selectedIndex: Int,
+    onSelected: (Int) -> Unit,
+    backdrop: Backdrop,
+    contentColor: Color,
+    modifier: Modifier,
+) {
+    val selectedState = rememberUpdatedState(selectedIndex)
+    LiquidBottomTabs(
+        selectedTabIndex = { selectedState.value },
+        onTabSelected = onSelected,
+        backdrop = backdrop,
+        tabsCount = 2,
+        modifier = modifier,
+    ) {
+        LiquidBottomTab(onClick = { onSelected(0) }) {
+            FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
+        }
+        LiquidBottomTab(onClick = { onSelected(1) }) {
+            FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
+        }
+    }
+}
+
+@Composable
+private fun FakePageCard(index: Int, modifier: Modifier) {
+    Box(
+        modifier.padding(14.dp).background(
+            if (index == 0) Color(0xFF176B87).copy(alpha = 0.72f)
+            else Color(0xFF69359C).copy(alpha = 0.72f),
+            RoundedCornerShape(16.dp),
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(if (index == 0) "Fake Quota page" else "Fake Token page", color = Color.White)
+    }
+}
+
+@Composable
+private fun FixtureSection(title: String, selectedIndex: Int, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, color = Color.White, style = MaterialTheme.typography.titleMedium)
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { content() }
         Text(
             "selected index: $selectedIndex",
             color = Color.White.copy(alpha = 0.65f),
@@ -223,18 +259,15 @@ private fun FixtureSection(
 }
 
 private fun fixtureDockModifier(): Modifier =
-    Modifier
-        .fillMaxWidth(0.525f)
-        .widthIn(min = 172.dp, max = 217.dp)
-        .height(64.dp)
+    Modifier.fillMaxWidth(0.525f).widthIn(min = 172.dp, max = 217.dp).height(64.dp)
 
 @Composable
 private fun FixtureTabContent(
     iconRes: Int,
     label: String,
     contentColor: Color,
-    iconWidth: androidx.compose.ui.unit.Dp = 27.dp,
-    iconHeight: androidx.compose.ui.unit.Dp = 27.dp,
+    iconWidth: Int = 27,
+    iconHeight: Int = 27,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -243,61 +276,36 @@ private fun FixtureTabContent(
         Icon(
             painter = painterResource(iconRes),
             contentDescription = null,
-            modifier = Modifier.size(width = iconWidth, height = iconHeight),
+            modifier = Modifier.size(width = iconWidth.dp, height = iconHeight.dp),
             tint = contentColor,
         )
-        Text(
-            label,
-            color = contentColor,
-            fontSize = 11.sp,
-            lineHeight = 12.sp,
-        )
+        Text(label, color = contentColor, fontSize = 11.sp, lineHeight = 12.sp)
     }
 }
 
 @Composable
 private fun FixtureBackdrop() {
     Box(
-        Modifier
-            .fillMaxSize()
-            .background(
-                Brush.linearGradient(
-                    listOf(
-                        Color(0xFF071A35),
-                        Color(0xFF241044),
-                        Color(0xFF063E4B),
-                    ),
-                ),
-            ),
+        Modifier.fillMaxSize().background(
+            Brush.linearGradient(listOf(Color(0xFF071A35), Color(0xFF241044), Color(0xFF063E4B))),
+        ),
     ) {
         Box(
-            Modifier
-                .offset(x = (-54).dp, y = 110.dp)
-                .size(240.dp)
+            Modifier.offset(x = (-54).dp, y = 110.dp).size(240.dp)
                 .background(Color(0xFF236BFF).copy(alpha = 0.72f), CircleShape),
         )
         Box(
-            Modifier
-                .align(Alignment.TopEnd)
-                .offset(x = 70.dp, y = 260.dp)
-                .size(260.dp)
+            Modifier.align(Alignment.TopEnd).offset(x = 70.dp, y = 260.dp).size(260.dp)
                 .background(Color(0xFFDB38FF).copy(alpha = 0.6f), CircleShape),
         )
         Box(
-            Modifier
-                .align(Alignment.BottomCenter)
-                .offset(y = 120.dp)
-                .size(300.dp)
+            Modifier.align(Alignment.BottomCenter).offset(y = 120.dp).size(300.dp)
                 .background(Color(0xFF00D8C4).copy(alpha = 0.48f), CircleShape),
         )
         Text(
             "STATIC COLORFUL BACKDROP",
-            Modifier
-                .align(Alignment.Center)
-                .background(
-                    Color.Black.copy(alpha = 0.18f),
-                    RoundedCornerShape(16.dp),
-                )
+            Modifier.align(Alignment.Center)
+                .background(Color.Black.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
                 .padding(horizontal = 18.dp, vertical = 12.dp),
             color = Color.White.copy(alpha = 0.82f),
             style = MaterialTheme.typography.labelLarge,
