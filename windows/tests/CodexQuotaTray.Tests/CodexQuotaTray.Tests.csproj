@@ -12,6 +12,7 @@
     <None Include="..\..\Directory.Packages.props" Link="Directory.Packages.props" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\installer\windows-app-runtime.json" Link="Installer\windows-app-runtime.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\scripts\acquire-windows-app-runtime.ps1" Link="Scripts\acquire-windows-app-runtime.ps1" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\scripts\probe-windows-app-runtime.ps1" Link="Scripts\probe-windows-app-runtime.ps1" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\scripts\package-inno.ps1" Link="Scripts\package-inno.ps1" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\scripts\publish-winui.ps1" Link="Scripts\publish-winui.ps1" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Themes\Colors.xaml" Link="Themes\Colors.xaml" CopyToOutputDirectory="PreserveNewest" />

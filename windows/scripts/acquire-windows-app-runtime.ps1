@@ -25,6 +25,45 @@ function Require-ConfigValue(
     return [string]$property.Value
 }
 
+function Require-ConfigObject(
+    [pscustomobject]$Config,
+    [string]$Name)
+{
+    $property = $Config.PSObject.Properties[$Name]
+    if ($null -eq $property -or $null -eq $property.Value) {
+        throw "Windows App Runtime config is missing '$Name'."
+    }
+
+    return [pscustomobject]$property.Value
+}
+
+function Require-ConfigBoolean(
+    [pscustomobject]$Config,
+    [string]$Name)
+{
+    $property = $Config.PSObject.Properties[$Name]
+    if ($null -eq $property -or $property.Value -isnot [bool]) {
+        throw "Windows App Runtime config value '$Name' must be a boolean."
+    }
+
+    return [bool]$property.Value
+}
+
+function Parse-ConfigVersion(
+    [string]$Value,
+    [string]$Name)
+{
+    if ($Value -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') {
+        throw "Windows App Runtime config value '$Name' is not a valid four-part version: '$Value'."
+    }
+
+    try {
+        return [Version]$Value
+    } catch {
+        throw "Windows App Runtime config value '$Name' is not a valid version: '$Value'."
+    }
+}
+
 function Assert-OfficialRuntimeConfig([pscustomobject]$Config) {
     $version = Require-ConfigValue $Config "version"
     $architecture = Require-ConfigValue $Config "architecture"
@@ -52,6 +91,75 @@ function Assert-OfficialRuntimeConfig([pscustomobject]$Config) {
         throw "Windows App Runtime config sha256 must contain exactly 64 hexadecimal characters."
     }
 
+    if ($version -notmatch '^\d+\.\d+\.\d+$') {
+        throw "Windows App Runtime config version must be a stable three-part version: '$version'."
+    }
+    $projectVersion = Parse-ConfigVersion "$version.0" "version"
+
+    $publisherId = Require-ConfigValue $Config "publisherId"
+    if ($publisherId -cne "8wekyb3d8bbwe") {
+        throw "Windows App Runtime config selected an unexpected Microsoft publisher ID '$publisherId'."
+    }
+
+    $packages = Require-ConfigObject $Config "packages"
+    $packageMetadata = @{}
+    foreach ($role in @("framework", "main", "singleton", "ddlm")) {
+        $packageMetadata[$role] = Require-ConfigObject $packages $role
+    }
+
+    $expectedSingletonMajor = 8000 + $projectVersion.Major
+    $expectedSingletonMinimumVersion = "{0}.{1}.{2}.0" -f `
+        $expectedSingletonMajor, $projectVersion.Minor, $projectVersion.Build
+    $expectedPackages = @{
+        framework = @{
+            NameProperty = "name"
+            Name = "Microsoft.WindowsAppRuntime.$($projectVersion.Major)"
+            MinimumVersion = "$version.0"
+            IsFramework = $true
+        }
+        main = @{
+            NameProperty = "name"
+            Name = "MicrosoftCorporationII.WinAppRuntime.Main.$($projectVersion.Major)"
+            MinimumVersion = "$version.0"
+            IsFramework = $false
+        }
+        singleton = @{
+            NameProperty = "name"
+            Name = "MicrosoftCorporationII.WinAppRuntime.Singleton"
+            MinimumVersion = $expectedSingletonMinimumVersion
+            IsFramework = $false
+        }
+        ddlm = @{
+            NameProperty = "namePattern"
+            Name = "Microsoft.WinAppRuntime.DDLM.$($projectVersion.Major).*-x6"
+            MinimumVersion = "$version.0"
+            IsFramework = $false
+        }
+    }
+
+    foreach ($role in $expectedPackages.Keys) {
+        $metadata = $packageMetadata[$role]
+        $expected = $expectedPackages[$role]
+        $name = Require-ConfigValue $metadata $expected.NameProperty
+        $minimumVersion = Require-ConfigValue $metadata "minimumVersion"
+        $packageArchitecture = Require-ConfigValue $metadata "architecture"
+        $isFramework = Require-ConfigBoolean $metadata "isFramework"
+
+        if ($name -cne $expected.Name) {
+            throw "Windows App Runtime config $role package identity '$name' does not match the official 2.x naming rule."
+        }
+        if ($minimumVersion -cne $expected.MinimumVersion) {
+            throw "Windows App Runtime config $role package minimum version '$minimumVersion' does not match runtime version $version."
+        }
+        [void](Parse-ConfigVersion $minimumVersion "$role.minimumVersion")
+        if ($packageArchitecture -cne $architecture) {
+            throw "Windows App Runtime config $role package selected architecture '$packageArchitecture', expected '$architecture'."
+        }
+        if ($isFramework -ne $expected.IsFramework) {
+            throw "Windows App Runtime config $role package has an unexpected framework-package flag."
+        }
+    }
+
     $authenticode = $Config.PSObject.Properties["authenticode"]
     if ($null -eq $authenticode -or $null -eq $authenticode.Value) {
         throw "Windows App Runtime config is missing Authenticode publisher details."
@@ -70,6 +178,18 @@ function Assert-OfficialRuntimeConfig([pscustomobject]$Config) {
         SourceUrl = $sourceUrl
         DownloadUrl = $downloadUrl
         Sha256 = $sha256.ToUpperInvariant()
+        PackageMetadata = [pscustomobject]@{
+            PublisherId = $publisherId
+            Architecture = $architecture
+            FrameworkName = [string]$packageMetadata.framework.name
+            FrameworkMinimumVersion = [string]$packageMetadata.framework.minimumVersion
+            MainName = [string]$packageMetadata.main.name
+            MainMinimumVersion = [string]$packageMetadata.main.minimumVersion
+            SingletonName = [string]$packageMetadata.singleton.name
+            SingletonMinimumVersion = [string]$packageMetadata.singleton.minimumVersion
+            DdlmNamePattern = [string]$packageMetadata.ddlm.namePattern
+            DdlmMinimumVersion = [string]$packageMetadata.ddlm.minimumVersion
+        }
         SignerSubject = [string]$authenticode.Value.subject
         SignerIssuer = [string]$authenticode.Value.issuer
         SignerThumbprint = ([string]$authenticode.Value.thumbprint).ToUpperInvariant()
@@ -108,7 +228,9 @@ function Test-ValidatedRuntimeInstaller(
         Version = $RuntimeConfig.Version
         Architecture = $RuntimeConfig.Architecture
         Filename = $RuntimeConfig.Filename
+        DownloadUrl = $RuntimeConfig.DownloadUrl
         Sha256 = $actualHash
+        PackageMetadata = $RuntimeConfig.PackageMetadata
         SizeBytes = (Get-Item -LiteralPath $resolvedPath).Length
         SignatureStatus = [string]$signature.Status
         SignerSubject = $signature.SignerCertificate.Subject

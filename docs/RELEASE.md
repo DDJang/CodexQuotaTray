@@ -15,10 +15,12 @@ Windows 客户端是只读的系统托盘额度工具，显示额度和重置时
 - `CodexQuotaTray-<version>-win-x64.zip`：portable x64 包（需先具备 Windows App Runtime）；
 - `SHA256SUMS.txt`：对应 Release 产物的 SHA256 校验值。
 
-CodexQuotaTray 保持 unpackaged；安装器内嵌固定配置中的 Microsoft-signed x64 Windows App
-Runtime standalone installer，并在首次启动前以 `--quiet` 安装共享运行时。runtime 安装器只在
-安装阶段位于 `{tmp}`，不会被写入 `{app}`，卸载 CodexQuotaTray 也不会移除共享 runtime。固定版本、
-下载源和校验信息集中在 [`windows-app-runtime.json`](../windows/installer/windows-app-runtime.json)。
+CodexQuotaTray 保持 unpackaged；安装器在检测到共享运行时未满足要求时，从固定配置中的 Microsoft
+URL 下载 Microsoft-signed x64 Windows App Runtime standalone installer，校验 SHA-256 后在首次
+启动前以 `--quiet` 安装，并在安装后复检四个必需组件。满足要求时不会下载；runtime 安装器只在
+安装阶段位于 `{tmp}`，不会被写入 setup 或 `{app}`，卸载 CodexQuotaTray 也不会移除共享 runtime。
+固定版本、包 identity、下载源和校验信息集中在
+[`windows-app-runtime.json`](../windows/installer/windows-app-runtime.json)。
 
 安装器可通过 Windows“已安装的应用”卸载，并在卸载时明确询问是否保留用户数据。自动更新使用
 统一更新清单；用户也可以直接从上述 Release 页面下载并手动启动安装器。
