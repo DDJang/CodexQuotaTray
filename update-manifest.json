@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.11.0",
-    "tag": "windows-v0.11.0",
+    "version": "0.11.1",
+    "tag": "windows-v0.11.1",
     "installer": {
-      "name": "CodexQuotaTray-0.11.0-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.0/CodexQuotaTray-0.11.0-setup.exe",
-      "sha256": "b96ef0111eba4c712934f292c74b3251dac93699e52fe386501405147666396b",
-      "size": 160880272
+      "name": "CodexQuotaTray-0.11.1-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.1/CodexQuotaTray-0.11.1-setup.exe",
+      "sha256": "83a820efddf1a4e3412fc8dd587fdf9e8da88f0b8328593722f62f10ecbe5f64",
+      "size": 48557985
     },
-    "releaseNotes": "## Windows\r\n\r\n### 窗口启动与退出\r\n\r\n- 修复冷启动首次显示时可能出现的黑色闪烁；主窗口会在首帧准备完成后再对用户显示。\r\n- 改进退出期间的窗口隐藏和 presentation 清理，减少退出过程中残留窗口或悬挂等待。\r\n\r\n### Token 统计\r\n\r\n- 改善 Token 使用热力图悬浮提示的显示层级。\r\n- 优化高频界面路径，提升窗口交互的稳定性与响应速度。\r\n",
-    "publishedAt": "2026-08-30T15:51:18Z"
+    "releaseNotes": "## Windows\r\n\r\n- 瘦身 Windows 安装器：不再把 Windows App Runtime 安装器打包进 `setup.exe`，只有在设备缺少兼容运行时时才从 Microsoft 官方地址按需下载。\r\n- 已满足运行时要求的设备会跳过下载；需要安装时会校验 SHA-256，下载或安装失败则不会继续安装 CodexQuotaTray。\r\n",
+    "publishedAt": "2026-08-31T06:37:09Z"
   },
   "android": {
     "version": "0.11.0",
