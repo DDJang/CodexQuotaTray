@@ -17,8 +17,9 @@ properties 为准。更新依赖时必须同步审查许可证、维护状态、
 
 Windows 客户端保持 unpackaged 普通 EXE；.NET runtime 继续使用 self-contained publish，用户不需要
 另装 .NET。Windows App Runtime 使用固定配置中的 Microsoft-signed x64 standalone installer，
-由 per-user Inno Setup 安装器嵌入、安装阶段提取到 `{tmp}` 并以 `--quiet` 执行，安装共享的
-Windows App SDK Framework/Main/Singleton/DDLM packages；runtime installer 不会永久写入 `{app}`。
+由 per-user Inno Setup 安装器在检测到 Framework/Main/Singleton/DDLM 任一组件缺失或版本不足时，
+从固定 Microsoft URL 下载到临时目录，校验 SHA-256 后以 `--quiet` 执行，并在安装后再次检查；
+已满足要求时跳过下载。runtime installer 不会写入 setup 或永久写入 `{app}`。
 卸载 CodexQuotaTray 时不会卸载或删除这个共享 Windows App Runtime。
 
 ## Android

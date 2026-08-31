@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Diagnostics;
 using System.Xml.Linq;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core.Alerts;
@@ -132,6 +133,16 @@ public sealed class AppIntegrationSourceTests
         StringAssert.StartsWith(config.GetProperty("downloadUrl").GetString()!, "https://download.microsoft.com/");
         Assert.IsFalse(config.GetProperty("downloadUrl").GetString()!.Contains("latest", StringComparison.OrdinalIgnoreCase));
         StringAssert.Matches(config.GetProperty("sha256").GetString()!, new System.Text.RegularExpressions.Regex("^[0-9A-Fa-f]{64}$"));
+        Assert.AreEqual("8wekyb3d8bbwe", config.GetProperty("publisherId").GetString());
+        var packages = config.GetProperty("packages");
+        Assert.AreEqual("Microsoft.WindowsAppRuntime.2", packages.GetProperty("framework").GetProperty("name").GetString());
+        Assert.AreEqual("2.3.1.0", packages.GetProperty("framework").GetProperty("minimumVersion").GetString());
+        Assert.AreEqual("MicrosoftCorporationII.WinAppRuntime.Main.2", packages.GetProperty("main").GetProperty("name").GetString());
+        Assert.AreEqual("2.3.1.0", packages.GetProperty("main").GetProperty("minimumVersion").GetString());
+        Assert.AreEqual("MicrosoftCorporationII.WinAppRuntime.Singleton", packages.GetProperty("singleton").GetProperty("name").GetString());
+        Assert.AreEqual("8002.3.1.0", packages.GetProperty("singleton").GetProperty("minimumVersion").GetString());
+        Assert.AreEqual("Microsoft.WinAppRuntime.DDLM.2.3.*-x6", packages.GetProperty("ddlm").GetProperty("namePattern").GetString());
+        Assert.AreEqual("2.3.1.0", packages.GetProperty("ddlm").GetProperty("minimumVersion").GetString());
         var authenticode = config.GetProperty("authenticode");
         StringAssert.Contains(authenticode.GetProperty("subject").GetString()!, "Microsoft Corporation");
         StringAssert.Contains(authenticode.GetProperty("issuer").GetString()!, "Microsoft Corporation");
@@ -695,7 +706,7 @@ public sealed class AppIntegrationSourceTests
     }
 
     [TestMethod]
-    public void InstallerEmbedsRuntimeOnlyAsATemporaryQuietPrerequisite()
+    public void InstallerDownloadsRuntimeOnlyWhenTheProbeDoesNotConfirmReadiness()
     {
         var source = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Installer", "CodexQuotaTray.iss"));
@@ -707,8 +718,8 @@ public sealed class AppIntegrationSourceTests
         var uninstall = source[uninstallStart..uninstallEnd];
         var filesStart = source.IndexOf("[Files]", StringComparison.Ordinal);
         var firstSource = source.IndexOf("Source:", filesStart, StringComparison.Ordinal);
-        var runtimeSource = source.IndexOf(
-            "Source: \"{#WindowsAppRuntimeInstaller}\"",
+        var probeSource = source.IndexOf(
+            "Source: \"{#WindowsAppRuntimeProbeScript}\"",
             filesStart,
             StringComparison.Ordinal);
         var publishSource = source.IndexOf(
@@ -716,19 +727,30 @@ public sealed class AppIntegrationSourceTests
             filesStart,
             StringComparison.Ordinal);
 
-        StringAssert.Contains(source, "#ifndef WindowsAppRuntimeInstaller");
-        StringAssert.Contains(source, "Source: \"{#WindowsAppRuntimeInstaller}\"; DestDir: \"{tmp}\"");
-        StringAssert.Contains(source, "DestName: \"{#WindowsAppRuntimeInstallerFileName}\"");
+        Assert.IsFalse(source.Contains("WindowsAppRuntimeInstaller", StringComparison.Ordinal));
+        StringAssert.Contains(source, "#ifndef WindowsAppRuntimeDownloadUrl");
+        StringAssert.Contains(source, "Source: \"{#WindowsAppRuntimeProbeScript}\"; DestDir: \"{tmp}\"");
+        StringAssert.Contains(source, "DestName: \"{#WindowsAppRuntimeProbeFileName}\"");
         StringAssert.Contains(source, "Flags: dontcopy");
-        StringAssert.Contains(prepare, "ExtractTemporaryFile('{#WindowsAppRuntimeInstallerFileName}')");
-        StringAssert.Contains(prepare, "FileExists(RuntimeInstallerPath)");
+        StringAssert.Contains(source, "function IsWindowsAppRuntimeReady()");
+        StringAssert.Contains(source, "ExecAndCaptureOutputWithNativeSysDir");
+        StringAssert.Contains(source, "-FrameworkName");
+        StringAssert.Contains(source, "-MainName");
+        StringAssert.Contains(source, "-SingletonName");
+        StringAssert.Contains(source, "-DdlmNamePattern");
+        StringAssert.Contains(prepare, "if IsWindowsAppRuntimeReady() then begin");
+        StringAssert.Contains(prepare, "DownloadTemporaryFile(");
+        StringAssert.Contains(prepare, "'{#WindowsAppRuntimeDownloadUrl}'");
+        StringAssert.Contains(prepare, "'{#WindowsAppRuntimeSha256}'");
+        StringAssert.Contains(prepare, "GetSHA256OfFile(RuntimeInstallerPath)");
         StringAssert.Contains(prepare, "'--quiet'");
         StringAssert.Contains(prepare, "ewWaitUntilTerminated");
         StringAssert.Contains(prepare, "if RuntimeExitCode <> 0");
+        StringAssert.Contains(prepare, "Windows App Runtime 安装后复检未通过");
         StringAssert.Contains(prepare, "Windows App Runtime 安装失败");
         Assert.IsTrue(filesStart >= 0);
-        Assert.AreEqual(firstSource, runtimeSource);
-        Assert.IsTrue(runtimeSource < publishSource);
+        Assert.AreEqual(firstSource, probeSource);
+        Assert.IsTrue(probeSource < publishSource);
         Assert.IsFalse(source.Contains("--force", StringComparison.Ordinal));
         Assert.IsFalse(uninstall.Contains("WindowsAppRuntimeInstall", StringComparison.Ordinal));
         Assert.IsFalse(uninstall.Contains("Remove-AppxPackage", StringComparison.Ordinal));
@@ -750,9 +772,15 @@ public sealed class AppIntegrationSourceTests
         StringAssert.Contains(source, "InstallerPath");
         StringAssert.Contains(source, "Invoke-WebRequest");
         StringAssert.Contains(source, "Move-Item");
+        StringAssert.Contains(source, "PackageMetadata");
         StringAssert.Contains(packageSource, "acquire-windows-app-runtime.ps1");
         StringAssert.Contains(packageSource, "WindowsAppRuntimeInstaller");
-        StringAssert.Contains(packageSource, "/DWindowsAppRuntimeInstaller=");
+        StringAssert.Contains(packageSource, "/DWindowsAppRuntimeVersion=");
+        StringAssert.Contains(packageSource, "/DWindowsAppRuntimeDownloadUrl=");
+        StringAssert.Contains(packageSource, "/DWindowsAppRuntimeSha256=");
+        StringAssert.Contains(packageSource, "/DWindowsAppRuntimeFileName=");
+        StringAssert.Contains(packageSource, "/DWindowsAppRuntimeProbeScript=");
+        Assert.IsFalse(packageSource.Contains("/DWindowsAppRuntimeInstaller=", StringComparison.Ordinal));
         StringAssert.Contains(packageSource, "Microsoft.WindowsAppSDK central package version is missing");
         StringAssert.Contains(packageSource, "does not match Windows App Runtime version");
         StringAssert.Contains(publishSource, "--self-contained true");
@@ -761,4 +789,202 @@ public sealed class AppIntegrationSourceTests
         Assert.IsFalse(source.Contains("Expand-Archive", StringComparison.Ordinal));
         Assert.IsFalse(source.Contains("Microsoft.WindowsAppRuntime.Insights.Resource.dll", StringComparison.Ordinal));
     }
+
+    [TestMethod]
+    public void RuntimeProbeAcceptsCompleteAndHigherCompatiblePackageFixtures()
+    {
+        var probePath = Path.Combine(AppContext.BaseDirectory, "Scripts", "probe-windows-app-runtime.ps1");
+        var config = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Installer", "windows-app-runtime.json"))).RootElement;
+        var packages = config.GetProperty("packages");
+
+        var exact = CreateRuntimePackageFixture(
+            packages.GetProperty("framework").GetProperty("name").GetString()!,
+            "2.3.1.0",
+            isFramework: true);
+        var exactMain = CreateRuntimePackageFixture(
+            packages.GetProperty("main").GetProperty("name").GetString()!,
+            "2.3.1.0",
+            isFramework: false);
+        var exactSingleton = CreateRuntimePackageFixture(
+            packages.GetProperty("singleton").GetProperty("name").GetString()!,
+            "8002.3.1.0",
+            isFramework: false);
+        var exactDdlm = CreateRuntimePackageFixture(
+            "Microsoft.WinAppRuntime.DDLM.2.3.1.0-x6",
+            "2.3.1.0",
+            isFramework: false);
+
+        var exactResult = RunRuntimeProbe(probePath, packages, exact, exactMain, exactSingleton, exactDdlm);
+        Assert.AreEqual(0, exactResult.ExitCode, exactResult.Output);
+        StringAssert.Contains(exactResult.Output, "READY");
+
+        var higherFramework = CreateRuntimePackageFixture(
+            packages.GetProperty("framework").GetProperty("name").GetString()!,
+            "2.4.0.0",
+            isFramework: true);
+        var higherMain = CreateRuntimePackageFixture(
+            packages.GetProperty("main").GetProperty("name").GetString()!,
+            "2.4.0.0",
+            isFramework: false);
+        var higherSingleton = CreateRuntimePackageFixture(
+            packages.GetProperty("singleton").GetProperty("name").GetString()!,
+            "8002.4.0.0",
+            isFramework: false);
+        var higherDdlm = CreateRuntimePackageFixture(
+            "Microsoft.WinAppRuntime.DDLM.2.3.2.0-x6",
+            "2.3.2.0",
+            isFramework: false);
+
+        var higherResult = RunRuntimeProbe(
+            probePath,
+            packages,
+            higherFramework,
+            higherMain,
+            higherSingleton,
+            higherDdlm);
+        Assert.AreEqual(0, higherResult.ExitCode, higherResult.Output);
+        StringAssert.Contains(higherResult.Output, "READY");
+    }
+
+    [TestMethod]
+    public void RuntimeProbeFailsClosedForMissingInvalidOrMalformedPackageState()
+    {
+        var probePath = Path.Combine(AppContext.BaseDirectory, "Scripts", "probe-windows-app-runtime.ps1");
+        var config = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Installer", "windows-app-runtime.json"))).RootElement;
+        var packages = config.GetProperty("packages");
+        var fixture = new[]
+        {
+            CreateRuntimePackageFixture("Microsoft.WindowsAppRuntime.2", "2.3.1.0", true),
+            CreateRuntimePackageFixture("MicrosoftCorporationII.WinAppRuntime.Main.2", "2.3.1.0", false),
+            CreateRuntimePackageFixture("MicrosoftCorporationII.WinAppRuntime.Singleton", "8002.3.1.0", false),
+            CreateRuntimePackageFixture("Microsoft.WinAppRuntime.DDLM.2.3.1.0-x6", "2.3.1.0", false)
+        };
+
+        foreach (var role in new[] { "framework", "main", "singleton", "ddlm" })
+        {
+            var missing = fixture
+                .Where(package => package.Name != GetFixtureNameForRole(role, packages))
+                .ToArray();
+            var result = RunRuntimeProbe(probePath, packages, missing);
+            Assert.AreNotEqual(0, result.ExitCode, $"Missing {role} was accepted: {result.Output}");
+        }
+
+        var missingSingleton = fixture
+            .Where(package => package.Name != "MicrosoftCorporationII.WinAppRuntime.Singleton")
+            .ToArray();
+        var missingSingletonResult = RunRuntimeProbe(probePath, packages, missingSingleton);
+        Assert.AreNotEqual(0, missingSingletonResult.ExitCode);
+
+        var invalidStatus = fixture.Select(package => package with
+        {
+            Status = package.Name == "MicrosoftCorporationII.WinAppRuntime.Singleton" ? "Error" : package.Status
+        }).ToArray();
+        var invalidStatusResult = RunRuntimeProbe(probePath, packages, invalidStatus);
+        Assert.AreNotEqual(0, invalidStatusResult.ExitCode);
+
+        var malformedResult = RunRuntimeProbe(probePath, packages, packageJson: "{");
+        Assert.AreNotEqual(0, malformedResult.ExitCode);
+    }
+
+    private static string GetFixtureNameForRole(string role, JsonElement packages)
+    {
+        return role == "ddlm"
+            ? "Microsoft.WinAppRuntime.DDLM.2.3.1.0-x6"
+            : packages.GetProperty(role).GetProperty("name").GetString()!;
+    }
+
+    private static RuntimePackageFixture CreateRuntimePackageFixture(
+        string name,
+        string version,
+        bool isFramework)
+    {
+        return new RuntimePackageFixture(
+            name,
+            version,
+            "X64",
+            "Ok",
+            "8wekyb3d8bbwe",
+            $"{name}_{version}_x64__8wekyb3d8bbwe",
+            $"{name}_8wekyb3d8bbwe",
+            isFramework,
+            false,
+            false,
+            false,
+            false);
+    }
+
+    private static ProbeResult RunRuntimeProbe(
+        string probePath,
+        JsonElement packages,
+        params RuntimePackageFixture[] fixture)
+    {
+        return RunRuntimeProbe(probePath, packages, fixture, null);
+    }
+
+    private static ProbeResult RunRuntimeProbe(
+        string probePath,
+        JsonElement packages,
+        RuntimePackageFixture[]? fixture = null,
+        string? packageJson = null)
+    {
+        var config = JsonDocument.Parse(File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Installer", "windows-app-runtime.json"))).RootElement;
+        packageJson ??= JsonSerializer.Serialize(fixture ?? Array.Empty<RuntimePackageFixture>());
+        var powershell = Environment.GetEnvironmentVariable("ComSpec") is { Length: > 0 }
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe")
+            : "powershell.exe";
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = powershell,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        foreach (var argument in new[]
+        {
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy", "Bypass",
+            "-File", probePath,
+            "-Architecture", config.GetProperty("architecture").GetString()!,
+            "-PublisherId", config.GetProperty("publisherId").GetString()!,
+            "-FrameworkName", packages.GetProperty("framework").GetProperty("name").GetString()!,
+            "-FrameworkMinimumVersion", packages.GetProperty("framework").GetProperty("minimumVersion").GetString()!,
+            "-MainName", packages.GetProperty("main").GetProperty("name").GetString()!,
+            "-MainMinimumVersion", packages.GetProperty("main").GetProperty("minimumVersion").GetString()!,
+            "-SingletonName", packages.GetProperty("singleton").GetProperty("name").GetString()!,
+            "-SingletonMinimumVersion", packages.GetProperty("singleton").GetProperty("minimumVersion").GetString()!,
+            "-DdlmNamePattern", packages.GetProperty("ddlm").GetProperty("namePattern").GetString()!,
+            "-DdlmMinimumVersion", packages.GetProperty("ddlm").GetProperty("minimumVersion").GetString()!,
+            "-PackageJson", packageJson
+        })
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        using var process = Process.Start(startInfo)!;
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        return new ProbeResult(process.ExitCode, output + error);
+    }
+
+    private sealed record RuntimePackageFixture(
+        string Name,
+        string Version,
+        string Architecture,
+        string Status,
+        string PublisherId,
+        string PackageFullName,
+        string PackageFamilyName,
+        bool IsFramework,
+        bool IsPartiallyStaged,
+        bool IsDevelopmentMode,
+        bool IsResourcePackage,
+        bool IsBundle);
+
+    private sealed record ProbeResult(int ExitCode, string Output);
 }

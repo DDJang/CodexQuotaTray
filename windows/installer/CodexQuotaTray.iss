@@ -17,11 +17,53 @@
 #ifndef PublishDir
   #define PublishDir "{#RepoRoot}\target\winui-publish"
 #endif
-#ifndef WindowsAppRuntimeInstaller
-  #error WindowsAppRuntimeInstaller must be supplied by windows/scripts/package-inno.ps1
+#ifndef WindowsAppRuntimeVersion
+  #error WindowsAppRuntimeVersion must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeArchitecture
+  #error WindowsAppRuntimeArchitecture must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeFileName
+  #error WindowsAppRuntimeFileName must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeDownloadUrl
+  #error WindowsAppRuntimeDownloadUrl must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeSha256
+  #error WindowsAppRuntimeSha256 must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeProbeScript
+  #error WindowsAppRuntimeProbeScript must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimePublisherId
+  #error WindowsAppRuntimePublisherId must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeFrameworkName
+  #error WindowsAppRuntimeFrameworkName must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeFrameworkMinimumVersion
+  #error WindowsAppRuntimeFrameworkMinimumVersion must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeMainName
+  #error WindowsAppRuntimeMainName must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeMainMinimumVersion
+  #error WindowsAppRuntimeMainMinimumVersion must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeSingletonName
+  #error WindowsAppRuntimeSingletonName must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeSingletonMinimumVersion
+  #error WindowsAppRuntimeSingletonMinimumVersion must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeDdlmNamePattern
+  #error WindowsAppRuntimeDdlmNamePattern must be supplied by windows/scripts/package-inno.ps1
+#endif
+#ifndef WindowsAppRuntimeDdlmMinimumVersion
+  #error WindowsAppRuntimeDdlmMinimumVersion must be supplied by windows/scripts/package-inno.ps1
 #endif
 
-#define WindowsAppRuntimeInstallerFileName "WindowsAppRuntimeInstall-x64.exe"
+#define WindowsAppRuntimeProbeFileName "CodexQuotaTray-WindowsAppRuntimeProbe.ps1"
 
 [Setup]
 AppId={{8F5D1A9B-2B4B-4A17-9D1E-8DAB4D2C4E61}
@@ -57,7 +99,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 Name: "autostart"; Description: "登录 Windows 时自动启动 CodexQuotaTray"; GroupDescription: "启动选项："
 
 [Files]
-Source: "{#WindowsAppRuntimeInstaller}"; DestDir: "{tmp}"; DestName: "{#WindowsAppRuntimeInstallerFileName}"; Flags: dontcopy
+Source: "{#WindowsAppRuntimeProbeScript}"; DestDir: "{tmp}"; DestName: "{#WindowsAppRuntimeProbeFileName}"; Flags: dontcopy
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Excludes: "*.pdb"; Flags: ignoreversion restartreplace recursesubdirs createallsubdirs
 Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#RepoRoot}\README.md"; DestDir: "{app}"; Flags: ignoreversion
@@ -115,6 +157,68 @@ begin
     DelTree(ExpandConstant('{localappdata}\CodexQuotaTray'), True, True, True);
 end;
 
+function IsWindowsAppRuntimeReady(): Boolean;
+var
+  PowerShellPath: String;
+  ProbePath: String;
+  ProbeParams: String;
+  ProbeExitCode: Integer;
+  ProbeOutput: TExecOutput;
+begin
+  Result := False;
+  try
+    ProbePath := ExpandConstant('{tmp}\{#WindowsAppRuntimeProbeFileName}');
+    ExtractTemporaryFile('{#WindowsAppRuntimeProbeFileName}');
+    if not FileExists(ProbePath) then begin
+      Log('Windows App Runtime probe script was not extracted.');
+      exit;
+    end;
+
+    PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+    ProbeParams := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ProbePath + '"' +
+      ' -Architecture "{#WindowsAppRuntimeArchitecture}"' +
+      ' -PublisherId "{#WindowsAppRuntimePublisherId}"' +
+      ' -FrameworkName "{#WindowsAppRuntimeFrameworkName}"' +
+      ' -FrameworkMinimumVersion "{#WindowsAppRuntimeFrameworkMinimumVersion}"' +
+      ' -MainName "{#WindowsAppRuntimeMainName}"' +
+      ' -MainMinimumVersion "{#WindowsAppRuntimeMainMinimumVersion}"' +
+      ' -SingletonName "{#WindowsAppRuntimeSingletonName}"' +
+      ' -SingletonMinimumVersion "{#WindowsAppRuntimeSingletonMinimumVersion}"' +
+      ' -DdlmNamePattern "{#WindowsAppRuntimeDdlmNamePattern}"' +
+      ' -DdlmMinimumVersion "{#WindowsAppRuntimeDdlmMinimumVersion}"';
+
+    if not ExecAndCaptureOutputWithNativeSysDir(
+      PowerShellPath,
+      ProbeParams,
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ProbeExitCode,
+      ProbeOutput
+    ) then begin
+      Log('Windows App Runtime probe could not start.');
+      exit;
+    end;
+
+    if ProbeOutput.Error or (ProbeExitCode <> 0) then begin
+      Log('Windows App Runtime probe did not confirm a ready runtime.');
+      exit;
+    end;
+    if GetArrayLength(ProbeOutput.StdErr) <> 0 then begin
+      Log('Windows App Runtime probe wrote unexpected error output.');
+      exit;
+    end;
+    if GetArrayLength(ProbeOutput.StdOut) <> 1 then begin
+      Log('Windows App Runtime probe returned unexpected output.');
+      exit;
+    end;
+
+    Result := CompareText(Trim(ProbeOutput.StdOut[0]), 'READY') = 0;
+  except
+    Log('Windows App Runtime probe failed: ' + GetExceptionMessage);
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ShutdownProcessId: Integer;
@@ -140,10 +244,32 @@ begin
     end;
   end;
 
-  RuntimeInstallerPath := ExpandConstant('{tmp}\{#WindowsAppRuntimeInstallerFileName}');
-  ExtractTemporaryFile('{#WindowsAppRuntimeInstallerFileName}');
+  if IsWindowsAppRuntimeReady() then begin
+    Log('Windows App Runtime is already ready; skipping runtime download.');
+    exit;
+  end;
+
+  Log('Windows App Runtime is missing or incomplete; downloading the pinned Microsoft installer.');
+  try
+    DownloadTemporaryFile(
+      '{#WindowsAppRuntimeDownloadUrl}',
+      '{#WindowsAppRuntimeFileName}',
+      '{#WindowsAppRuntimeSha256}',
+      nil
+    );
+  except
+    Result := '无法下载 Windows App Runtime，CodexQuotaTray 未完成安装。' + #13#10 +
+      GetExceptionMessage;
+    exit;
+  end;
+
+  RuntimeInstallerPath := ExpandConstant('{tmp}\{#WindowsAppRuntimeFileName}');
   if not FileExists(RuntimeInstallerPath) then begin
-    Result := 'Windows App Runtime 安装失败，CodexQuotaTray 未完成安装。';
+    Result := 'Windows App Runtime 下载未生成安装文件，CodexQuotaTray 未完成安装。';
+    exit;
+  end;
+  if CompareText(GetSHA256OfFile(RuntimeInstallerPath), '{#WindowsAppRuntimeSha256}') <> 0 then begin
+    Result := 'Windows App Runtime SHA-256 校验失败，CodexQuotaTray 未完成安装。';
     exit;
   end;
   if not Exec(
@@ -154,11 +280,16 @@ begin
     ewWaitUntilTerminated,
     RuntimeExitCode
   ) then begin
-    Result := 'Windows App Runtime 安装失败，CodexQuotaTray 未完成安装。';
+    Result := 'Windows App Runtime 安装程序启动失败（' + SysErrorMessage(RuntimeExitCode) +
+      '），CodexQuotaTray 未完成安装。';
     exit;
   end;
   if RuntimeExitCode <> 0 then begin
     Result := 'Windows App Runtime 安装失败（退出码 ' + IntToStr(RuntimeExitCode) +
       '），CodexQuotaTray 未完成安装。';
+    exit;
+  end;
+  if not IsWindowsAppRuntimeReady() then begin
+    Result := 'Windows App Runtime 安装后复检未通过，CodexQuotaTray 未完成安装。';
   end;
 end;

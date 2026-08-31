@@ -5,6 +5,33 @@
   "sourceUrl": "https://aka.ms/windowsappsdk/2.3/2.3.1/windowsappruntimeinstall-x64.exe",
   "downloadUrl": "https://download.microsoft.com/download/cbb0f858-7923-48f0-bc2e-ba8ae187b65c/WindowsAppRuntimeInstall-x64.exe",
   "sha256": "4011748DDF472B7E856D909FDFB4E9B19C3D23FCD8121039AC91F99D5FFA65DB",
+  "publisherId": "8wekyb3d8bbwe",
+  "packages": {
+    "framework": {
+      "name": "Microsoft.WindowsAppRuntime.2",
+      "minimumVersion": "2.3.1.0",
+      "architecture": "x64",
+      "isFramework": true
+    },
+    "main": {
+      "name": "MicrosoftCorporationII.WinAppRuntime.Main.2",
+      "minimumVersion": "2.3.1.0",
+      "architecture": "x64",
+      "isFramework": false
+    },
+    "singleton": {
+      "name": "MicrosoftCorporationII.WinAppRuntime.Singleton",
+      "minimumVersion": "8002.3.1.0",
+      "architecture": "x64",
+      "isFramework": false
+    },
+    "ddlm": {
+      "namePattern": "Microsoft.WinAppRuntime.DDLM.2.3.*-x6",
+      "minimumVersion": "2.3.1.0",
+      "architecture": "x64",
+      "isFramework": false
+    }
+  },
   "authenticode": {
     "subject": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
     "issuer": "CN=Microsoft Code Signing PCA 2024, O=Microsoft Corporation, C=US",

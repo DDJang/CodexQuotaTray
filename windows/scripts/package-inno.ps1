@@ -80,6 +80,9 @@ try {
         throw "Windows App Runtime acquisition returned no validated installer path"
     }
     $runtimeInstallerPath = [IO.Path]::GetFullPath([string]$runtimeInfo[0].Path)
+    if (-not (Test-Path -LiteralPath $runtimeInstallerPath -PathType Leaf)) {
+        throw "Windows App Runtime acquisition returned a missing installer path"
+    }
 
     [xml]$packagesProps = Get-Content -LiteralPath (Join-Path $windowsRootPath "Directory.Packages.props") -Raw
     $windowsAppSdkVersionNode = $packagesProps.SelectSingleNode(
@@ -90,6 +93,14 @@ try {
     $windowsAppSdkVersion = ([string]$windowsAppSdkVersionNode.Value).Trim()
     if ($windowsAppSdkVersion -cne ([string]$runtimeInfo[0].Version).Trim()) {
         throw "Microsoft.WindowsAppSDK version $windowsAppSdkVersion does not match Windows App Runtime version $($runtimeInfo[0].Version)"
+    }
+    $runtimePackageMetadata = $runtimeInfo[0].PackageMetadata
+    if ($null -eq $runtimePackageMetadata) {
+        throw "Windows App Runtime acquisition returned no validated package metadata"
+    }
+    $probeScript = Join-Path $windowsRootPath "scripts\probe-windows-app-runtime.ps1"
+    if (-not (Test-Path -LiteralPath $probeScript -PathType Leaf)) {
+        throw "Windows App Runtime probe script is missing: $probeScript"
     }
 
     if (-not $SkipPublish) {
@@ -103,7 +114,29 @@ try {
 
     New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
     $iss = Join-Path $windowsRootPath "installer\CodexQuotaTray.iss"
-    & $Iscc $iss "/DMyAppVersion=$version" "/DRepoRoot=$repoRootPath" "/DWindowsRoot=$windowsRootPath" "/DOutputDir=$outputRoot" "/DPublishDir=$publishRoot" "/DWindowsAppRuntimeInstaller=$runtimeInstallerPath"
+    $innoDefines = @(
+        "/DMyAppVersion=$version"
+        "/DRepoRoot=$repoRootPath"
+        "/DWindowsRoot=$windowsRootPath"
+        "/DOutputDir=$outputRoot"
+        "/DPublishDir=$publishRoot"
+        "/DWindowsAppRuntimeVersion=$($runtimeInfo[0].Version)"
+        "/DWindowsAppRuntimeArchitecture=$($runtimeInfo[0].Architecture)"
+        "/DWindowsAppRuntimeFileName=$($runtimeInfo[0].Filename)"
+        "/DWindowsAppRuntimeDownloadUrl=$($runtimeInfo[0].DownloadUrl)"
+        "/DWindowsAppRuntimeSha256=$($runtimeInfo[0].Sha256)"
+        "/DWindowsAppRuntimeProbeScript=$probeScript"
+        "/DWindowsAppRuntimePublisherId=$($runtimePackageMetadata.PublisherId)"
+        "/DWindowsAppRuntimeFrameworkName=$($runtimePackageMetadata.FrameworkName)"
+        "/DWindowsAppRuntimeFrameworkMinimumVersion=$($runtimePackageMetadata.FrameworkMinimumVersion)"
+        "/DWindowsAppRuntimeMainName=$($runtimePackageMetadata.MainName)"
+        "/DWindowsAppRuntimeMainMinimumVersion=$($runtimePackageMetadata.MainMinimumVersion)"
+        "/DWindowsAppRuntimeSingletonName=$($runtimePackageMetadata.SingletonName)"
+        "/DWindowsAppRuntimeSingletonMinimumVersion=$($runtimePackageMetadata.SingletonMinimumVersion)"
+        "/DWindowsAppRuntimeDdlmNamePattern=$($runtimePackageMetadata.DdlmNamePattern)"
+        "/DWindowsAppRuntimeDdlmMinimumVersion=$($runtimePackageMetadata.DdlmMinimumVersion)"
+    )
+    & $Iscc $iss @innoDefines
     if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed" }
 
     $artifact = Join-Path $outputRoot "CodexQuotaTray-$version-setup.exe"
