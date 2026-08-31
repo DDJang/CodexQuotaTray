@@ -131,7 +131,7 @@ function Assert-OfficialRuntimeConfig([pscustomobject]$Config) {
         }
         ddlm = @{
             NameProperty = "namePattern"
-            Name = "Microsoft.WinAppRuntime.DDLM.$($projectVersion.Major).$($projectVersion.Minor).*-x6"
+            Name = "Microsoft.WinAppRuntime.DDLM.$($projectVersion.Major).*-x6"
             MinimumVersion = "$version.0"
             IsFramework = $false
         }

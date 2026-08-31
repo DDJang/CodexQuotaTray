@@ -141,7 +141,7 @@ public sealed class AppIntegrationSourceTests
         Assert.AreEqual("2.3.1.0", packages.GetProperty("main").GetProperty("minimumVersion").GetString());
         Assert.AreEqual("MicrosoftCorporationII.WinAppRuntime.Singleton", packages.GetProperty("singleton").GetProperty("name").GetString());
         Assert.AreEqual("8002.3.1.0", packages.GetProperty("singleton").GetProperty("minimumVersion").GetString());
-        Assert.AreEqual("Microsoft.WinAppRuntime.DDLM.2.3.*-x6", packages.GetProperty("ddlm").GetProperty("namePattern").GetString());
+        Assert.AreEqual("Microsoft.WinAppRuntime.DDLM.2.*-x6", packages.GetProperty("ddlm").GetProperty("namePattern").GetString());
         Assert.AreEqual("2.3.1.0", packages.GetProperty("ddlm").GetProperty("minimumVersion").GetString());
         var authenticode = config.GetProperty("authenticode");
         StringAssert.Contains(authenticode.GetProperty("subject").GetString()!, "Microsoft Corporation");
@@ -832,8 +832,8 @@ public sealed class AppIntegrationSourceTests
             "8002.4.0.0",
             isFramework: false);
         var higherDdlm = CreateRuntimePackageFixture(
-            "Microsoft.WinAppRuntime.DDLM.2.3.2.0-x6",
-            "2.3.2.0",
+            "Microsoft.WinAppRuntime.DDLM.2.4.0.0-x6",
+            "2.4.0.0",
             isFramework: false);
 
         var higherResult = RunRuntimeProbe(
