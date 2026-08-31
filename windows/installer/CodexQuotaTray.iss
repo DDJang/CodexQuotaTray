@@ -174,7 +174,7 @@ begin
       exit;
     end;
 
-    PowerShellPath := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+    PowerShellPath := ExpandConstant('{sysnative}\WindowsPowerShell\v1.0\powershell.exe');
     ProbeParams := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + ProbePath + '"' +
       ' -Architecture "{#WindowsAppRuntimeArchitecture}"' +
       ' -PublisherId "{#WindowsAppRuntimePublisherId}"' +
@@ -187,7 +187,7 @@ begin
       ' -DdlmNamePattern "{#WindowsAppRuntimeDdlmNamePattern}"' +
       ' -DdlmMinimumVersion "{#WindowsAppRuntimeDdlmMinimumVersion}"';
 
-    if not ExecAndCaptureOutputWithNativeSysDir(
+    if not ExecAndCaptureOutput(
       PowerShellPath,
       ProbeParams,
       '',

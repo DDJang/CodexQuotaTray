@@ -733,7 +733,9 @@ public sealed class AppIntegrationSourceTests
         StringAssert.Contains(source, "DestName: \"{#WindowsAppRuntimeProbeFileName}\"");
         StringAssert.Contains(source, "Flags: dontcopy");
         StringAssert.Contains(source, "function IsWindowsAppRuntimeReady()");
-        StringAssert.Contains(source, "ExecAndCaptureOutputWithNativeSysDir");
+        StringAssert.Contains(source, "ExecAndCaptureOutput");
+        StringAssert.Contains(source, "{sysnative}\\WindowsPowerShell\\v1.0\\powershell.exe");
+        Assert.IsFalse(source.Contains("ExecAndCaptureOutputWithNativeSysDir", StringComparison.Ordinal));
         StringAssert.Contains(source, "-FrameworkName");
         StringAssert.Contains(source, "-MainName");
         StringAssert.Contains(source, "-SingletonName");
