@@ -263,8 +263,41 @@ public sealed class AppIntegrationSourceTests
         Assert.AreEqual("Codex 额度提醒", content.Title);
         StringAssert.Contains(content.Body, "5 小时额度已重置");
         StringAssert.Contains(content.Body, "当前剩余 未知");
-        StringAssert.Contains(content.Body, "下次重置时间为 未知");
+        StringAssert.Contains(content.Body, "下次重置时间待确认");
         Assert.IsFalse(content.Body.Contains("%", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ResetNotificationFormatterNeverUsesPastObservedResetAtAsNextReset()
+    {
+        var pastResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var alert = QuotaAlert.ForReset(
+        [
+            new QuotaResetWindow("5 小时额度", 96, pastResetAt),
+        ]);
+
+        var content = QuotaNotificationFormatter.Format(alert);
+
+        StringAssert.Contains(content.Body, "下次重置时间待确认");
+        Assert.IsFalse(
+            content.Body.Contains(pastResetAt.ToLocalTime().ToString("M月d日 HH:mm"), StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ResetNotificationFormatterUsesExplicitFutureNextReset()
+    {
+        var observedResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var nextResetAt = new DateTimeOffset(2026, 9, 1, 23, 15, 0, TimeSpan.Zero);
+        var alert = QuotaAlert.ForReset(
+        [
+            new QuotaResetWindow("5 小时额度", 100, observedResetAt, nextResetAt),
+        ]);
+
+        var content = QuotaNotificationFormatter.Format(alert);
+
+        StringAssert.Contains(content.Body, $"下次重置时间为 {nextResetAt.ToLocalTime():M月d日 HH:mm}");
+        Assert.IsFalse(
+            content.Body.Contains(observedResetAt.ToLocalTime().ToString("M月d日 HH:mm"), StringComparison.Ordinal));
     }
 
     [TestMethod]

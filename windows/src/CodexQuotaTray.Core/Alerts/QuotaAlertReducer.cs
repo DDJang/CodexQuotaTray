@@ -19,7 +19,8 @@ public sealed record QuotaThresholdWindow(
 public sealed record QuotaResetWindow(
     string WindowName,
     int? RemainingPercent,
-    DateTimeOffset? ResetAtUtc);
+    DateTimeOffset? ResetAtUtc,
+    DateTimeOffset? NextResetAtUtc = null);
 
 public sealed record QuotaResetCreditExpiry(
     string Fingerprint,
@@ -256,7 +257,10 @@ public static class QuotaAlertReducer
                     resetAlerts.Add(new QuotaResetWindow(
                         input.WindowName,
                         currentRemaining,
-                        input.ResetAtUtc));
+                        input.ResetAtUtc,
+                        input.ResetAtUtc is { } nextResetAt && nextResetAt > now
+                            ? nextResetAt
+                            : null));
                 }
             }
 
@@ -548,8 +552,10 @@ public static class QuotaAlertReducer
             .ToArray();
         var metadataCatchUp = advanceEvidence.Length > 0
             && advanceEvidence.All(value => value.MetadataCatchUp);
-        var rawResetDetected = deadlineCrossed
-            || (allowRecovery && cumulativeRecovery)
+        // Crossing the previous deadline only means that the old cycle is
+        // awaiting confirmation. It is not positive evidence that a reset
+        // happened, because the source may still be serving the old snapshot.
+        var rawResetDetected = (allowRecovery && cumulativeRecovery)
             || (cumulativeResetAtAdvance && !metadataCatchUp);
         var reference = evidence.FirstOrDefault(value => value.DeadlineCrossed)
             ?? (allowRecovery
@@ -735,8 +741,7 @@ public static class QuotaAlertReducer
             minRemaining = currentReliable ? currentRemaining : null;
             lastReliableRemaining = currentReliable ? currentRemaining : null;
             awaitingCycleMetadata = evaluation.CumulativeRecovery
-                && !evaluation.CumulativeResetAtAdvance
-                && !evaluation.DeadlineCrossed;
+                && !evaluation.CumulativeResetAtAdvance;
         }
         else if (evaluation.MetadataCatchUp)
         {

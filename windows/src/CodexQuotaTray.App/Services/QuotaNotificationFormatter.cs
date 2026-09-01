@@ -29,10 +29,17 @@ internal static class QuotaNotificationFormatter
         return new QuotaNotificationContent(title, body);
     }
 
-    private static string FormatResetAlert(IReadOnlyList<QuotaResetWindow> windows) =>
-        $"{string.Join("、", windows.Select(window => $"{window.WindowName}已重置"))}。当前剩余 "
-        + $"{string.Join("、", windows.Select(window => FormatRemaining(window.RemainingPercent)))}，下次重置时间为 "
-        + $"{string.Join("、", windows.Select(window => window.ResetAtUtc?.ToLocalTime().ToString("M月d日 HH:mm") ?? "未知"))}。";
+    private static string FormatResetAlert(IReadOnlyList<QuotaResetWindow> windows)
+    {
+        var nextResetLabels = windows
+            .Select(window => window.NextResetAtUtc?.ToLocalTime().ToString("M月d日 HH:mm") ?? "待确认")
+            .ToArray();
+        var nextReset = nextResetLabels.All(label => label == "待确认")
+            ? "待确认"
+            : $"为 {string.Join("、", nextResetLabels)}";
+        return $"{string.Join("、", windows.Select(window => $"{window.WindowName}已重置"))}。当前剩余 "
+            + $"{string.Join("、", windows.Select(window => FormatRemaining(window.RemainingPercent)))}，下次重置时间{nextReset}。";
+    }
 
     private static string FormatThresholdAlert(IReadOnlyList<QuotaThresholdWindow> windows)
     {

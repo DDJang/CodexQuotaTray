@@ -696,6 +696,62 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_StaleDeadlineSnapshotsDoNotNotifyUntilConfirmedNextCycle()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        await new SettingsService(store, paths).SaveAsync(
+            AppSettings.Defaults with { RefreshMode = RefreshMode.ManualOnly },
+            CancellationToken.None);
+        var clock = new ManualTimeProvider();
+        var client = new StaleThenConfirmedClient();
+        var persistence = new PreviewPersistence(store, paths);
+        var sink = new RecordingNotificationSink();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(store, paths),
+            persistence,
+            sink,
+            clock);
+
+        async Task RefreshAndWaitAsync()
+        {
+            _ = await service.RefreshAsync(CancellationToken.None);
+            await service.WaitForAlertEvaluationsAsync();
+        }
+
+        _ = await service.GetSnapshotAsync(CancellationToken.None);
+        await RefreshAndWaitAsync();
+
+        clock.Advance(TimeSpan.FromMinutes(13));
+        await RefreshAndWaitAsync();
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await RefreshAndWaitAsync();
+
+        var afterStaleSnapshots = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        Assert.IsNotNull(afterStaleSnapshots);
+        var staleWindow = afterStaleSnapshots!.Windows.Values.Single();
+        Assert.AreEqual(96, staleWindow.LastReliableRemaining);
+        Assert.AreEqual(StaleThenConfirmedClient.OldResetAtUtc, staleWindow.PendingResetDeadlineUtc);
+        Assert.IsNull(staleWindow.LastNotifiedResetDeadlineUtc);
+        Assert.IsEmpty(sink.Alerts);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await RefreshAndWaitAsync();
+
+        Assert.HasCount(1, sink.Alerts);
+        var alertWindow = sink.Alerts.Single().ResetWindows.Single();
+        Assert.AreEqual(100, alertWindow.RemainingPercent);
+        Assert.AreEqual(StaleThenConfirmedClient.NextResetAtUtc, alertWindow.ResetAtUtc);
+        Assert.AreEqual(StaleThenConfirmedClient.NextResetAtUtc, alertWindow.NextResetAtUtc);
+
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await RefreshAndWaitAsync();
+        Assert.HasCount(1, sink.Alerts);
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_NetworkRestoreAfterFailuresAndEmptySnapshotsEmitsOneResetAlert()
     {
         using var directory = new TemporaryDirectory();
@@ -2403,6 +2459,56 @@ public sealed class AppServerPhase2Tests
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class StaleThenConfirmedClient : ICodexAppServerClient
+    {
+        private int readCount;
+
+        public static DateTimeOffset OldResetAtUtc => DateTimeOffset.UnixEpoch.AddMinutes(10);
+        public static DateTimeOffset NextResetAtUtc => OldResetAtUtc.AddHours(5);
+        public int ReadCount => Volatile.Read(ref readCount);
+        public CodexDiagnosticSnapshot Diagnostics { get; } = new(CliFound: true, CliVersion: "9.99.0");
+
+        public Task<CodexSessionInfo> ConnectAsync(CancellationToken cancellationToken) =>
+            Task.FromResult(new CodexSessionInfo("9.99.0", "9.99.0"));
+
+        public Task<RateLimitsReadResult> ReadRateLimitsAsync(CancellationToken cancellationToken)
+        {
+            var currentRead = Interlocked.Increment(ref readCount);
+            return Task.FromResult(currentRead switch
+            {
+                1 => Snapshot(4, OldResetAtUtc),
+                2 or 3 => Snapshot(4, OldResetAtUtc),
+                _ => Snapshot(0, NextResetAtUtc),
+            });
+        }
+
+        public async IAsyncEnumerable<RateLimitsUpdatedNotification> ReadNotificationsAsync(
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            yield break;
+        }
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+        private static RateLimitsReadResult Snapshot(long usedPercent, DateTimeOffset resetAtUtc) =>
+            new(
+                new RateLimitsResponse
+                {
+                    RateLimits = new RateLimitSnapshot
+                    {
+                        LimitId = "stale-confirmed-window",
+                        Primary = new RateLimitWindow
+                        {
+                            UsedPercent = usedPercent,
+                            WindowDurationMinutes = 300,
+                            ResetsAt = resetAtUtc.ToUnixTimeSeconds(),
+                        },
+                    },
+                },
+                false);
     }
 
     private sealed class BlockingNotificationSink : IQuotaNotificationSink
