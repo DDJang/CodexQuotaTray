@@ -77,29 +77,228 @@ public sealed class WindowsResetAlertAtLeastOnceTests
     }
 
     [TestMethod]
-    public void PastDeadlineEmitsWithoutARecoveryJump()
+    public void ResetAtAdvanceThenRecoveryDoesNotDuplicateSameReset()
+    {
+        var oldResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var newResetAt = new DateTimeOffset(2026, 9, 1, 23, 11, 0, TimeSpan.Zero);
+        var baseline = Reduce(
+            null,
+            [Window("5h", 300, 20, oldResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 0, 0, TimeSpan.Zero));
+        var metadataFirst = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 14, 0, TimeSpan.Zero));
+        var percentageSettlement = Reduce(
+            metadataFirst.State,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 15, 0, TimeSpan.Zero));
+        var repeatedSettlement = Reduce(
+            percentageSettlement.State,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 16, 0, TimeSpan.Zero));
+
+        AssertReset(metadataFirst, "5h", 20, newResetAt);
+        Assert.IsTrue(metadataFirst.ResetDiagnostics.Single().DeadlineCrossed);
+        Assert.IsTrue(metadataFirst.ResetDiagnostics.Single().CumulativeResetAtAdvance);
+        Assert.IsFalse(metadataFirst.ResetDiagnostics.Single().CumulativeRecovery);
+        Assert.IsNull(percentageSettlement.Alert);
+        Assert.IsTrue(percentageSettlement.ResetDiagnostics.Single().CumulativeRecovery);
+        Assert.IsFalse(percentageSettlement.ResetDiagnostics.Single().ResetDetected);
+        Assert.IsNull(repeatedSettlement.Alert);
+    }
+
+    [TestMethod]
+    public async Task RestartBetweenResetAtAdvanceAndPercentageSettlementDoesNotDuplicate()
+    {
+        var oldResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var newResetAt = new DateTimeOffset(2026, 9, 1, 23, 11, 0, TimeSpan.Zero);
+        var baseline = Reduce(
+            null,
+            [Window("5h", 300, 20, oldResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 0, 0, TimeSpan.Zero));
+        var metadataFirst = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 14, 0, TimeSpan.Zero));
+
+        using var directory = new TestDirectory();
+        var persistence = new PreviewPersistence(new JsonFileStore(), new PreviewDataPaths(directory.Path));
+        await persistence.SaveAlertStateAsync(metadataFirst.State, CancellationToken.None);
+        var restored = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        var percentageSettlement = Reduce(
+            restored,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 15, 0, TimeSpan.Zero));
+        var repeatedSettlement = Reduce(
+            percentageSettlement.State,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 16, 0, TimeSpan.Zero));
+
+        Assert.IsNotNull(restored);
+        Assert.IsTrue(restored!.Windows["5h"].ResetAlertAwaitingPercentageSettlement);
+        Assert.IsNull(percentageSettlement.Alert);
+        Assert.IsFalse(percentageSettlement.State.Windows["5h"].ResetAlertAwaitingPercentageSettlement);
+        Assert.AreEqual(100, percentageSettlement.State.Windows["5h"].MinRemainingPercentSinceBaseline);
+        Assert.IsNull(repeatedSettlement.Alert);
+    }
+
+    [TestMethod]
+    public void FailedResetAtAdvanceDeliveryStillRetries()
+    {
+        var oldResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var newResetAt = new DateTimeOffset(2026, 9, 1, 23, 11, 0, TimeSpan.Zero);
+        var baseline = Reduce(
+            null,
+            [Window("5h", 300, 20, oldResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 0, 0, TimeSpan.Zero));
+        var failedAttempt = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 14, 0, TimeSpan.Zero));
+        var retriedAttempt = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 15, 0, TimeSpan.Zero));
+
+        AssertReset(failedAttempt, "5h", 20, newResetAt);
+        AssertReset(retriedAttempt, "5h", 20, newResetAt);
+        Assert.IsNull(baseline.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
+        Assert.IsFalse(baseline.State.Windows["5h"].ResetAlertAwaitingPercentageSettlement);
+    }
+
+    [TestMethod]
+    public void NextCycleRecoveryStillEmitsAfterPreviousSettlement()
+    {
+        var oldResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var newResetAt = new DateTimeOffset(2026, 9, 1, 23, 11, 0, TimeSpan.Zero);
+        var baseline = Reduce(
+            null,
+            [Window("5h", 300, 20, oldResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 0, 0, TimeSpan.Zero));
+        var metadataFirst = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 14, 0, TimeSpan.Zero));
+        var settled = Reduce(
+            metadataFirst.State,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 15, 0, TimeSpan.Zero));
+        var nextCycleLow = Reduce(
+            settled.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 23, 15, 0, TimeSpan.Zero));
+        var nextCycleRecovery = Reduce(
+            nextCycleLow.State,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 23, 16, 0, TimeSpan.Zero));
+
+        AssertReset(metadataFirst, "5h", 20, newResetAt);
+        Assert.IsNull(settled.Alert);
+        Assert.IsFalse(settled.State.Windows["5h"].ResetAlertAwaitingPercentageSettlement);
+        Assert.IsTrue(nextCycleLow.Alert is null || nextCycleLow.Alert.ResetWindows.Count == 0);
+        AssertReset(nextCycleRecovery, "5h", 100, newResetAt);
+    }
+
+    [TestMethod]
+    public void ResetAtSettlementMarkerDoesNotSuppressNextCycleWhenSettlementWasNeverObserved()
+    {
+        var oldResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var newResetAt = new DateTimeOffset(2026, 9, 1, 23, 11, 0, TimeSpan.Zero);
+        var baseline = Reduce(
+            null,
+            [Window("5h", 300, 20, oldResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 0, 0, TimeSpan.Zero));
+        var metadataFirst = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 14, 0, TimeSpan.Zero));
+        var nextCycleLow = Reduce(
+            metadataFirst.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 23, 15, 0, TimeSpan.Zero));
+        var nextCycleRecovery = Reduce(
+            nextCycleLow.State,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 23, 16, 0, TimeSpan.Zero));
+
+        AssertReset(metadataFirst, "5h", 20, newResetAt);
+        Assert.IsTrue(metadataFirst.State.Windows["5h"].ResetAlertAwaitingPercentageSettlement);
+        Assert.IsNull(nextCycleLow.Alert);
+        Assert.IsTrue(nextCycleLow.ResetDiagnostics.Single().DeadlineCrossed);
+        Assert.IsFalse(nextCycleLow.ResetDiagnostics.Single().ResetDetected);
+        AssertReset(nextCycleRecovery, "5h", 100, newResetAt);
+    }
+
+    [TestMethod]
+    public void ResetAtJitterDuringPercentageSettlementDoesNotDuplicate()
+    {
+        var oldResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var confirmedResetAt = new DateTimeOffset(2026, 9, 1, 23, 11, 0, TimeSpan.Zero);
+        var jitteredResetAt = new DateTimeOffset(2026, 9, 1, 23, 15, 0, TimeSpan.Zero);
+        var baseline = Reduce(
+            null,
+            [Window("5h", 300, 20, oldResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 0, 0, TimeSpan.Zero));
+        var metadataFirst = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, confirmedResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 14, 0, TimeSpan.Zero));
+        var settled = Reduce(
+            metadataFirst.State,
+            [Window("5h", 300, 100, jitteredResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 15, 0, TimeSpan.Zero));
+        var repeatedSettlement = Reduce(
+            settled.State,
+            [Window("5h", 300, 100, jitteredResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 16, 0, TimeSpan.Zero));
+
+        AssertReset(metadataFirst, "5h", 20, confirmedResetAt);
+        Assert.IsTrue(settled.ResetDiagnostics.Single().CumulativeRecovery);
+        Assert.IsFalse(settled.ResetDiagnostics.Single().ResetDetected);
+        Assert.IsNull(settled.Alert);
+        Assert.IsFalse(settled.State.Windows["5h"].ResetAlertAwaitingPercentageSettlement);
+        Assert.AreEqual(jitteredResetAt, settled.State.Windows["5h"].BaselineResetAtUtc);
+        Assert.AreEqual(jitteredResetAt, settled.State.Windows["5h"].PendingResetDeadlineUtc);
+        Assert.IsNull(repeatedSettlement.Alert);
+    }
+
+    [TestMethod]
+    public void PastDeadlineOnlyWaitsForPositiveEvidence()
     {
         var resetAt = Now.AddHours(-1);
         var initial = Reduce(null, [Window("5h", 300, 20, resetAt)], Now.AddHours(-2));
         var caughtUp = Reduce(initial.State, [Window("5h", 300, 20, resetAt)], Now);
 
-        AssertReset(caughtUp, "5h", 20, resetAt);
+        Assert.IsNull(caughtUp.Alert);
         Assert.IsTrue(caughtUp.ResetDiagnostics.Single().DeadlineCrossed);
         Assert.IsFalse(caughtUp.ResetDiagnostics.Single().CumulativeRecovery);
+        Assert.IsFalse(caughtUp.ResetDiagnostics.Single().CumulativeResetAtAdvance);
+        Assert.IsFalse(caughtUp.ResetDiagnostics.Single().ResetDetected);
+        Assert.AreEqual(resetAt, caughtUp.State.Windows["5h"].PendingResetDeadlineUtc);
+        Assert.IsNull(caughtUp.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
     }
 
     [TestMethod]
-    public void OfflineCrossingIsCaughtUpByTheFirstSnapshotAfterReset()
+    public void OfflineCrossingPreservesEvidenceUntilConfirmedSnapshot()
     {
         var resetAt = Now.AddHours(-1);
         var beforeOffline = Reduce(null, [Window("5h", 300, 35, resetAt)], Now.AddHours(-2));
         var afterOffline = Reduce(beforeOffline.State, [Window("5h", 300, 25, resetAt)], Now);
+        var confirmedResetAt = resetAt.AddHours(5);
+        var confirmed = Reduce(
+            afterOffline.State,
+            [Window("5h", 300, 100, confirmedResetAt)],
+            Now.AddMinutes(1));
 
-        AssertReset(afterOffline, "5h", 25, resetAt);
+        Assert.IsNull(afterOffline.Alert);
+        Assert.AreEqual(resetAt, afterOffline.State.Windows["5h"].PendingResetDeadlineUtc);
+        AssertReset(confirmed, "5h", 100, confirmedResetAt);
+        Assert.AreEqual(confirmedResetAt, confirmed.Alert!.ResetWindows.Single().NextResetAtUtc);
     }
 
     [TestMethod]
-    public async Task RestartLoadsPendingDeadlineAndCatchesUp()
+    public async Task RestartLoadsPendingDeadlineWithoutFalseAlertAndCatchesUpOnConfirmation()
     {
         var resetAt = Now.AddHours(-1);
         var initial = Reduce(null, [Window("5h", 300, 20, resetAt)], Now.AddHours(-2));
@@ -108,11 +307,19 @@ public sealed class WindowsResetAlertAtLeastOnceTests
         await persistence.SaveAlertStateAsync(initial.State, CancellationToken.None);
 
         var restored = await persistence.LoadAlertStateAsync(CancellationToken.None);
-        var caughtUp = Reduce(restored, [Window("5h", 300, 20, resetAt)], Now);
+        var stale = Reduce(restored, [Window("5h", 300, 20, resetAt)], Now);
+        var confirmedResetAt = resetAt.AddHours(5);
+        var confirmed = Reduce(
+            stale.State,
+            [Window("5h", 300, 100, confirmedResetAt)],
+            Now.AddMinutes(1));
 
         Assert.IsNotNull(restored);
-        AssertReset(caughtUp, "5h", 20, resetAt);
-        Assert.AreEqual(resetAt, restored!.Windows["5h"].PendingResetDeadlineUtc);
+        Assert.IsNull(stale.Alert);
+        Assert.AreEqual(resetAt, stale.State.Windows["5h"].PendingResetDeadlineUtc);
+        Assert.IsNull(stale.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
+        AssertReset(confirmed, "5h", 100, confirmedResetAt);
+        Assert.AreEqual(confirmedResetAt, confirmed.Alert!.ResetWindows.Single().NextResetAtUtc);
     }
 
     [TestMethod]
@@ -124,6 +331,7 @@ public sealed class WindowsResetAlertAtLeastOnceTests
         var nextCycle = Reduce(initial.State, [Window("5h", 300, 25, nextDeadline)], Now);
 
         AssertReset(nextCycle, "5h", 25, nextDeadline);
+        Assert.IsNull(nextCycle.Alert!.ResetWindows.Single().NextResetAtUtc);
         Assert.AreEqual(oldDeadline, nextCycle.ResetDiagnostics.Single().PendingResetDeadlineUtc);
         Assert.AreEqual(
             nextCycle.State.Windows["5h"].PendingResetDeadlineUtc,
@@ -131,7 +339,7 @@ public sealed class WindowsResetAlertAtLeastOnceTests
     }
 
     [TestMethod]
-    public void MissingOrUnreliablePercentageStillCatchesUpPastDeadline()
+    public void MissingOrUnreliablePercentageNeedsResetAtAdvanceToConfirm()
     {
         var resetAt = Now.AddHours(-1);
         var initial = Reduce(null, [Window("5h", 300, 20, resetAt)], Now.AddHours(-2));
@@ -139,10 +347,18 @@ public sealed class WindowsResetAlertAtLeastOnceTests
             initial.State,
             [Window("5h", 300, null, resetAt, reliable: false)],
             Now);
+        var confirmedResetAt = resetAt.AddHours(5);
+        var confirmed = Reduce(
+            missing.State,
+            [Window("5h", 300, null, confirmedResetAt, reliable: false)],
+            Now.AddMinutes(1));
 
-        AssertReset(missing, "5h", null, resetAt);
+        Assert.IsNull(missing.Alert);
         Assert.IsTrue(missing.ResetDiagnostics.Single().DeadlineCrossed);
         Assert.IsNull(missing.ResetDiagnostics.Single().CurrentRemainingPercent);
+        Assert.IsFalse(missing.ResetDiagnostics.Single().ResetDetected);
+        AssertReset(confirmed, "5h", null, confirmedResetAt);
+        Assert.AreEqual(confirmedResetAt, confirmed.Alert!.ResetWindows.Single().NextResetAtUtc);
     }
 
     [TestMethod]
@@ -173,28 +389,29 @@ public sealed class WindowsResetAlertAtLeastOnceTests
     }
 
     [TestMethod]
-    public void SinkFailureModelDoesNotAcknowledgeAndNextEvaluationRetries()
+    public void SinkFailureModelDoesNotAcknowledgeConfirmedRecoveryAndNextEvaluationRetries()
     {
-        var resetAt = Now.AddHours(-1);
-        var initial = Reduce(null, [Window("5h", 300, 20, resetAt)], Now.AddHours(-2));
-        var attempted = Reduce(initial.State, [Window("5h", 300, 20, resetAt)], Now);
-        var retried = Reduce(initial.State, [Window("5h", 300, 20, resetAt)], Now.AddMinutes(1));
+        var resetAt = Now.AddHours(5);
+        var initial = Reduce(null, [Window("5h", 300, 20, resetAt)], Now);
+        var attempted = Reduce(initial.State, [Window("5h", 300, 100, resetAt)], Now.AddMinutes(1));
+        var retried = Reduce(initial.State, [Window("5h", 300, 100, resetAt)], Now.AddMinutes(2));
 
-        AssertReset(attempted, "5h", 20, resetAt);
-        AssertReset(retried, "5h", 20, resetAt);
+        AssertReset(attempted, "5h", 100, resetAt);
+        AssertReset(retried, "5h", 100, resetAt);
         Assert.IsNull(initial.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
         Assert.AreEqual(resetAt, attempted.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
+        Assert.AreEqual(resetAt, attempted.Alert!.ResetWindows.Single().NextResetAtUtc);
     }
 
     [TestMethod]
     public void SuccessfulAcknowledgementDeduplicatesTheSameSnapshot()
     {
-        var resetAt = Now.AddHours(-1);
-        var initial = Reduce(null, [Window("5h", 300, 20, resetAt)], Now.AddHours(-2));
-        var delivered = Reduce(initial.State, [Window("5h", 300, 20, resetAt)], Now);
-        var repeated = Reduce(delivered.State, [Window("5h", 300, 20, resetAt)], Now.AddMinutes(1));
+        var resetAt = Now.AddHours(5);
+        var initial = Reduce(null, [Window("5h", 300, 20, resetAt)], Now);
+        var delivered = Reduce(initial.State, [Window("5h", 300, 100, resetAt)], Now.AddMinutes(1));
+        var repeated = Reduce(delivered.State, [Window("5h", 300, 100, resetAt)], Now.AddMinutes(2));
 
-        AssertReset(delivered, "5h", 20, resetAt);
+        AssertReset(delivered, "5h", 100, resetAt);
         Assert.IsNull(repeated.Alert);
         Assert.AreEqual(resetAt, delivered.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
     }
@@ -203,6 +420,7 @@ public sealed class WindowsResetAlertAtLeastOnceTests
     public void FiveHourAndSevenDayWindowsResetIndependently()
     {
         var fiveHourReset = Now.AddHours(-1);
+        var fiveHourNextReset = fiveHourReset.AddHours(5);
         var sevenDayReset = Now.AddDays(-1);
         var initial = Reduce(
             null,
@@ -210,19 +428,22 @@ public sealed class WindowsResetAlertAtLeastOnceTests
             Now.AddHours(-2));
         var caughtUp = Reduce(
             initial.State,
-            [Window("5h", 300, 20, fiveHourReset), Window("7d", 10_080, 30, sevenDayReset)],
+            [Window("5h", 300, 100, fiveHourNextReset), Window("7d", 10_080, 30, sevenDayReset)],
             Now);
 
         Assert.AreEqual(QuotaAlertKind.Reset, caughtUp.Alert!.Kind);
-        Assert.HasCount(2, caughtUp.Alert.ResetWindows);
-        Assert.AreEqual(fiveHourReset, caughtUp.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
-        Assert.AreEqual(sevenDayReset, caughtUp.State.Windows["7d"].LastNotifiedResetDeadlineUtc);
+        Assert.HasCount(1, caughtUp.Alert.ResetWindows);
+        Assert.AreEqual("5h", caughtUp.Alert.ResetWindows.Single().WindowName);
+        Assert.AreEqual(fiveHourNextReset, caughtUp.State.Windows["5h"].ResetAtUtc);
+        Assert.AreEqual(fiveHourNextReset, caughtUp.Alert.ResetWindows.Single().NextResetAtUtc);
+        Assert.IsNull(caughtUp.State.Windows["7d"].LastNotifiedResetDeadlineUtc);
     }
 
     [TestMethod]
     public void ReorderedWindowsKeepIndependentState()
     {
         var fiveHourReset = Now.AddHours(-1);
+        var fiveHourNextReset = fiveHourReset.AddHours(5);
         var sevenDayReset = Now.AddDays(-1);
         var initial = Reduce(
             null,
@@ -230,13 +451,16 @@ public sealed class WindowsResetAlertAtLeastOnceTests
             Now.AddHours(-2));
         var reordered = Reduce(
             initial.State,
-            [Window("7d", 10_080, 20, sevenDayReset), Window("5h", 300, 20, fiveHourReset)],
+            [Window("7d", 10_080, 20, sevenDayReset), Window("5h", 300, 100, fiveHourNextReset)],
             Now);
 
-        Assert.HasCount(2, reordered.Alert!.ResetWindows);
+        Assert.AreEqual(QuotaAlertKind.Reset, reordered.Alert!.Kind);
+        Assert.HasCount(1, reordered.Alert.ResetWindows);
+        Assert.AreEqual("5h", reordered.Alert.ResetWindows.Single().WindowName);
         Assert.AreEqual(300, reordered.State.Windows["5h"].WindowDurationMinutes);
         Assert.AreEqual(10_080, reordered.State.Windows["7d"].WindowDurationMinutes);
-        CollectionAssert.AreEquivalent(new[] { "5h", "7d" }, reordered.Alert.ResetWindows.Select(window => window.WindowName).ToArray());
+        Assert.AreEqual(fiveHourNextReset, reordered.State.Windows["5h"].ResetAtUtc);
+        Assert.IsNull(reordered.State.Windows["7d"].LastNotifiedResetDeadlineUtc);
     }
 
     [TestMethod]
@@ -249,6 +473,7 @@ public sealed class WindowsResetAlertAtLeastOnceTests
         var secondCatchUp = Reduce(firstCatchUp.State, [Window("5h", 300, 20, nextDeadline)], Now.AddMinutes(1));
 
         AssertReset(firstCatchUp, "5h", 20, nextDeadline);
+        Assert.IsNull(firstCatchUp.Alert!.ResetWindows.Single().NextResetAtUtc);
         Assert.IsNull(secondCatchUp.Alert);
         Assert.AreEqual(nextDeadline, firstCatchUp.State.Windows["5h"].PendingResetDeadlineUtc);
         Assert.AreEqual(nextDeadline, firstCatchUp.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
@@ -307,7 +532,7 @@ public sealed class WindowsResetAlertAtLeastOnceTests
     }
 
     [TestMethod]
-    public void MigratedLegacyDeadlineRemainsCatchUpCapableAfterItPasses()
+    public void MigratedLegacyDeadlineWaitsForConfirmationAfterItPasses()
     {
         var resetAt = Now.AddHours(5);
         var startup = Reduce(
@@ -318,48 +543,170 @@ public sealed class WindowsResetAlertAtLeastOnceTests
             startup.State,
             [Window("5h", 300, 20, resetAt)],
             resetAt.AddMinutes(4));
+        var confirmedResetAt = resetAt.AddHours(5);
+        var confirmed = Reduce(
+            caughtUp.State,
+            [Window("5h", 300, 100, confirmedResetAt)],
+            resetAt.AddHours(4));
 
         Assert.IsNull(startup.Alert);
         Assert.IsTrue(startup.State.Windows["5h"].ResetAlertMigrationPending);
-        AssertReset(caughtUp, "5h", 20, resetAt);
+        Assert.IsNull(caughtUp.Alert);
+        Assert.IsTrue(caughtUp.State.Windows["5h"].ResetAlertMigrationPending);
+        AssertReset(confirmed, "5h", 100, confirmedResetAt);
+        Assert.AreEqual(confirmedResetAt, confirmed.Alert!.ResetWindows.Single().NextResetAtUtc);
     }
 
     [TestMethod]
-    public void LegacyPastDeadlineWithUnchangedSnapshotCatchesUpOnce()
+    public void LegacyPastDeadlineWithUnchangedSnapshotWaitsForConfirmation()
     {
         var resetAt = Now.AddHours(-1);
         var legacy = LegacyState(resetAt, remaining: 20);
         var caughtUp = Reduce(legacy, [Window("5h", 300, 20, resetAt)], Now);
+        var confirmedResetAt = resetAt.AddHours(5);
+        var confirmed = Reduce(
+            caughtUp.State,
+            [Window("5h", 300, 100, confirmedResetAt)],
+            Now.AddMinutes(1));
 
-        AssertReset(caughtUp, "5h", 20, resetAt);
-        Assert.IsFalse(caughtUp.State.Windows["5h"].ResetAlertMigrationPending);
-        Assert.AreEqual(resetAt, caughtUp.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
+        Assert.IsNull(caughtUp.Alert);
+        Assert.IsTrue(caughtUp.State.Windows["5h"].ResetAlertMigrationPending);
+        AssertReset(confirmed, "5h", 100, confirmedResetAt);
+        Assert.IsFalse(confirmed.State.Windows["5h"].ResetAlertMigrationPending);
     }
 
     [TestMethod]
-    public void SuccessfulLegacyPastDeadlineCatchUpDoesNotRepeat()
+    public void SuccessfulLegacyConfirmationDoesNotRepeat()
     {
         var resetAt = Now.AddHours(-1);
-        var caughtUp = Reduce(
-            LegacyState(resetAt, remaining: 20),
+        var legacy = LegacyState(resetAt, remaining: 20);
+        var stale = Reduce(
+            legacy,
             [Window("5h", 300, 20, resetAt)],
             Now);
-        var repeated = Reduce(caughtUp.State, [Window("5h", 300, 20, resetAt)], Now.AddMinutes(1));
+        var confirmedResetAt = resetAt.AddHours(5);
+        var caughtUp = Reduce(
+            stale.State,
+            [Window("5h", 300, 100, confirmedResetAt)],
+            Now.AddMinutes(1));
+        var repeated = Reduce(
+            caughtUp.State,
+            [Window("5h", 300, 100, confirmedResetAt)],
+            Now.AddMinutes(2));
 
-        AssertReset(caughtUp, "5h", 20, resetAt);
+        Assert.IsNull(stale.Alert);
+        AssertReset(caughtUp, "5h", 100, confirmedResetAt);
         Assert.IsNull(repeated.Alert);
     }
 
     [TestMethod]
-    public void LegacyPastDeadlineRetriesWhenNotificationStateIsNotCommitted()
+    public void LegacyConfirmedResetRetriesWhenNotificationStateIsNotCommitted()
     {
         var resetAt = Now.AddHours(-1);
         var legacy = LegacyState(resetAt, remaining: 20);
-        var attempted = Reduce(legacy, [Window("5h", 300, 20, resetAt)], Now);
-        var retried = Reduce(legacy, [Window("5h", 300, 20, resetAt)], Now.AddMinutes(1));
+        var confirmedResetAt = resetAt.AddHours(5);
+        var attempted = Reduce(
+            legacy,
+            [Window("5h", 300, 100, confirmedResetAt)],
+            Now);
+        var retried = Reduce(
+            legacy,
+            [Window("5h", 300, 100, confirmedResetAt)],
+            Now.AddMinutes(1));
 
-        AssertReset(attempted, "5h", 20, resetAt);
-        AssertReset(retried, "5h", 20, resetAt);
+        AssertReset(attempted, "5h", 100, confirmedResetAt);
+        AssertReset(retried, "5h", 100, confirmedResetAt);
+    }
+
+    [TestMethod]
+    public void StaleDeadlineDoesNotNotifyUntilTheNextCycleIsConfirmed()
+    {
+        var oldResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var newResetAt = new DateTimeOffset(2026, 9, 1, 23, 15, 0, TimeSpan.Zero);
+        var baseline = Reduce(
+            null,
+            [Window("5h", 300, 96, oldResetAt)],
+            oldResetAt.AddMinutes(-5));
+        var staleAt1813 = Reduce(
+            baseline.State,
+            [Window("5h", 300, 96, oldResetAt)],
+            oldResetAt.AddMinutes(2));
+        var staleAt1814 = Reduce(
+            staleAt1813.State,
+            [Window("5h", 300, 96, oldResetAt)],
+            oldResetAt.AddMinutes(3));
+        var confirmed = Reduce(
+            staleAt1814.State,
+            [Window("5h", 300, 100, newResetAt)],
+            oldResetAt.AddMinutes(4));
+        var repeated = Reduce(
+            confirmed.State,
+            [Window("5h", 300, 100, newResetAt)],
+            oldResetAt.AddMinutes(5));
+
+        Assert.IsNull(staleAt1813.Alert);
+        Assert.IsNull(staleAt1814.Alert);
+        Assert.IsTrue(staleAt1814.ResetDiagnostics.Single().DeadlineCrossed);
+        Assert.IsFalse(staleAt1814.ResetDiagnostics.Single().ResetDetected);
+        Assert.AreEqual(oldResetAt, staleAt1814.State.Windows["5h"].PendingResetDeadlineUtc);
+        Assert.IsNull(staleAt1814.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
+        AssertReset(confirmed, "5h", 100, newResetAt);
+        Assert.AreEqual(newResetAt, confirmed.Alert!.ResetWindows.Single().NextResetAtUtc);
+        Assert.IsNull(repeated.Alert);
+    }
+
+    [TestMethod]
+    public void RecoveryAfterDeadlineAwaitsLaterCycleMetadataWithoutRepeatingReset()
+    {
+        var oldResetAt = Now.AddHours(-1);
+        var newResetAt = oldResetAt.AddHours(5);
+        var baseline = Reduce(null, [Window("5h", 300, 20, oldResetAt)], Now.AddHours(-2));
+        var recoveredWithStaleMetadata = Reduce(
+            baseline.State,
+            [Window("5h", 300, 100, oldResetAt)],
+            Now);
+        var metadataCatchUp = Reduce(
+            recoveredWithStaleMetadata.State,
+            [Window("5h", 300, 100, newResetAt)],
+            Now.AddMinutes(1));
+
+        AssertReset(recoveredWithStaleMetadata, "5h", 100, oldResetAt);
+        Assert.IsNull(recoveredWithStaleMetadata.Alert!.ResetWindows.Single().NextResetAtUtc);
+        Assert.IsTrue(recoveredWithStaleMetadata.State.Windows["5h"].ResetAlertAwaitingCycleMetadata);
+        Assert.IsNull(metadataCatchUp.Alert);
+        Assert.IsFalse(metadataCatchUp.State.Windows["5h"].ResetAlertAwaitingCycleMetadata);
+        Assert.AreEqual(newResetAt, metadataCatchUp.State.Windows["5h"].PendingResetDeadlineUtc);
+        Assert.AreEqual(newResetAt, metadataCatchUp.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
+    }
+
+    [TestMethod]
+    public void StaleDeadlineDoesNotEraseLowWatermarkOrFutureConfirmationEvidence()
+    {
+        var oldResetAt = Now.AddHours(-1);
+        var baseline = Reduce(null, [Window("5h", 300, 96, oldResetAt)], Now.AddHours(-2));
+        var stale = Reduce(baseline.State, [Window("5h", 300, 96, oldResetAt)], Now);
+
+        Assert.AreEqual(96, stale.State.Windows["5h"].MinRemainingPercentSinceBaseline);
+        Assert.AreEqual(96, stale.State.Windows["5h"].LastObservedRemainingPercent);
+        Assert.AreEqual(oldResetAt, stale.State.Windows["5h"].LastObservedResetAtUtc);
+        Assert.IsNull(stale.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
+    }
+
+    [TestMethod]
+    public void FormatterTimestampEvidenceIsExplicitlySeparatedFromObservedResetAt()
+    {
+        var oldResetAt = Now.AddHours(-1);
+        var reset = Reduce(
+            null,
+            [Window("5h", 300, 20, oldResetAt)],
+            Now.AddHours(-2));
+        var confirmed = Reduce(
+            reset.State,
+            [Window("5h", 300, 100, oldResetAt)],
+            Now);
+
+        AssertReset(confirmed, "5h", 100, oldResetAt);
+        Assert.IsNull(confirmed.Alert!.ResetWindows.Single().NextResetAtUtc);
     }
 
     [TestMethod]
@@ -383,7 +730,7 @@ public sealed class WindowsResetAlertAtLeastOnceTests
         StringAssert.Contains(formatted, "deadlineCrossed=True");
         StringAssert.Contains(formatted, "cumulativeRecovery=False");
         StringAssert.Contains(formatted, "cumulativeResetAtAdvance=False");
-        StringAssert.Contains(formatted, "resetDetected=True");
+        StringAssert.Contains(formatted, "resetDetected=False");
         StringAssert.Contains(formatted, "resetCycleKey=");
         StringAssert.Contains(formatted, "notificationAttempted=False");
         StringAssert.Contains(formatted, "notificationSucceeded=False");
