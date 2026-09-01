@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.11.1",
-    "tag": "windows-v0.11.1",
+    "version": "0.11.2",
+    "tag": "windows-v0.11.2",
     "installer": {
-      "name": "CodexQuotaTray-0.11.1-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.1/CodexQuotaTray-0.11.1-setup.exe",
-      "sha256": "83a820efddf1a4e3412fc8dd587fdf9e8da88f0b8328593722f62f10ecbe5f64",
-      "size": 48557985
+      "name": "CodexQuotaTray-0.11.2-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.2/CodexQuotaTray-0.11.2-setup.exe",
+      "sha256": "d38c979faa3bdab8d2738d7840417e14113a344139cce27df90e5fe11c80aee1",
+      "size": 48550366
     },
-    "releaseNotes": "## Windows\r\n\r\n- 瘦身 Windows 安装器：不再把 Windows App Runtime 安装器打包进 `setup.exe`，只有在设备缺少兼容运行时时才从 Microsoft 官方地址按需下载。\r\n- 已满足运行时要求的设备会跳过下载；需要安装时会校验 SHA-256，下载或安装失败则不会继续安装 CodexQuotaTray。\r\n",
-    "publishedAt": "2026-08-31T06:37:09Z"
+    "releaseNotes": "## Windows\r\n\r\n- 改进额度重置提醒的确认逻辑：过期但仍未确认的旧额度快照不会误触发提醒，只有新的重置证据才会通知。\r\n- 修复重置时间先更新、额度百分比随后恢复时的重复提醒，并保留重启后的去重与通知失败重试能力。\r\n- 修复重置时间的小幅修正被误判为新周期的问题，同时确保下一真实周期仍能正常触发提醒。\r\n",
+    "publishedAt": "2026-09-01T16:18:58Z"
   },
   "android": {
     "version": "0.11.0",
