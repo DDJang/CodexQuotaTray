@@ -576,8 +576,14 @@ public static class QuotaAlertReducer
                         reference.State.LastResetAlertCycleUtc),
                 currentCycleKey,
                 StringComparison.Ordinal);
-        var percentageSettlement = currentCycleMatchesConsumedMarker
-            && reference.State.ResetAlertAwaitingPercentageSettlement
+        var effectiveDuration = input.WindowDurationMinutes ?? reference.EffectiveDurationMinutes;
+        var settlementCycleMatches = currentCycleMatchesConsumedMarker
+            || (input.ResetAtUtc is { } currentResetAt
+                && IsCycleMetadataCatchUp(reference.State, currentResetAt, effectiveDuration));
+        var percentageSettlement = reference.State.ResetAlertAwaitingPercentageSettlement
+            && reference.PendingResetDeadlineUtc is { } pendingSettlementDeadline
+            && now < pendingSettlementDeadline + ResetDeadlineGrace
+            && settlementCycleMatches
             && currentRemaining is >= RecoveryMinimum;
         var suppressAcknowledgedIdentity = currentCycleAlreadyAcknowledged
             && !deadlineCrossed
@@ -590,7 +596,6 @@ public static class QuotaAlertReducer
             && !suppressConsumedMarkerDuplicate
             && !suppressPercentageSettlementDuplicate
             && !(sameAcknowledgedCycle && !deadlineCrossed && !cumulativeRecovery);
-        var effectiveDuration = input.WindowDurationMinutes ?? reference.EffectiveDurationMinutes;
         return new ResetEvaluation(
             reference.State,
             currentRemaining,
@@ -761,6 +766,11 @@ public static class QuotaAlertReducer
             // reset the watermark so a future low/high excursion can still
             // confirm the next cycle when ResetAt metadata is stale.
             awaitingPercentageSettlement = false;
+            baselineResetAt = input.ResetAtUtc ?? baselineResetAt;
+            pendingResetDeadline = input.ResetAtUtc ?? pendingResetDeadline;
+            resetAlertCycle = input.ResetAtUtc ?? resetAlertCycle;
+            resetCycleFingerprint = CreateResetCycleKey(duration, input.ResetAtUtc)
+                ?? resetCycleFingerprint;
             minRemaining = currentReliable ? currentRemaining : minRemaining;
             lastReliableRemaining = currentReliable ? currentRemaining : lastReliableRemaining;
         }
