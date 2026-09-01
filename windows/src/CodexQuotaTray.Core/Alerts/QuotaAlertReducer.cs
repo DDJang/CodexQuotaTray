@@ -541,6 +541,7 @@ public static class QuotaAlertReducer
                 false,
                 null,
                 currentCycleAlreadyAcknowledged,
+                false,
                 currentDuration);
         }
 
@@ -575,14 +576,19 @@ public static class QuotaAlertReducer
                         reference.State.LastResetAlertCycleUtc),
                 currentCycleKey,
                 StringComparison.Ordinal);
+        var percentageSettlement = currentCycleMatchesConsumedMarker
+            && reference.State.ResetAlertAwaitingPercentageSettlement
+            && currentRemaining is >= RecoveryMinimum;
         var suppressAcknowledgedIdentity = currentCycleAlreadyAcknowledged
             && !deadlineCrossed
             && (identityChanged || identityUncertain);
         var suppressConsumedMarkerDuplicate = currentCycleMatchesConsumedMarker
             && (identityChanged || identityUncertain);
+        var suppressPercentageSettlementDuplicate = percentageSettlement && cumulativeRecovery;
         var resetDetected = rawResetDetected
             && !suppressAcknowledgedIdentity
             && !suppressConsumedMarkerDuplicate
+            && !suppressPercentageSettlementDuplicate
             && !(sameAcknowledgedCycle && !deadlineCrossed && !cumulativeRecovery);
         var effectiveDuration = input.WindowDurationMinutes ?? reference.EffectiveDurationMinutes;
         return new ResetEvaluation(
@@ -602,6 +608,7 @@ public static class QuotaAlertReducer
             resetDetected,
             CreateResetCycleKey(effectiveDuration, reference.PendingResetDeadlineUtc),
             currentCycleAlreadyAcknowledged,
+            percentageSettlement,
             effectiveDuration);
     }
 
@@ -679,6 +686,7 @@ public static class QuotaAlertReducer
         var resetAlertCycle = old?.LastResetAlertCycleUtc;
         var resetAlertConsumed = old is not null && IsLegacyCycleConsumed(old);
         var awaitingCycleMetadata = old?.ResetAlertAwaitingCycleMetadata ?? false;
+        var awaitingPercentageSettlement = old?.ResetAlertAwaitingPercentageSettlement ?? false;
         var resetCycleFingerprint = old?.LastResetAlertCycleFingerprint
             ?? CreateResetCycleKey(old?.WindowDurationMinutes, old?.LastResetAlertCycleUtc);
         var migratingLegacyState = old is not null && !HasExtendedResetState(old);
@@ -742,6 +750,19 @@ public static class QuotaAlertReducer
             lastReliableRemaining = currentReliable ? currentRemaining : null;
             awaitingCycleMetadata = evaluation.CumulativeRecovery
                 && !evaluation.CumulativeResetAtAdvance;
+            awaitingPercentageSettlement = evaluation.CumulativeResetAtAdvance
+                && !evaluation.CumulativeRecovery
+                && (currentRemaining is null or < RecoveryMinimum);
+        }
+        else if (evaluation.PercentageSettlement)
+        {
+            // A ResetAt advance already confirmed this cycle. The later
+            // recovery is only percentage settlement for that same cycle;
+            // reset the watermark so a future low/high excursion can still
+            // confirm the next cycle when ResetAt metadata is stale.
+            awaitingPercentageSettlement = false;
+            minRemaining = currentReliable ? currentRemaining : minRemaining;
+            lastReliableRemaining = currentReliable ? currentRemaining : lastReliableRemaining;
         }
         else if (evaluation.MetadataCatchUp)
         {
@@ -755,6 +776,7 @@ public static class QuotaAlertReducer
             resetAlertCycle = input.ResetAtUtc ?? resetAlertCycle;
             resetCycleFingerprint = CreateResetCycleKey(duration, input.ResetAtUtc) ?? resetCycleFingerprint;
             awaitingCycleMetadata = false;
+            awaitingPercentageSettlement = false;
         }
 
         if (markCurrentCycleAcknowledged && input.ResetAtUtc is { } currentCycle)
@@ -784,7 +806,8 @@ public static class QuotaAlertReducer
             minRemaining,
             lastObservedRemaining,
             lastObservedResetAt,
-            resetAlertMigrationPending);
+            resetAlertMigrationPending,
+            awaitingPercentageSettlement);
     }
 
     private static DateTimeOffset? BaselineResetAt(AlertWindowState state) =>
@@ -812,7 +835,8 @@ public static class QuotaAlertReducer
         || state.MinRemainingPercentSinceBaseline is not null
         || state.LastObservedRemainingPercent is not null
         || state.LastObservedResetAtUtc is not null
-        || state.ResetAlertMigrationPending;
+        || state.ResetAlertMigrationPending
+        || state.ResetAlertAwaitingPercentageSettlement;
 
     private static bool IsLegacyCycleConsumed(AlertWindowState state) =>
         state.ResetAlertCycleConsumed
@@ -939,6 +963,7 @@ public static class QuotaAlertReducer
         bool ResetDetected,
         string? ResetCycleKey,
         bool CurrentCycleAlreadyAcknowledged,
+        bool PercentageSettlement,
         long? EffectiveDurationMinutes)
     {
         public QuotaResetEvaluationDiagnostic ToDiagnostic(DateTimeOffset now) =>

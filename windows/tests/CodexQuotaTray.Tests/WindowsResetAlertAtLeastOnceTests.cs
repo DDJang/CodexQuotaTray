@@ -77,6 +77,130 @@ public sealed class WindowsResetAlertAtLeastOnceTests
     }
 
     [TestMethod]
+    public void ResetAtAdvanceThenRecoveryDoesNotDuplicateSameReset()
+    {
+        var oldResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var newResetAt = new DateTimeOffset(2026, 9, 1, 23, 11, 0, TimeSpan.Zero);
+        var baseline = Reduce(
+            null,
+            [Window("5h", 300, 20, oldResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 0, 0, TimeSpan.Zero));
+        var metadataFirst = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 14, 0, TimeSpan.Zero));
+        var percentageSettlement = Reduce(
+            metadataFirst.State,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 15, 0, TimeSpan.Zero));
+        var repeatedSettlement = Reduce(
+            percentageSettlement.State,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 16, 0, TimeSpan.Zero));
+
+        AssertReset(metadataFirst, "5h", 20, newResetAt);
+        Assert.IsTrue(metadataFirst.ResetDiagnostics.Single().DeadlineCrossed);
+        Assert.IsTrue(metadataFirst.ResetDiagnostics.Single().CumulativeResetAtAdvance);
+        Assert.IsFalse(metadataFirst.ResetDiagnostics.Single().CumulativeRecovery);
+        Assert.IsNull(percentageSettlement.Alert);
+        Assert.IsTrue(percentageSettlement.ResetDiagnostics.Single().CumulativeRecovery);
+        Assert.IsFalse(percentageSettlement.ResetDiagnostics.Single().ResetDetected);
+        Assert.IsNull(repeatedSettlement.Alert);
+    }
+
+    [TestMethod]
+    public async Task RestartBetweenResetAtAdvanceAndPercentageSettlementDoesNotDuplicate()
+    {
+        var oldResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var newResetAt = new DateTimeOffset(2026, 9, 1, 23, 11, 0, TimeSpan.Zero);
+        var baseline = Reduce(
+            null,
+            [Window("5h", 300, 20, oldResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 0, 0, TimeSpan.Zero));
+        var metadataFirst = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 14, 0, TimeSpan.Zero));
+
+        using var directory = new TestDirectory();
+        var persistence = new PreviewPersistence(new JsonFileStore(), new PreviewDataPaths(directory.Path));
+        await persistence.SaveAlertStateAsync(metadataFirst.State, CancellationToken.None);
+        var restored = await persistence.LoadAlertStateAsync(CancellationToken.None);
+        var percentageSettlement = Reduce(
+            restored,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 15, 0, TimeSpan.Zero));
+        var repeatedSettlement = Reduce(
+            percentageSettlement.State,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 16, 0, TimeSpan.Zero));
+
+        Assert.IsNotNull(restored);
+        Assert.IsTrue(restored!.Windows["5h"].ResetAlertAwaitingPercentageSettlement);
+        Assert.IsNull(percentageSettlement.Alert);
+        Assert.IsFalse(percentageSettlement.State.Windows["5h"].ResetAlertAwaitingPercentageSettlement);
+        Assert.AreEqual(100, percentageSettlement.State.Windows["5h"].MinRemainingPercentSinceBaseline);
+        Assert.IsNull(repeatedSettlement.Alert);
+    }
+
+    [TestMethod]
+    public void FailedResetAtAdvanceDeliveryStillRetries()
+    {
+        var oldResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var newResetAt = new DateTimeOffset(2026, 9, 1, 23, 11, 0, TimeSpan.Zero);
+        var baseline = Reduce(
+            null,
+            [Window("5h", 300, 20, oldResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 0, 0, TimeSpan.Zero));
+        var failedAttempt = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 14, 0, TimeSpan.Zero));
+        var retriedAttempt = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 15, 0, TimeSpan.Zero));
+
+        AssertReset(failedAttempt, "5h", 20, newResetAt);
+        AssertReset(retriedAttempt, "5h", 20, newResetAt);
+        Assert.IsNull(baseline.State.Windows["5h"].LastNotifiedResetDeadlineUtc);
+        Assert.IsFalse(baseline.State.Windows["5h"].ResetAlertAwaitingPercentageSettlement);
+    }
+
+    [TestMethod]
+    public void NextCycleRecoveryStillEmitsAfterPreviousSettlement()
+    {
+        var oldResetAt = new DateTimeOffset(2026, 9, 1, 18, 11, 0, TimeSpan.Zero);
+        var newResetAt = new DateTimeOffset(2026, 9, 1, 23, 11, 0, TimeSpan.Zero);
+        var baseline = Reduce(
+            null,
+            [Window("5h", 300, 20, oldResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 0, 0, TimeSpan.Zero));
+        var metadataFirst = Reduce(
+            baseline.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 14, 0, TimeSpan.Zero));
+        var settled = Reduce(
+            metadataFirst.State,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 18, 15, 0, TimeSpan.Zero));
+        var nextCycleLow = Reduce(
+            settled.State,
+            [Window("5h", 300, 20, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 23, 15, 0, TimeSpan.Zero));
+        var nextCycleRecovery = Reduce(
+            nextCycleLow.State,
+            [Window("5h", 300, 100, newResetAt)],
+            new DateTimeOffset(2026, 9, 1, 23, 16, 0, TimeSpan.Zero));
+
+        AssertReset(metadataFirst, "5h", 20, newResetAt);
+        Assert.IsNull(settled.Alert);
+        Assert.IsFalse(settled.State.Windows["5h"].ResetAlertAwaitingPercentageSettlement);
+        Assert.IsTrue(nextCycleLow.Alert is null || nextCycleLow.Alert.ResetWindows.Count == 0);
+        AssertReset(nextCycleRecovery, "5h", 100, newResetAt);
+    }
+
+    [TestMethod]
     public void PastDeadlineOnlyWaitsForPositiveEvidence()
     {
         var resetAt = Now.AddHours(-1);

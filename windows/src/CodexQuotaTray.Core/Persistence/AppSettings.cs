@@ -99,7 +99,8 @@ public sealed record AlertWindowState(
     int? MinRemainingPercentSinceBaseline = null,
     int? LastObservedRemainingPercent = null,
     DateTimeOffset? LastObservedResetAtUtc = null,
-    bool ResetAlertMigrationPending = false);
+    bool ResetAlertMigrationPending = false,
+    bool ResetAlertAwaitingPercentageSettlement = false);
 
 public sealed record ResetCreditAlertState(
     DateTimeOffset? LastSeenUtc = null,

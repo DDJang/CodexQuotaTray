@@ -1422,7 +1422,8 @@ public sealed class QuotaRuntimeService :
             && entry.Value.MinRemainingPercentSinceBaseline == other.MinRemainingPercentSinceBaseline
             && entry.Value.LastObservedRemainingPercent == other.LastObservedRemainingPercent
             && entry.Value.LastObservedResetAtUtc == other.LastObservedResetAtUtc
-            && entry.Value.ResetAlertMigrationPending == other.ResetAlertMigrationPending))
+            && entry.Value.ResetAlertMigrationPending == other.ResetAlertMigrationPending
+            && entry.Value.ResetAlertAwaitingPercentageSettlement == other.ResetAlertAwaitingPercentageSettlement))
         {
             return false;
         }
