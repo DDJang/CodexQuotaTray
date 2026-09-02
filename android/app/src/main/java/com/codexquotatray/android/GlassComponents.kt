@@ -61,7 +61,7 @@ import kotlin.math.tanh
 
 // Keep the refresh action equal to the short edge of the bottom navigation capsule.
 internal val glassActionButtonSize = 64.dp
-internal val glassRefreshIconSize = 28.dp
+internal val glassRefreshIconSize = 32.dp
 
 @Composable
 internal fun GlassSurface(

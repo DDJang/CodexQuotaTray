@@ -176,6 +176,19 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun updateStatusDisplayKeepsBusinessStatusAndAddsLastCheckTime() {
+        assertEquals("未检查", updateStatusDisplay("尚未检查", 0L, "尚未检查"))
+
+        val upToDate = updateStatusDisplay("已是最新版本 0.11.2", 1L, "09-02 14:32")
+        assertTrue(upToDate.contains("已是最新版本 0.11.2"))
+        assertTrue(upToDate.contains("上次检查时间为 09-02 14:32"))
+
+        val failed = updateStatusDisplay("检查更新失败：网络不可用", 2L, "09-02 14:33")
+        assertTrue(failed.contains("检查更新失败：网络不可用"))
+        assertTrue(failed.contains("上次检查时间为 09-02 14:33"))
+    }
+
+    @Test
     fun liquidActionButtonKeepsKyantGeometryAndBoundsOnlyVisualOffset() {
         assertEquals(
             Offset(48f, -48f),
@@ -212,8 +225,18 @@ class SettingsStructureTest {
         assertTrue(action.contains("palette.color(palette.accent)"))
         assertTrue(action.contains("CodexColors.danger"))
         assertTrue(action.contains("palette.color(palette.body)"))
+        assertTrue(action.contains("busy: Boolean = false"))
+        assertTrue(action.contains("CircularProgressIndicator("))
+        assertTrue(action.contains("Modifier.size(17.dp)"))
+        assertTrue(action.contains("color = contentColor"))
         assertTrue(action.contains(".height(SettingsUiTokens.actionHeight + topPadding + bottomPadding)"))
         assertFalse(action.contains("ButtonDefaults"))
+
+        val settingsActivity = sourceFile("SettingsActivity.kt")
+        assertTrue(settingsActivity.contains("label = \"检查更新\""))
+        assertTrue(settingsActivity.contains("busy = updateChecking"))
+        assertTrue(settingsActivity.contains("updateStatusDisplay("))
+        assertFalse(settingsActivity.contains("SettingsInfoRow(\"上次检查\""))
     }
 
     @Test
@@ -369,7 +392,7 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun glassRefreshActionMatchesBottomCapsuleAndSecondaryButtonsKeepOriginalSize() {
+    fun glassRefreshActionUsesPolishedSizesAndKeepsBottomGeometry() {
         val components = sourceFile("GlassComponents.kt")
         val main = sourceFile("MainActivity.kt")
         val settings = sourceFile("SettingsActivity.kt")
@@ -378,21 +401,25 @@ class SettingsStructureTest {
         val dock = components.substringAfter("internal fun LiquidMainDock(")
 
         assertTrue(components.contains("internal val glassActionButtonSize = 64.dp"))
-        assertTrue(components.contains("internal val glassRefreshIconSize = 28.dp"))
+        assertTrue(components.contains("internal val glassRefreshIconSize = 32.dp"))
         assertTrue(dock.contains("val actionSize = glassActionButtonSize"))
         assertTrue(dock.contains("val navigationHeight = glassActionButtonSize"))
         assertTrue(dock.contains("iconSize = glassRefreshIconSize"))
-        assertTrue(main.contains("buttonSize = 52.dp"))
+        assertTrue(main.contains("buttonSize = 48.dp"))
         assertTrue(main.contains("iconSize = 24.dp"))
-        assertTrue(settings.contains("buttonSize = 52.dp"))
+        assertTrue(settings.contains("buttonSize = 48.dp"))
         assertTrue(settings.contains("iconSize = 25.dp"))
-        assertTrue(settings.contains("Spacer(Modifier.size(52.dp))"))
-        assertTrue(codexUi.contains("buttonSize = 52.dp"))
+        assertTrue(settings.contains("Spacer(Modifier.size(48.dp))"))
+        assertTrue(codexUi.contains("buttonSize = 48.dp"))
         assertTrue(codexUi.contains("iconSize = 25.dp"))
-        assertTrue(codexUi.contains("Spacer(Modifier.size(52.dp))"))
-        assertTrue(about.contains("buttonSize = 52.dp"))
+        assertTrue(codexUi.contains("Spacer(Modifier.size(48.dp))"))
+        assertTrue(about.contains("buttonSize = 48.dp"))
         assertTrue(about.contains("iconSize = 25.dp"))
-        assertTrue(about.contains("Spacer(Modifier.size(52.dp))"))
+        assertTrue(about.contains("Spacer(Modifier.size(48.dp))"))
+        assertFalse(main.contains("buttonSize = 52.dp"))
+        assertFalse(settings.contains("buttonSize = 52.dp"))
+        assertFalse(codexUi.contains("buttonSize = 52.dp"))
+        assertFalse(about.contains("buttonSize = 52.dp"))
         assertFalse(main.contains("glassActionButtonSize"))
         assertFalse(settings.contains("glassActionButtonSize"))
         assertFalse(codexUi.contains("glassActionButtonSize"))

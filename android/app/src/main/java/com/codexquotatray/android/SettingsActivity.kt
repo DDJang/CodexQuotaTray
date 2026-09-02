@@ -111,6 +111,23 @@ internal fun sourcePriorityValue(priority: DataSourcePriority): Int =
 internal fun sourcePriorityFromValue(value: Int): DataSourcePriority =
     if (value == 0) DataSourcePriority.OPENAI_FIRST else DataSourcePriority.WINDOWS_FIRST
 
+internal fun updateStatusDisplay(
+    status: String,
+    lastCheckAtMillis: Long,
+    formattedLastCheck: String,
+): String = if (lastCheckAtMillis <= 0L) {
+    "未检查"
+} else {
+    buildString {
+        append(status)
+        if (formattedLastCheck.isNotBlank()) {
+            append('\n')
+            append("上次检查时间为 ")
+            append(formattedLastCheck)
+        }
+    }
+}
+
 class SettingsActivity : ComponentActivity() {
     private val alertStore by lazy { QuotaAlertSettingsStore(this) }
     private val oauthStore by lazy { OAuthStore(this) }
@@ -210,7 +227,7 @@ class SettingsActivity : ComponentActivity() {
                             iconRes = R.drawable.ic_back,
                             description = "返回",
                             backdrop = pageBackdrop,
-                            buttonSize = 52.dp,
+                            buttonSize = 48.dp,
                             iconSize = 25.dp,
                             onClick = ::finish,
                         )
@@ -221,7 +238,7 @@ class SettingsActivity : ComponentActivity() {
                             style = CodexTypography.title,
                             textAlign = TextAlign.Center,
                         )
-                        Spacer(Modifier.size(52.dp))
+                        Spacer(Modifier.size(48.dp))
                     }
                 }
                 if (showClearPairingDialog) {
@@ -869,12 +886,19 @@ class SettingsActivity : ComponentActivity() {
             SettingsGroup(allowLiquidOverflow = true) {
                 SettingsInfoRow("当前版本", BuildConfig.VERSION_NAME)
                 SettingsDivider()
-                SettingsInfoRow("上次检查", formatUpdateCheckTime(updateLastCheckAtMillis, locale))
-                SettingsDivider()
-                SettingsInfoRow("状态", updateStatus)
+                SettingsInfoRow(
+                    title = "状态",
+                    value = updateStatusDisplay(
+                        status = updateStatus,
+                        lastCheckAtMillis = updateLastCheckAtMillis,
+                        formattedLastCheck = formatUpdateCheckTime(updateLastCheckAtMillis, locale),
+                    ),
+                    valueMaxLines = 2,
+                )
                 SettingsActionButton(
-                    label = if (updateChecking) "正在检查…" else "检查更新",
+                    label = "检查更新",
                     enabled = !updateChecking,
+                    busy = updateChecking,
                     bottomPadding = SettingsUiTokens.actionEdgeInset,
                     onClick = ::checkForUpdates,
                 )
