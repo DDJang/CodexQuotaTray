@@ -1,12 +1,9 @@
 package com.codexquotatray.android
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,15 +12,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
@@ -40,8 +34,6 @@ import com.codexquotatray.android.update.UpdateRelease
 import com.codexquotatray.android.update.UpdateDownloadFormatting
 import com.codexquotatray.android.update.UpdateDownloadPhase
 import com.codexquotatray.android.update.UpdateDownloadProgress
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 @Composable
 internal fun UpdateAvailableDialog(
@@ -305,53 +297,5 @@ private fun UpdateDownloadProgressBar(
             size = Size(visualProgressWidth, size.height),
             cornerRadius = CornerRadius(radius, radius),
         )
-    }
-}
-
-@Composable
-internal fun LiquidDialogSurface(
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    val palette = LocalQuotaPalette.current
-    val isDark = palette.color(palette.background).luminance() < 0.35f
-    val shape = RoundedCornerShape(SettingsUiTokens.groupCornerRadius)
-    val dialogBackdrop = rememberLayerBackdrop()
-    Box(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-    ) {
-        Box(
-            Modifier
-                .matchParentSize()
-                .alpha(0f)
-                .layerBackdrop(dialogBackdrop)
-                .background(palette.color(palette.background)),
-        )
-        GlassSurface(
-            backdrop = dialogBackdrop,
-            shape = shape,
-            modifier = Modifier.fillMaxWidth(),
-            clippedModifier = Modifier.border(
-                width = 1.dp,
-                color = palette.color(palette.border).copy(alpha = 0.8f),
-                shape = shape,
-            ),
-            contentAlignment = Alignment.TopStart,
-            blurRadius = 8.dp,
-            refractionHeight = 12.dp,
-            refractionAmount = 24.dp,
-            surfaceAlpha = if (isDark) 0.46f else 0.58f,
-            surfaceColor = palette.color(palette.background),
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-                content = content,
-            )
-        }
     }
 }
