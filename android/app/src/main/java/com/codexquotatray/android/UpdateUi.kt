@@ -28,15 +28,15 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.codexquotatray.android.update.UpdateRelease
 import com.codexquotatray.android.update.UpdateDownloadFormatting
 import com.codexquotatray.android.update.UpdateDownloadPhase
 import com.codexquotatray.android.update.UpdateDownloadProgress
+import com.kyant.backdrop.Backdrop
 
 @Composable
 internal fun UpdateAvailableDialog(
+    backdrop: Backdrop,
     release: UpdateRelease,
     currentVersion: String,
     downloading: Boolean,
@@ -55,16 +55,15 @@ internal fun UpdateAvailableDialog(
     }
     val palette = settingsPalette(hostPalette, effectiveTheme)
 
-    Dialog(
-        onDismissRequest = if (downloading) ({}) else onLater,
-        properties = DialogProperties(
-            dismissOnBackPress = !downloading,
-            dismissOnClickOutside = !downloading,
-            usePlatformDefaultWidth = false,
-        ),
+    LiquidModalOverlay(
+        backdrop = backdrop,
+        paneTitle = "发现新版本",
+        onDismiss = if (downloading) ({}) else onLater,
+        dismissOnBackPress = !downloading,
+        dismissOnClickOutside = !downloading,
     ) {
         CodexQuotaTheme(palette) {
-            LiquidDialogSurface {
+            LiquidDialogSurface(backdrop = backdrop) {
                 Column(
                             modifier = Modifier.padding(horizontal = 20.dp),
                             verticalArrangement = Arrangement.spacedBy(3.dp),

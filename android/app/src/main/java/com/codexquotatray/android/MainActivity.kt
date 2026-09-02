@@ -193,19 +193,20 @@ class MainActivity : ComponentActivity() {
                         onAction = { if (selectedIndex == 0) quota.refresh() else usage.requestSync() },
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp).fillMaxWidth(),
                     )
-                }
-                updatePrompt?.let { release ->
-                    UpdateAvailableDialog(
-                        release = release,
-                        currentVersion = BuildConfig.VERSION_NAME,
-                        downloading = updateDownloading,
-                        progress = updateProgress,
-                        downloadError = updateDownloadError,
-                        onLater = { updateDownloadError = null; updatePrompt = null },
-                        onDownload = ::downloadAutomaticUpdate,
-                        onCancel = { (application as CodexQuotaApplication).updateDownloadManager.cancel() },
-                        onBrowserDownload = ::browserDownloadAutomaticUpdate,
-                    )
+                    updatePrompt?.let { release ->
+                        UpdateAvailableDialog(
+                            backdrop = chromeBackdrop,
+                            release = release,
+                            currentVersion = BuildConfig.VERSION_NAME,
+                            downloading = updateDownloading,
+                            progress = updateProgress,
+                            downloadError = updateDownloadError,
+                            onLater = { updateDownloadError = null; updatePrompt = null },
+                            onDownload = ::downloadAutomaticUpdate,
+                            onCancel = { (application as CodexQuotaApplication).updateDownloadManager.cancel() },
+                            onBrowserDownload = ::browserDownloadAutomaticUpdate,
+                        )
+                    }
                 }
             }
         }

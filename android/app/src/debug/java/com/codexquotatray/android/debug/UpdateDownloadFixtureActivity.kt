@@ -129,7 +129,32 @@ private fun UpdateDownloadFixtureScreen(onBack: () -> Unit) {
         null
     }
 
-    SecondaryScreenScaffold(title = "更新下载", onBack = onBack) {
+    SecondaryScreenScaffold(
+        title = "更新下载",
+        onBack = onBack,
+        modalContent = { backdrop ->
+            if (dialogVisible) {
+                UpdateAvailableDialog(
+                    backdrop = backdrop,
+                    release = fixtureRelease,
+                    currentVersion = "0.11.0",
+                    downloading = downloading,
+                    progress = progress,
+                    downloadError = downloadError,
+                    onLater = { dialogVisible = false },
+                    onDownload = {
+                        selectedState = DownloadFixtureState.DOWNLOADING_INDETERMINATE.ordinal
+                        localActionCount++
+                    },
+                    onCancel = {
+                        selectedState = DownloadFixtureState.AVAILABLE.ordinal
+                        localActionCount++
+                    },
+                    onBrowserDownload = { localActionCount++ },
+                )
+            }
+        },
+    ) {
         Column(Modifier.fillMaxWidth()) {
             SettingsSection("Debug 场景") {
                 SettingsGroup(allowLiquidOverflow = true) {
@@ -158,23 +183,4 @@ private fun UpdateDownloadFixtureScreen(onBack: () -> Unit) {
         }
     }
 
-    if (dialogVisible) {
-        UpdateAvailableDialog(
-            release = fixtureRelease,
-            currentVersion = "0.11.0",
-            downloading = downloading,
-            progress = progress,
-            downloadError = downloadError,
-            onLater = { dialogVisible = false },
-            onDownload = {
-                selectedState = DownloadFixtureState.DOWNLOADING_INDETERMINATE.ordinal
-                localActionCount++
-            },
-            onCancel = {
-                selectedState = DownloadFixtureState.AVAILABLE.ordinal
-                localActionCount++
-            },
-            onBrowserDownload = { localActionCount++ },
-        )
-    }
 }

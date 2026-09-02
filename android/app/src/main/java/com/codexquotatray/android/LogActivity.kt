@@ -81,7 +81,22 @@ class LogActivity : ComponentActivity() {
                         copied = false
                     }
                 }
-                SecondaryScreenScaffold(title = "日志", onBack = ::finish) {
+                SecondaryScreenScaffold(
+                    title = "日志",
+                    onBack = ::finish,
+                    modalContent = { backdrop ->
+                        if (showClearDialog) {
+                            CodexConfirmDialog(
+                                backdrop = backdrop,
+                                title = "清空日志",
+                                message = "确定清空全部本地日志吗？",
+                                confirmText = "清空",
+                                onConfirm = { logStore.clear(); renderLog() },
+                                onDismiss = { showClearDialog = false },
+                            )
+                        }
+                    },
+                ) {
                     Column(
                         Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(28.dp),
@@ -126,15 +141,6 @@ class LogActivity : ComponentActivity() {
                             }
                         }
                     }
-                }
-                if (showClearDialog) {
-                    CodexConfirmDialog(
-                        title = "清空日志",
-                        message = "确定清空全部本地日志吗？",
-                        confirmText = "清空",
-                        onConfirm = { logStore.clear(); renderLog() },
-                        onDismiss = { showClearDialog = false },
-                    )
                 }
             }
         }

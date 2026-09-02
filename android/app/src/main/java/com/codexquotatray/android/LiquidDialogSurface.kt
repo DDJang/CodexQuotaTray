@@ -1,6 +1,5 @@
 package com.codexquotatray.android
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,35 +11,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.Backdrop
 
 @Composable
 internal fun LiquidDialogSurface(
+    backdrop: Backdrop,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
     val isDark = palette.color(palette.background).luminance() < 0.35f
     val shape = RoundedCornerShape(SettingsUiTokens.groupCornerRadius)
-    val dialogBackdrop = rememberLayerBackdrop()
     Box(
         modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp),
     ) {
-        Box(
-            Modifier
-                .matchParentSize()
-                .alpha(0f)
-                .layerBackdrop(dialogBackdrop)
-                .background(palette.color(palette.background)),
-        )
         GlassSurface(
-            backdrop = dialogBackdrop,
+            backdrop = backdrop,
             shape = shape,
             modifier = Modifier.fillMaxWidth(),
             clippedModifier = Modifier.border(

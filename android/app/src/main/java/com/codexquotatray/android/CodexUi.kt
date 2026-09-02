@@ -3,6 +3,7 @@ package com.codexquotatray.android
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -43,8 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
@@ -157,6 +157,7 @@ internal fun CodexCard(
 
 @Composable
 internal fun CodexConfirmDialog(
+    backdrop: Backdrop,
     title: String,
     message: String,
     confirmText: String,
@@ -166,15 +167,13 @@ internal fun CodexConfirmDialog(
     val palette = LocalQuotaPalette.current
     val hapticConfirm = rememberSystemHapticClick { onConfirm(); onDismiss() }
     val hapticDismiss = rememberSystemHapticClick(onDismiss)
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true,
-            usePlatformDefaultWidth = false,
-        ),
+    LiquidModalOverlay(
+        backdrop = backdrop,
+        paneTitle = title,
+        onDismiss = onDismiss,
     ) {
         LiquidDialogSurface(
+            backdrop = backdrop,
             modifier = Modifier
                 .widthIn(min = 280.dp, max = 420.dp)
                 .semantics { paneTitle = title },
@@ -216,6 +215,7 @@ internal fun SecondaryScreenScaffold(
     title: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    modalContent: @Composable BoxScope.(Backdrop) -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
@@ -273,5 +273,6 @@ internal fun SecondaryScreenScaffold(
             )
             Spacer(Modifier.size(48.dp))
         }
+        modalContent(backdrop)
     }
 }

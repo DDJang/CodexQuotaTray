@@ -252,29 +252,31 @@ class SettingsActivity : ComponentActivity() {
                         )
                         Spacer(Modifier.size(48.dp))
                     }
-                }
-                if (showClearPairingDialog) {
-                    CodexConfirmDialog(
-                        title = "解除配对",
-                        message = "确定解除当前 Windows 配对吗？",
-                        confirmText = "解除",
-                        onConfirm = ::clearPairing,
-                        onDismiss = { showClearPairingDialog = false },
-                    )
-                }
-                if (updateDialogVisible) {
-                    updateInfo?.let { release ->
-                        UpdateAvailableDialog(
-                            release = release,
-                            currentVersion = BuildConfig.VERSION_NAME,
-                            downloading = updateDownloading,
-                            progress = updateProgress,
-                            downloadError = updateDownloadError,
-                            onLater = { updateDownloadError = null; updateDialogVisible = false },
-                            onDownload = ::downloadAndInstallUpdate,
-                            onCancel = { (application as CodexQuotaApplication).updateDownloadManager.cancel() },
-                            onBrowserDownload = ::browserDownloadUpdate,
+                    if (showClearPairingDialog) {
+                        CodexConfirmDialog(
+                            backdrop = pageBackdrop,
+                            title = "解除配对",
+                            message = "确定解除当前 Windows 配对吗？",
+                            confirmText = "解除",
+                            onConfirm = ::clearPairing,
+                            onDismiss = { showClearPairingDialog = false },
                         )
+                    }
+                    if (updateDialogVisible) {
+                        updateInfo?.let { release ->
+                            UpdateAvailableDialog(
+                                backdrop = pageBackdrop,
+                                release = release,
+                                currentVersion = BuildConfig.VERSION_NAME,
+                                downloading = updateDownloading,
+                                progress = updateProgress,
+                                downloadError = updateDownloadError,
+                                onLater = { updateDownloadError = null; updateDialogVisible = false },
+                                onDownload = ::downloadAndInstallUpdate,
+                                onCancel = { (application as CodexQuotaApplication).updateDownloadManager.cancel() },
+                                onBrowserDownload = ::browserDownloadUpdate,
+                            )
+                        }
                     }
                 }
             }

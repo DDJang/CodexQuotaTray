@@ -72,7 +72,26 @@ private fun WindowsPairingFixtureScreen(onBack: () -> Unit) {
     val state = PairingFixtureState.entries[selectedState]
     val palette = com.codexquotatray.android.LocalQuotaPalette.current
 
-    SecondaryScreenScaffold(title = "Windows 配对", onBack = onBack) {
+    SecondaryScreenScaffold(
+        title = "Windows 配对",
+        onBack = onBack,
+        modalContent = { backdrop ->
+            if (showConfirmDialog) {
+                CodexConfirmDialog(
+                    backdrop = backdrop,
+                    title = "解除配对",
+                    message = "这是 Debug fixture 的本地确认，不会修改真实配对。",
+                    confirmText = "解除",
+                    onConfirm = {
+                        selectedState = PairingFixtureState.UNPAIRED.ordinal
+                        showConfirmDialog = false
+                        localActionCount++
+                    },
+                    onDismiss = { showConfirmDialog = false },
+                )
+            }
+        },
+    ) {
         Column(Modifier.fillMaxWidth()) {
             SettingsSection("Windows") {
                 SettingsGroup(allowLiquidOverflow = true) {
@@ -128,17 +147,4 @@ private fun WindowsPairingFixtureScreen(onBack: () -> Unit) {
         }
     }
 
-    if (showConfirmDialog) {
-        CodexConfirmDialog(
-            title = "解除配对",
-            message = "这是 Debug fixture 的本地确认，不会修改真实配对。",
-            confirmText = "解除",
-            onConfirm = {
-                selectedState = PairingFixtureState.UNPAIRED.ordinal
-                showConfirmDialog = false
-                localActionCount++
-            },
-            onDismiss = { showConfirmDialog = false },
-        )
-    }
 }
