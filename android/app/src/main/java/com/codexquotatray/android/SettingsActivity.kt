@@ -623,7 +623,7 @@ class SettingsActivity : ComponentActivity() {
     private fun ColumnScope.TokenPairingSettings() {
         val locale = LocalLocale.current.platformLocale
         SettingsSection("Windows") {
-            SettingsGroup {
+            SettingsGroup(allowLiquidOverflow = true) {
                 pairing?.let {
                     SettingsInfoRow("电脑", it.displayName ?: "Windows PC")
                     SettingsDivider()
@@ -866,7 +866,7 @@ class SettingsActivity : ComponentActivity() {
             }
         }
         SettingsSection("版本") {
-            SettingsGroup {
+            SettingsGroup(allowLiquidOverflow = true) {
                 SettingsInfoRow("当前版本", BuildConfig.VERSION_NAME)
                 SettingsDivider()
                 SettingsInfoRow("上次检查", formatUpdateCheckTime(updateLastCheckAtMillis, locale))

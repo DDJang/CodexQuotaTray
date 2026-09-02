@@ -87,7 +87,7 @@ class LogActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(28.dp),
                     ) {
                         SettingsSection("日志管理") {
-                            SettingsGroup {
+                            SettingsGroup(allowLiquidOverflow = true) {
                                 SettingsActionButton(
                                     label = if (copied) "已复制" else "复制全部日志",
                                     enabled = !copied,
@@ -104,7 +104,7 @@ class LogActivity : ComponentActivity() {
                         }
 
                         SettingsSection("最近记录") {
-                            SettingsGroup {
+                            SettingsGroup(allowLiquidOverflow = true) {
                                 if (logEntries.isEmpty()) {
                                     SettingsInfoRow("记录", "暂无日志")
                                 } else {

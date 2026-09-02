@@ -40,7 +40,7 @@ class AccountActivity : ComponentActivity() {
                 SecondaryScreenScaffold(title = "Codex 额度账号", onBack = ::finish) {
                     Column(Modifier.fillMaxWidth()) {
                         SettingsSection("OpenAI") {
-                            SettingsGroup {
+                            SettingsGroup(allowLiquidOverflow = true) {
                                 if (credentials == null) {
                                     SettingsInfoRow("状态", "尚未登录 Codex")
                                 } else {

@@ -1,5 +1,6 @@
 package com.codexquotatray.android
 
+import androidx.compose.ui.geometry.Offset
 import com.codexquotatray.android.source.DataSourcePriority
 import com.codexquotatray.android.liquidglass.shouldCommitLiquidSegmentSelection
 import org.junit.Assert.assertEquals
@@ -123,7 +124,7 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun onlySegmentedSettingsGroupsAllowLiquidOverflow() {
+    fun actionAndSegmentedSettingsGroupsAllowLiquidOverflow() {
         val settingsUi = sourceFile("SettingsUi.kt")
         val settingsActivity = sourceFile("SettingsActivity.kt")
 
@@ -132,7 +133,7 @@ class SettingsStructureTest {
         assertTrue(settingsUi.contains("Modifier.background("))
         assertTrue(settingsUi.contains("Card("))
         assertEquals(
-            3,
+            5,
             Regex("SettingsGroup\\(allowLiquidOverflow = true\\)")
                 .findAll(settingsActivity)
                 .count(),
@@ -151,6 +152,76 @@ class SettingsStructureTest {
             Regex("SettingsSection\\(\"统计\"\\)\\s*\\{\\s*SettingsGroup\\(allowLiquidOverflow = true\\)")
                 .containsMatchIn(settingsActivity),
         )
+        assertTrue(
+            Regex("private fun ColumnScope.TokenPairingSettings\\(\\)[\\s\\S]*?" +
+                "SettingsGroup\\(allowLiquidOverflow = true\\)")
+                .containsMatchIn(settingsActivity),
+        )
+        assertTrue(
+            Regex("SettingsSection\\(\"版本\"\\)\\s*\\{\\s*SettingsGroup\\(allowLiquidOverflow = true\\)")
+                .containsMatchIn(settingsActivity),
+        )
+
+        listOf("AccountActivity.kt", "LoginActivity.kt", "LogActivity.kt").forEach { fileName ->
+            assertTrue(sourceFile(fileName).contains("SettingsGroup(allowLiquidOverflow = true)"))
+        }
+    }
+
+    @Test
+    fun liquidActionButtonStyleUsesDangerPrecedenceAndExpectedSemantics() {
+        assertEquals(SettingsActionButtonStyle.NEUTRAL, settingsActionButtonStyle(false, false))
+        assertEquals(SettingsActionButtonStyle.PRIMARY, settingsActionButtonStyle(true, false))
+        assertEquals(SettingsActionButtonStyle.DANGER, settingsActionButtonStyle(false, true))
+        assertEquals(SettingsActionButtonStyle.DANGER, settingsActionButtonStyle(true, true))
+    }
+
+    @Test
+    fun liquidActionButtonKeepsKyantGeometryAndBoundsOnlyVisualOffset() {
+        assertEquals(
+            Offset(48f, -48f),
+            boundedLiquidActionOffset(Offset(240f, -240f), 48f),
+        )
+        assertEquals(Offset.Zero, boundedLiquidActionOffset(Offset(240f, -240f), 0f))
+
+        val source = sourceFile("LiquidActionButton.kt")
+        assertTrue(source.contains("Adapted and modified from Kyant0/AndroidLiquidGlass"))
+        assertTrue(source.contains("shape = { Capsule() }"))
+        assertTrue(source.contains("vibrancy()"))
+        assertTrue(source.contains("blur(2f.dp.toPx())"))
+        assertTrue(source.contains("lens(12f.dp.toPx(), 24f.dp.toPx())"))
+        assertTrue(source.contains("interactiveHighlight.offset"))
+        assertTrue(source.contains("boundedLiquidActionOffset("))
+        assertTrue(source.contains("size.minDimension"))
+        assertTrue(source.contains(".height(48f.dp)"))
+        assertTrue(source.contains(".padding(horizontal = 16f.dp)"))
+        assertTrue(source.contains("Arrangement.spacedBy(8f.dp, Alignment.CenterHorizontally)"))
+        assertTrue(source.contains("role = Role.Button"))
+        assertTrue(source.contains("enabled = enabled"))
+
+        val settings = sourceFile("SettingsUi.kt")
+        val action = settings.substringAfter("internal fun SettingsActionButton(")
+            .substringBefore("internal fun SettingsSegmentedSelector(")
+        assertTrue(action.contains("val actionBackdrop = rememberLayerBackdrop()"))
+        assertTrue(action.contains(".fillMaxSize()"))
+        assertTrue(action.contains(".layerBackdrop(actionBackdrop)"))
+        assertTrue(action.contains("LiquidActionButton("))
+        assertTrue(action.contains("palette.color(palette.accent)"))
+        assertTrue(action.contains("CodexColors.danger"))
+        assertTrue(action.contains("palette.color(palette.body)"))
+        assertTrue(action.contains(".height(SettingsUiTokens.actionHeight + topPadding + bottomPadding)"))
+        assertFalse(action.contains("ButtonDefaults"))
+    }
+
+    @Test
+    fun liquidActionButtonFixtureKeepsMaterialUpstreamAndBoundedComparisons() {
+        val fixture = debugSourceFile("debug/LiquidActionButtonFixtureActivity.kt")
+        assertTrue(fixture.contains("CurrentMaterialButton"))
+        assertTrue(fixture.contains("private fun BoundedLiquidButton("))
+        assertTrue(fixture.contains("Exact Kyant upstream"))
+        assertTrue(fixture.contains("Production candidate · bounded drag"))
+        assertTrue(fixture.contains("val maxOffset = size.minDimension"))
+        assertTrue(fixture.contains("rawOffset = interactiveHighlight.offset"))
+        assertTrue(fixture.contains("rawOffset.x.fastCoerceIn(-maxOffset, maxOffset)"))
     }
 
     @Test

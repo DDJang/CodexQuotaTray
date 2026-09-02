@@ -50,7 +50,7 @@ class LoginActivity : ComponentActivity() {
                 SecondaryScreenScaffold(title = "登录 Codex", onBack = ::finish) {
                     Column(Modifier.fillMaxWidth()) {
                         SettingsSection("OpenAI 登录") {
-                            SettingsGroup {
+                            SettingsGroup(allowLiquidOverflow = true) {
                                 SettingsInfoRow(
                                     title = "状态",
                                     value = statusText,

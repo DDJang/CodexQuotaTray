@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
@@ -23,6 +24,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -51,7 +54,6 @@ import androidx.compose.ui.util.lerp
 import com.codexquotatray.android.AppTheme
 import com.codexquotatray.android.CodexColors
 import com.codexquotatray.android.CodexQuotaTheme
-import com.codexquotatray.android.SettingsActionButton
 import com.codexquotatray.android.ThemeMode
 import com.codexquotatray.android.ThemePalette
 import com.codexquotatray.android.color
@@ -126,7 +128,7 @@ private fun LiquidActionButtonFixtureScreen(palette: ThemePalette) {
                 style = MaterialTheme.typography.bodyMedium,
             )
 
-            CurrentMaterialSection(onClick = { clickCount++ })
+            CurrentMaterialSection(palette = palette, onClick = { clickCount++ })
             ExactUpstreamSection(
                 backdrop = backdrop,
                 palette = palette,
@@ -158,7 +160,10 @@ private fun LiquidActionButtonFixtureScreen(palette: ThemePalette) {
 }
 
 @Composable
-private fun CurrentMaterialSection(onClick: () -> Unit) {
+private fun CurrentMaterialSection(
+    palette: ThemePalette,
+    onClick: () -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             "1. Current Material",
@@ -166,29 +171,72 @@ private fun CurrentMaterialSection(onClick: () -> Unit) {
             style = MaterialTheme.typography.titleMedium,
         )
         Text(
-            "Current SettingsActionButton visual; callbacks only increment this fixture counter.",
+            "Current Material action visual; callbacks only increment this fixture counter.",
             color = Color.White.copy(alpha = 0.72f),
             style = MaterialTheme.typography.bodySmall,
         )
-        SettingsActionButton(
+        CurrentMaterialButton(
             label = "重新登录",
+            palette = palette,
             onClick = onClick,
         )
-        SettingsActionButton(
+        CurrentMaterialButton(
             label = "下载并安装",
+            palette = palette,
             primary = true,
             onClick = onClick,
         )
-        SettingsActionButton(
+        CurrentMaterialButton(
             label = "退出登录",
+            palette = palette,
             danger = true,
             onClick = onClick,
         )
-        SettingsActionButton(
+        CurrentMaterialButton(
             label = "重新登录（disabled）",
+            palette = palette,
             enabled = false,
             onClick = onClick,
         )
+    }
+}
+
+@Composable
+private fun CurrentMaterialButton(
+    label: String,
+    palette: ThemePalette,
+    enabled: Boolean = true,
+    primary: Boolean = false,
+    danger: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val container = if (primary) {
+        palette.color(palette.primaryButton)
+    } else {
+        palette.color(palette.secondaryButton)
+    }
+    val content = when {
+        danger -> CodexColors.danger
+        primary -> palette.color(palette.onPrimary)
+        else -> palette.color(palette.secondaryButtonText)
+    }
+    Button(
+        onClick = rememberSystemHapticClick(onClick),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .height(52.dp),
+        enabled = enabled,
+        shape = RoundedCornerShape(18.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = container,
+            contentColor = content,
+            disabledContainerColor = container.copy(alpha = 0.45f),
+            disabledContentColor = content.copy(alpha = 0.55f),
+        ),
+    ) {
+        Text(text = label, fontSize = 15.sp, fontWeight = FontWeight.Medium)
     }
 }
 
