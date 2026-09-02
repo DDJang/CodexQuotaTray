@@ -686,6 +686,71 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun authPairingAndUpdateFixturesAreDebugOnlyAndSideEffectFree() {
+        val settings = settingsSource()
+        val developerOptions = settings.substringAfter("SettingsSection(\"开发者选项\")")
+            .substringBefore("private fun openDebugQuotaRingFixture")
+        listOf(
+            "Codex Login Fixture",
+            "Windows Pairing Fixture",
+            "Update Download Fixture",
+        ).forEach { title -> assertTrue(developerOptions.contains(title)) }
+        listOf(
+            "DEBUG_CODEX_LOGIN_FIXTURE_ACTIVITY",
+            "DEBUG_WINDOWS_PAIRING_FIXTURE_ACTIVITY",
+            "DEBUG_UPDATE_DOWNLOAD_FIXTURE_ACTIVITY",
+            "openDebugCodexLoginFixture",
+            "openDebugWindowsPairingFixture",
+            "openDebugUpdateDownloadFixture",
+        ).forEach { marker -> assertTrue(settings.contains(marker)) }
+
+        val manifest = debugManifestSource()
+        listOf(
+            ".debug.CodexLoginFixtureActivity",
+            ".debug.WindowsPairingFixtureActivity",
+            ".debug.UpdateDownloadFixtureActivity",
+        ).forEach { activity ->
+            val entry = manifest.substringAfter(activity).substringBefore("</activity>")
+            assertTrue(entry.contains("android:exported=\"false\""))
+            assertFalse(entry.contains("intent-filter"))
+        }
+
+        val login = debugSourceFile("debug/CodexLoginFixtureActivity.kt")
+        assertTrue(login.contains("正在准备登录…"))
+        assertTrue(login.contains("请在浏览器完成 Codex 登录"))
+        assertTrue(login.contains("ABCD-EFGH"))
+        assertTrue(login.contains("登录完成，正在保存登录状态…"))
+        assertTrue(login.contains("登录失败，请重试"))
+        assertTrue(login.contains("localActionCount++"))
+        assertFalse(login.contains("CodexOAuthClient"))
+        assertFalse(login.contains("OAuthStore"))
+        assertFalse(login.contains("Intent("))
+
+        val pairing = debugSourceFile("debug/WindowsPairingFixtureActivity.kt")
+        assertTrue(pairing.contains("电脑"))
+        assertTrue(pairing.contains("Windows PC"))
+        assertTrue(pairing.contains("192.168.1.58:43127"))
+        assertTrue(pairing.contains("2 分钟前"))
+        assertTrue(pairing.contains("重新扫码配对"))
+        assertTrue(pairing.contains("复制诊断信息"))
+        assertTrue(pairing.contains("解除配对"))
+        assertTrue(pairing.contains("CodexConfirmDialog"))
+        assertFalse(pairing.contains("TokenPairingFlow"))
+        assertFalse(pairing.contains("TokenSyncStore"))
+
+        val update = debugSourceFile("debug/UpdateDownloadFixtureActivity.kt")
+        assertTrue(update.contains("UpdateAvailableDialog("))
+        assertTrue(update.contains("DOWNLOADING_INDETERMINATE"))
+        assertTrue(update.contains("DOWNLOADING_PROGRESS"))
+        assertTrue(update.contains("UpdateDownloadPhase.VERIFYING"))
+        assertTrue(update.contains("Fixture simulated failure"))
+        assertTrue(update.contains("https://example.invalid"))
+        assertFalse(update.contains("UpdateDownloadManager"))
+        assertFalse(update.contains("UpdateInstaller"))
+        assertFalse(update.contains("UpdateBrowser"))
+    }
+
+    @Test
     fun liquidTokenTooltipFixtureKeepsProductionInteractionAndComparesThreeSurfaces() {
         val settings = settingsSource()
         val developerOptions = settings.substringAfter("SettingsSection(\"开发者选项\")")

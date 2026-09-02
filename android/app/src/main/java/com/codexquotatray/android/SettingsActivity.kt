@@ -99,6 +99,12 @@ private const val DEBUG_LIQUID_SEGMENTED_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.LiquidSegmentedFixtureActivity"
 private const val DEBUG_LIQUID_TOKEN_TOOLTIP_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.LiquidTokenTooltipFixtureActivity"
+private const val DEBUG_CODEX_LOGIN_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.CodexLoginFixtureActivity"
+private const val DEBUG_WINDOWS_PAIRING_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.WindowsPairingFixtureActivity"
+private const val DEBUG_UPDATE_DOWNLOAD_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.UpdateDownloadFixtureActivity"
 
 internal fun sourcePriorityOptions(): List<SettingsSegmentOption> = listOf(
     SettingsSegmentOption(0, "OpenAI 优先"),
@@ -420,6 +426,24 @@ class SettingsActivity : ComponentActivity() {
                         trailing = "Debug",
                         onClick = ::openDebugLiquidTokenTooltipFixture,
                     )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Codex Login Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugCodexLoginFixture,
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Windows Pairing Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugWindowsPairingFixture,
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Update Download Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugUpdateDownloadFixture,
+                    )
                 }
             }
         }
@@ -486,6 +510,39 @@ class SettingsActivity : ComponentActivity() {
                 Intent().setClassName(
                     this,
                     DEBUG_LIQUID_TOKEN_TOOLTIP_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugCodexLoginFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_CODEX_LOGIN_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugWindowsPairingFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_WINDOWS_PAIRING_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugUpdateDownloadFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_UPDATE_DOWNLOAD_FIXTURE_ACTIVITY,
                 ),
             )
         }

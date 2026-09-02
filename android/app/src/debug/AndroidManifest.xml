@@ -41,5 +41,23 @@
             android:exported="false"
             android:label="Liquid Token Tooltip Fixture"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".debug.CodexLoginFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Codex Login Fixture"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".debug.WindowsPairingFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Windows Pairing Fixture"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".debug.UpdateDownloadFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Update Download Fixture"
+            android:screenOrientation="portrait" />
     </application>
 </manifest>
