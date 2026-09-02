@@ -86,29 +86,25 @@ internal fun LiquidActionButton(
                     blur(2f.dp.toPx())
                     lens(12f.dp.toPx(), 24f.dp.toPx())
                 },
-                layerBlock = if (enabled) {
-                    {
-                        val width = size.width
-                        val height = size.height
-                        val progress = interactiveHighlight.pressProgress
-                        val scale = lerp(1f, 1f + 4f.dp.toPx() / size.height, progress)
-                        val maxOffset = size.minDimension
-                        val initialDerivative = 0.05f
-                        val rawOffset = interactiveHighlight.offset
-                        val offset = boundedLiquidActionOffset(rawOffset, maxOffset)
-                        translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
-                        translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
-                        val maxDragScale = 4f.dp.toPx() / size.height
-                        val offsetAngle = atan2(offset.y, offset.x)
-                        scaleX = scale +
-                            maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension) *
-                            (width / height).fastCoerceAtMost(1f)
-                        scaleY = scale +
-                            maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension) *
-                            (height / width).fastCoerceAtMost(1f)
-                    }
-                } else {
-                    null
+                layerBlock = {
+                    val width = size.width
+                    val height = size.height
+                    val progress = interactiveHighlight.pressProgress
+                    val scale = lerp(1f, 1f + 4f.dp.toPx() / size.height, progress)
+                    val maxOffset = size.minDimension
+                    val initialDerivative = 0.05f
+                    val rawOffset = interactiveHighlight.offset
+                    val offset = boundedLiquidActionOffset(rawOffset, maxOffset)
+                    translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
+                    translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
+                    val maxDragScale = 4f.dp.toPx() / size.height
+                    val offsetAngle = atan2(offset.y, offset.x)
+                    scaleX = scale +
+                        maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension) *
+                        (width / height).fastCoerceAtMost(1f)
+                    scaleY = scale +
+                        maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension) *
+                        (height / width).fastCoerceAtMost(1f)
                 },
                 onDrawSurface = {
                     if (tint.isSpecified) {
@@ -124,15 +120,8 @@ internal fun LiquidActionButton(
                 role = Role.Button,
                 onClick = onClick,
             )
-            .then(
-                if (enabled) {
-                    Modifier
-                        .then(interactiveHighlight.modifier)
-                        .then(interactiveHighlight.gestureModifier)
-                } else {
-                    Modifier
-                },
-            )
+            .then(interactiveHighlight.modifier)
+            .then(if (enabled) interactiveHighlight.gestureModifier else Modifier)
             .height(48f.dp)
             .padding(horizontal = 16f.dp)
             .alpha(if (enabled) 1f else 0.45f),

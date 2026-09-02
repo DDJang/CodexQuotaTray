@@ -192,6 +192,10 @@ class SettingsStructureTest {
         assertTrue(source.contains("interactiveHighlight.offset"))
         assertTrue(source.contains("boundedLiquidActionOffset("))
         assertTrue(source.contains("size.minDimension"))
+        assertTrue(source.contains("layerBlock = {"))
+        assertFalse(source.contains("layerBlock = if (enabled)"))
+        assertTrue(source.contains(".then(interactiveHighlight.modifier)"))
+        assertTrue(source.contains(".then(if (enabled) interactiveHighlight.gestureModifier else Modifier)"))
         assertTrue(source.contains(".height(48f.dp)"))
         assertTrue(source.contains(".padding(horizontal = 16f.dp)"))
         assertTrue(source.contains("Arrangement.spacedBy(8f.dp, Alignment.CenterHorizontally)"))
@@ -219,9 +223,26 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("private fun BoundedLiquidButton("))
         assertTrue(fixture.contains("Exact Kyant upstream"))
         assertTrue(fixture.contains("Production candidate · bounded drag"))
+        assertTrue(fixture.contains("StateMutationRegressionSection"))
+        assertTrue(fixture.contains("label = if (checking) \"正在检查…\" else \"检查更新\""))
+        assertTrue(fixture.contains("enabled = !checking"))
+        assertTrue(fixture.contains("delay(1500)"))
         assertTrue(fixture.contains("val maxOffset = size.minDimension"))
         assertTrue(fixture.contains("rawOffset = interactiveHighlight.offset"))
         assertTrue(fixture.contains("rawOffset.x.fastCoerceIn(-maxOffset, maxOffset)"))
+    }
+
+    @Test
+    fun liquidIconButtonKeepsReleaseLayerWhenItsActionBecomesBusy() {
+        val source = sourceFile("LiquidIconButton.kt")
+        assertTrue(source.contains("layerBlock = {"))
+        assertFalse(source.contains("layerBlock = if (enabled)"))
+        assertTrue(source.contains(".then(interactiveHighlight.modifier)"))
+        assertTrue(source.contains(".then(if (enabled) interactiveHighlight.gestureModifier else Modifier)"))
+
+        val dock = sourceFile("GlassComponents.kt")
+        assertTrue(dock.contains("enabled = actionEnabled && !actionBusy"))
+        assertTrue(dock.contains("busy = actionBusy"))
     }
 
     @Test

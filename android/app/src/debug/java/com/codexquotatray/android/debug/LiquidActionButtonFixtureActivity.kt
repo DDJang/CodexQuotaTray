@@ -32,8 +32,10 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -54,6 +56,7 @@ import androidx.compose.ui.util.lerp
 import com.codexquotatray.android.AppTheme
 import com.codexquotatray.android.CodexColors
 import com.codexquotatray.android.CodexQuotaTheme
+import com.codexquotatray.android.SettingsActionButton
 import com.codexquotatray.android.ThemeMode
 import com.codexquotatray.android.ThemePalette
 import com.codexquotatray.android.color
@@ -66,6 +69,7 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
 import com.kyant.shapes.Capsule
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -97,6 +101,14 @@ class LiquidActionButtonFixtureActivity : ComponentActivity() {
 private fun LiquidActionButtonFixtureScreen(palette: ThemePalette) {
     val backdrop = rememberLayerBackdrop()
     var clickCount by remember { mutableIntStateOf(0) }
+    var stateMutationChecking by remember { mutableStateOf(false) }
+
+    LaunchedEffect(stateMutationChecking) {
+        if (stateMutationChecking) {
+            delay(1500)
+            stateMutationChecking = false
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
         Box(
@@ -143,6 +155,15 @@ private fun LiquidActionButtonFixtureScreen(palette: ThemePalette) {
                 backdrop = backdrop,
                 palette = palette,
                 onClick = { clickCount++ },
+            )
+            StateMutationRegressionSection(
+                checking = stateMutationChecking,
+                onClick = {
+                    if (!stateMutationChecking) {
+                        clickCount++
+                        stateMutationChecking = true
+                    }
+                },
             )
 
             Text(
@@ -419,6 +440,39 @@ private fun ProductionCandidateSection(
                 FixtureActionText("退出登录", Color.White)
             }
         }
+    }
+}
+
+@Composable
+private fun StateMutationRegressionSection(
+    checking: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "5. State mutation on click regression",
+            color = Color.White,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            "点击回调立即切换文案和 enabled；1.5 秒后自动恢复，用于观察 release spring 是否完整播放。",
+            color = Color.White.copy(alpha = 0.72f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        SettingsActionButton(
+            label = if (checking) "正在检查…" else "检查更新",
+            enabled = !checking,
+            onClick = onClick,
+        )
+        Text(
+            if (checking) {
+                "当前已 disabled：不可重复点击或开始新的 liquid gesture。"
+            } else {
+                "点击后立即 disabled，观察按压放大和松手回弹。"
+            },
+            color = Color.White.copy(alpha = 0.62f),
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
