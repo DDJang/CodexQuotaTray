@@ -26,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -246,6 +245,12 @@ internal fun UpdateAvailableDialog(
 
 internal fun updateDownloadProgressFraction(progress: Float): Float = progress.coerceIn(0f, 1f)
 
+internal fun progressCornerRadiusPx(
+    progressWidth: Float,
+    height: Float,
+    maxRadius: Float,
+): Float = minOf(progressWidth / 2f, height / 2f, maxRadius).coerceAtLeast(0f)
+
 @Composable
 private fun UpdateDownloadProgressBar(
     progress: Float,
@@ -272,30 +277,16 @@ private fun UpdateDownloadProgressBar(
 
         val progressWidth = size.width * fraction
         if (progressWidth <= 0f) return@Canvas
-        if (fraction >= 1f) {
-            drawRoundRect(
-                color = foregroundColor,
-                size = Size(size.width, size.height),
-                cornerRadius = CornerRadius(radius, radius),
-            )
-        } else if (progressWidth < size.height) {
-            // Keep tiny values as a strict-width strip instead of a rounded terminal dot.
-            drawRect(
-                color = foregroundColor,
-                size = Size(progressWidth, size.height),
-            )
-        } else {
-            val path = Path().apply {
-                moveTo(progressWidth, 0f)
-                lineTo(radius, 0f)
-                quadraticTo(0f, 0f, 0f, radius)
-                lineTo(0f, size.height - radius)
-                quadraticTo(0f, size.height, radius, size.height)
-                lineTo(progressWidth, size.height)
-                close()
-            }
-            drawPath(path, foregroundColor)
-        }
+        val progressRadius = progressCornerRadiusPx(
+            progressWidth = progressWidth,
+            height = size.height,
+            maxRadius = radius,
+        )
+        drawRoundRect(
+            color = foregroundColor,
+            size = Size(progressWidth, size.height),
+            cornerRadius = CornerRadius(progressRadius, progressRadius),
+        )
     }
 }
 

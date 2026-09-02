@@ -92,6 +92,8 @@ private enum class SettingsDestination(val title: String) {
 
 private const val DEBUG_QUOTA_RING_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.QuotaRingFixtureActivity"
+private const val DEBUG_QUOTA_WIDGET_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.QuotaWidgetFixtureActivity"
 private const val DEBUG_LIQUID_BOTTOM_TABS_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.LiquidBottomTabsFixtureActivity"
 private const val DEBUG_LIQUID_ICON_BUTTON_FIXTURE_ACTIVITY =
@@ -403,6 +405,12 @@ class SettingsActivity : ComponentActivity() {
                     )
                     SettingsDivider()
                     SettingsNavigationRow(
+                        title = "Quota Widget Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugQuotaWidgetFixture,
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
                         title = "Liquid Bottom Tabs Fixture",
                         trailing = "Debug",
                         onClick = ::openDebugLiquidBottomTabsFixture,
@@ -472,6 +480,17 @@ class SettingsActivity : ComponentActivity() {
                 Intent().setClassName(
                     this,
                     DEBUG_QUOTA_RING_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugQuotaWidgetFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_QUOTA_WIDGET_FIXTURE_ACTIVITY,
                 ),
             )
         }

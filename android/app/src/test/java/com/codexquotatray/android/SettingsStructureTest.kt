@@ -808,11 +808,13 @@ class SettingsStructureTest {
         assertTrue(update.contains("GlassSurface("))
         assertTrue(update.contains("private fun UpdateDownloadProgressBar("))
         assertTrue(update.contains("internal fun updateDownloadProgressFraction("))
+        assertTrue(update.contains("internal fun progressCornerRadiusPx("))
         assertTrue(update.contains(".height(8.dp)"))
         assertTrue(update.contains("val radius = 4.dp.toPx()"))
-        assertTrue(update.contains("drawRoundRect("))
-        assertTrue(update.contains("drawPath(path, foregroundColor)"))
-        assertTrue(update.contains("strict-width strip"))
+        assertTrue(Regex("drawRoundRect\\(").findAll(update).count() >= 2)
+        assertTrue(update.contains("val progressRadius = progressCornerRadiusPx("))
+        assertTrue(update.contains("CornerRadius(progressRadius, progressRadius)"))
+        assertFalse(update.contains("Path"))
         assertFalse(update.contains("LinearProgressIndicator"))
         assertFalse(update.contains("SettingsSection(\"下载\")"))
         assertTrue(update.contains("Modifier.size(20.dp)"))
@@ -875,6 +877,15 @@ class SettingsStructureTest {
         assertEquals(0.42f, updateDownloadProgressFraction(0.42f), 0f)
         assertEquals(1f, updateDownloadProgressFraction(1f), 0f)
         assertEquals(1f, updateDownloadProgressFraction(1.5f), 0f)
+    }
+
+    @Test
+    fun progressCornerRadiusFitsBothEndsAndNarrowStates() {
+        assertEquals(0f, progressCornerRadiusPx(0f, 8f, 4f), 0f)
+        assertEquals(1f, progressCornerRadiusPx(2f, 8f, 4f), 0f)
+        assertEquals(4f, progressCornerRadiusPx(8f, 8f, 4f), 0f)
+        assertEquals(4f, progressCornerRadiusPx(100f, 8f, 4f), 0f)
+        assertEquals(0f, progressCornerRadiusPx(-2f, 8f, 4f), 0f)
     }
 
     @Test

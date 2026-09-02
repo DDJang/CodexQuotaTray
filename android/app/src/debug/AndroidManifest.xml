@@ -12,6 +12,12 @@
             </intent-filter>
         </activity>
         <activity
+            android:name=".debug.QuotaWidgetFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Quota Widget Fixture"
+            android:screenOrientation="portrait" />
+        <activity
             android:name=".debug.LiquidBottomTabsFixtureActivity"
             android:configChanges="uiMode"
             android:exported="false"
