@@ -23,6 +23,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
@@ -71,7 +72,7 @@ internal fun UpdateAvailableDialog(
         ),
     ) {
         CodexQuotaTheme(palette) {
-            UpdateLiquidDialogSurface {
+            LiquidDialogSurface {
                 Column(
                             modifier = Modifier.padding(horizontal = 20.dp),
                             verticalArrangement = Arrangement.spacedBy(3.dp),
@@ -308,7 +309,8 @@ private fun UpdateDownloadProgressBar(
 }
 
 @Composable
-private fun UpdateLiquidDialogSurface(
+internal fun LiquidDialogSurface(
+    modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
@@ -316,13 +318,14 @@ private fun UpdateLiquidDialogSurface(
     val shape = RoundedCornerShape(SettingsUiTokens.groupCornerRadius)
     val dialogBackdrop = rememberLayerBackdrop()
     Box(
-        Modifier
+        modifier
             .fillMaxWidth()
             .padding(horizontal = 20.dp),
     ) {
         Box(
             Modifier
                 .matchParentSize()
+                .alpha(0f)
                 .layerBackdrop(dialogBackdrop)
                 .background(palette.color(palette.background)),
         )

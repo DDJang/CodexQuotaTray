@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -41,6 +40,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.semantics.paneTitle
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
@@ -159,24 +163,52 @@ internal fun CodexConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val palette = LocalQuotaPalette.current
     val hapticConfirm = rememberSystemHapticClick { onConfirm(); onDismiss() }
     val hapticDismiss = rememberSystemHapticClick(onDismiss)
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh,
-        titleContentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
-        textContentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-        title = { Text(title) },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(onClick = hapticConfirm) {
-                Text(confirmText, color = CodexColors.danger)
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true,
+            usePlatformDefaultWidth = false,
+        ),
+    ) {
+        LiquidDialogSurface(
+            modifier = Modifier
+                .widthIn(min = 280.dp, max = 420.dp)
+                .semantics { paneTitle = title },
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = CodexTypography.title,
+                    color = palette.color(palette.title),
+                )
+                Text(
+                    text = message,
+                    style = CodexTypography.body,
+                    color = palette.color(palette.body),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = hapticDismiss) {
+                        Text("取消", color = palette.color(palette.secondary))
+                    }
+                    TextButton(onClick = hapticConfirm) {
+                        Text(confirmText, color = CodexColors.danger)
+                    }
+                }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = hapticDismiss) { Text("取消") }
-        },
-    )
+        }
+    }
 }
 
 @Composable

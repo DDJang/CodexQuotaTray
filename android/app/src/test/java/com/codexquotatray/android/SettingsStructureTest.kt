@@ -802,9 +802,10 @@ class SettingsStructureTest {
         assertTrue(emptyState.contains("Arrangement.spacedBy(8.dp)"))
 
         val update = sourceFile("UpdateUi.kt")
-        assertTrue(update.contains("private fun UpdateLiquidDialogSurface("))
+        assertTrue(update.contains("internal fun LiquidDialogSurface("))
         assertTrue(update.contains("val dialogBackdrop = rememberLayerBackdrop()"))
-        assertTrue(update.contains(".layerBackdrop(dialogBackdrop)"))
+        assertTrue(update.contains(".matchParentSize()\n                .alpha(0f)\n                .layerBackdrop(dialogBackdrop)"))
+        assertFalse(update.contains("UpdateLiquidDialogSurface"))
         assertTrue(update.contains("GlassSurface("))
         assertTrue(update.contains("private fun UpdateDownloadProgressBar("))
         assertTrue(update.contains("internal fun updateDownloadProgressFraction("))
@@ -822,6 +823,31 @@ class SettingsStructureTest {
         assertFalse(update.contains("SettingsSection(\"下载\")"))
         assertTrue(update.contains("Modifier.size(20.dp)"))
         assertFalse(update.contains("Card("))
+
+        val codexUi = sourceFile("CodexUi.kt")
+        assertTrue(codexUi.contains("internal fun CodexConfirmDialog("))
+        assertTrue(codexUi.contains("DialogProperties("))
+        assertTrue(codexUi.contains("dismissOnBackPress = true"))
+        assertTrue(codexUi.contains("dismissOnClickOutside = true"))
+        assertTrue(codexUi.contains("usePlatformDefaultWidth = false"))
+        assertTrue(codexUi.contains("LiquidDialogSurface("))
+        assertTrue(codexUi.contains(".semantics { paneTitle = title }"))
+        assertTrue(codexUi.contains("TextButton(onClick = hapticDismiss)"))
+        assertTrue(codexUi.contains("TextButton(onClick = hapticConfirm)"))
+        assertTrue(codexUi.contains("onConfirm(); onDismiss()"))
+        assertTrue(codexUi.contains("CodexColors.danger"))
+        assertFalse(codexUi.contains("AlertDialog"))
+        assertFalse(codexUi.contains("LiquidActionButton"))
+
+        listOf(
+            "AccountActivity.kt" to "退出登录",
+            "SettingsActivity.kt" to "解除配对",
+            "LogActivity.kt" to "清空日志",
+        ).forEach { (file, title) ->
+            val activity = sourceFile(file)
+            assertTrue(activity.contains("CodexConfirmDialog("))
+            assertTrue(activity.contains("title = \"$title\""))
+        }
     }
 
     @Test
