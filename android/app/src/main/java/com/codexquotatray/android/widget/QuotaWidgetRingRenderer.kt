@@ -6,7 +6,9 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import com.codexquotatray.android.R
+import com.codexquotatray.android.QUOTA_RING_CAP_CLEARANCE_DP
 import com.codexquotatray.android.quotaProgressArgb
+import com.codexquotatray.android.quotaRingVisualSweepDegrees
 import kotlin.math.roundToInt
 
 /** Draws the small deterministic ring surface used by the RemoteViews widget. */
@@ -32,6 +34,7 @@ internal object QuotaWidgetRingRenderer {
         val outerStroke = OUTER_STROKE_DP * scale * density
         val innerStroke = INNER_STROKE_DP * scale * density
         val gap = RING_GAP_DP * scale * density
+        val capClearance = QUOTA_RING_CAP_CLEARANCE_DP * density
         val trackColor = context.getColor(R.color.widget_ring_track)
 
         if (inner == null) {
@@ -42,12 +45,29 @@ internal object QuotaWidgetRingRenderer {
                 strokeWidth = outerStroke,
                 percent = outer.remainingPercent,
                 trackColor = trackColor,
+                capClearancePx = capClearance,
             )
         } else {
             val outerRadius = center - outerStroke / 2f
             val innerRadius = outerRadius - outerStroke / 2f - gap - innerStroke / 2f
-            drawRing(canvas, center, outerRadius, outerStroke, outer.remainingPercent, trackColor)
-            drawRing(canvas, center, innerRadius, innerStroke, inner.remainingPercent, trackColor)
+            drawRing(
+                canvas,
+                center,
+                outerRadius,
+                outerStroke,
+                outer.remainingPercent,
+                trackColor,
+                capClearance,
+            )
+            drawRing(
+                canvas,
+                center,
+                innerRadius,
+                innerStroke,
+                inner.remainingPercent,
+                trackColor,
+                capClearance,
+            )
         }
         return bitmap
     }
@@ -59,6 +79,7 @@ internal object QuotaWidgetRingRenderer {
         strokeWidth: Float,
         percent: Int?,
         trackColor: Int,
+        capClearancePx: Float,
     ) {
         val bounds = RectF(center - radius, center - radius, center + radius, center + radius)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -75,7 +96,18 @@ internal object QuotaWidgetRingRenderer {
         if (progress == 100) {
             canvas.drawCircle(center, center, radius, paint)
         } else {
-            canvas.drawArc(bounds, -90f, progress / 100f * 360f, false, paint)
+            canvas.drawArc(
+                bounds,
+                -90f,
+                quotaRingVisualSweepDegrees(
+                    progress = progress / 100f,
+                    radiusPx = radius,
+                    strokeWidthPx = strokeWidth,
+                    capClearancePx = capClearancePx,
+                ),
+                false,
+                paint,
+            )
         }
     }
 }

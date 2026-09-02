@@ -30,9 +30,6 @@ import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -308,20 +305,42 @@ internal fun hasNewerTokenUsageSnapshot(
 }
 
 @Composable
-internal fun TokenUsagePage(controller: TokenUsagePageController, onPairing: () -> Unit, modifier: Modifier = Modifier) {
+internal fun TokenUsagePage(
+    controller: TokenUsagePageController,
+    onPairing: () -> Unit,
+    onLoginOpenAi: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    TokenUsagePageContent(
+        status = controller.status,
+        paired = controller.paired,
+        snapshot = controller.snapshot,
+        onPairing = onPairing,
+        onLoginOpenAi = onLoginOpenAi,
+        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+    )
+}
+
+@Composable
+internal fun TokenUsagePageContent(
+    status: String,
+    paired: Boolean,
+    snapshot: TokenUsageSnapshot?,
+    onPairing: () -> Unit,
+    onLoginOpenAi: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val palette = LocalQuotaPalette.current
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("统计", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.title))
-        TokenUsageStatusLine(controller.status)
-        if (!controller.paired) {
-            Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors(containerColor = palette.color(palette.surface))) {
-                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("统计", fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                    Text("登录 OpenAI 或连接 Windows CodexQuotaTray 后，即可查看 Token 使用历史。", color = palette.color(palette.secondary))
-                    Button(onClick = rememberSystemHapticClick(onPairing), modifier = Modifier.fillMaxWidth()) { Text("扫码配对") }
-                }
-            }
-        } else controller.snapshot?.let { TokenUsageContent(it) }
+        TokenUsageStatusLine(status)
+        if (!paired) {
+            DataSourceEmptyStateCard(
+                message = "登录 OpenAI 或连接 Windows CodexQuotaTray 后，即可查看 Token 使用历史。",
+                onLoginOpenAi = onLoginOpenAi,
+                onPairWindows = onPairing,
+            )
+        } else snapshot?.let { TokenUsageContent(it) }
         Spacer(Modifier.height(96.dp))
     }
 }

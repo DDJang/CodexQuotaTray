@@ -3,6 +3,7 @@ package com.codexquotatray.android
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -17,7 +18,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -41,6 +41,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.widthIn
+import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
@@ -153,30 +155,55 @@ internal fun CodexCard(
 
 @Composable
 internal fun CodexConfirmDialog(
+    backdrop: Backdrop,
     title: String,
     message: String,
     confirmText: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val palette = LocalQuotaPalette.current
     val hapticConfirm = rememberSystemHapticClick { onConfirm(); onDismiss() }
     val hapticDismiss = rememberSystemHapticClick(onDismiss)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh,
-        titleContentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
-        textContentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
-        title = { Text(title) },
-        text = { Text(message) },
-        confirmButton = {
-            TextButton(onClick = hapticConfirm) {
-                Text(confirmText, color = CodexColors.danger)
+    LiquidModalOverlay(
+        paneTitle = title,
+        onDismiss = onDismiss,
+    ) {
+        LiquidDialogSurface(
+            backdrop = backdrop,
+            modifier = Modifier
+                .widthIn(min = 280.dp, max = 420.dp),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    text = title,
+                    style = CodexTypography.title,
+                    color = palette.color(palette.title),
+                )
+                Text(
+                    text = message,
+                    style = CodexTypography.body,
+                    color = palette.color(palette.body),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = hapticDismiss) {
+                        Text("取消", color = palette.color(palette.secondary))
+                    }
+                    TextButton(onClick = hapticConfirm) {
+                        Text(confirmText, color = CodexColors.danger)
+                    }
+                }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = hapticDismiss) { Text("取消") }
-        },
-    )
+        }
+    }
 }
 
 @Composable
@@ -184,6 +211,7 @@ internal fun SecondaryScreenScaffold(
     title: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    modalContent: @Composable BoxScope.(Backdrop) -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val palette = LocalQuotaPalette.current
@@ -228,7 +256,7 @@ internal fun SecondaryScreenScaffold(
                 iconRes = R.drawable.ic_back,
                 description = "返回",
                 backdrop = backdrop,
-                buttonSize = 52.dp,
+                buttonSize = 48.dp,
                 iconSize = 25.dp,
                 onClick = onBack,
             )
@@ -239,7 +267,8 @@ internal fun SecondaryScreenScaffold(
                 color = palette.color(palette.title),
                 textAlign = TextAlign.Center,
             )
-            Spacer(Modifier.size(52.dp))
+            Spacer(Modifier.size(48.dp))
         }
+        modalContent(backdrop)
     }
 }

@@ -37,12 +37,27 @@ class AccountActivity : ComponentActivity() {
             themeVersion
             val palette = settingsPalette(AppTheme.palette(this), AppTheme.effectiveMode(this))
             CodexQuotaTheme(palette) {
-                SecondaryScreenScaffold(title = "Codex 额度账号", onBack = ::finish) {
+                SecondaryScreenScaffold(
+                    title = "OpenAI 账号",
+                    onBack = ::finish,
+                    modalContent = { backdrop ->
+                        if (showLogoutDialog) {
+                            CodexConfirmDialog(
+                                backdrop = backdrop,
+                                title = "退出登录",
+                                message = "退出后需要重新登录才能读取额度。",
+                                confirmText = "退出",
+                                onConfirm = ::logout,
+                                onDismiss = { showLogoutDialog = false },
+                            )
+                        }
+                    },
+                ) {
                     Column(Modifier.fillMaxWidth()) {
                         SettingsSection("OpenAI") {
-                            SettingsGroup {
+                            SettingsGroup(allowLiquidOverflow = true) {
                                 if (credentials == null) {
-                                    SettingsInfoRow("状态", "尚未登录 Codex")
+                                    SettingsInfoRow("状态", "尚未登录 OpenAI")
                                 } else {
                                     credentials?.let { value ->
                                         JwtClaims.planType(value.idToken)
@@ -60,7 +75,7 @@ class AccountActivity : ComponentActivity() {
                                     }
                                 }
                                 SettingsActionButton(
-                                    label = if (credentials == null) "登录 Codex" else "退出登录",
+                                    label = if (credentials == null) "登录 OpenAI" else "退出登录",
                                     danger = credentials != null,
                                     bottomPadding = SettingsUiTokens.actionEdgeInset,
                                     onClick = {
@@ -70,15 +85,6 @@ class AccountActivity : ComponentActivity() {
                             }
                         }
                     }
-                }
-                if (showLogoutDialog) {
-                    CodexConfirmDialog(
-                        title = "退出登录",
-                        message = "退出后需要重新登录才能读取额度。",
-                        confirmText = "退出",
-                        onConfirm = ::logout,
-                        onDismiss = { showLogoutDialog = false },
-                    )
                 }
             }
         }

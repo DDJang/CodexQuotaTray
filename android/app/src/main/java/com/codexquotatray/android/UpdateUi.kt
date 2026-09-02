@@ -1,39 +1,42 @@
 package com.codexquotatray.android
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.codexquotatray.android.update.UpdateRelease
 import com.codexquotatray.android.update.UpdateDownloadFormatting
 import com.codexquotatray.android.update.UpdateDownloadPhase
 import com.codexquotatray.android.update.UpdateDownloadProgress
+import com.kyant.backdrop.Backdrop
 
 @Composable
 internal fun UpdateAvailableDialog(
+    backdrop: Backdrop,
     release: UpdateRelease,
     currentVersion: String,
     downloading: Boolean,
@@ -52,33 +55,15 @@ internal fun UpdateAvailableDialog(
     }
     val palette = settingsPalette(hostPalette, effectiveTheme)
 
-    Dialog(
-        onDismissRequest = if (downloading) ({}) else onLater,
-        properties = DialogProperties(
-            dismissOnBackPress = !downloading,
-            dismissOnClickOutside = !downloading,
-            usePlatformDefaultWidth = false,
-        ),
+    LiquidModalOverlay(
+        paneTitle = "发现新版本",
+        onDismiss = if (downloading) ({}) else onLater,
+        dismissOnBackPress = !downloading,
+        dismissOnClickOutside = !downloading,
     ) {
         CodexQuotaTheme(palette) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-            ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(SettingsUiTokens.groupCornerRadius),
-                    border = BorderStroke(1.dp, palette.color(palette.border).copy(alpha = 0.8f)),
-                    colors = CardDefaults.cardColors(containerColor = palette.color(palette.background)),
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
-                    ) {
-                        Column(
+            LiquidDialogSurface(backdrop = backdrop) {
+                Column(
                             modifier = Modifier.padding(horizontal = 20.dp),
                             verticalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
@@ -99,19 +84,19 @@ internal fun UpdateAvailableDialog(
                                 color = palette.color(palette.secondary),
                                 fontSize = 13.sp,
                             )
-                        }
+                }
 
-                        downloadError?.let { error ->
-                            Text(
+                downloadError?.let { error ->
+                    Text(
                                 text = "下载失败：$error",
                                 color = palette.color(palette.error),
                                 fontSize = 13.sp,
                                 modifier = Modifier.padding(horizontal = 20.dp),
-                            )
-                        }
+                    )
+                }
 
-                        if (release.notes.isNotBlank()) {
-                            Column(Modifier.padding(horizontal = 20.dp)) {
+                if (release.notes.isNotBlank()) {
+                    Column(Modifier.padding(horizontal = 20.dp)) {
                                 SettingsGroup {
                                     Box(
                                         modifier = Modifier
@@ -126,13 +111,12 @@ internal fun UpdateAvailableDialog(
                                         ReleaseNotesMarkdownView(release.notes)
                                     }
                                 }
-                            }
                         }
+                    }
 
                         if (downloading) {
                             Column(Modifier.padding(horizontal = 20.dp)) {
-                                SettingsSection("下载") {
-                                    SettingsGroup {
+                                SettingsGroup {
                                         Column(
                                             modifier = Modifier.padding(
                                                 horizontal = SettingsUiTokens.rowHorizontalPadding,
@@ -163,25 +147,22 @@ internal fun UpdateAvailableDialog(
                                                     color = palette.color(palette.accent),
                                                 )
                                             } else {
-                                                LinearProgressIndicator(
-                                                    progress = { percentage / 100f },
+                                                UpdateDownloadProgressBar(
+                                                    progress = percentage / 100f,
                                                     modifier = Modifier.fillMaxWidth(),
-                                                    color = palette.color(palette.accent),
-                                                    trackColor = palette.color(palette.progressTrack),
                                                 )
                                                 Text(
                                                     text = "$percentage%",
                                                     color = palette.color(palette.secondary),
                                                     fontSize = 12.sp,
                                                 )
-                                            }
-                                        }
                                     }
-                                }
                             }
                         }
+                        }
+                    }
 
-                        Column(Modifier.padding(horizontal = 20.dp)) {
+                Column(Modifier.padding(horizontal = 20.dp)) {
                             if (!downloading) {
                                 SettingsActionButton(
                                     label = if (downloadError == null) "下载并安装" else "重试",
@@ -247,10 +228,72 @@ internal fun UpdateAvailableDialog(
                                     }
                                 }
                             }
-                        }
-                    }
                 }
             }
         }
+    }
+}
+
+internal fun updateDownloadProgressFraction(progress: Float): Float = progress.coerceIn(0f, 1f)
+
+internal fun progressCornerRadiusPx(
+    height: Float,
+    maxRadius: Float,
+): Float = minOf(height / 2f, maxRadius).coerceAtLeast(0f)
+
+internal fun updateDownloadProgressVisualWidth(
+    fraction: Float,
+    totalWidth: Float,
+    barHeight: Float,
+): Float {
+    val safeFraction = updateDownloadProgressFraction(fraction)
+    val safeTotalWidth = totalWidth.coerceAtLeast(0f)
+    val actualProgressWidth = safeTotalWidth * safeFraction
+    return when {
+        safeFraction <= 0f -> 0f
+        safeFraction >= 1f -> safeTotalWidth
+        else -> maxOf(actualProgressWidth, barHeight.coerceAtLeast(0f))
+            .coerceAtMost(safeTotalWidth)
+    }
+}
+
+@Composable
+private fun UpdateDownloadProgressBar(
+    progress: Float,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalQuotaPalette.current
+    val fraction = updateDownloadProgressFraction(progress)
+    Canvas(
+        modifier
+            .fillMaxWidth()
+            .height(8.dp)
+            .semantics {
+                progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
+            },
+    ) {
+        val radius = progressCornerRadiusPx(
+            height = size.height,
+            maxRadius = 4.dp.toPx(),
+        )
+        val trackColor = palette.color(palette.progressTrack)
+        val foregroundColor = palette.color(palette.accent)
+        drawRoundRect(
+            color = trackColor,
+            size = Size(size.width, size.height),
+            cornerRadius = CornerRadius(radius, radius),
+        )
+
+        val visualProgressWidth = updateDownloadProgressVisualWidth(
+            fraction = fraction,
+            totalWidth = size.width,
+            barHeight = size.height,
+        )
+        if (visualProgressWidth <= 0f) return@Canvas
+        drawRoundRect(
+            color = foregroundColor,
+            size = Size(visualProgressWidth, size.height),
+            cornerRadius = CornerRadius(radius, radius),
+        )
     }
 }

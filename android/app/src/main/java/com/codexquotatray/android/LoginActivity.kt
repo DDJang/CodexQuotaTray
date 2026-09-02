@@ -47,10 +47,10 @@ class LoginActivity : ComponentActivity() {
             themeVersion
             val palette = settingsPalette(AppTheme.palette(this), AppTheme.effectiveMode(this))
             CodexQuotaTheme(palette) {
-                SecondaryScreenScaffold(title = "登录 Codex", onBack = ::finish) {
+                SecondaryScreenScaffold(title = "登录 OpenAI", onBack = ::finish) {
                     Column(Modifier.fillMaxWidth()) {
                         SettingsSection("OpenAI 登录") {
-                            SettingsGroup {
+                            SettingsGroup(allowLiquidOverflow = true) {
                                 SettingsInfoRow(
                                     title = "状态",
                                     value = statusText,
@@ -165,7 +165,7 @@ class LoginActivity : ComponentActivity() {
             }
             return
         }
-        statusText = "请在浏览器完成 Codex 登录"
+        statusText = "请在浏览器完成 OpenAI 登录"
         userCode = update.userCode
     }
 

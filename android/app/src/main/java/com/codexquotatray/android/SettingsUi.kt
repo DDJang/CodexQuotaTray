@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -19,8 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -57,8 +54,7 @@ internal object SettingsUiTokens {
     val rowMinHeight = 58.dp
     val rowHorizontalPadding = 20.dp
     val dividerInset = 20.dp
-    val actionHeight = 52.dp
-    val actionCornerRadius = 18.dp
+    val actionHeight = 48.dp
     val actionHorizontalInset = 12.dp
     val actionInnerInset = 4.dp
     val actionEdgeInset = 10.dp
@@ -374,6 +370,21 @@ internal fun SettingsWarningCaption(text: String) {
     )
 }
 
+internal enum class SettingsActionButtonStyle {
+    NEUTRAL,
+    PRIMARY,
+    DANGER,
+}
+
+internal fun settingsActionButtonStyle(
+    primary: Boolean,
+    danger: Boolean,
+): SettingsActionButtonStyle = when {
+    danger -> SettingsActionButtonStyle.DANGER
+    primary -> SettingsActionButtonStyle.PRIMARY
+    else -> SettingsActionButtonStyle.NEUTRAL
+}
+
 @Composable
 internal fun SettingsActionButton(
     label: String,
@@ -387,38 +398,42 @@ internal fun SettingsActionButton(
 ) {
     val palette = LocalQuotaPalette.current
     val hapticOnClick = rememberSystemHapticClick(onClick)
-    val container = if (primary) {
-        palette.color(palette.primaryButton)
-    } else {
-        palette.color(palette.secondaryButton)
+    val actionStyle = settingsActionButtonStyle(primary = primary, danger = danger)
+    val tint = when (actionStyle) {
+        SettingsActionButtonStyle.NEUTRAL -> Color.Unspecified
+        SettingsActionButtonStyle.PRIMARY -> palette.color(palette.accent)
+        SettingsActionButtonStyle.DANGER -> CodexColors.danger
     }
-    val content = when {
-        danger -> CodexColors.danger
-        primary -> palette.color(palette.onPrimary)
-        else -> palette.color(palette.secondaryButtonText)
+    val contentColor = when (actionStyle) {
+        SettingsActionButtonStyle.NEUTRAL -> palette.color(palette.body)
+        SettingsActionButtonStyle.PRIMARY -> palette.color(palette.onPrimary)
+        SettingsActionButtonStyle.DANGER -> Color.White
     }
-    Button(
-        onClick = hapticOnClick,
+    val actionBackdrop = rememberLayerBackdrop()
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                start = horizontalInset,
-                top = topPadding,
-                end = horizontalInset,
-                bottom = bottomPadding,
-            )
-            .height(SettingsUiTokens.actionHeight),
-        enabled = enabled,
-        shape = RoundedCornerShape(SettingsUiTokens.actionCornerRadius),
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = container,
-            contentColor = content,
-            disabledContainerColor = container.copy(alpha = 0.45f),
-            disabledContentColor = content.copy(alpha = 0.55f),
-        ),
+            .height(SettingsUiTokens.actionHeight + topPadding + bottomPadding),
     ) {
-        Text(text = label, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Box(
+            Modifier
+                .fillMaxSize()
+                .alpha(0f)
+                .layerBackdrop(actionBackdrop)
+                .background(palette.color(palette.surface)),
+        )
+        LiquidActionButton(
+            onClick = hapticOnClick,
+            backdrop = actionBackdrop,
+            enabled = enabled,
+            tint = tint,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = horizontalInset),
+        ) {
+            Text(text = label, color = contentColor, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        }
     }
 }
 

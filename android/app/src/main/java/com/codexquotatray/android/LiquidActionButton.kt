@@ -7,13 +7,13 @@
  */
 package com.codexquotatray.android
 
-import androidx.annotation.DrawableRes
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -21,11 +21,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.fastCoerceIn
@@ -44,32 +43,41 @@ import kotlin.math.sin
 import kotlin.math.tanh
 
 /**
- * Icon-button geometry adapted from Kyant0/AndroidLiquidGlass LiquidButton.
- * Keep the backdrop and interaction pipeline aligned with upstream; only the
- * content and square icon-button geometry are project-specific.
+ * Bounds only the visual deformation input. Pointer positions and gesture
+ * lifecycle remain owned by [InteractiveHighlight] and are not truncated.
+ */
+internal fun boundedLiquidActionOffset(rawOffset: Offset, maxOffset: Float): Offset =
+    if (maxOffset <= 0f) {
+        Offset.Zero
+    } else {
+        Offset(
+            rawOffset.x.fastCoerceIn(-maxOffset, maxOffset),
+            rawOffset.y.fastCoerceIn(-maxOffset, maxOffset),
+        )
+    }
+
+/**
+ * Kyant action-button geometry used by the Settings action migration.
+ * The caller owns the backdrop source and the optical tint; this component
+ * owns only the glass surface, elastic interaction, click semantics, and
+ * content geometry.
  */
 @Composable
-internal fun LiquidIconButton(
-    @DrawableRes iconRes: Int,
-    description: String,
+internal fun LiquidActionButton(
+    onClick: () -> Unit,
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    busy: Boolean = false,
-    buttonSize: Dp = 52.dp,
-    iconSize: Dp = 24.dp,
-    onClick: () -> Unit,
+    tint: Color = Color.Unspecified,
+    content: @Composable RowScope.() -> Unit,
 ) {
-    val palette = LocalQuotaPalette.current
     val animationScope = rememberCoroutineScope()
-    val hapticOnClick = rememberSystemHapticClick(onClick)
     val interactiveHighlight = remember(animationScope) {
         InteractiveHighlight(animationScope = animationScope)
     }
 
-    Box(
+    Row(
         modifier
-            .size(buttonSize)
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { Capsule() },
@@ -86,16 +94,7 @@ internal fun LiquidIconButton(
                     val maxOffset = size.minDimension
                     val initialDerivative = 0.05f
                     val rawOffset = interactiveHighlight.offset
-                    val offset = Offset(
-                        rawOffset.x.fastCoerceIn(
-                            -maxOffset,
-                            maxOffset,
-                        ),
-                        rawOffset.y.fastCoerceIn(
-                            -maxOffset,
-                            maxOffset,
-                        ),
-                    )
+                    val offset = boundedLiquidActionOffset(rawOffset, maxOffset)
                     translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
                     translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
                     val maxDragScale = 4f.dp.toPx() / size.height
@@ -107,34 +106,27 @@ internal fun LiquidIconButton(
                         maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension) *
                         (height / width).fastCoerceAtMost(1f)
                 },
-                onDrawSurface = {},
+                onDrawSurface = {
+                    if (tint.isSpecified) {
+                        drawRect(tint, blendMode = BlendMode.Hue)
+                        drawRect(tint.copy(alpha = 0.75f))
+                    }
+                },
             )
             .clickable(
                 interactionSource = null,
                 indication = if (enabled) null else LocalIndication.current,
                 enabled = enabled,
                 role = Role.Button,
-                onClick = hapticOnClick,
+                onClick = onClick,
             )
             .then(interactiveHighlight.modifier)
             .then(if (enabled) interactiveHighlight.gestureModifier else Modifier)
-            .semantics { contentDescription = description }
+            .height(48f.dp)
+            .padding(horizontal = 16f.dp)
             .alpha(if (enabled) 1f else 0.45f),
-        contentAlignment = Alignment.Center,
-    ) {
-        if (busy) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(iconSize),
-                color = palette.color(palette.title),
-                strokeWidth = 2.dp,
-            )
-        } else {
-            Icon(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                modifier = Modifier.size(iconSize),
-                tint = palette.color(palette.title),
-            )
-        }
-    }
+        horizontalArrangement = Arrangement.spacedBy(8f.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+        content = content,
+    )
 }

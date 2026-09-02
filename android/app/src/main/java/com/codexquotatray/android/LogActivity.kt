@@ -81,13 +81,28 @@ class LogActivity : ComponentActivity() {
                         copied = false
                     }
                 }
-                SecondaryScreenScaffold(title = "日志", onBack = ::finish) {
+                SecondaryScreenScaffold(
+                    title = "日志",
+                    onBack = ::finish,
+                    modalContent = { backdrop ->
+                        if (showClearDialog) {
+                            CodexConfirmDialog(
+                                backdrop = backdrop,
+                                title = "清空日志",
+                                message = "确定清空全部本地日志吗？",
+                                confirmText = "清空",
+                                onConfirm = { logStore.clear(); renderLog() },
+                                onDismiss = { showClearDialog = false },
+                            )
+                        }
+                    },
+                ) {
                     Column(
                         Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(28.dp),
                     ) {
                         SettingsSection("日志管理") {
-                            SettingsGroup {
+                            SettingsGroup(allowLiquidOverflow = true) {
                                 SettingsActionButton(
                                     label = if (copied) "已复制" else "复制全部日志",
                                     enabled = !copied,
@@ -104,7 +119,7 @@ class LogActivity : ComponentActivity() {
                         }
 
                         SettingsSection("最近记录") {
-                            SettingsGroup {
+                            SettingsGroup(allowLiquidOverflow = true) {
                                 if (logEntries.isEmpty()) {
                                     SettingsInfoRow("记录", "暂无日志")
                                 } else {
@@ -126,15 +141,6 @@ class LogActivity : ComponentActivity() {
                             }
                         }
                     }
-                }
-                if (showClearDialog) {
-                    CodexConfirmDialog(
-                        title = "清空日志",
-                        message = "确定清空全部本地日志吗？",
-                        confirmText = "清空",
-                        onConfirm = { logStore.clear(); renderLog() },
-                        onDismiss = { showClearDialog = false },
-                    )
                 }
             }
         }

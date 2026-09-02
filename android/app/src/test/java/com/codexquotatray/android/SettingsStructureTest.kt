@@ -1,5 +1,6 @@
 package com.codexquotatray.android
 
+import androidx.compose.ui.geometry.Offset
 import com.codexquotatray.android.source.DataSourcePriority
 import com.codexquotatray.android.liquidglass.shouldCommitLiquidSegmentSelection
 import org.junit.Assert.assertEquals
@@ -123,7 +124,7 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun onlySegmentedSettingsGroupsAllowLiquidOverflow() {
+    fun actionAndSegmentedSettingsGroupsAllowLiquidOverflow() {
         val settingsUi = sourceFile("SettingsUi.kt")
         val settingsActivity = sourceFile("SettingsActivity.kt")
 
@@ -132,7 +133,7 @@ class SettingsStructureTest {
         assertTrue(settingsUi.contains("Modifier.background("))
         assertTrue(settingsUi.contains("Card("))
         assertEquals(
-            3,
+            5,
             Regex("SettingsGroup\\(allowLiquidOverflow = true\\)")
                 .findAll(settingsActivity)
                 .count(),
@@ -151,6 +152,136 @@ class SettingsStructureTest {
             Regex("SettingsSection\\(\"统计\"\\)\\s*\\{\\s*SettingsGroup\\(allowLiquidOverflow = true\\)")
                 .containsMatchIn(settingsActivity),
         )
+        assertTrue(
+            Regex("private fun ColumnScope.TokenPairingSettings\\(\\)[\\s\\S]*?" +
+                "SettingsGroup\\(allowLiquidOverflow = true\\)")
+                .containsMatchIn(settingsActivity),
+        )
+        assertTrue(
+            Regex("SettingsSection\\(\"版本\"\\)\\s*\\{\\s*SettingsGroup\\(allowLiquidOverflow = true\\)")
+                .containsMatchIn(settingsActivity),
+        )
+
+        listOf("AccountActivity.kt", "LoginActivity.kt", "LogActivity.kt").forEach { fileName ->
+            assertTrue(sourceFile(fileName).contains("SettingsGroup(allowLiquidOverflow = true)"))
+        }
+    }
+
+    @Test
+    fun liquidActionButtonStyleUsesDangerPrecedenceAndExpectedSemantics() {
+        assertEquals(SettingsActionButtonStyle.NEUTRAL, settingsActionButtonStyle(false, false))
+        assertEquals(SettingsActionButtonStyle.PRIMARY, settingsActionButtonStyle(true, false))
+        assertEquals(SettingsActionButtonStyle.DANGER, settingsActionButtonStyle(false, true))
+        assertEquals(SettingsActionButtonStyle.DANGER, settingsActionButtonStyle(true, true))
+    }
+
+    @Test
+    fun updateStatusDisplayPrioritizesCheckingResultHistoryAndNeverChecked() {
+        val neverChecked = updateStatusDisplay("尚未检查", false, 0L, "")
+        assertEquals("未检查", neverChecked)
+
+        val historical = updateStatusDisplay("尚未检查", false, 1L, "09-02 16:20")
+        assertEquals("上次检查时间为 09-02 16:20", historical)
+
+        val checking = updateStatusDisplay("已是最新版本 0.11.2", true, 1L, "09-02 16:20")
+        assertEquals("正在检查…", checking)
+
+        val upToDate = updateStatusDisplay("已是最新版本 0.11.2", false, 1L, "09-02 16:20")
+        assertEquals("已是最新版本 0.11.2", upToDate)
+
+        val failed = updateStatusDisplay("检查更新失败：fixture", false, 2L, "09-02 16:21")
+        assertEquals("检查更新失败：fixture", failed)
+
+        val available = updateStatusDisplay("发现新版本 0.11.3", false, 3L, "09-02 16:22")
+        assertEquals("发现新版本 0.11.3", available)
+
+        listOf(neverChecked, historical, checking, upToDate, failed, available).forEach {
+            assertFalse(it.contains('\n'))
+        }
+    }
+
+    @Test
+    fun liquidActionButtonKeepsKyantGeometryAndBoundsOnlyVisualOffset() {
+        assertEquals(
+            Offset(48f, -48f),
+            boundedLiquidActionOffset(Offset(240f, -240f), 48f),
+        )
+        assertEquals(Offset.Zero, boundedLiquidActionOffset(Offset(240f, -240f), 0f))
+
+        val source = sourceFile("LiquidActionButton.kt")
+        assertTrue(source.contains("Adapted and modified from Kyant0/AndroidLiquidGlass"))
+        assertTrue(source.contains("shape = { Capsule() }"))
+        assertTrue(source.contains("vibrancy()"))
+        assertTrue(source.contains("blur(2f.dp.toPx())"))
+        assertTrue(source.contains("lens(12f.dp.toPx(), 24f.dp.toPx())"))
+        assertTrue(source.contains("interactiveHighlight.offset"))
+        assertTrue(source.contains("boundedLiquidActionOffset("))
+        assertTrue(source.contains("size.minDimension"))
+        assertTrue(source.contains("layerBlock = {"))
+        assertFalse(source.contains("layerBlock = if (enabled)"))
+        assertTrue(source.contains(".then(interactiveHighlight.modifier)"))
+        assertTrue(source.contains(".then(if (enabled) interactiveHighlight.gestureModifier else Modifier)"))
+        assertTrue(source.contains(".height(48f.dp)"))
+        assertTrue(source.contains(".padding(horizontal = 16f.dp)"))
+        assertTrue(source.contains("Arrangement.spacedBy(8f.dp, Alignment.CenterHorizontally)"))
+        assertTrue(source.contains("role = Role.Button"))
+        assertTrue(source.contains("enabled = enabled"))
+
+        val settings = sourceFile("SettingsUi.kt")
+        val action = settings.substringAfter("internal fun SettingsActionButton(")
+            .substringBefore("internal fun SettingsSegmentedSelector(")
+        assertTrue(action.contains("val actionBackdrop = rememberLayerBackdrop()"))
+        assertTrue(action.contains(".fillMaxSize()"))
+        assertTrue(action.contains(".layerBackdrop(actionBackdrop)"))
+        assertTrue(action.contains("LiquidActionButton("))
+        assertTrue(action.contains("palette.color(palette.accent)"))
+        assertTrue(action.contains("CodexColors.danger"))
+        assertTrue(action.contains("palette.color(palette.body)"))
+        assertFalse(action.contains("busy: Boolean = false"))
+        assertFalse(action.contains("CircularProgressIndicator("))
+        assertTrue(action.contains(".height(SettingsUiTokens.actionHeight + topPadding + bottomPadding)"))
+        assertFalse(action.contains("ButtonDefaults"))
+
+        val settingsActivity = sourceFile("SettingsActivity.kt")
+        assertTrue(settingsActivity.contains("label = if (updateChecking) \"正在检查…\" else \"检查更新\""))
+        assertFalse(settingsActivity.contains("busy = updateChecking"))
+        assertTrue(settingsActivity.contains("updateStatusDisplay("))
+        assertTrue(settingsActivity.contains("checking = updateChecking"))
+        assertTrue(settingsActivity.contains("valueMaxLines = 1"))
+        assertTrue(settingsActivity.contains("val presentationStartedAt = SystemClock.elapsedRealtime()"))
+        assertTrue(settingsActivity.contains("val finishedAt = SystemClock.elapsedRealtime()"))
+        assertTrue(settingsActivity.contains("remainingRefreshPresentationMillis("))
+        assertTrue(settingsActivity.contains("updateMain.postDelayed"))
+        assertFalse(settingsActivity.contains("SettingsInfoRow(\"上次检查\""))
+    }
+
+    @Test
+    fun liquidActionButtonFixtureKeepsMaterialUpstreamAndBoundedComparisons() {
+        val fixture = debugSourceFile("debug/LiquidActionButtonFixtureActivity.kt")
+        assertTrue(fixture.contains("CurrentMaterialButton"))
+        assertTrue(fixture.contains("private fun BoundedLiquidButton("))
+        assertTrue(fixture.contains("Exact Kyant upstream"))
+        assertTrue(fixture.contains("Production candidate · bounded drag"))
+        assertTrue(fixture.contains("StateMutationRegressionSection"))
+        assertTrue(fixture.contains("label = if (checking) \"正在检查…\" else \"检查更新\""))
+        assertTrue(fixture.contains("enabled = !checking"))
+        assertTrue(fixture.contains("delay(1500)"))
+        assertTrue(fixture.contains("val maxOffset = size.minDimension"))
+        assertTrue(fixture.contains("rawOffset = interactiveHighlight.offset"))
+        assertTrue(fixture.contains("rawOffset.x.fastCoerceIn(-maxOffset, maxOffset)"))
+    }
+
+    @Test
+    fun liquidIconButtonKeepsReleaseLayerWhenItsActionBecomesBusy() {
+        val source = sourceFile("LiquidIconButton.kt")
+        assertTrue(source.contains("layerBlock = {"))
+        assertFalse(source.contains("layerBlock = if (enabled)"))
+        assertTrue(source.contains(".then(interactiveHighlight.modifier)"))
+        assertTrue(source.contains(".then(if (enabled) interactiveHighlight.gestureModifier else Modifier)"))
+
+        val dock = sourceFile("GlassComponents.kt")
+        assertTrue(dock.contains("enabled = actionEnabled && !actionBusy"))
+        assertTrue(dock.contains("busy = actionBusy"))
     }
 
     @Test
@@ -277,7 +408,7 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun glassRefreshActionMatchesBottomCapsuleAndSecondaryButtonsKeepOriginalSize() {
+    fun glassRefreshActionUsesPolishedSizesAndKeepsBottomGeometry() {
         val components = sourceFile("GlassComponents.kt")
         val main = sourceFile("MainActivity.kt")
         val settings = sourceFile("SettingsActivity.kt")
@@ -286,21 +417,25 @@ class SettingsStructureTest {
         val dock = components.substringAfter("internal fun LiquidMainDock(")
 
         assertTrue(components.contains("internal val glassActionButtonSize = 64.dp"))
-        assertTrue(components.contains("internal val glassRefreshIconSize = 28.dp"))
+        assertTrue(components.contains("internal val glassRefreshIconSize = 32.dp"))
         assertTrue(dock.contains("val actionSize = glassActionButtonSize"))
         assertTrue(dock.contains("val navigationHeight = glassActionButtonSize"))
         assertTrue(dock.contains("iconSize = glassRefreshIconSize"))
-        assertTrue(main.contains("buttonSize = 52.dp"))
+        assertTrue(main.contains("buttonSize = 48.dp"))
         assertTrue(main.contains("iconSize = 24.dp"))
-        assertTrue(settings.contains("buttonSize = 52.dp"))
+        assertTrue(settings.contains("buttonSize = 48.dp"))
         assertTrue(settings.contains("iconSize = 25.dp"))
-        assertTrue(settings.contains("Spacer(Modifier.size(52.dp))"))
-        assertTrue(codexUi.contains("buttonSize = 52.dp"))
+        assertTrue(settings.contains("Spacer(Modifier.size(48.dp))"))
+        assertTrue(codexUi.contains("buttonSize = 48.dp"))
         assertTrue(codexUi.contains("iconSize = 25.dp"))
-        assertTrue(codexUi.contains("Spacer(Modifier.size(52.dp))"))
-        assertTrue(about.contains("buttonSize = 52.dp"))
+        assertTrue(codexUi.contains("Spacer(Modifier.size(48.dp))"))
+        assertTrue(about.contains("buttonSize = 48.dp"))
         assertTrue(about.contains("iconSize = 25.dp"))
-        assertTrue(about.contains("Spacer(Modifier.size(52.dp))"))
+        assertTrue(about.contains("Spacer(Modifier.size(48.dp))"))
+        assertFalse(main.contains("buttonSize = 52.dp"))
+        assertFalse(settings.contains("buttonSize = 52.dp"))
+        assertFalse(codexUi.contains("buttonSize = 52.dp"))
+        assertFalse(about.contains("buttonSize = 52.dp"))
         assertFalse(main.contains("glassActionButtonSize"))
         assertFalse(settings.contains("glassActionButtonSize"))
         assertFalse(codexUi.contains("glassActionButtonSize"))
@@ -564,6 +699,358 @@ class SettingsStructureTest {
         assertFalse(adaptation.contains("requiredWidth"))
         assertFalse(adaptation.contains("requiredHeight"))
         assertFalse(adaptation.contains("TransformOrigin"))
+    }
+
+    @Test
+    fun authPairingAndUpdateFixturesAreDebugOnlyAndSideEffectFree() {
+        val settings = settingsSource()
+        val developerOptions = settings.substringAfter("SettingsSection(\"开发者选项\")")
+            .substringBefore("private fun openDebugQuotaRingFixture")
+        listOf(
+            "Codex Login Fixture",
+            "Windows Pairing Fixture",
+            "Update Download Fixture",
+        ).forEach { title -> assertTrue(developerOptions.contains(title)) }
+        listOf(
+            "DEBUG_CODEX_LOGIN_FIXTURE_ACTIVITY",
+            "DEBUG_WINDOWS_PAIRING_FIXTURE_ACTIVITY",
+            "DEBUG_UPDATE_DOWNLOAD_FIXTURE_ACTIVITY",
+            "openDebugCodexLoginFixture",
+            "openDebugWindowsPairingFixture",
+            "openDebugUpdateDownloadFixture",
+        ).forEach { marker -> assertTrue(settings.contains(marker)) }
+
+        val manifest = debugManifestSource()
+        listOf(
+            ".debug.CodexLoginFixtureActivity",
+            ".debug.WindowsPairingFixtureActivity",
+            ".debug.UpdateDownloadFixtureActivity",
+        ).forEach { activity ->
+            val entry = manifest.substringAfter(activity).substringBefore("</activity>")
+            assertTrue(entry.contains("android:exported=\"false\""))
+            assertFalse(entry.contains("intent-filter"))
+        }
+
+        val login = debugSourceFile("debug/CodexLoginFixtureActivity.kt")
+        assertTrue(login.contains("正在准备登录…"))
+        assertTrue(login.contains("请在浏览器完成 OpenAI 登录"))
+        assertTrue(login.contains("ABCD-EFGH"))
+        assertTrue(login.contains("登录完成，正在保存登录状态…"))
+        assertTrue(login.contains("登录失败，请重试"))
+        assertTrue(login.contains("localActionCount++"))
+        assertFalse(login.contains("CodexOAuthClient"))
+        assertFalse(login.contains("OAuthStore"))
+        assertFalse(login.contains("Intent("))
+
+        val pairing = debugSourceFile("debug/WindowsPairingFixtureActivity.kt")
+        assertTrue(pairing.contains("电脑"))
+        assertTrue(pairing.contains("Windows PC"))
+        assertTrue(pairing.contains("192.168.1.58:43127"))
+        assertTrue(pairing.contains("2 分钟前"))
+        assertTrue(pairing.contains("重新扫码配对"))
+        assertTrue(pairing.contains("复制诊断信息"))
+        assertTrue(pairing.contains("解除配对"))
+        assertTrue(pairing.contains("CodexConfirmDialog"))
+        assertFalse(pairing.contains("TokenPairingFlow"))
+        assertFalse(pairing.contains("TokenSyncStore"))
+
+        val update = debugSourceFile("debug/UpdateDownloadFixtureActivity.kt")
+        assertTrue(update.contains("UpdateAvailableDialog("))
+        assertTrue(update.contains("DOWNLOADING_INDETERMINATE"))
+        assertTrue(update.contains("DOWNLOADING_PROGRESS"))
+        assertTrue(update.contains("UpdateDownloadPhase.VERIFYING"))
+        assertTrue(update.contains("Fixture simulated failure"))
+        assertTrue(update.contains("https://example.invalid"))
+        assertFalse(update.contains("UpdateDownloadManager"))
+        assertFalse(update.contains("UpdateInstaller"))
+        assertFalse(update.contains("UpdateBrowser"))
+    }
+
+    @Test
+    fun p1PageSurfacesUseLiquidActionsAndKeepDialogProgressTopology() {
+        val quota = sourceFile("QuotaPageView.kt")
+        val quotaContent = quota
+            .substringAfter("internal fun QuotaPageContent(")
+            .substringBefore("private fun QuotaStatusLine(")
+        assertTrue(quota.contains("QuotaPageContent("))
+        assertTrue(quotaContent.contains("DataSourceEmptyStateCard("))
+        assertTrue(quotaContent.contains("message = \"登录 OpenAI 或连接 Windows CodexQuotaTray 后，即可查看 Codex 额度。\""))
+        assertTrue(quotaContent.contains("onLoginOpenAi = onLogin"))
+        assertTrue(quotaContent.contains("onPairWindows = onPairing"))
+        assertTrue(quotaContent.contains("loginEnabled = !busy"))
+        assertFalse(quota.contains("androidx.compose.material3.Button"))
+        assertFalse(quotaContent.contains("verticalScroll"))
+
+        val token = sourceFile("TokenUsagePageView.kt")
+        val tokenContent = token
+            .substringAfter("internal fun TokenUsagePageContent(")
+            .substringBefore("private fun TokenUsageStatusLine(")
+        assertTrue(token.contains("TokenUsagePageContent("))
+        assertTrue(tokenContent.contains("DataSourceEmptyStateCard("))
+        assertTrue(tokenContent.contains("message = \"登录 OpenAI 或连接 Windows CodexQuotaTray 后，即可查看 Token 使用历史。\""))
+        assertTrue(tokenContent.contains("onLoginOpenAi = onLoginOpenAi"))
+        assertTrue(tokenContent.contains("onPairWindows = onPairing"))
+        assertFalse(token.contains("androidx.compose.material3.Button"))
+        assertFalse(tokenContent.contains("verticalScroll"))
+
+        val emptyState = sourceFile("DataSourceEmptyState.kt")
+        assertTrue(emptyState.contains("RoundedCornerShape(14.dp)"))
+        assertTrue(emptyState.contains("label = \"登录 OpenAI\""))
+        assertTrue(emptyState.contains("primary = true"))
+        assertTrue(emptyState.contains("label = \"扫码配对\""))
+        assertTrue(emptyState.contains("onClick = onPairWindows"))
+        assertTrue(emptyState.contains("Arrangement.spacedBy(8.dp)"))
+
+        val liquidDialog = sourceFile("LiquidDialogSurface.kt")
+        assertTrue(liquidDialog.contains("internal fun LiquidDialogSurface("))
+        assertTrue(liquidDialog.contains("backdrop: Backdrop"))
+        assertTrue(liquidDialog.contains("GlassSurface("))
+        assertTrue(liquidDialog.contains("backdrop = backdrop"))
+        assertTrue(liquidDialog.contains("RoundedCornerShape(SettingsUiTokens.groupCornerRadius)"))
+        assertTrue(liquidDialog.contains("width = 1.dp"))
+        assertTrue(liquidDialog.contains("blurRadius = 8.dp"))
+        assertTrue(liquidDialog.contains("refractionHeight = 12.dp"))
+        assertTrue(liquidDialog.contains("refractionAmount = 24.dp"))
+        assertTrue(liquidDialog.contains("surfaceAlpha = if (isDark) 0.46f else 0.58f"))
+        assertTrue(liquidDialog.contains(".padding(vertical = 20.dp)"))
+        assertTrue(liquidDialog.contains("Arrangement.spacedBy(18.dp)"))
+        assertFalse(liquidDialog.contains("rememberLayerBackdrop()"))
+        assertFalse(liquidDialog.contains(".matchParentSize()"))
+        assertFalse(liquidDialog.contains(".alpha(0f)"))
+        assertFalse(liquidDialog.contains(".layerBackdrop("))
+        assertFalse(liquidDialog.contains(".background("))
+
+        val liquidModal = sourceFile("LiquidModalOverlay.kt")
+        assertTrue(liquidModal.contains("internal fun LiquidModalOverlay("))
+        assertFalse(liquidModal.contains("backdrop"))
+        assertTrue(liquidModal.contains("BackHandler(enabled = true)"))
+        assertTrue(liquidModal.contains("Color.Black.copy(alpha = 0.32f)"))
+        assertTrue(liquidModal.contains(".fillMaxSize()"))
+        assertTrue(liquidModal.contains("clickable("))
+        assertTrue(liquidModal.contains("interactionSource = null"))
+        assertTrue(liquidModal.contains("indication = null"))
+        assertTrue(liquidModal.contains("clearAndSetSemantics { }"))
+        assertTrue(liquidModal.contains("ModalScrimPointerBlocker("))
+        assertTrue(liquidModal.contains("PointerEventPass.Final"))
+        assertTrue(liquidModal.contains("event.changes"))
+        assertTrue(liquidModal.contains("change.consume()"))
+        assertTrue(liquidModal.contains("ModalSurfacePointerBarrier("))
+        assertTrue(liquidModal.contains("dismissOnBackPress"))
+        assertTrue(liquidModal.contains("dismissOnClickOutside"))
+        assertTrue(liquidModal.contains("dialog()"))
+        assertTrue(liquidModal.contains("dismiss(\"关闭\")"))
+        assertTrue(liquidModal.contains("this.paneTitle = paneTitle"))
+        assertFalse(liquidModal.contains("detectTapGestures"))
+        assertFalse(liquidModal.contains("pointerIsDown"))
+        assertFalse(liquidModal.contains("tapCandidate"))
+        assertFalse(liquidModal.contains("changedToDownIgnoreConsumed"))
+        assertFalse(liquidModal.contains("changedToUpIgnoreConsumed"))
+        assertFalse(liquidModal.contains("shouldDismissModalScrimTap"))
+
+        val update = sourceFile("UpdateUi.kt")
+        assertTrue(update.contains("UpdateAvailableDialog("))
+        assertTrue(update.contains("backdrop: Backdrop"))
+        assertTrue(update.contains("LiquidModalOverlay("))
+        assertTrue(update.contains("LiquidDialogSurface(backdrop = backdrop)"))
+        assertTrue(update.contains("paneTitle = \"发现新版本\""))
+        assertFalse(update.contains("semantics { paneTitle"))
+        assertFalse(update.contains("internal fun LiquidDialogSurface("))
+        assertFalse(update.contains("rememberLayerBackdrop()"))
+        assertFalse(update.contains(".matchParentSize()"))
+        assertFalse(update.contains("androidx.compose.ui.window.Dialog"))
+        assertFalse(update.contains("DialogProperties("))
+        assertTrue(update.contains("private fun UpdateDownloadProgressBar("))
+        assertTrue(update.contains("internal fun updateDownloadProgressFraction("))
+        assertTrue(update.contains("internal fun progressCornerRadiusPx("))
+        assertTrue(update.contains("internal fun updateDownloadProgressVisualWidth("))
+        assertTrue(update.contains("ProgressBarRangeInfo(fraction, 0f..1f)"))
+        assertTrue(update.contains(".height(8.dp)"))
+        assertTrue(update.contains("val radius = progressCornerRadiusPx("))
+        assertTrue(Regex("drawRoundRect\\(").findAll(update).count() >= 2)
+        assertTrue(update.contains("val visualProgressWidth = updateDownloadProgressVisualWidth("))
+        assertTrue(update.contains("size = Size(visualProgressWidth, size.height)"))
+        assertTrue(update.contains("CornerRadius(radius, radius)"))
+        assertFalse(update.contains("Path"))
+        assertFalse(update.contains("LinearProgressIndicator"))
+        assertFalse(update.contains("SettingsSection(\"下载\")"))
+        assertTrue(update.contains("Modifier.size(20.dp)"))
+        assertFalse(update.contains("Card("))
+
+        val codexUi = sourceFile("CodexUi.kt")
+        assertTrue(codexUi.contains("internal fun CodexConfirmDialog("))
+        assertTrue(codexUi.contains("backdrop: Backdrop"))
+        assertTrue(codexUi.contains("LiquidModalOverlay("))
+        assertTrue(codexUi.contains("backdrop = backdrop"))
+        assertTrue(codexUi.contains("LiquidDialogSurface("))
+        assertFalse(codexUi.contains("semantics { paneTitle = title }"))
+        assertTrue(codexUi.contains("TextButton(onClick = hapticDismiss)"))
+        assertTrue(codexUi.contains("TextButton(onClick = hapticConfirm)"))
+        assertTrue(codexUi.contains("onConfirm(); onDismiss()"))
+        assertTrue(codexUi.contains("CodexColors.danger"))
+        assertTrue(codexUi.contains("modalContent: @Composable BoxScope.(Backdrop) -> Unit = {}"))
+        assertTrue(codexUi.contains("modalContent(backdrop)"))
+        assertFalse(codexUi.contains("androidx.compose.ui.window.Dialog"))
+        assertFalse(codexUi.contains("DialogProperties("))
+        assertFalse(codexUi.contains("AlertDialog"))
+        assertFalse(codexUi.contains("LiquidActionButton"))
+
+        listOf(
+            "AccountActivity.kt" to "退出登录",
+            "SettingsActivity.kt" to "解除配对",
+            "LogActivity.kt" to "清空日志",
+        ).forEach { (file, title) ->
+            val activity = sourceFile(file)
+            assertTrue(activity.contains("CodexConfirmDialog("))
+            assertTrue(activity.contains("title = \"$title\""))
+        }
+        assertTrue(sourceFile("AccountActivity.kt").contains("modalContent = { backdrop ->"))
+        assertTrue(sourceFile("LogActivity.kt").contains("modalContent = { backdrop ->"))
+        assertTrue(sourceFile("SettingsActivity.kt").contains("backdrop = pageBackdrop"))
+        assertTrue(sourceFile("MainActivity.kt").contains("backdrop = chromeBackdrop"))
+        assertTrue(debugSourceFile("debug/WindowsPairingFixtureActivity.kt").contains("modalContent = { backdrop ->"))
+        assertTrue(debugSourceFile("debug/UpdateDownloadFixtureActivity.kt").contains("modalContent = { backdrop ->"))
+    }
+
+    @Test
+    fun sourceEmptyStateCallbacksAndAccountNamingUseExistingFlows() {
+        val main = sourceFile("MainActivity.kt")
+        assertTrue(main.contains("QuotaPage(quota, ::scanTokenPairing)"))
+        assertTrue(main.contains("TokenUsagePage(usage, ::scanTokenPairing, quota::openLogin)"))
+
+        val settings = settingsSource()
+        assertTrue(settings.contains("title = \"OpenAI 账号\""))
+        assertFalse(settings.contains("title = \"Codex 额度账号\""))
+
+        val account = sourceFile("AccountActivity.kt")
+        assertTrue(account.contains("title = \"OpenAI 账号\""))
+        assertTrue(account.contains("尚未登录 OpenAI"))
+        assertTrue(account.contains("label = if (credentials == null) \"登录 OpenAI\""))
+        assertFalse(account.contains("Codex 额度账号"))
+        assertFalse(account.contains("尚未登录 Codex"))
+        assertFalse(account.contains("登录 Codex"))
+
+        val login = sourceFile("LoginActivity.kt")
+        assertTrue(login.contains("title = \"登录 OpenAI\""))
+        assertTrue(login.contains("请在浏览器完成 OpenAI 登录"))
+        assertFalse(login.contains("title = \"登录 Codex\""))
+        assertFalse(login.contains("请在浏览器完成 Codex 登录"))
+
+        val fixture = debugSourceFile("debug/CodexLoginFixtureActivity.kt")
+        assertTrue(fixture.contains("title = \"登录 OpenAI\""))
+        assertTrue(fixture.contains("请在浏览器完成 OpenAI 登录"))
+    }
+
+    @Test
+    fun updateFixtureExposesContinuousProgressRegressionValues() {
+        val fixture = debugSourceFile("debug/UpdateDownloadFixtureActivity.kt")
+        listOf(
+            "DOWNLOADING_PROGRESS_0",
+            "DOWNLOADING_PROGRESS_1",
+            "DOWNLOADING_PROGRESS",
+            "DOWNLOADING_PROGRESS_99",
+            "DOWNLOADING_PROGRESS_100",
+            "\"0%\"",
+            "\"1%\"",
+            "\"42%\"",
+            "\"99%\"",
+            "\"100%\"",
+            "FIXTURE_TOTAL_BYTES",
+        ).forEach { marker -> assertTrue(fixture.contains(marker)) }
+        assertFalse(fixture.contains("UpdateDownloadManager"))
+        assertFalse(fixture.contains("UpdateInstaller"))
+    }
+
+    @Test
+    fun updateProgressFractionClampsToContinuousBarRange() {
+        assertEquals(0f, updateDownloadProgressFraction(-0.5f), 0f)
+        assertEquals(0f, updateDownloadProgressFraction(0f), 0f)
+        assertEquals(0.01f, updateDownloadProgressFraction(0.01f), 0f)
+        assertEquals(0.42f, updateDownloadProgressFraction(0.42f), 0f)
+        assertEquals(0.99f, updateDownloadProgressFraction(0.99f), 0f)
+        assertEquals(1f, updateDownloadProgressFraction(1f), 0f)
+        assertEquals(1f, updateDownloadProgressFraction(1.5f), 0f)
+    }
+
+    @Test
+    fun progressCornerRadiusUsesTheBarCapsuleRadius() {
+        assertEquals(4f, progressCornerRadiusPx(8f, 4f), 0f)
+        assertEquals(3f, progressCornerRadiusPx(6f, 4f), 0f)
+        assertEquals(0f, progressCornerRadiusPx(-2f, 4f), 0f)
+    }
+
+    @Test
+    fun progressVisualWidthKeepsTinyValuesVisibleWithoutChangingFraction() {
+        assertEquals(0f, updateDownloadProgressVisualWidth(0f, 100f, 8f), 0f)
+        assertEquals(8f, updateDownloadProgressVisualWidth(0.01f, 100f, 8f), 0f)
+        assertEquals(42f, updateDownloadProgressVisualWidth(0.42f, 100f, 8f), 0f)
+        assertEquals(99f, updateDownloadProgressVisualWidth(0.99f, 100f, 8f), 0f)
+        assertEquals(100f, updateDownloadProgressVisualWidth(1f, 100f, 8f), 0f)
+    }
+
+    @Test
+    fun quotaAndTokenPageFixturesAreDebugOnlyFakeAndReachable() {
+        val settings = settingsSource()
+        val developerOptions = settings.substringAfter("SettingsSection(\"开发者选项\")")
+            .substringBefore("private fun openDebugQuotaRingFixture")
+        listOf(
+            "Quota Page Fixture",
+            "Token Usage Page Fixture",
+            "DEBUG_QUOTA_PAGE_FIXTURE_ACTIVITY",
+            "DEBUG_TOKEN_USAGE_PAGE_FIXTURE_ACTIVITY",
+            "openDebugQuotaPageFixture",
+            "openDebugTokenUsagePageFixture",
+        ).forEach { marker -> assertTrue(settings.contains(marker)) }
+        assertTrue(developerOptions.contains("Quota Page Fixture"))
+        assertTrue(developerOptions.contains("Token Usage Page Fixture"))
+
+        val manifest = debugManifestSource()
+        listOf(
+            ".debug.QuotaPageFixtureActivity",
+            ".debug.TokenUsagePageFixtureActivity",
+        ).forEach { activity ->
+            val entry = manifest.substringAfter(activity).substringBefore("</activity>")
+            assertTrue(entry.contains("android:configChanges=\"uiMode\""))
+            assertTrue(entry.contains("android:exported=\"false\""))
+            assertTrue(entry.contains("android:screenOrientation=\"portrait\""))
+            assertFalse(entry.contains("intent-filter"))
+        }
+
+        val quota = debugSourceFile("debug/QuotaPageFixtureActivity.kt")
+        listOf(
+            "UNAUTHENTICATED",
+            "LOADING_NO_CACHE",
+            "LOADED_SINGLE",
+            "LOADED_DUAL",
+            "RESET_CREDITS",
+            "ERROR_WITH_CACHE",
+            "EMPTY_LOADED",
+            "QuotaPageContent(",
+            "quotaLoadingUiModel()",
+            "quotaErrorUiModel(",
+            "localActionCount",
+        ).forEach { marker -> assertTrue(quota.contains(marker)) }
+        assertFalse(quota.contains("QuotaPageController"))
+        assertFalse(quota.contains("CodexQuotaRepository"))
+        assertFalse(quota.contains("OAuthStore"))
+        assertFalse(quota.contains("WorkManager"))
+
+        val token = debugSourceFile("debug/TokenUsagePageFixtureActivity.kt")
+        listOf(
+            "UNPAIRED",
+            "LOADED_TYPICAL",
+            "SPARSE_HISTORY",
+            "LARGE_NUMBERS",
+            "MISSING_CATEGORY_BREAKDOWN",
+            "ERROR_STALE_WITH_SNAPSHOT",
+            "TokenUsagePageContent(",
+            "TokenUsageSnapshot(",
+            "localActionCount",
+        ).forEach { marker -> assertTrue(token.contains(marker)) }
+        assertFalse(token.contains("TokenUsagePageController"))
+        assertFalse(token.contains("TokenSyncStore"))
+        assertFalse(token.contains("TokenUsageCache"))
+        assertFalse(token.contains("TokenUsageSyncCoordinator"))
+        assertFalse(token.contains("WorkManager"))
     }
 
     @Test

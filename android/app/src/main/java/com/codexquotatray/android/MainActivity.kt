@@ -164,7 +164,11 @@ class MainActivity : ComponentActivity() {
                                     },
                                     label = "main-page-transition",
                                 ) { pageIndex ->
-                                    if (pageIndex == 0) QuotaPage(quota) else TokenUsagePage(usage, ::scanTokenPairing)
+                                    if (pageIndex == 0) {
+                                        QuotaPage(quota, ::scanTokenPairing)
+                                    } else {
+                                        TokenUsagePage(usage, ::scanTokenPairing, quota::openLogin)
+                                    }
                                 }
                             }
                         }
@@ -174,7 +178,7 @@ class MainActivity : ComponentActivity() {
                             iconRes = R.drawable.ic_settings,
                             description = "设置",
                             backdrop = chromeBackdrop,
-                            buttonSize = 52.dp,
+                            buttonSize = 48.dp,
                             iconSize = 24.dp,
                             onClick = ::openSettings,
                         )
@@ -189,19 +193,20 @@ class MainActivity : ComponentActivity() {
                         onAction = { if (selectedIndex == 0) quota.refresh() else usage.requestSync() },
                         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp).fillMaxWidth(),
                     )
-                }
-                updatePrompt?.let { release ->
-                    UpdateAvailableDialog(
-                        release = release,
-                        currentVersion = BuildConfig.VERSION_NAME,
-                        downloading = updateDownloading,
-                        progress = updateProgress,
-                        downloadError = updateDownloadError,
-                        onLater = { updateDownloadError = null; updatePrompt = null },
-                        onDownload = ::downloadAutomaticUpdate,
-                        onCancel = { (application as CodexQuotaApplication).updateDownloadManager.cancel() },
-                        onBrowserDownload = ::browserDownloadAutomaticUpdate,
-                    )
+                    updatePrompt?.let { release ->
+                        UpdateAvailableDialog(
+                            backdrop = chromeBackdrop,
+                            release = release,
+                            currentVersion = BuildConfig.VERSION_NAME,
+                            downloading = updateDownloading,
+                            progress = updateProgress,
+                            downloadError = updateDownloadError,
+                            onLater = { updateDownloadError = null; updatePrompt = null },
+                            onDownload = ::downloadAutomaticUpdate,
+                            onCancel = { (application as CodexQuotaApplication).updateDownloadManager.cancel() },
+                            onBrowserDownload = ::browserDownloadAutomaticUpdate,
+                        )
+                    }
                 }
             }
         }

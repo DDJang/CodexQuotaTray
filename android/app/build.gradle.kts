@@ -53,8 +53,8 @@ android {
         applicationId = "com.codexquotatray.android"
         minSdk = 33
         targetSdk = 35
-        versionCode = 19
-        versionName = "0.11.0"
+        versionCode = 20
+        versionName = "0.11.1"
     }
 
     signingConfigs {

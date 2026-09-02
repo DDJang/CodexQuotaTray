@@ -27,13 +27,35 @@ internal object QuotaWidgetRenderer {
     }
 
     private fun update(context: Context, manager: AppWidgetManager, ids: IntArray) {
-        val views = RemoteViews(context.packageName, R.layout.widget_quota)
-        val projection = QuotaWidgetStore(context).load()
-        render(context, views, projection)
+        val views = createRemoteViews(
+            context = context,
+            projection = QuotaWidgetStore(context).load(),
+            bindOpenAction = true,
+        )
         manager.updateAppWidget(ids, views)
     }
 
-    private fun render(context: Context, views: RemoteViews, projection: QuotaWidgetProjection?) {
+    internal fun createPreviewRemoteViews(
+        context: Context,
+        projection: QuotaWidgetProjection?,
+    ): RemoteViews = createRemoteViews(
+        context = context,
+        projection = projection,
+        bindOpenAction = false,
+    )
+
+    private fun createRemoteViews(
+        context: Context,
+        projection: QuotaWidgetProjection?,
+        bindOpenAction: Boolean,
+    ): RemoteViews {
+        val views = RemoteViews(context.packageName, R.layout.widget_quota)
+        if (bindOpenAction) bindOpenAction(context, views)
+        renderProjection(context, views, projection)
+        return views
+    }
+
+    private fun bindOpenAction(context: Context, views: RemoteViews) {
         val clickIntent = Intent(context, MainActivity::class.java).apply {
             action = ACTION_OPEN_FROM_WIDGET
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -45,7 +67,13 @@ internal object QuotaWidgetRenderer {
             android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
         )
         views.setOnClickPendingIntent(android.R.id.background, pendingIntent)
+    }
 
+    internal fun renderProjection(
+        context: Context,
+        views: RemoteViews,
+        projection: QuotaWidgetProjection?,
+    ) {
         val windows = projection?.windows.orEmpty()
         val ringWindows = widgetRingWindows(windows)
         val outer = ringWindows.getOrNull(0)

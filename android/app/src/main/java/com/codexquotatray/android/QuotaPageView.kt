@@ -23,7 +23,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.animateColorAsState
@@ -368,12 +367,29 @@ internal class QuotaPageController(private val host: MainActivity) {
 @Composable
 internal fun QuotaPage(
     controller: QuotaPageController,
+    onPairing: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    QuotaPageContent(
+        model = controller.model,
+        busy = controller.busy,
+        onLogin = controller::openLogin,
+        onPairing = onPairing,
+        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+    )
+}
+
+@Composable
+internal fun QuotaPageContent(
+    model: QuotaUiModel,
+    busy: Boolean,
+    onLogin: () -> Unit,
+    onPairing: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalQuotaPalette.current
-    val model = controller.model
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+        modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text(
@@ -388,7 +404,12 @@ internal fun QuotaPage(
             model.windows.forEach { QuotaWindowCard(it) }
             model.resetCredits?.let { ResetCreditCard(it) }
         } else {
-            Button(onClick = rememberSystemHapticClick(controller::openLogin), enabled = !controller.busy, modifier = Modifier.fillMaxWidth()) { Text("登录 Codex") }
+            DataSourceEmptyStateCard(
+                message = "登录 OpenAI 或连接 Windows CodexQuotaTray 后，即可查看 Codex 额度。",
+                onLoginOpenAi = onLogin,
+                onPairWindows = onPairing,
+                loginEnabled = !busy,
+            )
         }
         Spacer(Modifier.height(96.dp))
     }
@@ -631,9 +652,15 @@ internal fun QuotaProgressRing(
             val strokeWidth = 10.dp.toPx()
             val inset = strokeWidth / 2f
             val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
+            val radius = arcSize.width / 2f
             val arcStyle = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             val fraction = progress.coerceIn(0f, 1f)
-            val sweep = 360f * fraction
+            val sweep = quotaRingVisualSweepDegrees(
+                progress = fraction,
+                radiusPx = radius,
+                strokeWidthPx = strokeWidth,
+                capClearancePx = QUOTA_RING_CAP_CLEARANCE_DP.dp.toPx(),
+            )
             drawArc(
                 color = trackColor.copy(alpha = 0.58f),
                 startAngle = -90f,
@@ -662,15 +689,24 @@ internal fun QuotaProgressRing(
                     degrees = -90f,
                     pivot = center,
                 ) {
-                    drawArc(
-                        brush = progressBrush,
-                        startAngle = 0f,
-                        sweepAngle = sweep,
-                        useCenter = false,
-                        topLeft = Offset(inset, inset),
-                        size = arcSize,
-                        style = arcStyle,
-                    )
+                    if (remainingPercent != null && remainingPercent >= 100 && fraction >= 1f) {
+                        drawCircle(
+                            brush = progressBrush,
+                            radius = radius,
+                            center = center,
+                            style = arcStyle,
+                        )
+                    } else if (sweep > 0f) {
+                        drawArc(
+                            brush = progressBrush,
+                            startAngle = 0f,
+                            sweepAngle = sweep,
+                            useCenter = false,
+                            topLeft = Offset(inset, inset),
+                            size = arcSize,
+                            style = arcStyle,
+                        )
+                    }
                 }
             }
         }
