@@ -59,5 +59,17 @@
             android:exported="false"
             android:label="Update Download Fixture"
             android:screenOrientation="portrait" />
+        <activity
+            android:name=".debug.QuotaPageFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Quota Page Fixture"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".debug.TokenUsagePageFixtureActivity"
+            android:configChanges="uiMode"
+            android:exported="false"
+            android:label="Token Usage Page Fixture"
+            android:screenOrientation="portrait" />
     </application>
 </manifest>

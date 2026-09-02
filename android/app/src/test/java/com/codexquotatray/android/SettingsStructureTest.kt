@@ -767,6 +767,108 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun p1PageSurfacesUseLiquidActionsAndKeepDialogProgressTopology() {
+        val quota = sourceFile("QuotaPageView.kt")
+        val quotaContent = quota
+            .substringAfter("internal fun QuotaPageContent(")
+            .substringBefore("private fun QuotaStatusLine(")
+        assertTrue(quota.contains("QuotaPageContent("))
+        assertTrue(quotaContent.contains("SettingsActionButton("))
+        assertTrue(quotaContent.contains("label = \"登录 Codex\""))
+        assertTrue(quotaContent.contains("primary = true"))
+        assertTrue(quotaContent.contains("enabled = !busy"))
+        assertFalse(quota.contains("androidx.compose.material3.Button"))
+        assertFalse(quotaContent.contains("verticalScroll"))
+
+        val token = sourceFile("TokenUsagePageView.kt")
+        val tokenContent = token
+            .substringAfter("internal fun TokenUsagePageContent(")
+            .substringBefore("private fun TokenUsageStatusLine(")
+        assertTrue(token.contains("TokenUsagePageContent("))
+        assertTrue(tokenContent.contains("SettingsActionButton("))
+        assertTrue(tokenContent.contains("label = \"扫码配对\""))
+        assertTrue(tokenContent.contains("primary = true"))
+        assertFalse(token.contains("androidx.compose.material3.Button"))
+        assertFalse(tokenContent.contains("verticalScroll"))
+
+        val update = sourceFile("UpdateUi.kt")
+        assertTrue(update.contains("private fun UpdateLiquidDialogSurface("))
+        assertTrue(update.contains("val dialogBackdrop = rememberLayerBackdrop()"))
+        assertTrue(update.contains(".layerBackdrop(dialogBackdrop)"))
+        assertTrue(update.contains("GlassSurface("))
+        assertTrue(update.contains(".height(8.dp)"))
+        assertTrue(update.contains(".clip(RoundedCornerShape(4.dp))"))
+        assertTrue(update.contains("Modifier.size(20.dp)"))
+        assertFalse(update.contains("Card("))
+    }
+
+    @Test
+    fun quotaAndTokenPageFixturesAreDebugOnlyFakeAndReachable() {
+        val settings = settingsSource()
+        val developerOptions = settings.substringAfter("SettingsSection(\"开发者选项\")")
+            .substringBefore("private fun openDebugQuotaRingFixture")
+        listOf(
+            "Quota Page Fixture",
+            "Token Usage Page Fixture",
+            "DEBUG_QUOTA_PAGE_FIXTURE_ACTIVITY",
+            "DEBUG_TOKEN_USAGE_PAGE_FIXTURE_ACTIVITY",
+            "openDebugQuotaPageFixture",
+            "openDebugTokenUsagePageFixture",
+        ).forEach { marker -> assertTrue(settings.contains(marker)) }
+        assertTrue(developerOptions.contains("Quota Page Fixture"))
+        assertTrue(developerOptions.contains("Token Usage Page Fixture"))
+
+        val manifest = debugManifestSource()
+        listOf(
+            ".debug.QuotaPageFixtureActivity",
+            ".debug.TokenUsagePageFixtureActivity",
+        ).forEach { activity ->
+            val entry = manifest.substringAfter(activity).substringBefore("</activity>")
+            assertTrue(entry.contains("android:configChanges=\"uiMode\""))
+            assertTrue(entry.contains("android:exported=\"false\""))
+            assertTrue(entry.contains("android:screenOrientation=\"portrait\""))
+            assertFalse(entry.contains("intent-filter"))
+        }
+
+        val quota = debugSourceFile("debug/QuotaPageFixtureActivity.kt")
+        listOf(
+            "UNAUTHENTICATED",
+            "LOADING_NO_CACHE",
+            "LOADED_SINGLE",
+            "LOADED_DUAL",
+            "RESET_CREDITS",
+            "ERROR_WITH_CACHE",
+            "EMPTY_LOADED",
+            "QuotaPageContent(",
+            "quotaLoadingUiModel()",
+            "quotaErrorUiModel(",
+            "localActionCount",
+        ).forEach { marker -> assertTrue(quota.contains(marker)) }
+        assertFalse(quota.contains("QuotaPageController"))
+        assertFalse(quota.contains("CodexQuotaRepository"))
+        assertFalse(quota.contains("OAuthStore"))
+        assertFalse(quota.contains("WorkManager"))
+
+        val token = debugSourceFile("debug/TokenUsagePageFixtureActivity.kt")
+        listOf(
+            "UNPAIRED",
+            "LOADED_TYPICAL",
+            "SPARSE_HISTORY",
+            "LARGE_NUMBERS",
+            "MISSING_CATEGORY_BREAKDOWN",
+            "ERROR_STALE_WITH_SNAPSHOT",
+            "TokenUsagePageContent(",
+            "TokenUsageSnapshot(",
+            "localActionCount",
+        ).forEach { marker -> assertTrue(token.contains(marker)) }
+        assertFalse(token.contains("TokenUsagePageController"))
+        assertFalse(token.contains("TokenSyncStore"))
+        assertFalse(token.contains("TokenUsageCache"))
+        assertFalse(token.contains("TokenUsageSyncCoordinator"))
+        assertFalse(token.contains("WorkManager"))
+    }
+
+    @Test
     fun liquidTokenTooltipFixtureKeepsProductionInteractionAndComparesThreeSurfaces() {
         val settings = settingsSource()
         val developerOptions = settings.substringAfter("SettingsSection(\"开发者选项\")")

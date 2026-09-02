@@ -108,6 +108,10 @@ private const val DEBUG_WINDOWS_PAIRING_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.WindowsPairingFixtureActivity"
 private const val DEBUG_UPDATE_DOWNLOAD_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.UpdateDownloadFixtureActivity"
+private const val DEBUG_QUOTA_PAGE_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.QuotaPageFixtureActivity"
+private const val DEBUG_TOKEN_USAGE_PAGE_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.TokenUsagePageFixtureActivity"
 private const val UPDATE_STATUS_IDLE = "尚未检查"
 
 internal fun sourcePriorityOptions(): List<SettingsSegmentOption> = listOf(
@@ -445,6 +449,18 @@ class SettingsActivity : ComponentActivity() {
                         trailing = "Debug",
                         onClick = ::openDebugUpdateDownloadFixture,
                     )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Quota Page Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugQuotaPageFixture,
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Token Usage Page Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugTokenUsagePageFixture,
+                    )
                 }
             }
         }
@@ -544,6 +560,28 @@ class SettingsActivity : ComponentActivity() {
                 Intent().setClassName(
                     this,
                     DEBUG_UPDATE_DOWNLOAD_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugQuotaPageFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_QUOTA_PAGE_FIXTURE_ACTIVITY,
+                ),
+            )
+        }
+    }
+
+    private fun openDebugTokenUsagePageFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(
+                Intent().setClassName(
+                    this,
+                    DEBUG_TOKEN_USAGE_PAGE_FIXTURE_ACTIVITY,
                 ),
             )
         }
