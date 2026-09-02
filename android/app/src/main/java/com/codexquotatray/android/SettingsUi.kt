@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -391,7 +390,6 @@ internal fun SettingsActionButton(
     label: String,
     danger: Boolean = false,
     enabled: Boolean = true,
-    busy: Boolean = false,
     primary: Boolean = false,
     horizontalInset: Dp = SettingsUiTokens.actionHorizontalInset,
     topPadding: Dp = SettingsUiTokens.actionInnerInset,
@@ -434,13 +432,6 @@ internal fun SettingsActionButton(
                 .fillMaxWidth()
                 .padding(horizontal = horizontalInset),
         ) {
-            if (busy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(17.dp),
-                    color = contentColor,
-                    strokeWidth = 2.dp,
-                )
-            }
             Text(text = label, color = contentColor, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         }
     }

@@ -176,16 +176,28 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun updateStatusDisplayKeepsBusinessStatusAndAddsLastCheckTime() {
-        assertEquals("未检查", updateStatusDisplay("尚未检查", 0L, "尚未检查"))
+    fun updateStatusDisplayPrioritizesCheckingResultHistoryAndNeverChecked() {
+        val neverChecked = updateStatusDisplay("尚未检查", false, 0L, "")
+        assertEquals("未检查", neverChecked)
 
-        val upToDate = updateStatusDisplay("已是最新版本 0.11.2", 1L, "09-02 14:32")
-        assertTrue(upToDate.contains("已是最新版本 0.11.2"))
-        assertTrue(upToDate.contains("上次检查时间为 09-02 14:32"))
+        val historical = updateStatusDisplay("尚未检查", false, 1L, "09-02 16:20")
+        assertEquals("上次检查时间为 09-02 16:20", historical)
 
-        val failed = updateStatusDisplay("检查更新失败：网络不可用", 2L, "09-02 14:33")
-        assertTrue(failed.contains("检查更新失败：网络不可用"))
-        assertTrue(failed.contains("上次检查时间为 09-02 14:33"))
+        val checking = updateStatusDisplay("已是最新版本 0.11.2", true, 1L, "09-02 16:20")
+        assertEquals("正在检查…", checking)
+
+        val upToDate = updateStatusDisplay("已是最新版本 0.11.2", false, 1L, "09-02 16:20")
+        assertEquals("已是最新版本 0.11.2", upToDate)
+
+        val failed = updateStatusDisplay("检查更新失败：fixture", false, 2L, "09-02 16:21")
+        assertEquals("检查更新失败：fixture", failed)
+
+        val available = updateStatusDisplay("发现新版本 0.11.3", false, 3L, "09-02 16:22")
+        assertEquals("发现新版本 0.11.3", available)
+
+        listOf(neverChecked, historical, checking, upToDate, failed, available).forEach {
+            assertFalse(it.contains('\n'))
+        }
     }
 
     @Test
@@ -225,17 +237,21 @@ class SettingsStructureTest {
         assertTrue(action.contains("palette.color(palette.accent)"))
         assertTrue(action.contains("CodexColors.danger"))
         assertTrue(action.contains("palette.color(palette.body)"))
-        assertTrue(action.contains("busy: Boolean = false"))
-        assertTrue(action.contains("CircularProgressIndicator("))
-        assertTrue(action.contains("Modifier.size(17.dp)"))
-        assertTrue(action.contains("color = contentColor"))
+        assertFalse(action.contains("busy: Boolean = false"))
+        assertFalse(action.contains("CircularProgressIndicator("))
         assertTrue(action.contains(".height(SettingsUiTokens.actionHeight + topPadding + bottomPadding)"))
         assertFalse(action.contains("ButtonDefaults"))
 
         val settingsActivity = sourceFile("SettingsActivity.kt")
-        assertTrue(settingsActivity.contains("label = \"检查更新\""))
-        assertTrue(settingsActivity.contains("busy = updateChecking"))
+        assertTrue(settingsActivity.contains("label = if (updateChecking) \"正在检查…\" else \"检查更新\""))
+        assertFalse(settingsActivity.contains("busy = updateChecking"))
         assertTrue(settingsActivity.contains("updateStatusDisplay("))
+        assertTrue(settingsActivity.contains("checking = updateChecking"))
+        assertTrue(settingsActivity.contains("valueMaxLines = 1"))
+        assertTrue(settingsActivity.contains("val presentationStartedAt = SystemClock.elapsedRealtime()"))
+        assertTrue(settingsActivity.contains("val finishedAt = SystemClock.elapsedRealtime()"))
+        assertTrue(settingsActivity.contains("remainingRefreshPresentationMillis("))
+        assertTrue(settingsActivity.contains("updateMain.postDelayed"))
         assertFalse(settingsActivity.contains("SettingsInfoRow(\"上次检查\""))
     }
 

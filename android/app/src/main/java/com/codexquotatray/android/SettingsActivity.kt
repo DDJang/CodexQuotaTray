@@ -9,6 +9,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -105,6 +108,7 @@ private const val DEBUG_WINDOWS_PAIRING_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.WindowsPairingFixtureActivity"
 private const val DEBUG_UPDATE_DOWNLOAD_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.UpdateDownloadFixtureActivity"
+private const val UPDATE_STATUS_IDLE = "尚未检查"
 
 internal fun sourcePriorityOptions(): List<SettingsSegmentOption> = listOf(
     SettingsSegmentOption(0, "OpenAI 优先"),
@@ -119,19 +123,14 @@ internal fun sourcePriorityFromValue(value: Int): DataSourcePriority =
 
 internal fun updateStatusDisplay(
     status: String,
+    checking: Boolean,
     lastCheckAtMillis: Long,
     formattedLastCheck: String,
-): String = if (lastCheckAtMillis <= 0L) {
-    "未检查"
-} else {
-    buildString {
-        append(status)
-        if (formattedLastCheck.isNotBlank()) {
-            append('\n')
-            append("上次检查时间为 ")
-            append(formattedLastCheck)
-        }
-    }
+): String = when {
+    checking -> "正在检查…"
+    status != UPDATE_STATUS_IDLE -> status
+    lastCheckAtMillis > 0L && formattedLastCheck.isNotBlank() -> "上次检查时间为 $formattedLastCheck"
+    else -> "未检查"
 }
 
 class SettingsActivity : ComponentActivity() {
@@ -144,7 +143,8 @@ class SettingsActivity : ComponentActivity() {
     private val updateSettingsStore by lazy { UpdateSettingsStore(this) }
     private val sourcePriorityStore by lazy { AndroidDataSourcePriorityStore(this) }
     private val pairingWorker = Executors.newSingleThreadExecutor()
-    private val pairingMain = android.os.Handler(android.os.Looper.getMainLooper())
+    private val pairingMain = Handler(Looper.getMainLooper())
+    private val updateMain = Handler(Looper.getMainLooper())
     @Volatile private var destroyed = false
 
     private var destination by mutableStateOf(SettingsDestination.ROOT)
@@ -169,7 +169,7 @@ class SettingsActivity : ComponentActivity() {
     private var automaticUpdateChecks by mutableStateOf(true)
     private var updateReminders by mutableStateOf(true)
     private var updateLastCheckAtMillis by mutableStateOf(0L)
-    private var updateStatus by mutableStateOf("尚未检查")
+    private var updateStatus by mutableStateOf(UPDATE_STATUS_IDLE)
     private var updateInfo by mutableStateOf<UpdateRelease?>(null)
     private var updateDialogVisible by mutableStateOf(false)
     private var updateChecking by mutableStateOf(false)
@@ -302,6 +302,7 @@ class SettingsActivity : ComponentActivity() {
     override fun onDestroy() {
         destroyed = true
         pairingMain.removeCallbacksAndMessages(null)
+        updateMain.removeCallbacksAndMessages(null)
         pairingWorker.shutdownNow()
         super.onDestroy()
     }
@@ -947,15 +948,15 @@ class SettingsActivity : ComponentActivity() {
                     title = "状态",
                     value = updateStatusDisplay(
                         status = updateStatus,
+                        checking = updateChecking,
                         lastCheckAtMillis = updateLastCheckAtMillis,
                         formattedLastCheck = formatUpdateCheckTime(updateLastCheckAtMillis, locale),
                     ),
-                    valueMaxLines = 2,
+                    valueMaxLines = 1,
                 )
                 SettingsActionButton(
-                    label = "检查更新",
+                    label = if (updateChecking) "正在检查…" else "检查更新",
                     enabled = !updateChecking,
-                    busy = updateChecking,
                     bottomPadding = SettingsUiTokens.actionEdgeInset,
                     onClick = ::checkForUpdates,
                 )
@@ -1042,38 +1043,54 @@ class SettingsActivity : ComponentActivity() {
 
     private fun checkForUpdates() {
         if (updateChecking) return
+        val presentationStartedAt = SystemClock.elapsedRealtime()
         updateChecking = true
         updateStatus = "正在检查…"
         (application as CodexQuotaApplication).updateCheckCoordinator.check(UpdateCheckReason.MANUAL) { result ->
-            updateChecking = false
-            updateLastCheckAtMillis = updateSettingsStore.load().lastCheckAtMillis
-            when (result) {
-                is UpdateCheckResult.Available -> {
-                    updateInfo = result.release
-                    updateStatus = "发现新版本 ${result.release.version}"
-                    updateDialogVisible = true
-                }
-                is UpdateCheckResult.UpToDate -> {
-                    updateInfo = null
-                    updateStatus = "已是最新版本 ${result.currentVersion}"
-                }
-                is UpdateCheckResult.NoAndroidAsset -> {
-                    updateInfo = null
-                    updateStatus = "当前 Release 没有 Android 安装包"
-                }
-                is UpdateCheckResult.Failed -> {
-                    updateInfo = null
-                    updateStatus = "检查更新失败：${result.message}"
-                }
-                is UpdateCheckResult.Skipped -> {
-                    updateInfo = null
-                    updateStatus = when (result.reason) {
-                        SkipReason.SOURCE_UNAVAILABLE -> "Gitee 更新源暂不可用"
-                        SkipReason.AUTO_DISABLED -> "自动检查更新已关闭"
-                        SkipReason.WITHIN_INTERVAL -> "自动检查仍在 24 小时限制内"
-                        SkipReason.IN_FLIGHT -> "检查更新正在进行中"
+            if (destroyed) return@check
+            val finishedAt = SystemClock.elapsedRealtime()
+            val remaining = remainingRefreshPresentationMillis(
+                presentationStartedAt,
+                finishedAt,
+            )
+            val completePresentation = Runnable {
+                if (!destroyed) {
+                    updateChecking = false
+                    updateLastCheckAtMillis = updateSettingsStore.load().lastCheckAtMillis
+                    when (result) {
+                        is UpdateCheckResult.Available -> {
+                            updateInfo = result.release
+                            updateStatus = "发现新版本 ${result.release.version}"
+                            updateDialogVisible = true
+                        }
+                        is UpdateCheckResult.UpToDate -> {
+                            updateInfo = null
+                            updateStatus = "已是最新版本 ${result.currentVersion}"
+                        }
+                        is UpdateCheckResult.NoAndroidAsset -> {
+                            updateInfo = null
+                            updateStatus = "当前 Release 没有 Android 安装包"
+                        }
+                        is UpdateCheckResult.Failed -> {
+                            updateInfo = null
+                            updateStatus = "检查更新失败：${result.message}"
+                        }
+                        is UpdateCheckResult.Skipped -> {
+                            updateInfo = null
+                            updateStatus = when (result.reason) {
+                                SkipReason.SOURCE_UNAVAILABLE -> "Gitee 更新源暂不可用"
+                                SkipReason.AUTO_DISABLED -> "自动检查更新已关闭"
+                                SkipReason.WITHIN_INTERVAL -> "自动检查仍在 24 小时限制内"
+                                SkipReason.IN_FLIGHT -> "检查更新正在进行中"
+                            }
+                        }
                     }
                 }
+            }
+            if (remaining > 0L) {
+                updateMain.postDelayed(completePresentation, remaining)
+            } else {
+                completePresentation.run()
             }
         }
     }
@@ -1156,7 +1173,7 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun formatUpdateCheckTime(value: Long, locale: java.util.Locale): String = if (value <= 0L) {
-        "尚未检查"
+        ""
     } else {
         DateTimeFormatter.ofPattern("MM-dd HH:mm", locale)
             .withZone(ZoneId.systemDefault())
