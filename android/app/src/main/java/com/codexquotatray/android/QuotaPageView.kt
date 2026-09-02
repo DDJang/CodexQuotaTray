@@ -652,9 +652,15 @@ internal fun QuotaProgressRing(
             val strokeWidth = 10.dp.toPx()
             val inset = strokeWidth / 2f
             val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
+            val radius = arcSize.width / 2f
             val arcStyle = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             val fraction = progress.coerceIn(0f, 1f)
-            val sweep = 360f * fraction
+            val sweep = quotaRingVisualSweepDegrees(
+                progress = fraction,
+                radiusPx = radius,
+                strokeWidthPx = strokeWidth,
+                capClearancePx = QUOTA_RING_CAP_CLEARANCE_DP.dp.toPx(),
+            )
             drawArc(
                 color = trackColor.copy(alpha = 0.58f),
                 startAngle = -90f,
@@ -683,15 +689,24 @@ internal fun QuotaProgressRing(
                     degrees = -90f,
                     pivot = center,
                 ) {
-                    drawArc(
-                        brush = progressBrush,
-                        startAngle = 0f,
-                        sweepAngle = sweep,
-                        useCenter = false,
-                        topLeft = Offset(inset, inset),
-                        size = arcSize,
-                        style = arcStyle,
-                    )
+                    if (remainingPercent != null && remainingPercent >= 100 && fraction >= 1f) {
+                        drawCircle(
+                            brush = progressBrush,
+                            radius = radius,
+                            center = center,
+                            style = arcStyle,
+                        )
+                    } else if (sweep > 0f) {
+                        drawArc(
+                            brush = progressBrush,
+                            startAngle = 0f,
+                            sweepAngle = sweep,
+                            useCenter = false,
+                            topLeft = Offset(inset, inset),
+                            size = arcSize,
+                            style = arcStyle,
+                        )
+                    }
                 }
             }
         }

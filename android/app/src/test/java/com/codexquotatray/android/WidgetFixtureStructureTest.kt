@@ -42,6 +42,32 @@ class WidgetFixtureStructureTest {
     }
 
     @Test
+    fun quotaRingsShareGeometryAndKeepFullCircleSpecialCase() {
+        val geometry = sourceFile("QuotaRingGeometry.kt")
+        assertTrue(geometry.contains("internal fun quotaRingVisualSweepDegrees("))
+        assertTrue(geometry.contains("QUOTA_RING_CAP_CLEARANCE_DP = 0.75f"))
+
+        val appRing = sourceFile("QuotaPageView.kt")
+        assertTrue(appRing.contains("quotaRingVisualSweepDegrees("))
+        assertTrue(appRing.contains("QUOTA_RING_CAP_CLEARANCE_DP.dp.toPx()"))
+        assertTrue(appRing.contains("remainingPercent != null && remainingPercent >= 100"))
+        assertTrue(appRing.contains("drawCircle("))
+
+        val widgetRing = sourceFile("widget/QuotaWidgetRingRenderer.kt")
+        assertTrue(widgetRing.contains("quotaRingVisualSweepDegrees("))
+        assertTrue(widgetRing.contains("QUOTA_RING_CAP_CLEARANCE_DP * density"))
+        assertTrue(widgetRing.contains("if (progress == 100)"))
+        assertTrue(widgetRing.contains("canvas.drawCircle(center, center, radius, paint)"))
+    }
+
+    @Test
+    fun quotaRingFixtureExposesNearFullComparisonValues() {
+        val fixture = debugSourceFile("debug/QuotaRingFixtureActivity.kt")
+        assertTrue(fixture.contains("listOf(0, 10, 25, 50, 75, 90, 98, 99, 100)"))
+        assertTrue(fixture.contains("QuotaProgressRing("))
+    }
+
+    @Test
     fun debugFixtureUsesTheProductionXmlAndKeepsAllScenariosLocal() {
         val settings = sourceFile("SettingsActivity.kt")
         val developerOptions = settings
@@ -84,6 +110,11 @@ class WidgetFixtureStructureTest {
             "PARTIAL_UNAVAILABLE",
             "LARGE_TOKEN",
             "THRESHOLD_COLORS",
+            "NEAR_FULL",
+            "FULL",
+            "remainingPercent = 99",
+            "remainingPercent = 98",
+            "remainingPercent = 100",
             "thresholdOptions",
             "QuotaWidgetProjection(",
             "QuotaWidgetWindow(",

@@ -70,6 +70,8 @@ private enum class QuotaWidgetFixtureScenario(
     PARTIAL_UNAVAILABLE("部分不可用", "Partial unavailable"),
     LARGE_TOKEN("大 Token", "Large Token numbers"),
     THRESHOLD_COLORS("阈值颜色", "Threshold colors"),
+    NEAR_FULL("接近满额", "Near full"),
+    FULL("满额", "Full"),
 }
 
 private val quotaWidgetFixtureOptions = QuotaWidgetFixtureScenario.entries.mapIndexed { index, scenario ->
@@ -149,6 +151,13 @@ private fun quotaWidgetFixtureProjection(
     )
     QuotaWidgetFixtureScenario.THRESHOLD_COLORS -> fixtureProjection(
         primary = fixtureFiveHour.copy(remainingPercent = thresholdPercent),
+    )
+    QuotaWidgetFixtureScenario.NEAR_FULL -> fixtureProjection(
+        primary = fixtureFiveHour.copy(remainingPercent = 99),
+        secondary = fixtureSevenDay.copy(remainingPercent = 98),
+    )
+    QuotaWidgetFixtureScenario.FULL -> fixtureProjection(
+        primary = fixtureFiveHour.copy(remainingPercent = 100),
     )
 }
 

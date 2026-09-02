@@ -810,6 +810,7 @@ class SettingsStructureTest {
         assertTrue(update.contains("internal fun updateDownloadProgressFraction("))
         assertTrue(update.contains("internal fun progressCornerRadiusPx("))
         assertTrue(update.contains("internal fun updateDownloadProgressVisualWidth("))
+        assertTrue(update.contains("ProgressBarRangeInfo(fraction, 0f..1f)"))
         assertTrue(update.contains(".height(8.dp)"))
         assertTrue(update.contains("val radius = progressCornerRadiusPx("))
         assertTrue(Regex("drawRoundRect\\(").findAll(update).count() >= 2)
@@ -876,7 +877,9 @@ class SettingsStructureTest {
     fun updateProgressFractionClampsToContinuousBarRange() {
         assertEquals(0f, updateDownloadProgressFraction(-0.5f), 0f)
         assertEquals(0f, updateDownloadProgressFraction(0f), 0f)
+        assertEquals(0.01f, updateDownloadProgressFraction(0.01f), 0f)
         assertEquals(0.42f, updateDownloadProgressFraction(0.42f), 0f)
+        assertEquals(0.99f, updateDownloadProgressFraction(0.99f), 0f)
         assertEquals(1f, updateDownloadProgressFraction(1f), 0f)
         assertEquals(1f, updateDownloadProgressFraction(1.5f), 0f)
     }

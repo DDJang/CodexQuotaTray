@@ -31,7 +31,7 @@ import com.codexquotatray.android.ThemePalette
 import com.codexquotatray.android.color
 import com.codexquotatray.android.quotaProgressColor
 
-private val realProgressValues = listOf(0, 10, 25, 50, 75, 90, 98, 100)
+private val realProgressValues = listOf(0, 10, 25, 50, 75, 90, 98, 99, 100)
 private val fixedGreenProgressValues = listOf(25, 50, 75, 100)
 
 class QuotaRingFixtureActivity : ComponentActivity() {
