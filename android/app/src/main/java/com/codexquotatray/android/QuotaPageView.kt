@@ -23,7 +23,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.animateColorAsState
@@ -370,10 +369,24 @@ internal fun QuotaPage(
     controller: QuotaPageController,
     modifier: Modifier = Modifier,
 ) {
+    QuotaPageContent(
+        model = controller.model,
+        busy = controller.busy,
+        onLogin = controller::openLogin,
+        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+    )
+}
+
+@Composable
+internal fun QuotaPageContent(
+    model: QuotaUiModel,
+    busy: Boolean,
+    onLogin: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val palette = LocalQuotaPalette.current
-    val model = controller.model
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp),
+        modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         Text(
@@ -388,7 +401,15 @@ internal fun QuotaPage(
             model.windows.forEach { QuotaWindowCard(it) }
             model.resetCredits?.let { ResetCreditCard(it) }
         } else {
-            Button(onClick = rememberSystemHapticClick(controller::openLogin), enabled = !controller.busy, modifier = Modifier.fillMaxWidth()) { Text("登录 Codex") }
+            SettingsActionButton(
+                label = "登录 Codex",
+                primary = true,
+                enabled = !busy,
+                horizontalInset = 0.dp,
+                topPadding = 0.dp,
+                bottomPadding = 0.dp,
+                onClick = onLogin,
+            )
         }
         Spacer(Modifier.height(96.dp))
     }

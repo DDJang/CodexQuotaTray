@@ -1,27 +1,31 @@
 package com.codexquotatray.android
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -31,6 +35,8 @@ import com.codexquotatray.android.update.UpdateRelease
 import com.codexquotatray.android.update.UpdateDownloadFormatting
 import com.codexquotatray.android.update.UpdateDownloadPhase
 import com.codexquotatray.android.update.UpdateDownloadProgress
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 @Composable
 internal fun UpdateAvailableDialog(
@@ -61,24 +67,8 @@ internal fun UpdateAvailableDialog(
         ),
     ) {
         CodexQuotaTheme(palette) {
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 20.dp),
-            ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(SettingsUiTokens.groupCornerRadius),
-                    border = BorderStroke(1.dp, palette.color(palette.border).copy(alpha = 0.8f)),
-                    colors = CardDefaults.cardColors(containerColor = palette.color(palette.background)),
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(18.dp),
-                    ) {
-                        Column(
+            UpdateLiquidDialogSurface {
+                Column(
                             modifier = Modifier.padding(horizontal = 20.dp),
                             verticalArrangement = Arrangement.spacedBy(3.dp),
                         ) {
@@ -99,19 +89,19 @@ internal fun UpdateAvailableDialog(
                                 color = palette.color(palette.secondary),
                                 fontSize = 13.sp,
                             )
-                        }
+                }
 
-                        downloadError?.let { error ->
-                            Text(
+                downloadError?.let { error ->
+                    Text(
                                 text = "下载失败：$error",
                                 color = palette.color(palette.error),
                                 fontSize = 13.sp,
                                 modifier = Modifier.padding(horizontal = 20.dp),
-                            )
-                        }
+                    )
+                }
 
-                        if (release.notes.isNotBlank()) {
-                            Column(Modifier.padding(horizontal = 20.dp)) {
+                if (release.notes.isNotBlank()) {
+                    Column(Modifier.padding(horizontal = 20.dp)) {
                                 SettingsGroup {
                                     Box(
                                         modifier = Modifier
@@ -126,11 +116,11 @@ internal fun UpdateAvailableDialog(
                                         ReleaseNotesMarkdownView(release.notes)
                                     }
                                 }
-                            }
                         }
+                    }
 
-                        if (downloading) {
-                            Column(Modifier.padding(horizontal = 20.dp)) {
+                if (downloading) {
+                    Column(Modifier.padding(horizontal = 20.dp)) {
                                 SettingsSection("下载") {
                                     SettingsGroup {
                                         Column(
@@ -165,7 +155,10 @@ internal fun UpdateAvailableDialog(
                                             } else {
                                                 LinearProgressIndicator(
                                                     progress = { percentage / 100f },
-                                                    modifier = Modifier.fillMaxWidth(),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .height(8.dp)
+                                                        .clip(RoundedCornerShape(4.dp)),
                                                     color = palette.color(palette.accent),
                                                     trackColor = palette.color(palette.progressTrack),
                                                 )
@@ -178,10 +171,10 @@ internal fun UpdateAvailableDialog(
                                         }
                                     }
                                 }
-                            }
                         }
+                    }
 
-                        Column(Modifier.padding(horizontal = 20.dp)) {
+                Column(Modifier.padding(horizontal = 20.dp)) {
                             if (!downloading) {
                                 SettingsActionButton(
                                     label = if (downloadError == null) "下载并安装" else "重试",
@@ -247,10 +240,54 @@ internal fun UpdateAvailableDialog(
                                     }
                                 }
                             }
-                        }
-                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun UpdateLiquidDialogSurface(
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val palette = LocalQuotaPalette.current
+    val isDark = palette.color(palette.background).luminance() < 0.35f
+    val shape = RoundedCornerShape(SettingsUiTokens.groupCornerRadius)
+    val dialogBackdrop = rememberLayerBackdrop()
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp),
+    ) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .layerBackdrop(dialogBackdrop)
+                .background(palette.color(palette.background)),
+        )
+        GlassSurface(
+            backdrop = dialogBackdrop,
+            shape = shape,
+            modifier = Modifier.fillMaxWidth(),
+            clippedModifier = Modifier.border(
+                width = 1.dp,
+                color = palette.color(palette.border).copy(alpha = 0.8f),
+                shape = shape,
+            ),
+            contentAlignment = Alignment.TopStart,
+            blurRadius = 8.dp,
+            refractionHeight = 12.dp,
+            refractionAmount = 24.dp,
+            surfaceAlpha = if (isDark) 0.46f else 0.58f,
+            surfaceColor = palette.color(palette.background),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
+                content = content,
+            )
         }
     }
 }
