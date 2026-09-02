@@ -42,8 +42,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.ui.semantics.paneTitle
-import androidx.compose.ui.semantics.semantics
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -168,15 +166,13 @@ internal fun CodexConfirmDialog(
     val hapticConfirm = rememberSystemHapticClick { onConfirm(); onDismiss() }
     val hapticDismiss = rememberSystemHapticClick(onDismiss)
     LiquidModalOverlay(
-        backdrop = backdrop,
         paneTitle = title,
         onDismiss = onDismiss,
     ) {
         LiquidDialogSurface(
             backdrop = backdrop,
             modifier = Modifier
-                .widthIn(min = 280.dp, max = 420.dp)
-                .semantics { paneTitle = title },
+                .widthIn(min = 280.dp, max = 420.dp),
         ) {
             Column(
                 modifier = Modifier

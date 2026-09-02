@@ -56,7 +56,6 @@ internal fun UpdateAvailableDialog(
     val palette = settingsPalette(hostPalette, effectiveTheme)
 
     LiquidModalOverlay(
-        backdrop = backdrop,
         paneTitle = "发现新版本",
         onDismiss = if (downloading) ({}) else onLater,
         dismissOnBackPress = !downloading,
