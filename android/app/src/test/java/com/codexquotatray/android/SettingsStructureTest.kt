@@ -809,11 +809,13 @@ class SettingsStructureTest {
         assertTrue(update.contains("private fun UpdateDownloadProgressBar("))
         assertTrue(update.contains("internal fun updateDownloadProgressFraction("))
         assertTrue(update.contains("internal fun progressCornerRadiusPx("))
+        assertTrue(update.contains("internal fun updateDownloadProgressVisualWidth("))
         assertTrue(update.contains(".height(8.dp)"))
-        assertTrue(update.contains("val radius = 4.dp.toPx()"))
+        assertTrue(update.contains("val radius = progressCornerRadiusPx("))
         assertTrue(Regex("drawRoundRect\\(").findAll(update).count() >= 2)
-        assertTrue(update.contains("val progressRadius = progressCornerRadiusPx("))
-        assertTrue(update.contains("CornerRadius(progressRadius, progressRadius)"))
+        assertTrue(update.contains("val visualProgressWidth = updateDownloadProgressVisualWidth("))
+        assertTrue(update.contains("size = Size(visualProgressWidth, size.height)"))
+        assertTrue(update.contains("CornerRadius(radius, radius)"))
         assertFalse(update.contains("Path"))
         assertFalse(update.contains("LinearProgressIndicator"))
         assertFalse(update.contains("SettingsSection(\"下载\")"))
@@ -880,12 +882,19 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun progressCornerRadiusFitsBothEndsAndNarrowStates() {
-        assertEquals(0f, progressCornerRadiusPx(0f, 8f, 4f), 0f)
-        assertEquals(1f, progressCornerRadiusPx(2f, 8f, 4f), 0f)
-        assertEquals(4f, progressCornerRadiusPx(8f, 8f, 4f), 0f)
-        assertEquals(4f, progressCornerRadiusPx(100f, 8f, 4f), 0f)
-        assertEquals(0f, progressCornerRadiusPx(-2f, 8f, 4f), 0f)
+    fun progressCornerRadiusUsesTheBarCapsuleRadius() {
+        assertEquals(4f, progressCornerRadiusPx(8f, 4f), 0f)
+        assertEquals(3f, progressCornerRadiusPx(6f, 4f), 0f)
+        assertEquals(0f, progressCornerRadiusPx(-2f, 4f), 0f)
+    }
+
+    @Test
+    fun progressVisualWidthKeepsTinyValuesVisibleWithoutChangingFraction() {
+        assertEquals(0f, updateDownloadProgressVisualWidth(0f, 100f, 8f), 0f)
+        assertEquals(8f, updateDownloadProgressVisualWidth(0.01f, 100f, 8f), 0f)
+        assertEquals(42f, updateDownloadProgressVisualWidth(0.42f, 100f, 8f), 0f)
+        assertEquals(99f, updateDownloadProgressVisualWidth(0.99f, 100f, 8f), 0f)
+        assertEquals(100f, updateDownloadProgressVisualWidth(1f, 100f, 8f), 0f)
     }
 
     @Test

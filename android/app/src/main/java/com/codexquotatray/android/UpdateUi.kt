@@ -246,10 +246,25 @@ internal fun UpdateAvailableDialog(
 internal fun updateDownloadProgressFraction(progress: Float): Float = progress.coerceIn(0f, 1f)
 
 internal fun progressCornerRadiusPx(
-    progressWidth: Float,
     height: Float,
     maxRadius: Float,
-): Float = minOf(progressWidth / 2f, height / 2f, maxRadius).coerceAtLeast(0f)
+): Float = minOf(height / 2f, maxRadius).coerceAtLeast(0f)
+
+internal fun updateDownloadProgressVisualWidth(
+    fraction: Float,
+    totalWidth: Float,
+    barHeight: Float,
+): Float {
+    val safeFraction = updateDownloadProgressFraction(fraction)
+    val safeTotalWidth = totalWidth.coerceAtLeast(0f)
+    val actualProgressWidth = safeTotalWidth * safeFraction
+    return when {
+        safeFraction <= 0f -> 0f
+        safeFraction >= 1f -> safeTotalWidth
+        else -> maxOf(actualProgressWidth, barHeight.coerceAtLeast(0f))
+            .coerceAtMost(safeTotalWidth)
+    }
+}
 
 @Composable
 private fun UpdateDownloadProgressBar(
@@ -266,7 +281,10 @@ private fun UpdateDownloadProgressBar(
                 progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
             },
     ) {
-        val radius = 4.dp.toPx().coerceAtMost(size.height / 2f)
+        val radius = progressCornerRadiusPx(
+            height = size.height,
+            maxRadius = 4.dp.toPx(),
+        )
         val trackColor = palette.color(palette.progressTrack)
         val foregroundColor = palette.color(palette.accent)
         drawRoundRect(
@@ -275,17 +293,16 @@ private fun UpdateDownloadProgressBar(
             cornerRadius = CornerRadius(radius, radius),
         )
 
-        val progressWidth = size.width * fraction
-        if (progressWidth <= 0f) return@Canvas
-        val progressRadius = progressCornerRadiusPx(
-            progressWidth = progressWidth,
-            height = size.height,
-            maxRadius = radius,
+        val visualProgressWidth = updateDownloadProgressVisualWidth(
+            fraction = fraction,
+            totalWidth = size.width,
+            barHeight = size.height,
         )
+        if (visualProgressWidth <= 0f) return@Canvas
         drawRoundRect(
             color = foregroundColor,
-            size = Size(progressWidth, size.height),
-            cornerRadius = CornerRadius(progressRadius, progressRadius),
+            size = Size(visualProgressWidth, size.height),
+            cornerRadius = CornerRadius(radius, radius),
         )
     }
 }

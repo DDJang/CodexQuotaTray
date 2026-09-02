@@ -43,17 +43,20 @@ private const val FIXTURE_TIME_SECONDS = 1_788_312_600L
 private data class WidgetPreviewSize(
     val widthDp: Int,
     val heightDp: Int,
-) {
-    val label: String get() = "${widthDp}×${heightDp}"
-}
-
-private val widgetPreviewSizes = listOf(
-    WidgetPreviewSize(widthDp = 300, heightDp = 110),
-    WidgetPreviewSize(widthDp = 360, heightDp = 132),
+    val selectorLabel: String,
 )
 
+private val widgetPreviewSizes = listOf(
+    WidgetPreviewSize(widthDp = 360, heightDp = 132, selectorLabel = "360×132 推荐"),
+    WidgetPreviewSize(widthDp = 300, heightDp = 110, selectorLabel = "300×110 最小"),
+)
+
+private val defaultWidgetPreviewSizeIndex = widgetPreviewSizes.indexOfFirst {
+    it.widthDp == 360 && it.heightDp == 132
+}
+
 private val widgetPreviewSizeOptions = widgetPreviewSizes.mapIndexed { index, size ->
-    SettingsSegmentOption(index, size.label)
+    SettingsSegmentOption(index, size.selectorLabel)
 }
 
 private enum class QuotaWidgetFixtureScenario(
@@ -174,7 +177,7 @@ class QuotaWidgetFixtureActivity : ComponentActivity() {
 @Composable
 private fun QuotaWidgetFixtureScreen(onBack: () -> Unit) {
     var selectedScenario by remember { mutableIntStateOf(QuotaWidgetFixtureScenario.EMPTY.ordinal) }
-    var selectedSize by remember { mutableIntStateOf(0) }
+    var selectedSize by remember { mutableIntStateOf(defaultWidgetPreviewSizeIndex) }
     var thresholdPercent by remember { mutableIntStateOf(82) }
     val scenario = QuotaWidgetFixtureScenario.entries[selectedScenario]
     val previewSize = widgetPreviewSizes[selectedSize]
@@ -219,7 +222,7 @@ private fun QuotaWidgetFixtureScreen(onBack: () -> Unit) {
                 }
             }
             SettingsSection("正式 Widget 预览") {
-                SettingsGroup {
+                SettingsGroup(allowLiquidOverflow = true) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -249,6 +252,13 @@ private fun QuotaWidgetFixtureScreen(onBack: () -> Unit) {
                         )
                     }
                 }
+            }
+            if (previewSize.widthDp == 300 && previewSize.heightDp == 110) {
+                Text(
+                    "Provider 最小尺寸；Activity 内 RemoteViews 预览可能不完全等同 Launcher 实际尺寸。",
+                    modifier = Modifier.padding(horizontal = SettingsUiTokens.rowHorizontalPadding),
+                    color = palette.color(palette.secondary),
+                )
             }
             Text(
                 "直接复用正式 widget_quota.xml 与 RemoteViews renderer；只渲染本地 fake projection，不会联网、写入 widget store、更新桌面组件、发送广播或打开主页面。",
