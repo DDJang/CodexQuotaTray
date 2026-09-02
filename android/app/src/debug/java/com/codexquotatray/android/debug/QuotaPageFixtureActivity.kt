@@ -173,6 +173,7 @@ private fun QuotaPageFixtureScreen(onBack: () -> Unit) {
                 model = model,
                 busy = false,
                 onLogin = { localActionCount++ },
+                onPairing = { localActionCount++ },
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(

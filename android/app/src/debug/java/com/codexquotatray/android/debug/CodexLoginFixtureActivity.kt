@@ -38,7 +38,7 @@ private enum class LoginFixtureState(
     val status: String,
 ) {
     PREPARING("准备", "正在准备登录…"),
-    WAITING_FOR_USER("等待", "请在浏览器完成 Codex 登录"),
+    WAITING_FOR_USER("等待", "请在浏览器完成 OpenAI 登录"),
     EXCHANGING("保存", "登录完成，正在保存登录状态…"),
     FAILED("失败", "登录失败，请重试"),
 }
@@ -76,7 +76,7 @@ private fun CodexLoginFixtureScreen(onBack: () -> Unit) {
     val state = LoginFixtureState.entries[selectedState]
     val palette = com.codexquotatray.android.LocalQuotaPalette.current
 
-    SecondaryScreenScaffold(title = "登录 Codex", onBack = onBack) {
+    SecondaryScreenScaffold(title = "登录 OpenAI", onBack = onBack) {
         Column(Modifier.fillMaxWidth()) {
             SettingsSection("OpenAI 登录") {
                 SettingsGroup(allowLiquidOverflow = true) {

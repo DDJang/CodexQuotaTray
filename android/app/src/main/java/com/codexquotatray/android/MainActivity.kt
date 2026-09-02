@@ -164,7 +164,11 @@ class MainActivity : ComponentActivity() {
                                     },
                                     label = "main-page-transition",
                                 ) { pageIndex ->
-                                    if (pageIndex == 0) QuotaPage(quota) else TokenUsagePage(usage, ::scanTokenPairing)
+                                    if (pageIndex == 0) {
+                                        QuotaPage(quota, ::scanTokenPairing)
+                                    } else {
+                                        TokenUsagePage(usage, ::scanTokenPairing, quota::openLogin)
+                                    }
                                 }
                             }
                         }

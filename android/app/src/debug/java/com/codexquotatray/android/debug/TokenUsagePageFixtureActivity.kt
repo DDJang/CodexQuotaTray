@@ -241,6 +241,7 @@ private fun TokenUsagePageFixtureScreen(onBack: () -> Unit) {
                 paired = presentation.paired,
                 snapshot = presentation.snapshot,
                 onPairing = { localActionCount++ },
+                onLoginOpenAi = { localActionCount++ },
                 modifier = Modifier.fillMaxWidth(),
             )
             Text(

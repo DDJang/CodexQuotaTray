@@ -37,13 +37,20 @@ import com.codexquotatray.android.update.UpdateRelease
 private enum class DownloadFixtureState(
     val selectorLabel: String,
     val displayLabel: String,
+    val progressPercent: Int? = null,
 ) {
     AVAILABLE("可用", "Available"),
     DOWNLOADING_INDETERMINATE("下载中", "Downloading indeterminate"),
-    DOWNLOADING_PROGRESS("进度", "Downloading progress"),
+    DOWNLOADING_PROGRESS_0("0%", "Downloading progress · 0%", 0),
+    DOWNLOADING_PROGRESS_1("1%", "Downloading progress · 1%", 1),
+    DOWNLOADING_PROGRESS("42%", "Downloading progress · 42%", 42),
+    DOWNLOADING_PROGRESS_99("99%", "Downloading progress · 99%", 99),
+    DOWNLOADING_PROGRESS_100("100%", "Downloading progress · 100%", 100),
     VERIFYING("校验", "Verifying"),
     FAILED("失败", "Failed"),
 }
+
+private const val FIXTURE_TOTAL_BYTES = 10_000_000L
 
 private val downloadFixtureOptions = DownloadFixtureState.entries.mapIndexed { index, state ->
     SettingsSegmentOption(index, state.selectorLabel)
@@ -95,21 +102,26 @@ private fun UpdateDownloadFixtureScreen(onBack: () -> Unit) {
         DownloadFixtureState.DOWNLOADING_INDETERMINATE -> UpdateDownloadProgress(
             phase = UpdateDownloadPhase.DOWNLOADING,
         )
-        DownloadFixtureState.DOWNLOADING_PROGRESS -> UpdateDownloadProgress(
+        DownloadFixtureState.DOWNLOADING_PROGRESS_0,
+        DownloadFixtureState.DOWNLOADING_PROGRESS_1,
+        DownloadFixtureState.DOWNLOADING_PROGRESS,
+        DownloadFixtureState.DOWNLOADING_PROGRESS_99,
+        DownloadFixtureState.DOWNLOADING_PROGRESS_100,
+        -> UpdateDownloadProgress(
             phase = UpdateDownloadPhase.DOWNLOADING,
-            bytesDownloaded = 4_200_000L,
-            totalBytes = 10_000_000L,
+            bytesDownloaded = FIXTURE_TOTAL_BYTES * (state.progressPercent ?: 0) / 100L,
+            totalBytes = FIXTURE_TOTAL_BYTES,
             bytesPerSecond = 1_500_000.0,
         )
         DownloadFixtureState.VERIFYING -> UpdateDownloadProgress(
             phase = UpdateDownloadPhase.VERIFYING,
-            bytesDownloaded = 10_000_000L,
-            totalBytes = 10_000_000L,
+            bytesDownloaded = FIXTURE_TOTAL_BYTES,
+            totalBytes = FIXTURE_TOTAL_BYTES,
         )
         DownloadFixtureState.FAILED -> UpdateDownloadProgress(UpdateDownloadPhase.FAILED)
     }
     val downloading = state == DownloadFixtureState.DOWNLOADING_INDETERMINATE ||
-        state == DownloadFixtureState.DOWNLOADING_PROGRESS ||
+        state.progressPercent != null ||
         state == DownloadFixtureState.VERIFYING
     val downloadError = if (state == DownloadFixtureState.FAILED) {
         "Fixture simulated failure"

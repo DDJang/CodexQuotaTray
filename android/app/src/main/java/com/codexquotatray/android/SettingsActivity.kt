@@ -345,7 +345,7 @@ class SettingsActivity : ComponentActivity() {
         SettingsSection("账号与配对") {
             SettingsGroup {
                 SettingsNavigationRow(
-                    title = "Codex 额度账号",
+                    title = "OpenAI 账号",
                     trailing = if (codexLoggedIn) "已登录" else "未登录",
                 ) {
                     startActivity(Intent(this@SettingsActivity, AccountActivity::class.java))

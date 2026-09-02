@@ -367,12 +367,14 @@ internal class QuotaPageController(private val host: MainActivity) {
 @Composable
 internal fun QuotaPage(
     controller: QuotaPageController,
+    onPairing: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     QuotaPageContent(
         model = controller.model,
         busy = controller.busy,
         onLogin = controller::openLogin,
+        onPairing = onPairing,
         modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
     )
 }
@@ -382,6 +384,7 @@ internal fun QuotaPageContent(
     model: QuotaUiModel,
     busy: Boolean,
     onLogin: () -> Unit,
+    onPairing: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val palette = LocalQuotaPalette.current
@@ -401,14 +404,11 @@ internal fun QuotaPageContent(
             model.windows.forEach { QuotaWindowCard(it) }
             model.resetCredits?.let { ResetCreditCard(it) }
         } else {
-            SettingsActionButton(
-                label = "登录 Codex",
-                primary = true,
-                enabled = !busy,
-                horizontalInset = 0.dp,
-                topPadding = 0.dp,
-                bottomPadding = 0.dp,
-                onClick = onLogin,
+            DataSourceEmptyStateCard(
+                message = "登录 OpenAI 或连接 Windows CodexQuotaTray 后，即可查看 Codex 额度。",
+                onLoginOpenAi = onLogin,
+                onPairWindows = onPairing,
+                loginEnabled = !busy,
             )
         }
         Spacer(Modifier.height(96.dp))

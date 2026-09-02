@@ -2,6 +2,7 @@ package com.codexquotatray.android
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,15 +18,19 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -119,10 +124,9 @@ internal fun UpdateAvailableDialog(
                         }
                     }
 
-                if (downloading) {
-                    Column(Modifier.padding(horizontal = 20.dp)) {
-                                SettingsSection("下载") {
-                                    SettingsGroup {
+                        if (downloading) {
+                            Column(Modifier.padding(horizontal = 20.dp)) {
+                                SettingsGroup {
                                         Column(
                                             modifier = Modifier.padding(
                                                 horizontal = SettingsUiTokens.rowHorizontalPadding,
@@ -153,24 +157,18 @@ internal fun UpdateAvailableDialog(
                                                     color = palette.color(palette.accent),
                                                 )
                                             } else {
-                                                LinearProgressIndicator(
-                                                    progress = { percentage / 100f },
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .height(8.dp)
-                                                        .clip(RoundedCornerShape(4.dp)),
-                                                    color = palette.color(palette.accent),
-                                                    trackColor = palette.color(palette.progressTrack),
+                                                UpdateDownloadProgressBar(
+                                                    progress = percentage / 100f,
+                                                    modifier = Modifier.fillMaxWidth(),
                                                 )
                                                 Text(
                                                     text = "$percentage%",
                                                     color = palette.color(palette.secondary),
                                                     fontSize = 12.sp,
                                                 )
-                                            }
-                                        }
                                     }
-                                }
+                            }
+                        }
                         }
                     }
 
@@ -242,6 +240,61 @@ internal fun UpdateAvailableDialog(
                             }
                 }
             }
+        }
+    }
+}
+
+internal fun updateDownloadProgressFraction(progress: Float): Float = progress.coerceIn(0f, 1f)
+
+@Composable
+private fun UpdateDownloadProgressBar(
+    progress: Float,
+    modifier: Modifier = Modifier,
+) {
+    val palette = LocalQuotaPalette.current
+    val fraction = updateDownloadProgressFraction(progress)
+    Canvas(
+        modifier
+            .fillMaxWidth()
+            .height(8.dp)
+            .semantics {
+                progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
+            },
+    ) {
+        val radius = 4.dp.toPx().coerceAtMost(size.height / 2f)
+        val trackColor = palette.color(palette.progressTrack)
+        val foregroundColor = palette.color(palette.accent)
+        drawRoundRect(
+            color = trackColor,
+            size = Size(size.width, size.height),
+            cornerRadius = CornerRadius(radius, radius),
+        )
+
+        val progressWidth = size.width * fraction
+        if (progressWidth <= 0f) return@Canvas
+        if (fraction >= 1f) {
+            drawRoundRect(
+                color = foregroundColor,
+                size = Size(size.width, size.height),
+                cornerRadius = CornerRadius(radius, radius),
+            )
+        } else if (progressWidth < size.height) {
+            // Keep tiny values as a strict-width strip instead of a rounded terminal dot.
+            drawRect(
+                color = foregroundColor,
+                size = Size(progressWidth, size.height),
+            )
+        } else {
+            val path = Path().apply {
+                moveTo(progressWidth, 0f)
+                lineTo(radius, 0f)
+                quadraticTo(0f, 0f, 0f, radius)
+                lineTo(0f, size.height - radius)
+                quadraticTo(0f, size.height, radius, size.height)
+                lineTo(progressWidth, size.height)
+                close()
+            }
+            drawPath(path, foregroundColor)
         }
     }
 }

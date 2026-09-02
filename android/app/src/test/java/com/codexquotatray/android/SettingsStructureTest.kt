@@ -733,7 +733,7 @@ class SettingsStructureTest {
 
         val login = debugSourceFile("debug/CodexLoginFixtureActivity.kt")
         assertTrue(login.contains("正在准备登录…"))
-        assertTrue(login.contains("请在浏览器完成 Codex 登录"))
+        assertTrue(login.contains("请在浏览器完成 OpenAI 登录"))
         assertTrue(login.contains("ABCD-EFGH"))
         assertTrue(login.contains("登录完成，正在保存登录状态…"))
         assertTrue(login.contains("登录失败，请重试"))
@@ -773,10 +773,11 @@ class SettingsStructureTest {
             .substringAfter("internal fun QuotaPageContent(")
             .substringBefore("private fun QuotaStatusLine(")
         assertTrue(quota.contains("QuotaPageContent("))
-        assertTrue(quotaContent.contains("SettingsActionButton("))
-        assertTrue(quotaContent.contains("label = \"登录 Codex\""))
-        assertTrue(quotaContent.contains("primary = true"))
-        assertTrue(quotaContent.contains("enabled = !busy"))
+        assertTrue(quotaContent.contains("DataSourceEmptyStateCard("))
+        assertTrue(quotaContent.contains("message = \"登录 OpenAI 或连接 Windows CodexQuotaTray 后，即可查看 Codex 额度。\""))
+        assertTrue(quotaContent.contains("onLoginOpenAi = onLogin"))
+        assertTrue(quotaContent.contains("onPairWindows = onPairing"))
+        assertTrue(quotaContent.contains("loginEnabled = !busy"))
         assertFalse(quota.contains("androidx.compose.material3.Button"))
         assertFalse(quotaContent.contains("verticalScroll"))
 
@@ -785,21 +786,95 @@ class SettingsStructureTest {
             .substringAfter("internal fun TokenUsagePageContent(")
             .substringBefore("private fun TokenUsageStatusLine(")
         assertTrue(token.contains("TokenUsagePageContent("))
-        assertTrue(tokenContent.contains("SettingsActionButton("))
-        assertTrue(tokenContent.contains("label = \"扫码配对\""))
-        assertTrue(tokenContent.contains("primary = true"))
+        assertTrue(tokenContent.contains("DataSourceEmptyStateCard("))
+        assertTrue(tokenContent.contains("message = \"登录 OpenAI 或连接 Windows CodexQuotaTray 后，即可查看 Token 使用历史。\""))
+        assertTrue(tokenContent.contains("onLoginOpenAi = onLoginOpenAi"))
+        assertTrue(tokenContent.contains("onPairWindows = onPairing"))
         assertFalse(token.contains("androidx.compose.material3.Button"))
         assertFalse(tokenContent.contains("verticalScroll"))
+
+        val emptyState = sourceFile("DataSourceEmptyState.kt")
+        assertTrue(emptyState.contains("RoundedCornerShape(14.dp)"))
+        assertTrue(emptyState.contains("label = \"登录 OpenAI\""))
+        assertTrue(emptyState.contains("primary = true"))
+        assertTrue(emptyState.contains("label = \"扫码配对\""))
+        assertTrue(emptyState.contains("onClick = onPairWindows"))
+        assertTrue(emptyState.contains("Arrangement.spacedBy(8.dp)"))
 
         val update = sourceFile("UpdateUi.kt")
         assertTrue(update.contains("private fun UpdateLiquidDialogSurface("))
         assertTrue(update.contains("val dialogBackdrop = rememberLayerBackdrop()"))
         assertTrue(update.contains(".layerBackdrop(dialogBackdrop)"))
         assertTrue(update.contains("GlassSurface("))
+        assertTrue(update.contains("private fun UpdateDownloadProgressBar("))
+        assertTrue(update.contains("internal fun updateDownloadProgressFraction("))
         assertTrue(update.contains(".height(8.dp)"))
-        assertTrue(update.contains(".clip(RoundedCornerShape(4.dp))"))
+        assertTrue(update.contains("val radius = 4.dp.toPx()"))
+        assertTrue(update.contains("drawRoundRect("))
+        assertTrue(update.contains("drawPath(path, foregroundColor)"))
+        assertTrue(update.contains("strict-width strip"))
+        assertFalse(update.contains("LinearProgressIndicator"))
+        assertFalse(update.contains("SettingsSection(\"下载\")"))
         assertTrue(update.contains("Modifier.size(20.dp)"))
         assertFalse(update.contains("Card("))
+    }
+
+    @Test
+    fun sourceEmptyStateCallbacksAndAccountNamingUseExistingFlows() {
+        val main = sourceFile("MainActivity.kt")
+        assertTrue(main.contains("QuotaPage(quota, ::scanTokenPairing)"))
+        assertTrue(main.contains("TokenUsagePage(usage, ::scanTokenPairing, quota::openLogin)"))
+
+        val settings = settingsSource()
+        assertTrue(settings.contains("title = \"OpenAI 账号\""))
+        assertFalse(settings.contains("title = \"Codex 额度账号\""))
+
+        val account = sourceFile("AccountActivity.kt")
+        assertTrue(account.contains("title = \"OpenAI 账号\""))
+        assertTrue(account.contains("尚未登录 OpenAI"))
+        assertTrue(account.contains("label = if (credentials == null) \"登录 OpenAI\""))
+        assertFalse(account.contains("Codex 额度账号"))
+        assertFalse(account.contains("尚未登录 Codex"))
+        assertFalse(account.contains("登录 Codex"))
+
+        val login = sourceFile("LoginActivity.kt")
+        assertTrue(login.contains("title = \"登录 OpenAI\""))
+        assertTrue(login.contains("请在浏览器完成 OpenAI 登录"))
+        assertFalse(login.contains("title = \"登录 Codex\""))
+        assertFalse(login.contains("请在浏览器完成 Codex 登录"))
+
+        val fixture = debugSourceFile("debug/CodexLoginFixtureActivity.kt")
+        assertTrue(fixture.contains("title = \"登录 OpenAI\""))
+        assertTrue(fixture.contains("请在浏览器完成 OpenAI 登录"))
+    }
+
+    @Test
+    fun updateFixtureExposesContinuousProgressRegressionValues() {
+        val fixture = debugSourceFile("debug/UpdateDownloadFixtureActivity.kt")
+        listOf(
+            "DOWNLOADING_PROGRESS_0",
+            "DOWNLOADING_PROGRESS_1",
+            "DOWNLOADING_PROGRESS",
+            "DOWNLOADING_PROGRESS_99",
+            "DOWNLOADING_PROGRESS_100",
+            "\"0%\"",
+            "\"1%\"",
+            "\"42%\"",
+            "\"99%\"",
+            "\"100%\"",
+            "FIXTURE_TOTAL_BYTES",
+        ).forEach { marker -> assertTrue(fixture.contains(marker)) }
+        assertFalse(fixture.contains("UpdateDownloadManager"))
+        assertFalse(fixture.contains("UpdateInstaller"))
+    }
+
+    @Test
+    fun updateProgressFractionClampsToContinuousBarRange() {
+        assertEquals(0f, updateDownloadProgressFraction(-0.5f), 0f)
+        assertEquals(0f, updateDownloadProgressFraction(0f), 0f)
+        assertEquals(0.42f, updateDownloadProgressFraction(0.42f), 0f)
+        assertEquals(1f, updateDownloadProgressFraction(1f), 0f)
+        assertEquals(1f, updateDownloadProgressFraction(1.5f), 0f)
     }
 
     @Test
