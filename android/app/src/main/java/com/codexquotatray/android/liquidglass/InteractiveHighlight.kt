@@ -36,6 +36,7 @@ class InteractiveHighlight(
         positionAnimation.snapTo(target)
     }
     private var positionGeneration: ConflatedUpdater.Generation? = null
+    private var usesExternalPosition = false
 
     private var startPosition = Offset.Zero
     val pressProgress: Float get() = pressProgressAnimation.value
@@ -70,7 +71,11 @@ half4 main(float2 coord) {
                         blendMode = BlendMode.Plus,
                     )
                     shader.apply {
-                        val position = position(size, positionAnimation.value)
+                        val position = if (usesExternalPosition) {
+                            positionAnimation.value
+                        } else {
+                            position(size, positionAnimation.value)
+                        }
                         setFloatUniform("size", size.width, size.height)
                         setColorUniform("color", Color.White.copy(0.15f * progress))
                         setFloatUniform("radius", size.minDimension * 1.5f)
@@ -99,33 +104,50 @@ half4 main(float2 coord) {
         Modifier.pointerInput(animationScope) {
             inspectDragGestures(
                 onDragStart = { down ->
-                    positionGeneration = positionUpdater.beginGeneration()
-                    startPosition = down.position
-                    animationScope.launch {
-                        launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
-                        launch { positionAnimation.snapTo(startPosition) }
-                    }
+                    begin(down.position, externalPosition = false)
                 },
-                onDragEnd = {
-                    invalidatePositionUpdates()
-                    animationScope.launch {
-                        launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
-                        launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
-                    }
-                },
-                onDragCancel = {
-                    invalidatePositionUpdates()
-                    animationScope.launch {
-                        launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
-                        launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
-                    }
-                },
+                onDragEnd = { release() },
+                onDragCancel = { cancel() },
             ) { change, _ ->
-                positionGeneration?.let { generation ->
-                    positionUpdater.submit(generation, change.position)
-                }
+                moveTo(change.position)
             }
         }
+
+    fun pressAt(position: Offset) {
+        begin(position, externalPosition = true)
+    }
+
+    fun moveTo(position: Offset) {
+        positionGeneration?.let { generation ->
+            positionUpdater.submit(generation, position)
+        }
+    }
+
+    fun release() {
+        end()
+    }
+
+    fun cancel() {
+        end()
+    }
+
+    private fun begin(position: Offset, externalPosition: Boolean) {
+        usesExternalPosition = externalPosition
+        positionGeneration = positionUpdater.beginGeneration()
+        startPosition = position
+        animationScope.launch {
+            launch { pressProgressAnimation.animateTo(1f, pressProgressAnimationSpec) }
+            launch { positionAnimation.snapTo(startPosition) }
+        }
+    }
+
+    private fun end() {
+        invalidatePositionUpdates()
+        animationScope.launch {
+            launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
+            launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
+        }
+    }
 
     private fun invalidatePositionUpdates() {
         positionGeneration?.let(positionUpdater::invalidate)

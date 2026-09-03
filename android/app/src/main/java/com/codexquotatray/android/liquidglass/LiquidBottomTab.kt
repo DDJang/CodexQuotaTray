@@ -20,6 +20,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
@@ -38,7 +39,7 @@ internal data class LiquidBottomTabInteractionCallbacks(
     val onCancel: (index: Int, press: PressInteraction.Press) -> Unit = { _, _ -> },
     val onClick: (index: Int) -> Unit = {},
     val onDragStart: (index: Int) -> Boolean = { false },
-    val onDrag: (index: Int, dragAmountX: Float) -> Unit = { _, _ -> },
+    val onDrag: (index: Int, position: Offset, dragAmountX: Float) -> Unit = { _, _, _ -> },
     val onDragEnd: (index: Int) -> Unit = {},
     val onDragCancel: (index: Int) -> Unit = {},
 )
@@ -107,9 +108,9 @@ fun RowScope.LiquidBottomTab(
                         }
                         dragClaimed = false
                     },
-                ) { _, dragAmount ->
+                ) { change, dragAmount ->
                     if (dragClaimed) {
-                        interactionCallbacksState.value.onDrag(tabIndex, dragAmount.x)
+                        interactionCallbacksState.value.onDrag(tabIndex, change.position, dragAmount.x)
                     }
                 }
             }

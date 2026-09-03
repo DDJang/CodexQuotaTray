@@ -406,7 +406,17 @@ private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
+            "QUICK TAP → no new interactive highlight",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
             "HOLD other tab · pill stays at target · stable press shape · page unchanged until release",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "HOLD → interactive highlight appears after long-press threshold",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )
@@ -431,7 +441,17 @@ private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
+            "HOLD + DRAG → highlight follows pointer through drag handoff",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
             "preview should hand off into drag instead of reverting on clickable cancel",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "DIRECT DRAG SELECTED → original immediate highlight unchanged",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )
