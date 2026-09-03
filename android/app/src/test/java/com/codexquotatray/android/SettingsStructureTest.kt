@@ -984,6 +984,10 @@ class SettingsStructureTest {
         assertFalse(summaryCard.contains("RoundedCornerShape("))
         assertFalse(summaryCard.contains("rememberLayerBackdrop"))
         assertFalse(summaryCard.contains("GlassSurface"))
+        val metricRow = token.substringAfter("private fun TokenMetricRow(")
+            .substringBefore("internal fun tokenSummaryValueLabel")
+        assertTrue(metricRow.contains("maxLines = 1"))
+        assertTrue(metricRow.contains("overflow = TextOverflow.Ellipsis"))
         listOf("今日 Token", "7 天 Token", "30 天 Token", "累计 Token", "峰值 Token", "当前连续", "最长连续").forEach {
             assertTrue(token.contains("\"$it\""))
         }
