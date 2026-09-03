@@ -257,7 +257,7 @@ private fun ChromaticAberrationFixture(contentColor: Color) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 AberrationPresetRow(
-                    name = "P0 · Current · 10 / 14",
+                    name = "P0 · Legacy · 10 / 14",
                     refractionHeight = 10.dp,
                     refractionAmount = 14.dp,
                     backdrop = experimentBackdrop,
@@ -265,7 +265,7 @@ private fun ChromaticAberrationFixture(contentColor: Color) {
                     labelColor = labelColor,
                 )
                 AberrationPresetRow(
-                    name = "P1 · Rich · 11 / 18",
+                    name = "P1 · Production · 11 / 18",
                     refractionHeight = 11.dp,
                     refractionAmount = 18.dp,
                     backdrop = experimentBackdrop,

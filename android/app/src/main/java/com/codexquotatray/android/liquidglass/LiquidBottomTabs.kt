@@ -67,8 +67,8 @@ fun LiquidBottomTabs(
     onTabSelected: (index: Int) -> Unit,
     backdrop: Backdrop,
     tabsCount: Int,
-    indicatorRefractionHeight: Dp = 10.dp,
-    indicatorRefractionAmount: Dp = 14.dp,
+    indicatorRefractionHeight: Dp = 11.dp,
+    indicatorRefractionAmount: Dp = 18.dp,
     modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit,
 ) {
