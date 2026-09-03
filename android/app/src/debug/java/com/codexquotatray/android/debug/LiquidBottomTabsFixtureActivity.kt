@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
@@ -44,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.AppTheme
@@ -132,6 +134,7 @@ private fun LiquidBottomTabsFixtureScreen(palette: ThemePalette) {
             }
             IntegratedTransitionFixture(backdrop, contentColor)
             PressPreviewFixture(backdrop, contentColor)
+            ChromaticAberrationFixture(contentColor)
             Text(
                 "A/B/C/D share one backdrop; no OAuth, LAN, API, worker, or network access.",
                 color = Color.White.copy(alpha = 0.7f),
@@ -204,6 +207,132 @@ private fun IntegratedTransitionFixture(backdrop: Backdrop, contentColor: Color)
             color = Color.White.copy(alpha = 0.78f),
             style = MaterialTheme.typography.bodySmall,
         )
+    }
+}
+
+private enum class AberrationBackdropMode {
+    MULTICOLOR,
+    BLACK,
+    WHITE,
+}
+
+@Composable
+private fun ChromaticAberrationFixture(contentColor: Color) {
+    var backdropMode by remember { mutableStateOf(AberrationBackdropMode.MULTICOLOR) }
+    val experimentBackdrop = rememberLayerBackdrop()
+    val labelColor = if (backdropMode == AberrationBackdropMode.WHITE) Color.Black else Color.White
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "E · Chromatic aberration presets",
+            color = labelColor,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { backdropMode = AberrationBackdropMode.MULTICOLOR }) {
+                Text("多色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.BLACK }) {
+                Text("黑色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.WHITE }) {
+                Text("白色")
+            }
+        }
+        Text(
+            "backdrop: ${backdropMode.name}",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Box(Modifier.fillMaxWidth().height(620.dp)) {
+            Box(Modifier.fillMaxSize().layerBackdrop(experimentBackdrop)) {
+                when (backdropMode) {
+                    AberrationBackdropMode.MULTICOLOR -> FixtureBackdrop(showLabel = false)
+                    AberrationBackdropMode.BLACK -> Box(Modifier.fillMaxSize().background(Color.Black))
+                    AberrationBackdropMode.WHITE -> Box(Modifier.fillMaxSize().background(Color.White))
+                }
+            }
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                AberrationPresetRow(
+                    name = "P0 · Current · 10 / 14",
+                    refractionHeight = 10.dp,
+                    refractionAmount = 14.dp,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                AberrationPresetRow(
+                    name = "P1 · Rich · 11 / 18",
+                    refractionHeight = 11.dp,
+                    refractionAmount = 18.dp,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                AberrationPresetRow(
+                    name = "P2 · Strong · 12 / 20",
+                    refractionHeight = 12.dp,
+                    refractionAmount = 20.dp,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                AberrationPresetRow(
+                    name = "P3 · Reference · 14 / 24",
+                    refractionHeight = 14.dp,
+                    refractionAmount = 24.dp,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+            }
+        }
+        Text(
+            "Hold or drag each preset to reveal full chromatic aberration.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "Black/white isolate the glass edge; multicolor reveals RGB separation most clearly.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun AberrationPresetRow(
+    name: String,
+    refractionHeight: Dp,
+    refractionAmount: Dp,
+    backdrop: Backdrop,
+    contentColor: Color,
+    labelColor: Color,
+) {
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(name, color = labelColor, style = MaterialTheme.typography.labelLarge)
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            LiquidBottomTabs(
+                selectedTabIndex = { selectedIndex },
+                onTabSelected = { selectedIndex = it },
+                backdrop = backdrop,
+                tabsCount = 2,
+                indicatorRefractionHeight = refractionHeight,
+                indicatorRefractionAmount = refractionAmount,
+                modifier = fixtureDockModifier(),
+            ) {
+                LiquidBottomTab(tabIndex = 0, onClick = { selectedIndex = 0 }) {
+                    FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
+                }
+                LiquidBottomTab(tabIndex = 1, onClick = { selectedIndex = 1 }) {
+                    FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
+                }
+            }
+        }
     }
 }
 
@@ -392,7 +521,7 @@ private fun FixtureTabContent(
 }
 
 @Composable
-private fun FixtureBackdrop() {
+private fun FixtureBackdrop(showLabel: Boolean = true) {
     Box(
         Modifier.fillMaxSize().background(
             Brush.linearGradient(listOf(Color(0xFF071A35), Color(0xFF241044), Color(0xFF063E4B))),
@@ -410,13 +539,15 @@ private fun FixtureBackdrop() {
             Modifier.align(Alignment.BottomCenter).offset(y = 120.dp).size(300.dp)
                 .background(Color(0xFF00D8C4).copy(alpha = 0.48f), CircleShape),
         )
-        Text(
-            "STATIC COLORFUL BACKDROP",
-            Modifier.align(Alignment.Center)
-                .background(Color.Black.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
-                .padding(horizontal = 18.dp, vertical = 12.dp),
-            color = Color.White.copy(alpha = 0.82f),
-            style = MaterialTheme.typography.labelLarge,
-        )
+        if (showLabel) {
+            Text(
+                "STATIC COLORFUL BACKDROP",
+                Modifier.align(Alignment.Center)
+                    .background(Color.Black.copy(alpha = 0.18f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                color = Color.White.copy(alpha = 0.82f),
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
     }
 }
