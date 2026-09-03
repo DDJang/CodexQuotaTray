@@ -592,9 +592,13 @@ class SettingsStructureTest {
         val previewCallbacks = source.substringAfter("val interactionCallbacks =")
             .substringBefore("val interactiveHighlight =")
         assertFalse(previewCallbacks.contains("updateValue("))
-        val dragBlock = source.substringAfter("onDrag = { _, dragAmount ->")
-            .substringBefore("            )")
-        assertTrue(dragBlock.contains("updateValue("))
+        assertTrue(source.contains("applyBottomTabDragDelta("))
+        val dragDeltaHelper = source.substringAfter(
+            "private fun DampedDragAnimation.applyBottomTabDragDelta(",
+        )
+        assertTrue(dragDeltaHelper.contains("if (fromCurrentValue) value else targetValue"))
+        assertTrue(dragDeltaHelper.contains("updateValue("))
+        assertTrue(source.contains("fromCurrentValue = handoffDragNeedsCurrentValue"))
 
         val interactionProvider = source.substringAfter(
             "LocalLiquidBottomTabInteraction provides interactionCallbacks",
@@ -605,6 +609,27 @@ class SettingsStructureTest {
         assertFalse(visibleRows.contains("LocalLiquidBottomTabScale"))
         assertTrue(hiddenCaptureRows.contains(".alpha(0f)"))
         assertTrue(hiddenCaptureRows.contains(".layerBackdrop(tabsBackdrop)"))
+        assertTrue(source.contains("onDragStart = { index ->"))
+        assertTrue(source.contains("onDragEnd = { index ->"))
+        assertTrue(source.contains("onDragCancel = { index ->"))
+        assertTrue(source.contains("onDragCancelled = {"))
+        val handoffDragEnd = source.substringAfter("onDragEnd = { index ->")
+            .substringBefore("onDragCancel = { index ->")
+        assertTrue(handoffDragEnd.contains("dampedDragAnimation.settleToValue(targetIndex.toFloat())"))
+        assertTrue(handoffDragEnd.contains("onTabSelected(targetIndex)"))
+        assertFalse(handoffDragEnd.contains("animateToValue("))
+        val clickableCancel = source.substringAfter("onCancel = { index, press ->")
+            .substringBefore("onClick = { index ->")
+        val handoffCancel = clickableCancel.substringAfter(
+            "val isHandoffDrag = dragInProgress && handoffDragIndex == index",
+        ).substringBefore("if (!isHandoffDrag)")
+        assertFalse(handoffCancel.contains("settleToValue("))
+        assertFalse(handoffCancel.contains("release()"))
+        val trueDragCancel = source.substringAfter("onDragCancelled = {")
+            .substringBefore("onDrag = { _, dragAmount ->")
+        assertTrue(trueDragCancel.contains("settleToValue(committedIndex.toFloat())"))
+        assertTrue(trueDragCancel.contains("offsetAnimation.animateTo("))
+        assertTrue(source.contains(".then(dampedDragAnimation.modifier)"))
         assertTrue(source.contains("onRelease = { index, press ->"))
         assertTrue(source.contains("onCancel = { index, press ->"))
         assertTrue(source.contains("onTabSelected(targetIndex)"))
@@ -616,6 +641,10 @@ class SettingsStructureTest {
         assertTrue(tab.contains("PressInteraction.Release"))
         assertTrue(tab.contains("PressInteraction.Cancel"))
         assertTrue(tab.contains("role = Role.Tab"))
+        assertTrue(tab.contains("detectDragGestures"))
+        assertTrue(tab.contains("pointerInput(tabIndex)"))
+        assertTrue(tab.contains("onDragStart = {"))
+        assertTrue(tab.contains("dragClaimed"))
         assertFalse(tab.contains("detectTapGestures"))
     }
 
@@ -666,6 +695,9 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("CANCEL / MOVE AWAY · pill smoothly returns · no page switch"))
         assertTrue(fixture.contains("DRAG selected pill · original velocity stretch remains"))
         assertTrue(fixture.contains("tap/hold preview should not use drag velocity deformation"))
+        assertTrue(fixture.contains("PRESS OTHER TAB → HOLD → DRAG ACROSS → RELEASE"))
+        assertTrue(fixture.contains("preview should hand off into drag instead of reverting on clickable cancel"))
+        assertTrue(fixture.contains("drag after preview should use the same velocity deformation as selected-pill drag"))
         assertTrue(fixture.contains("AnimatedContent("))
         assertTrue(fixture.contains("fadeIn(animationSpec = tween(200))"))
         assertTrue(fixture.contains("initialOffsetX = { width -> direction * width / 20 }"))

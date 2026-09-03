@@ -3,6 +3,7 @@
 // Apache License 2.0.
 package com.codexquotatray.android.liquidglass
 
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
@@ -53,6 +54,7 @@ import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -108,6 +110,8 @@ fun LiquidBottomTabs(
         var activePress by remember { mutableStateOf<PressInteraction.Press?>(null) }
         var activePressIndex by remember { mutableIntStateOf(-1) }
         var dragInProgress by remember { mutableStateOf(false) }
+        var handoffDragIndex by remember { mutableIntStateOf(-1) }
+        var handoffDragNeedsCurrentValue by remember { mutableStateOf(false) }
         val dampedDragAnimation = remember(animationScope) {
             DampedDragAnimation(
                 animationScope = animationScope,
@@ -118,6 +122,8 @@ fun LiquidBottomTabs(
                 pressedScale = 78f / 56f,
                 onDragStarted = {
                     dragInProgress = true
+                    handoffDragIndex = -1
+                    handoffDragNeedsCurrentValue = false
                     previewIndex = null
                     pendingCommitTarget = null
                     pendingCommitNotified = false
@@ -126,6 +132,8 @@ fun LiquidBottomTabs(
                 onDragStopped = {
                     val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
                     dragInProgress = false
+                    handoffDragIndex = -1
+                    handoffDragNeedsCurrentValue = false
                     previewIndex = null
                     pendingCommitTarget = if (targetIndex != committedIndex) targetIndex else null
                     pendingCommitNotified = pendingCommitTarget != null
@@ -141,14 +149,33 @@ fun LiquidBottomTabs(
                         )
                     }
                 },
-                onDrag = { _, dragAmount ->
-                    updateValue(
-                        (targetValue + dragAmount.x / tabWidth * if (isLtr) 1f else -1f)
-                            .fastCoerceIn(0f, (tabsCount - 1).toFloat()),
-                    )
+                onDragCancelled = {
+                    dragInProgress = false
+                    handoffDragIndex = -1
+                    handoffDragNeedsCurrentValue = false
+                    activePress = null
+                    activePressIndex = -1
+                    previewIndex = null
+                    pendingCommitTarget = null
+                    pendingCommitNotified = false
+                    pendingCommitFromDrag = false
+                    settleToValue(committedIndex.toFloat())
                     animationScope.launch {
-                        offsetAnimation.snapTo(offsetAnimation.value + dragAmount.x)
+                        offsetAnimation.animateTo(
+                            0f,
+                            spring(1f, 300f, 0.5f),
+                        )
                     }
+                },
+                onDrag = { _, dragAmount ->
+                    applyBottomTabDragDelta(
+                        dragAmountX = dragAmount.x,
+                        tabWidth = tabWidth,
+                        isLtr = isLtr,
+                        tabsCount = tabsCount,
+                        offsetAnimation = offsetAnimation,
+                        animationScope = animationScope,
+                    )
                 },
             )
         }
@@ -198,46 +225,139 @@ fun LiquidBottomTabs(
                     }
                 }
             },
-            onRelease = { index, press ->
-                if (activePress === press && activePressIndex == index) {
+            onDragStart = { index ->
+                if (
+                    activePress != null &&
+                    activePressIndex == index &&
+                    previewIndex == index &&
+                    !dragInProgress &&
+                    handoffDragIndex == -1
+                ) {
+                    dragInProgress = true
+                    handoffDragIndex = index
+                    handoffDragNeedsCurrentValue = true
+                    previewIndex = null
+                    pendingCommitTarget = null
+                    pendingCommitNotified = false
+                    pendingCommitFromDrag = false
+                    true
+                } else {
+                    false
+                }
+            },
+            onDrag = { index, dragAmountX ->
+                if (dragInProgress && handoffDragIndex == index) {
+                    dampedDragAnimation.applyBottomTabDragDelta(
+                        dragAmountX = dragAmountX,
+                        tabWidth = tabWidth,
+                        isLtr = isLtr,
+                        tabsCount = tabsCount,
+                        offsetAnimation = offsetAnimation,
+                        animationScope = animationScope,
+                        fromCurrentValue = handoffDragNeedsCurrentValue,
+                    )
+                    handoffDragNeedsCurrentValue = false
+                }
+            },
+            onDragEnd = { index ->
+                if (dragInProgress && handoffDragIndex == index) {
+                    val targetIndex = dampedDragAnimation.targetValue
+                        .fastRoundToInt()
+                        .fastCoerceIn(0, tabsCount - 1)
+                    dragInProgress = false
+                    handoffDragIndex = -1
+                    handoffDragNeedsCurrentValue = false
                     activePress = null
                     activePressIndex = -1
-                    if (index == committedIndex) {
-                        previewIndex = null
-                        pendingCommitTarget = null
-                        pendingCommitNotified = false
-                        pendingCommitFromDrag = false
-                        dampedDragAnimation.release()
-                    } else if (previewIndex == index) {
-                        pendingCommitTarget = index
-                        pendingCommitNotified = false
-                        pendingCommitFromDrag = false
-                    } else {
-                        pendingCommitTarget = null
-                        pendingCommitNotified = false
-                        pendingCommitFromDrag = false
-                        dampedDragAnimation.release()
+                    previewIndex = null
+                    pendingCommitTarget = if (targetIndex != committedIndex) targetIndex else null
+                    pendingCommitNotified = pendingCommitTarget != null
+                    pendingCommitFromDrag = pendingCommitTarget != null
+                    dampedDragAnimation.settleToValue(targetIndex.toFloat())
+                    dampedDragAnimation.release()
+                    if (targetIndex != committedIndex) {
+                        onTabSelected(targetIndex)
+                    }
+                    animationScope.launch {
+                        offsetAnimation.animateTo(
+                            0f,
+                            spring(1f, 300f, 0.5f),
+                        )
                     }
                 }
             },
-            onCancel = { index, press ->
-                if (activePress === press && activePressIndex == index) {
-                    val wasPreview = previewIndex == index
+            onDragCancel = { index ->
+                if (dragInProgress && handoffDragIndex == index) {
+                    dragInProgress = false
+                    handoffDragIndex = -1
+                    handoffDragNeedsCurrentValue = false
                     activePress = null
                     activePressIndex = -1
                     previewIndex = null
                     pendingCommitTarget = null
                     pendingCommitNotified = false
                     pendingCommitFromDrag = false
-                    if (wasPreview) {
-                        dampedDragAnimation.settleToValue(committedIndex.toFloat())
-                    }
+                    dampedDragAnimation.settleToValue(committedIndex.toFloat())
                     dampedDragAnimation.release()
+                    animationScope.launch {
+                        offsetAnimation.animateTo(
+                            0f,
+                            spring(1f, 300f, 0.5f),
+                        )
+                    }
+                }
+            },
+            onRelease = { index, press ->
+                if (activePress === press && activePressIndex == index) {
+                    val isHandoffDrag = dragInProgress && handoffDragIndex == index
+                    activePress = null
+                    activePressIndex = -1
+                    if (!isHandoffDrag) {
+                        if (index == committedIndex) {
+                            previewIndex = null
+                            pendingCommitTarget = null
+                            pendingCommitNotified = false
+                            pendingCommitFromDrag = false
+                            dampedDragAnimation.release()
+                        } else if (previewIndex == index) {
+                            pendingCommitTarget = index
+                            pendingCommitNotified = false
+                            pendingCommitFromDrag = false
+                        } else {
+                            pendingCommitTarget = null
+                            pendingCommitNotified = false
+                            pendingCommitFromDrag = false
+                            dampedDragAnimation.release()
+                        }
+                    }
+                }
+            },
+            onCancel = { index, press ->
+                if (activePress === press && activePressIndex == index) {
+                    val isHandoffDrag = dragInProgress && handoffDragIndex == index
+                    activePress = null
+                    activePressIndex = -1
+                    if (!isHandoffDrag) {
+                        val wasPreview = previewIndex == index
+                        previewIndex = null
+                        pendingCommitTarget = null
+                        pendingCommitNotified = false
+                        pendingCommitFromDrag = false
+                        if (wasPreview) {
+                            dampedDragAnimation.settleToValue(committedIndex.toFloat())
+                        }
+                        dampedDragAnimation.release()
+                    }
                 }
             },
             onClick = { index ->
                 val targetIndex = index.fastCoerceIn(0, tabsCount - 1)
-                if (targetIndex != committedIndex && !pendingCommitNotified) {
+                if (
+                    targetIndex != committedIndex &&
+                    !pendingCommitNotified &&
+                    !dragInProgress &&
+                    handoffDragIndex == -1
+                ) {
                     pendingCommitTarget = targetIndex
                     pendingCommitNotified = true
                     pendingCommitFromDrag = false
@@ -389,5 +509,24 @@ fun LiquidBottomTabs(
                 .height(56f.dp)
                 .fillMaxWidth(1f / tabsCount),
         )
+    }
+}
+
+private fun DampedDragAnimation.applyBottomTabDragDelta(
+    dragAmountX: Float,
+    tabWidth: Float,
+    isLtr: Boolean,
+    tabsCount: Int,
+    offsetAnimation: Animatable<Float, AnimationVector1D>,
+    animationScope: CoroutineScope,
+    fromCurrentValue: Boolean = false,
+) {
+    val baseValue = if (fromCurrentValue) value else targetValue
+    updateValue(
+        (baseValue + dragAmountX / tabWidth * if (isLtr) 1f else -1f)
+            .fastCoerceIn(0f, (tabsCount - 1).toFloat()),
+    )
+    animationScope.launch {
+        offsetAnimation.snapTo(offsetAnimation.value + dragAmountX)
     }
 }

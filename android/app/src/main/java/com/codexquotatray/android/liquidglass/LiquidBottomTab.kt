@@ -4,6 +4,7 @@
 package com.codexquotatray.android.liquidglass
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -20,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.kyant.shapes.Capsule
@@ -35,6 +37,10 @@ internal data class LiquidBottomTabInteractionCallbacks(
     val onRelease: (index: Int, press: PressInteraction.Press) -> Unit = { _, _ -> },
     val onCancel: (index: Int, press: PressInteraction.Press) -> Unit = { _, _ -> },
     val onClick: (index: Int) -> Unit = {},
+    val onDragStart: (index: Int) -> Boolean = { false },
+    val onDrag: (index: Int, dragAmountX: Float) -> Unit = { _, _ -> },
+    val onDragEnd: (index: Int) -> Unit = {},
+    val onDragCancel: (index: Int) -> Unit = {},
 )
 
 @Composable
@@ -83,6 +89,30 @@ fun RowScope.LiquidBottomTab(
                     onClick()
                 },
             )
+            .pointerInput(tabIndex) {
+                var dragClaimed = false
+                detectDragGestures(
+                    onDragStart = {
+                        dragClaimed = interactionCallbacksState.value.onDragStart(tabIndex)
+                    },
+                    onDragEnd = {
+                        if (dragClaimed) {
+                            interactionCallbacksState.value.onDragEnd(tabIndex)
+                        }
+                        dragClaimed = false
+                    },
+                    onDragCancel = {
+                        if (dragClaimed) {
+                            interactionCallbacksState.value.onDragCancel(tabIndex)
+                        }
+                        dragClaimed = false
+                    },
+                ) { _, dragAmount ->
+                    if (dragClaimed) {
+                        interactionCallbacksState.value.onDrag(tabIndex, dragAmount.x)
+                    }
+                }
+            }
             .fillMaxHeight()
             .weight(1f)
             .graphicsLayer {

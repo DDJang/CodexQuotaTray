@@ -296,6 +296,21 @@ private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )
+        Text(
+            "PRESS OTHER TAB → HOLD → DRAG ACROSS → RELEASE",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "preview should hand off into drag instead of reverting on clickable cancel",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "drag after preview should use the same velocity deformation as selected-pill drag",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
