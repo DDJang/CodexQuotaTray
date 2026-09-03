@@ -120,6 +120,7 @@ fun LiquidBottomTabs(
         var dragInProgress by remember { mutableStateOf(false) }
         var handoffDragIndex by remember { mutableIntStateOf(-1) }
         var handoffDragNeedsCurrentValue by remember { mutableStateOf(false) }
+        var longPressHighlightPrepared by remember { mutableStateOf(false) }
         var longPressHighlightActive by remember { mutableStateOf(false) }
         var longPressJob by remember { mutableStateOf<Job?>(null) }
         val dampedDragAnimation = remember(animationScope) {
@@ -256,14 +257,33 @@ fun LiquidBottomTabs(
                 if (
                     activePress === press &&
                     activePressIndex == index &&
+                    longPressHighlightPrepared &&
                     !longPressHighlightActive
                 ) {
                     longPressHighlightActive = true
-                    interactiveHighlight.pressAt(
-                        tabPointerPosition(index, press.pressPosition),
-                    )
+                    interactiveHighlight.reveal()
                 }
             }
+        }
+
+        fun releaseLongPressHighlight() {
+            if (longPressHighlightActive) {
+                interactiveHighlight.release()
+            } else if (longPressHighlightPrepared) {
+                interactiveHighlight.cancelPrepared()
+            }
+            longPressHighlightActive = false
+            longPressHighlightPrepared = false
+        }
+
+        fun cancelLongPressHighlight() {
+            if (longPressHighlightActive) {
+                interactiveHighlight.cancel()
+            } else if (longPressHighlightPrepared) {
+                interactiveHighlight.cancelPrepared()
+            }
+            longPressHighlightActive = false
+            longPressHighlightPrepared = false
         }
 
         val interactionCallbacks = LiquidBottomTabInteractionCallbacks(
@@ -279,6 +299,10 @@ fun LiquidBottomTabs(
                         previewIndex = index
                         val visualTargetIndex = previewIndex ?: committedIndex
                         dampedDragAnimation.settleToValue(visualTargetIndex.toFloat())
+                        longPressHighlightPrepared = true
+                        interactiveHighlight.prepareAt(
+                            tabPointerPosition(index, press.pressPosition),
+                        )
                         startLongPressQualification(index, press)
                     }
                 }
@@ -315,7 +339,7 @@ fun LiquidBottomTabs(
                         fromCurrentValue = handoffDragNeedsCurrentValue,
                     )
                     handoffDragNeedsCurrentValue = false
-                    if (longPressHighlightActive) {
+                    if (longPressHighlightPrepared) {
                         interactiveHighlight.moveTo(tabPointerPosition(index, position))
                     }
                 }
@@ -326,10 +350,7 @@ fun LiquidBottomTabs(
                         .fastRoundToInt()
                         .fastCoerceIn(0, tabsCount - 1)
                     cancelLongPressQualification()
-                    if (longPressHighlightActive) {
-                        longPressHighlightActive = false
-                        interactiveHighlight.release()
-                    }
+                    releaseLongPressHighlight()
                     dragInProgress = false
                     handoffDragIndex = -1
                     handoffDragNeedsCurrentValue = false
@@ -355,10 +376,7 @@ fun LiquidBottomTabs(
             onDragCancel = { index ->
                 if (dragInProgress && handoffDragIndex == index) {
                     cancelLongPressQualification()
-                    if (longPressHighlightActive) {
-                        longPressHighlightActive = false
-                        interactiveHighlight.cancel()
-                    }
+                    cancelLongPressHighlight()
                     dragInProgress = false
                     handoffDragIndex = -1
                     handoffDragNeedsCurrentValue = false
@@ -382,10 +400,7 @@ fun LiquidBottomTabs(
                 if (activePress === press && activePressIndex == index) {
                     val isHandoffDrag = dragInProgress && handoffDragIndex == index
                     cancelLongPressQualification()
-                    if (!isHandoffDrag && longPressHighlightActive) {
-                        longPressHighlightActive = false
-                        interactiveHighlight.release()
-                    }
+                    if (!isHandoffDrag) releaseLongPressHighlight()
                     activePress = null
                     activePressIndex = -1
                     if (!isHandoffDrag) {
@@ -413,10 +428,7 @@ fun LiquidBottomTabs(
                     val isHandoffDrag = dragInProgress && handoffDragIndex == index
                     if (!isHandoffDrag) {
                         cancelLongPressQualification()
-                        if (longPressHighlightActive) {
-                            longPressHighlightActive = false
-                            interactiveHighlight.cancel()
-                        }
+                        cancelLongPressHighlight()
                         activePress = null
                         activePressIndex = -1
                         val wasPreview = previewIndex == index

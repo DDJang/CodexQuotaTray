@@ -7,6 +7,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -37,6 +38,7 @@ class InteractiveHighlight(
     }
     private var positionGeneration: ConflatedUpdater.Generation? = null
     private var usesExternalPosition = false
+    private val visible = mutableStateOf(false)
 
     private var startPosition = Offset.Zero
     val pressProgress: Float get() = pressProgressAnimation.value
@@ -63,7 +65,7 @@ half4 main(float2 coord) {
 
     val modifier: Modifier =
         Modifier.drawWithContent {
-            val progress = pressProgressAnimation.value
+            val progress = if (visible.value) pressProgressAnimation.value else 0f
             if (progress > 0f) {
                 if (shader != null) {
                     drawRect(
@@ -104,17 +106,42 @@ half4 main(float2 coord) {
         Modifier.pointerInput(animationScope) {
             inspectDragGestures(
                 onDragStart = { down ->
-                    begin(down.position, externalPosition = false)
+                    begin(
+                        down.position,
+                        externalPosition = false,
+                        visibleImmediately = true,
+                    )
                 },
                 onDragEnd = { release() },
                 onDragCancel = { cancel() },
             ) { change, _ ->
                 moveTo(change.position)
             }
-        }
+    }
 
     fun pressAt(position: Offset) {
-        begin(position, externalPosition = true)
+        prepareAt(position)
+        reveal()
+    }
+
+    fun prepareAt(position: Offset) {
+        begin(
+            position,
+            externalPosition = true,
+            visibleImmediately = false,
+        )
+    }
+
+    fun reveal() {
+        visible.value = true
+    }
+
+    fun cancelPrepared() {
+        visible.value = false
+        invalidatePositionUpdates()
+        animationScope.launch {
+            pressProgressAnimation.snapTo(0f)
+        }
     }
 
     fun moveTo(position: Offset) {
@@ -131,8 +158,13 @@ half4 main(float2 coord) {
         end()
     }
 
-    private fun begin(position: Offset, externalPosition: Boolean) {
+    private fun begin(
+        position: Offset,
+        externalPosition: Boolean,
+        visibleImmediately: Boolean,
+    ) {
         usesExternalPosition = externalPosition
+        visible.value = visibleImmediately
         positionGeneration = positionUpdater.beginGeneration()
         startPosition = position
         animationScope.launch {
@@ -144,8 +176,9 @@ half4 main(float2 coord) {
     private fun end() {
         invalidatePositionUpdates()
         animationScope.launch {
-            launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
             launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
+            pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec)
+            visible.value = false
         }
     }
 

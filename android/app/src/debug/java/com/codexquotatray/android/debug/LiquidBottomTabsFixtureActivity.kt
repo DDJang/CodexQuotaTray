@@ -421,6 +421,11 @@ private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
+            "LONG PRESS HIGHLIGHT → highlight is prewarmed while hidden → reveals immediately at system long-press threshold",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
             "CANCEL / MOVE AWAY · pill smoothly returns · no page switch",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
@@ -452,6 +457,16 @@ private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
         )
         Text(
             "DIRECT DRAG SELECTED → original immediate highlight unchanged",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "QUICK TAP → prepared highlight is discarded before reveal → no visible flash",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "HOLD + DRAG → hidden position tracks pointer → reveal occurs at current pointer position",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )
