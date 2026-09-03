@@ -131,8 +131,9 @@ private fun LiquidBottomTabsFixtureScreen(palette: ThemePalette) {
                 )
             }
             IntegratedTransitionFixture(backdrop, contentColor)
+            PressPreviewFixture(backdrop, contentColor)
             Text(
-                "A/B/C share one backdrop; no OAuth, LAN, API, worker, or network access.",
+                "A/B/C/D share one backdrop; no OAuth, LAN, API, worker, or network access.",
                 color = Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -207,6 +208,73 @@ private fun IntegratedTransitionFixture(backdrop: Backdrop, contentColor: Color)
 }
 
 @Composable
+private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
+    var committedIndex by remember { mutableIntStateOf(0) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("D · Press preview / commit on release", color = Color.White, style = MaterialTheme.typography.titleMedium)
+        Box(
+            Modifier.fillMaxWidth().height(132.dp)
+                .background(Color.Black.copy(alpha = 0.22f), RoundedCornerShape(20.dp)),
+        ) {
+            AnimatedContent(
+                targetState = committedIndex,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val direction = if (targetState > initialState) 1 else -1
+                    (
+                        fadeIn(animationSpec = tween(200)) +
+                            slideInHorizontally(
+                                animationSpec = tween(200),
+                                initialOffsetX = { width -> direction * width / 20 },
+                            )
+                        ) togetherWith (
+                        fadeOut(animationSpec = tween(160)) +
+                            slideOutHorizontally(
+                                animationSpec = tween(160),
+                                targetOffsetX = { width -> -direction * width / 28 },
+                            )
+                        )
+                },
+                label = "fixture-press-preview-page-transition",
+            ) { pageIndex ->
+                Box(
+                    Modifier.fillMaxSize().padding(14.dp).background(
+                        if (pageIndex == 0) Color(0xFF176B87).copy(alpha = 0.72f)
+                        else Color(0xFF69359C).copy(alpha = 0.72f),
+                        RoundedCornerShape(16.dp),
+                    ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "Committed page: ${if (pageIndex == 0) "额度" else "统计"}",
+                        color = Color.White,
+                    )
+                }
+            }
+        }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            ProductionLiquidTabs(
+                selectedIndex = committedIndex,
+                onSelected = { committedIndex = it },
+                backdrop = backdrop,
+                contentColor = contentColor,
+                modifier = fixtureDockModifier(),
+            )
+        }
+        Text(
+            "committed index: $committedIndex · page: ${if (committedIndex == 0) "额度" else "统计"}",
+            color = Color.White.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "PRESS OTHER TAB · HOLD · RELEASE · CANCEL / MOVE AWAY",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
 private fun ProductionLiquidTabs(
     selectedIndex: Int,
     onSelected: (Int) -> Unit,
@@ -222,10 +290,10 @@ private fun ProductionLiquidTabs(
         tabsCount = 2,
         modifier = modifier,
     ) {
-        LiquidBottomTab(onClick = { onSelected(0) }) {
+        LiquidBottomTab(tabIndex = 0, onClick = { onSelected(0) }) {
             FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
         }
-        LiquidBottomTab(onClick = { onSelected(1) }) {
+        LiquidBottomTab(tabIndex = 1, onClick = { onSelected(1) }) {
             FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
         }
     }

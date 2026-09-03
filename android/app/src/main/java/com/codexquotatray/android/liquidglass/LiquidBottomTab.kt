@@ -9,7 +9,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -18,24 +23,65 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.kyant.shapes.Capsule
+import kotlinx.coroutines.flow.collect
 
 internal val LocalLiquidBottomTabScale = staticCompositionLocalOf { { 1f } }
+internal val LocalLiquidBottomTabInteraction = staticCompositionLocalOf {
+    LiquidBottomTabInteractionCallbacks()
+}
+
+internal data class LiquidBottomTabInteractionCallbacks(
+    val onPress: (index: Int, press: PressInteraction.Press) -> Unit = { _, _ -> },
+    val onRelease: (index: Int, press: PressInteraction.Press) -> Unit = { _, _ -> },
+    val onCancel: (index: Int, press: PressInteraction.Press) -> Unit = { _, _ -> },
+    val onClick: (index: Int) -> Unit = {},
+)
 
 @Composable
 fun RowScope.LiquidBottomTab(
+    tabIndex: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val scale = LocalLiquidBottomTabScale.current
+    val interactionCallbacks = LocalLiquidBottomTabInteraction.current
+    val interactionCallbacksState = rememberUpdatedState(interactionCallbacks)
+    val interactionSource = remember { MutableInteractionSource() }
+    LaunchedEffect(interactionSource) {
+        val activePresses = mutableListOf<PressInteraction.Press>()
+        interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is PressInteraction.Press -> {
+                    activePresses += interaction
+                    interactionCallbacksState.value.onPress(tabIndex, interaction)
+                }
+
+                is PressInteraction.Release -> {
+                    val press = activePresses.firstOrNull { it === interaction.press } ?: return@collect
+                    activePresses.remove(press)
+                    interactionCallbacksState.value.onRelease(tabIndex, press)
+                }
+
+                is PressInteraction.Cancel -> {
+                    val press = activePresses.firstOrNull { it === interaction.press } ?: return@collect
+                    activePresses.remove(press)
+                    interactionCallbacksState.value.onCancel(tabIndex, press)
+                }
+            }
+        }
+    }
     Column(
         modifier
             .clip(Capsule())
             .clickable(
-                interactionSource = null,
+                interactionSource = interactionSource,
                 indication = null,
                 role = Role.Tab,
-                onClick = onClick,
+                onClick = {
+                    interactionCallbacksState.value.onClick(tabIndex)
+                    onClick()
+                },
             )
             .fillMaxHeight()
             .weight(1f)

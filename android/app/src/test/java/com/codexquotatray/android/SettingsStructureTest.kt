@@ -403,8 +403,8 @@ class SettingsStructureTest {
         assertTrue(dock.contains("if (selectedIndexState.value != index)"))
         assertTrue(dock.contains("hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)"))
         assertTrue(dock.contains("selectionSink(index)"))
-        assertTrue(dock.contains("LiquidBottomTab(onClick = { requestedIndex = 0 })"))
-        assertTrue(dock.contains("LiquidBottomTab(onClick = { requestedIndex = 1 })"))
+        assertTrue(dock.contains("LiquidBottomTab(tabIndex = 0, onClick = { requestedIndex = 0 })"))
+        assertTrue(dock.contains("LiquidBottomTab(tabIndex = 1, onClick = { requestedIndex = 1 })"))
     }
 
     @Test
@@ -548,6 +548,7 @@ class SettingsStructureTest {
     @Test
     fun liquidBottomTabsKeepTheProductionCombinedBackdropRenderGraph() {
         val source = sourceFile("liquidglass/LiquidBottomTabs.kt")
+        val tab = sourceFile("liquidglass/LiquidBottomTab.kt")
 
         assertTrue(source.contains("val tabsBackdrop = rememberLayerBackdrop()"))
         assertTrue(source.contains("CompositionLocalProvider"))
@@ -562,6 +563,24 @@ class SettingsStructureTest {
         assertTrue(source.contains("pressedScale = 78f / 56f"))
         assertTrue(source.contains("InteractiveHighlight("))
         assertTrue(source.contains("DampedDragAnimation("))
+        assertTrue(source.contains("var committedIndex"))
+        assertTrue(source.contains("var previewIndex"))
+        assertTrue(source.contains("val visualTargetIndex = previewIndex ?: committedIndex"))
+        assertTrue(source.contains("LocalLiquidBottomTabInteraction provides interactionCallbacks"))
+        assertTrue(source.contains("dampedDragAnimation.press()"))
+        assertTrue(source.contains("dampedDragAnimation.updateValue(visualTargetIndex.toFloat())"))
+        assertTrue(source.contains("onRelease = { index, press ->"))
+        assertTrue(source.contains("onCancel = { index, press ->"))
+        assertTrue(source.contains("onTabSelected(targetIndex)"))
+
+        assertTrue(tab.contains("clickable("))
+        assertTrue(tab.contains("interactionSource = interactionSource"))
+        assertTrue(tab.contains("MutableInteractionSource"))
+        assertTrue(tab.contains("PressInteraction.Press"))
+        assertTrue(tab.contains("PressInteraction.Release"))
+        assertTrue(tab.contains("PressInteraction.Cancel"))
+        assertTrue(tab.contains("role = Role.Tab"))
+        assertFalse(tab.contains("detectTapGestures"))
     }
 
     @Test
@@ -581,7 +600,7 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun liquidBottomTabsFixtureIsDebugOnlyAndContainsAllThreeComparisons() {
+    fun liquidBottomTabsFixtureIsDebugOnlyAndContainsAllFourComparisons() {
         val settings = settingsSource()
         assertTrue(settings.contains("Liquid Bottom Tabs Fixture"))
         assertTrue(settings.contains("DEBUG_LIQUID_BOTTOM_TABS_FIXTURE_ACTIVITY"))
@@ -601,6 +620,11 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("LiquidBottomTabs("))
         assertTrue(fixture.contains("B · Codex production glass"))
         assertTrue(fixture.contains("C · Integrated production switching"))
+        assertTrue(fixture.contains("D · Press preview / commit on release"))
+        assertTrue(fixture.contains("PressPreviewFixture"))
+        assertTrue(fixture.contains("Committed page:"))
+        assertTrue(fixture.contains("committed index:"))
+        assertTrue(fixture.contains("PRESS OTHER TAB · HOLD · RELEASE · CANCEL / MOVE AWAY"))
         assertTrue(fixture.contains("AnimatedContent("))
         assertTrue(fixture.contains("fadeIn(animationSpec = tween(200))"))
         assertTrue(fixture.contains("initialOffsetX = { width -> direction * width / 20 }"))
@@ -608,6 +632,8 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("targetOffsetX = { width -> -direction * width / 28 }"))
         assertTrue(fixture.contains("Auto stress ×100"))
         assertTrue(fixture.contains("repeat(100)"))
+        assertTrue(fixture.contains("LiquidBottomTab(tabIndex = 0"))
+        assertTrue(fixture.contains("LiquidBottomTab(tabIndex = 1"))
 
         val upstreamTabs = debugSourceFile("liquidglass/UpstreamLiquidBottomTabs.kt")
         assertTrue(upstreamTabs.contains("lerp(1f, 1.2f, dampedDragAnimation.pressProgress)"))

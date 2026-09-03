@@ -14,12 +14,14 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -52,7 +54,6 @@ import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sign
@@ -97,9 +98,16 @@ fun LiquidBottomTabs(
 
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
-        var currentIndex by remember(selectedTabIndex) {
-            mutableIntStateOf(selectedTabIndex())
+        var committedIndex by remember {
+            mutableIntStateOf(selectedTabIndex().fastCoerceIn(0, tabsCount - 1))
         }
+        var previewIndex by remember { mutableStateOf<Int?>(null) }
+        var pendingCommitTarget by remember { mutableStateOf<Int?>(null) }
+        var pendingCommitNotified by remember { mutableStateOf(false) }
+        var pendingCommitFromDrag by remember { mutableStateOf(false) }
+        var activePress by remember { mutableStateOf<PressInteraction.Press?>(null) }
+        var activePressIndex by remember { mutableIntStateOf(-1) }
+        var dragInProgress by remember { mutableStateOf(false) }
         val dampedDragAnimation = remember(animationScope) {
             DampedDragAnimation(
                 animationScope = animationScope,
@@ -108,11 +116,24 @@ fun LiquidBottomTabs(
                 visibilityThreshold = 0.001f,
                 initialScale = 1f,
                 pressedScale = 78f / 56f,
-                onDragStarted = {},
+                onDragStarted = {
+                    dragInProgress = true
+                    previewIndex = null
+                    pendingCommitTarget = null
+                    pendingCommitNotified = false
+                    pendingCommitFromDrag = false
+                },
                 onDragStopped = {
                     val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
-                    currentIndex = targetIndex
+                    dragInProgress = false
+                    previewIndex = null
+                    pendingCommitTarget = if (targetIndex != committedIndex) targetIndex else null
+                    pendingCommitNotified = pendingCommitTarget != null
+                    pendingCommitFromDrag = pendingCommitTarget != null
                     animateToValue(targetIndex.toFloat())
+                    if (targetIndex != committedIndex) {
+                        onTabSelected(targetIndex)
+                    }
                     animationScope.launch {
                         offsetAnimation.animateTo(
                             0f,
@@ -134,17 +155,97 @@ fun LiquidBottomTabs(
         LaunchedEffect(selectedTabIndex) {
             snapshotFlow { selectedTabIndex() }
                 .collectLatest { index ->
-                    currentIndex = index
+                    val committed = index.fastCoerceIn(0, tabsCount - 1)
+                    if (committed == committedIndex) return@collectLatest
+
+                    val isPendingCommit = pendingCommitTarget == committed
+                    val isPreviewCommit = isPendingCommit && previewIndex == committed
+                    val isPendingDragCommit = isPendingCommit && pendingCommitFromDrag
+                    committedIndex = committed
+                    previewIndex = null
+                    pendingCommitTarget = null
+                    pendingCommitNotified = false
+                    pendingCommitFromDrag = false
+
+                    if (isPreviewCommit) {
+                        // The press already moved the pill. Only settle to the exact
+                        // committed value; do not replay a full selection animation.
+                        dampedDragAnimation.updateValue(committed.toFloat())
+                        if (activePress == null && !dragInProgress) {
+                            dampedDragAnimation.release()
+                        }
+                    } else if (!isPendingDragCommit && !dragInProgress) {
+                        // No active preview owns the visual target, so this is an
+                        // external/programmatic selection and keeps the old behavior.
+                        dampedDragAnimation.animateToValue(committed.toFloat())
+                    }
                 }
         }
-        LaunchedEffect(dampedDragAnimation) {
-            snapshotFlow { currentIndex }
-                .drop(1)
-                .collectLatest { index ->
-                    dampedDragAnimation.animateToValue(index.toFloat())
-                    onTabSelected(index)
+
+        val interactionCallbacks = LiquidBottomTabInteractionCallbacks(
+            onPress = { index, press ->
+                if (activePress == null) {
+                    activePress = press
+                    activePressIndex = index
+                    pendingCommitTarget = null
+                    pendingCommitNotified = false
+                    pendingCommitFromDrag = false
+                    dampedDragAnimation.press()
+                    if (index != committedIndex) {
+                        previewIndex = index
+                        val visualTargetIndex = previewIndex ?: committedIndex
+                        dampedDragAnimation.updateValue(visualTargetIndex.toFloat())
+                    }
                 }
-        }
+            },
+            onRelease = { index, press ->
+                if (activePress === press && activePressIndex == index) {
+                    activePress = null
+                    activePressIndex = -1
+                    if (index == committedIndex) {
+                        previewIndex = null
+                        pendingCommitTarget = null
+                        pendingCommitNotified = false
+                        pendingCommitFromDrag = false
+                        dampedDragAnimation.updateValue(index.toFloat())
+                        dampedDragAnimation.release()
+                    } else if (previewIndex == index) {
+                        pendingCommitTarget = index
+                        pendingCommitNotified = false
+                        pendingCommitFromDrag = false
+                    } else {
+                        pendingCommitTarget = null
+                        pendingCommitNotified = false
+                        pendingCommitFromDrag = false
+                        dampedDragAnimation.release()
+                    }
+                }
+            },
+            onCancel = { index, press ->
+                if (activePress === press && activePressIndex == index) {
+                    val wasPreview = previewIndex == index
+                    activePress = null
+                    activePressIndex = -1
+                    previewIndex = null
+                    pendingCommitTarget = null
+                    pendingCommitNotified = false
+                    pendingCommitFromDrag = false
+                    if (wasPreview) {
+                        dampedDragAnimation.updateValue(committedIndex.toFloat())
+                    }
+                    dampedDragAnimation.release()
+                }
+            },
+            onClick = { index ->
+                val targetIndex = index.fastCoerceIn(0, tabsCount - 1)
+                if (targetIndex != committedIndex && !pendingCommitNotified) {
+                    pendingCommitTarget = targetIndex
+                    pendingCommitNotified = true
+                    pendingCommitFromDrag = false
+                    onTabSelected(targetIndex)
+                }
+            },
+        )
 
         val interactiveHighlight = remember(animationScope) {
             InteractiveHighlight(
@@ -159,40 +260,41 @@ fun LiquidBottomTabs(
             )
         }
 
-        Row(
-            Modifier
-                .graphicsLayer {
-                    translationX = panelOffset
-                }
-                .drawBackdrop(
-                    backdrop = backdrop,
-                    shape = { Capsule() },
-                    effects = {
-                        vibrancy()
-                        blur(8f.dp.toPx())
-                        lens(24f.dp.toPx(), 24f.dp.toPx())
-                    },
-                    layerBlock = {
-                        val progress = dampedDragAnimation.pressProgress
-                        val scale = lerp(1f, 1f + 16f.dp.toPx() / size.width, progress)
-                        scaleX = scale
-                        scaleY = scale
-                    },
-                    onDrawSurface = { drawRect(containerColor) },
-                )
-                .then(interactiveHighlight.modifier)
-                .height(64f.dp)
-                .fillMaxWidth()
-                .padding(4f.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            content = content,
-        )
-
         CompositionLocalProvider(
+            LocalLiquidBottomTabInteraction provides interactionCallbacks,
             LocalLiquidBottomTabScale provides {
                 lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
             },
         ) {
+            Row(
+                Modifier
+                    .graphicsLayer {
+                        translationX = panelOffset
+                    }
+                    .drawBackdrop(
+                        backdrop = backdrop,
+                        shape = { Capsule() },
+                        effects = {
+                            vibrancy()
+                            blur(8f.dp.toPx())
+                            lens(24f.dp.toPx(), 24f.dp.toPx())
+                        },
+                        layerBlock = {
+                            val progress = dampedDragAnimation.pressProgress
+                            val scale = lerp(1f, 1f + 16f.dp.toPx() / size.width, progress)
+                            scaleX = scale
+                            scaleY = scale
+                        },
+                        onDrawSurface = { drawRect(containerColor) },
+                    )
+                    .then(interactiveHighlight.modifier)
+                    .height(64f.dp)
+                    .fillMaxWidth()
+                    .padding(4f.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                content = content,
+            )
+
             Row(
                 Modifier
                     .clearAndSetSemantics {}
