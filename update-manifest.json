@@ -13,15 +13,15 @@
     "publishedAt": "2026-09-01T16:18:58Z"
   },
   "android": {
-    "version": "0.11.1",
-    "tag": "android-v0.11.1",
+    "version": "0.11.2",
+    "tag": "android-v0.11.2",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.11.1.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.1/CodexQuotaTray-Android-v0.11.1.apk",
-      "sha256": "49ae511e6151815ce7c7db2491e621a5c1fe40ca3a73e17b15038d7a61e20140",
-      "size": 3205526
+      "name": "CodexQuotaTray-Android-v0.11.2.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.2/CodexQuotaTray-Android-v0.11.2.apk",
+      "sha256": "296d192954190509c95f552b6a602295ca0a7645cdd5200053e443a716f3fb73",
+      "size": 3221910
     },
-    "releaseNotes": "## Android\n\n### 液态玻璃界面\n\n- 扩展主页面、额度与 Token 页面、账户与设置页面的液态玻璃视觉表现，统一圆角表面、背景采样、模糊、折射、边框以及深浅色主题效果。\n- 优化更新与确认对话框的玻璃表面和交互层级，保持内容滚动、按钮操作以及返回和点击外部关闭行为稳定。\n\n### 更新与状态展示\n\n- 优化更新可用、下载中和失败状态的进度与信息展示，让不同内容高度和状态切换更加连贯。\n- 改进额度、Token 和数据源空状态的呈现，在 OpenAI 或 Windows 来源不可用时提供更清晰的反馈。\n",
-    "publishedAt": "2026-09-02T12:07:19Z"
+    "releaseNotes": "## Android\n\n### 页面与统计信息\n\n- 优化额度与 Token 统计卡片的信息层级与布局，修复统计摘要内容重叠问题，让不同数据内容保持清晰可读。\n- 统一仪表盘卡片的表面与间距表现，提升深浅色主题下的信息阅读体验。\n\n### 底部导航与液态玻璃\n\n- 优化底部 Tab 按下时的预览、松开提交和取消恢复行为，长按后拖动可无缝接管，减少回弹并保持拖动反馈连贯。\n- 调整底部指示器的液态玻璃折射与色散表现，让交互反馈更加自然。\n",
+    "publishedAt": "2026-09-03T12:09:36Z"
   }
 }
