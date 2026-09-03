@@ -452,37 +452,39 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
 private fun TokenSummaryCard(presentation: TokenUsagePresentation) {
     val palette = LocalQuotaPalette.current
     DashboardCardSurface {
-        TokenMetricRow(
-            items = presentation.first,
-            valueSize = 18.sp,
-            valueWeight = FontWeight.Bold,
-            labelSize = 11.sp,
-            itemVerticalPadding = 8.dp,
-        )
-        TokenSummaryDivider()
-        TokenMetricRow(
-            items = presentation.second,
-            valueSize = 15.sp,
-            valueWeight = FontWeight.Medium,
-            labelSize = 11.sp,
-            itemVerticalPadding = 7.dp,
-        )
-        if (shouldShowTokenCategories(presentation.categories)) {
-            TokenSummaryDivider()
-            Text(
-                "Token 分类",
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 3.dp),
-                color = palette.color(palette.muted),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-            )
+        Column(Modifier.fillMaxWidth()) {
             TokenMetricRow(
-                items = presentation.categories,
-                valueSize = 14.sp,
-                valueWeight = FontWeight.Medium,
-                labelSize = 10.sp,
-                itemVerticalPadding = 6.dp,
+                items = presentation.first,
+                valueSize = 18.sp,
+                valueWeight = FontWeight.Bold,
+                labelSize = 11.sp,
+                itemVerticalPadding = 8.dp,
             )
+            TokenSummaryDivider()
+            TokenMetricRow(
+                items = presentation.second,
+                valueSize = 15.sp,
+                valueWeight = FontWeight.Medium,
+                labelSize = 11.sp,
+                itemVerticalPadding = 7.dp,
+            )
+            if (shouldShowTokenCategories(presentation.categories)) {
+                TokenSummaryDivider()
+                Text(
+                    "Token 分类",
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 3.dp),
+                    color = palette.color(palette.muted),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                TokenMetricRow(
+                    items = presentation.categories,
+                    valueSize = 14.sp,
+                    valueWeight = FontWeight.Medium,
+                    labelSize = 10.sp,
+                    itemVerticalPadding = 6.dp,
+                )
+            }
         }
     }
 }

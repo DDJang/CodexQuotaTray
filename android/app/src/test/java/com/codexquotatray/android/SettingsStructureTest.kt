@@ -975,6 +975,7 @@ class SettingsStructureTest {
         val summaryCard = token.substringAfter("private fun TokenSummaryCard(")
             .substringBefore("private fun TokenSummaryDivider(")
         assertTrue(summaryCard.contains("DashboardCardSurface"))
+        assertTrue(summaryCard.contains("Column(Modifier.fillMaxWidth())"))
         assertTrue(summaryCard.contains("presentation.first"))
         assertTrue(summaryCard.contains("presentation.second"))
         assertTrue(summaryCard.contains("\"Token 分类\""))
