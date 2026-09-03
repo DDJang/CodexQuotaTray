@@ -170,7 +170,7 @@ fun LiquidBottomTabs(
                     if (isPreviewCommit) {
                         // The press already moved the pill. Only settle to the exact
                         // committed value; do not replay a full selection animation.
-                        dampedDragAnimation.updateValue(committed.toFloat())
+                        dampedDragAnimation.settleToValue(committed.toFloat())
                         if (activePress == null && !dragInProgress) {
                             dampedDragAnimation.release()
                         }
@@ -194,7 +194,7 @@ fun LiquidBottomTabs(
                     if (index != committedIndex) {
                         previewIndex = index
                         val visualTargetIndex = previewIndex ?: committedIndex
-                        dampedDragAnimation.updateValue(visualTargetIndex.toFloat())
+                        dampedDragAnimation.settleToValue(visualTargetIndex.toFloat())
                     }
                 }
             },
@@ -207,7 +207,6 @@ fun LiquidBottomTabs(
                         pendingCommitTarget = null
                         pendingCommitNotified = false
                         pendingCommitFromDrag = false
-                        dampedDragAnimation.updateValue(index.toFloat())
                         dampedDragAnimation.release()
                     } else if (previewIndex == index) {
                         pendingCommitTarget = index
@@ -231,7 +230,7 @@ fun LiquidBottomTabs(
                     pendingCommitNotified = false
                     pendingCommitFromDrag = false
                     if (wasPreview) {
-                        dampedDragAnimation.updateValue(committedIndex.toFloat())
+                        dampedDragAnimation.settleToValue(committedIndex.toFloat())
                     }
                     dampedDragAnimation.release()
                 }
@@ -262,9 +261,6 @@ fun LiquidBottomTabs(
 
         CompositionLocalProvider(
             LocalLiquidBottomTabInteraction provides interactionCallbacks,
-            LocalLiquidBottomTabScale provides {
-                lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
-            },
         ) {
             Row(
                 Modifier
@@ -295,40 +291,46 @@ fun LiquidBottomTabs(
                 content = content,
             )
 
-            Row(
-                Modifier
-                    .clearAndSetSemantics {}
-                    .alpha(0f)
-                    .layerBackdrop(tabsBackdrop)
-                    .graphicsLayer {
-                        translationX = panelOffset
-                    }
-                    .drawBackdrop(
-                        backdrop = backdrop,
-                        shape = { Capsule() },
-                        effects = {
-                            val progress = dampedDragAnimation.pressProgress
-                            vibrancy()
-                            blur(8f.dp.toPx())
-                            lens(
-                                24f.dp.toPx() * progress,
-                                24f.dp.toPx() * progress,
-                            )
-                        },
-                        highlight = {
-                            val progress = dampedDragAnimation.pressProgress
-                            Highlight.Default.copy(alpha = progress)
-                        },
-                        onDrawSurface = { drawRect(containerColor) },
-                    )
-                    .then(interactiveHighlight.modifier)
-                    .height(56f.dp)
-                    .fillMaxWidth()
-                    .padding(horizontal = 4f.dp)
-                    .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
-                verticalAlignment = Alignment.CenterVertically,
-                content = content,
-            )
+            CompositionLocalProvider(
+                LocalLiquidBottomTabScale provides {
+                    lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
+                },
+            ) {
+                Row(
+                    Modifier
+                        .clearAndSetSemantics {}
+                        .alpha(0f)
+                        .layerBackdrop(tabsBackdrop)
+                        .graphicsLayer {
+                            translationX = panelOffset
+                        }
+                        .drawBackdrop(
+                            backdrop = backdrop,
+                            shape = { Capsule() },
+                            effects = {
+                                val progress = dampedDragAnimation.pressProgress
+                                vibrancy()
+                                blur(8f.dp.toPx())
+                                lens(
+                                    24f.dp.toPx() * progress,
+                                    24f.dp.toPx() * progress,
+                                )
+                            },
+                            highlight = {
+                                val progress = dampedDragAnimation.pressProgress
+                                Highlight.Default.copy(alpha = progress)
+                            },
+                            onDrawSurface = { drawRect(containerColor) },
+                        )
+                        .then(interactiveHighlight.modifier)
+                        .height(56f.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 4f.dp)
+                        .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = content,
+                )
+            }
         }
 
         Box(

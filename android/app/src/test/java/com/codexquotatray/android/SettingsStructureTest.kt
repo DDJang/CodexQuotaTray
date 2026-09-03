@@ -546,6 +546,24 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun dampedDragSeparatesDragVelocityFromProgrammaticSettling() {
+        val source = sourceFile("liquidglass/DampedDragAnimation.kt")
+        val updateValue = source.substringAfter("fun updateValue(")
+            .substringBefore("fun settleToValue(")
+        val settleToValue = source.substringAfter("fun settleToValue(")
+            .substringBefore("fun animateToValue(")
+
+        assertTrue(updateValue.contains("updateVelocity()"))
+        assertTrue(settleToValue.contains("valueAnimation.animateTo"))
+        assertTrue(settleToValue.contains("valueAnimationSpec"))
+        assertTrue(settleToValue.contains("velocityAnimation.animateTo(0f, velocityAnimationSpec)"))
+        assertFalse(settleToValue.contains("updateVelocity()"))
+        assertFalse(settleToValue.contains("press()"))
+        assertFalse(settleToValue.contains("release()"))
+        assertFalse(settleToValue.contains("mutatorMutex"))
+    }
+
+    @Test
     fun liquidBottomTabsKeepTheProductionCombinedBackdropRenderGraph() {
         val source = sourceFile("liquidglass/LiquidBottomTabs.kt")
         val tab = sourceFile("liquidglass/LiquidBottomTab.kt")
@@ -568,7 +586,25 @@ class SettingsStructureTest {
         assertTrue(source.contains("val visualTargetIndex = previewIndex ?: committedIndex"))
         assertTrue(source.contains("LocalLiquidBottomTabInteraction provides interactionCallbacks"))
         assertTrue(source.contains("dampedDragAnimation.press()"))
-        assertTrue(source.contains("dampedDragAnimation.updateValue(visualTargetIndex.toFloat())"))
+        assertTrue(source.contains("dampedDragAnimation.settleToValue(visualTargetIndex.toFloat())"))
+        assertTrue(source.contains("dampedDragAnimation.settleToValue(committed.toFloat())"))
+        assertTrue(source.contains("dampedDragAnimation.settleToValue(committedIndex.toFloat())"))
+        val previewCallbacks = source.substringAfter("val interactionCallbacks =")
+            .substringBefore("val interactiveHighlight =")
+        assertFalse(previewCallbacks.contains("updateValue("))
+        val dragBlock = source.substringAfter("onDrag = { _, dragAmount ->")
+            .substringBefore("            )")
+        assertTrue(dragBlock.contains("updateValue("))
+
+        val interactionProvider = source.substringAfter(
+            "LocalLiquidBottomTabInteraction provides interactionCallbacks",
+        )
+        val visibleRows = interactionProvider.substringBefore("LocalLiquidBottomTabScale provides")
+        val hiddenCaptureRows = interactionProvider.substringAfter("LocalLiquidBottomTabScale provides")
+        assertTrue(visibleRows.contains("content = content"))
+        assertFalse(visibleRows.contains("LocalLiquidBottomTabScale"))
+        assertTrue(hiddenCaptureRows.contains(".alpha(0f)"))
+        assertTrue(hiddenCaptureRows.contains(".layerBackdrop(tabsBackdrop)"))
         assertTrue(source.contains("onRelease = { index, press ->"))
         assertTrue(source.contains("onCancel = { index, press ->"))
         assertTrue(source.contains("onTabSelected(targetIndex)"))
@@ -625,6 +661,11 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("Committed page:"))
         assertTrue(fixture.contains("committed index:"))
         assertTrue(fixture.contains("PRESS OTHER TAB · HOLD · RELEASE · CANCEL / MOVE AWAY"))
+        assertTrue(fixture.contains("TAP other tab · pill smooth slide · no extreme stretch · page commits on release"))
+        assertTrue(fixture.contains("HOLD other tab · pill stays at target · stable press shape · page unchanged until release"))
+        assertTrue(fixture.contains("CANCEL / MOVE AWAY · pill smoothly returns · no page switch"))
+        assertTrue(fixture.contains("DRAG selected pill · original velocity stretch remains"))
+        assertTrue(fixture.contains("tap/hold preview should not use drag velocity deformation"))
         assertTrue(fixture.contains("AnimatedContent("))
         assertTrue(fixture.contains("fadeIn(animationSpec = tween(200))"))
         assertTrue(fixture.contains("initialOffsetX = { width -> direction * width / 20 }"))

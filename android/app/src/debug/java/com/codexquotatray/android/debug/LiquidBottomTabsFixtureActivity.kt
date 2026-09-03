@@ -271,6 +271,31 @@ private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )
+        Text(
+            "TAP other tab · pill smooth slide · no extreme stretch · page commits on release",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "HOLD other tab · pill stays at target · stable press shape · page unchanged until release",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "CANCEL / MOVE AWAY · pill smoothly returns · no page switch",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "DRAG selected pill · original velocity stretch remains",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "tap/hold preview should not use drag velocity deformation",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 

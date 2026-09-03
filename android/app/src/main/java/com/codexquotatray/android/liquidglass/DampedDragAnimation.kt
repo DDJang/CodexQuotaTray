@@ -104,6 +104,16 @@ class DampedDragAnimation(
         }
     }
 
+    fun settleToValue(value: Float) {
+        val targetValue = value.coerceIn(valueRange)
+        animationScope.launch {
+            valueAnimation.animateTo(targetValue, valueAnimationSpec)
+            if (velocity != 0f) {
+                velocityAnimation.animateTo(0f, velocityAnimationSpec)
+            }
+        }
+    }
+
     fun animateToValue(value: Float) {
         animationScope.launch {
             mutatorMutex.mutate {
