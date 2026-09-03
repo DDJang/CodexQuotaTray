@@ -974,13 +974,14 @@ class SettingsStructureTest {
         assertTrue(token.contains("TokenSummaryCard(presentation)"))
         val summaryCard = token.substringAfter("private fun TokenSummaryCard(")
             .substringBefore("private fun TokenSummaryDivider(")
-        assertTrue(summaryCard.contains("RoundedCornerShape(18.dp)"))
-        assertTrue(summaryCard.contains("palette.color(palette.surface)"))
-        assertTrue(summaryCard.contains("border("))
+        assertTrue(summaryCard.contains("DashboardCardSurface"))
         assertTrue(summaryCard.contains("presentation.first"))
         assertTrue(summaryCard.contains("presentation.second"))
         assertTrue(summaryCard.contains("\"Token 分类\""))
         assertTrue(summaryCard.contains("presentation.categories"))
+        assertFalse(summaryCard.contains(".background("))
+        assertFalse(summaryCard.contains(".border("))
+        assertFalse(summaryCard.contains("RoundedCornerShape("))
         assertFalse(summaryCard.contains("rememberLayerBackdrop"))
         assertFalse(summaryCard.contains("GlassSurface"))
         listOf("今日 Token", "7 天 Token", "30 天 Token", "累计 Token", "峰值 Token", "当前连续", "最长连续").forEach {
@@ -990,6 +991,45 @@ class SettingsStructureTest {
             assertTrue(token.contains("\"$it\""))
         }
         assertTrue(token.contains("shouldShowTokenCategories(presentation.categories)"))
+    }
+
+    @Test
+    fun dashboardCardsShareTheQuotaSurfaceAndResetCreditHierarchy() {
+        val surface = sourceFile("DashboardCardSurface.kt")
+        assertTrue(surface.contains("internal fun DashboardCardSurface("))
+        assertTrue(surface.contains("RoundedCornerShape(18.dp)"))
+        assertTrue(surface.contains("Brush.linearGradient"))
+        assertTrue(surface.contains("Brush.sweepGradient"))
+        assertTrue(surface.contains(".border(1.dp, borderBrush, cardShape)"))
+        assertTrue(surface.contains(".padding(16.dp)"))
+
+        val quota = sourceFile("QuotaPageView.kt")
+        assertFalse(quota.contains("QuotaCardSurface"))
+        val quotaWindow = quota.substringAfter("private fun QuotaWindowCard(")
+            .substringBefore("private fun ResetCreditCard(")
+        assertTrue(quotaWindow.contains("DashboardCardSurface"))
+        val resetCard = quota.substringAfter("private fun ResetCreditCard(")
+            .substringBefore("private fun ResetCreditRow(")
+        assertTrue(resetCard.contains("DashboardCardSurface"))
+        val resetRow = quota.substringAfter("private fun ResetCreditRow(")
+            .substringBefore("@Composable\ninternal fun QuotaProgressRing(")
+        assertOrdered(
+            resetRow,
+            "R.string.reset_credit_remaining",
+            "R.string.reset_credit_expiry",
+        )
+        assertTrue(resetRow.contains("fontSize = 15.sp"))
+        assertTrue(resetRow.contains("fontWeight = FontWeight.Medium"))
+        assertTrue(resetRow.contains("palette.color(palette.body)"))
+        assertTrue(resetRow.contains("fontSize = 13.sp"))
+        assertTrue(resetRow.contains("fontWeight = FontWeight.Normal"))
+        assertTrue(resetRow.contains("palette.color(palette.muted)"))
+
+        val token = sourceFile("TokenUsagePageView.kt")
+        assertFalse(token.contains("QuotaCardSurface"))
+        assertTrue(token.contains("DashboardCardSurface"))
+        val resources = resourceFile("values/strings.xml")
+        assertTrue(resources.contains("<string name=\"reset_credit_expiry\">%1\$s 到期</string>"))
     }
 
     @Test
@@ -1201,6 +1241,16 @@ class SettingsStructureTest {
         )
         return candidates.firstOrNull(File::isFile)?.readNormalizedText()
             ?: error("$name source not found from ${System.getProperty("user.dir")}")
+    }
+
+    private fun resourceFile(relative: String): String {
+        val candidates = listOf(
+            File("android/app/src/main/res/$relative"),
+            File("app/src/main/res/$relative"),
+            File("src/main/res/$relative"),
+        )
+        return candidates.firstOrNull(File::isFile)?.readNormalizedText()
+            ?: error("resource not found: $relative")
     }
 
     private fun debugSourceFile(name: String): String {

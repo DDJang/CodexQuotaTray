@@ -450,18 +450,7 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
 @Composable
 private fun TokenSummaryCard(presentation: TokenUsagePresentation) {
     val palette = LocalQuotaPalette.current
-    val cardShape = RoundedCornerShape(18.dp)
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .background(palette.color(palette.surface), cardShape)
-            .border(
-                width = 1.dp,
-                color = palette.color(palette.border).copy(alpha = 0.8f),
-                shape = cardShape,
-            )
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-    ) {
+    DashboardCardSurface {
         TokenMetricRow(
             items = presentation.first,
             valueSize = 18.sp,
@@ -503,7 +492,7 @@ private fun TokenSummaryDivider() {
     HorizontalDivider(
         modifier = Modifier.padding(vertical = 8.dp),
         thickness = 1.dp,
-        color = palette.color(palette.border).copy(alpha = 0.8f),
+        color = palette.color(palette.border).copy(alpha = 0.48f),
     )
 }
 
