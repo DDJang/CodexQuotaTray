@@ -406,22 +406,12 @@ private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "QUICK TAP → no new interactive highlight",
+            "QUICK TAP → preview → commit on release",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
             "HOLD other tab · pill stays at target · stable press shape · page unchanged until release",
-            color = Color.White.copy(alpha = 0.65f),
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Text(
-            "HOLD → interactive highlight appears after long-press threshold",
-            color = Color.White.copy(alpha = 0.65f),
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Text(
-            "LONG PRESS HIGHLIGHT → highlight is prewarmed while hidden → reveals immediately at system long-press threshold",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )
@@ -446,27 +436,17 @@ private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "HOLD + DRAG → highlight follows pointer through drag handoff",
+            "HOLD + DRAG → preview hands off → no snap back → commit nearest tab on release",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "preview should hand off into drag instead of reverting on clickable cancel",
+            "DIRECT DRAG SELECTED → original production highlight + drag behavior remains",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "DIRECT DRAG SELECTED → original immediate highlight unchanged",
-            color = Color.White.copy(alpha = 0.65f),
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Text(
-            "QUICK TAP → prepared highlight is discarded before reveal → no visible flash",
-            color = Color.White.copy(alpha = 0.65f),
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Text(
-            "HOLD + DRAG → hidden position tracks pointer → reveal occurs at current pointer position",
+            "Unselected-tab preview/hold does not use InteractiveHighlight.",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )

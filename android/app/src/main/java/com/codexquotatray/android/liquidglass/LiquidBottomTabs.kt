@@ -36,7 +36,6 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
@@ -57,8 +56,6 @@ import com.kyant.backdrop.shadow.InnerShadow
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -105,8 +102,6 @@ fun LiquidBottomTabs(
         }
 
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
-        val viewConfiguration = LocalViewConfiguration.current
-        val tabInset = with(density) { 4f.dp.toPx() }
         val animationScope = rememberCoroutineScope()
         var committedIndex by remember {
             mutableIntStateOf(selectedTabIndex().fastCoerceIn(0, tabsCount - 1))
@@ -120,9 +115,6 @@ fun LiquidBottomTabs(
         var dragInProgress by remember { mutableStateOf(false) }
         var handoffDragIndex by remember { mutableIntStateOf(-1) }
         var handoffDragNeedsCurrentValue by remember { mutableStateOf(false) }
-        var longPressHighlightPrepared by remember { mutableStateOf(false) }
-        var longPressHighlightActive by remember { mutableStateOf(false) }
-        var longPressJob by remember { mutableStateOf<Job?>(null) }
         val dampedDragAnimation = remember(animationScope) {
             DampedDragAnimation(
                 animationScope = animationScope,
@@ -220,72 +212,6 @@ fun LiquidBottomTabs(
                 }
         }
 
-        val interactiveHighlight = remember(animationScope) {
-            InteractiveHighlight(
-                animationScope = animationScope,
-                position = { size, _ ->
-                    Offset(
-                        if (isLtr) (dampedDragAnimation.value + 0.5f) * tabWidth + panelOffset
-                        else size.width - (dampedDragAnimation.value + 0.5f) * tabWidth + panelOffset,
-                        size.height / 2f,
-                    )
-                },
-            )
-        }
-
-        fun tabPointerPosition(index: Int, position: Offset): Offset {
-            val tabStart = if (isLtr) {
-                tabInset + index * tabWidth
-            } else {
-                constraints.maxWidth.toFloat() - tabInset - (index + 1) * tabWidth
-            }
-            return Offset(
-                x = tabStart + position.x + panelOffset,
-                y = tabInset + position.y,
-            )
-        }
-
-        fun cancelLongPressQualification() {
-            longPressJob?.cancel()
-            longPressJob = null
-        }
-
-        fun startLongPressQualification(index: Int, press: PressInteraction.Press) {
-            cancelLongPressQualification()
-            longPressJob = animationScope.launch {
-                delay(viewConfiguration.longPressTimeoutMillis)
-                if (
-                    activePress === press &&
-                    activePressIndex == index &&
-                    longPressHighlightPrepared &&
-                    !longPressHighlightActive
-                ) {
-                    longPressHighlightActive = true
-                    interactiveHighlight.reveal()
-                }
-            }
-        }
-
-        fun releaseLongPressHighlight() {
-            if (longPressHighlightActive) {
-                interactiveHighlight.release()
-            } else if (longPressHighlightPrepared) {
-                interactiveHighlight.cancelPrepared()
-            }
-            longPressHighlightActive = false
-            longPressHighlightPrepared = false
-        }
-
-        fun cancelLongPressHighlight() {
-            if (longPressHighlightActive) {
-                interactiveHighlight.cancel()
-            } else if (longPressHighlightPrepared) {
-                interactiveHighlight.cancelPrepared()
-            }
-            longPressHighlightActive = false
-            longPressHighlightPrepared = false
-        }
-
         val interactionCallbacks = LiquidBottomTabInteractionCallbacks(
             onPress = { index, press ->
                 if (activePress == null) {
@@ -299,11 +225,6 @@ fun LiquidBottomTabs(
                         previewIndex = index
                         val visualTargetIndex = previewIndex ?: committedIndex
                         dampedDragAnimation.settleToValue(visualTargetIndex.toFloat())
-                        longPressHighlightPrepared = true
-                        interactiveHighlight.prepareAt(
-                            tabPointerPosition(index, press.pressPosition),
-                        )
-                        startLongPressQualification(index, press)
                     }
                 }
             },
@@ -327,7 +248,7 @@ fun LiquidBottomTabs(
                     false
                 }
             },
-            onDrag = { index, position, dragAmountX ->
+            onDrag = { index, dragAmountX ->
                 if (dragInProgress && handoffDragIndex == index) {
                     dampedDragAnimation.applyBottomTabDragDelta(
                         dragAmountX = dragAmountX,
@@ -339,9 +260,6 @@ fun LiquidBottomTabs(
                         fromCurrentValue = handoffDragNeedsCurrentValue,
                     )
                     handoffDragNeedsCurrentValue = false
-                    if (longPressHighlightPrepared) {
-                        interactiveHighlight.moveTo(tabPointerPosition(index, position))
-                    }
                 }
             },
             onDragEnd = { index ->
@@ -349,8 +267,6 @@ fun LiquidBottomTabs(
                     val targetIndex = dampedDragAnimation.targetValue
                         .fastRoundToInt()
                         .fastCoerceIn(0, tabsCount - 1)
-                    cancelLongPressQualification()
-                    releaseLongPressHighlight()
                     dragInProgress = false
                     handoffDragIndex = -1
                     handoffDragNeedsCurrentValue = false
@@ -375,8 +291,6 @@ fun LiquidBottomTabs(
             },
             onDragCancel = { index ->
                 if (dragInProgress && handoffDragIndex == index) {
-                    cancelLongPressQualification()
-                    cancelLongPressHighlight()
                     dragInProgress = false
                     handoffDragIndex = -1
                     handoffDragNeedsCurrentValue = false
@@ -399,8 +313,6 @@ fun LiquidBottomTabs(
             onRelease = { index, press ->
                 if (activePress === press && activePressIndex == index) {
                     val isHandoffDrag = dragInProgress && handoffDragIndex == index
-                    cancelLongPressQualification()
-                    if (!isHandoffDrag) releaseLongPressHighlight()
                     activePress = null
                     activePressIndex = -1
                     if (!isHandoffDrag) {
@@ -426,11 +338,9 @@ fun LiquidBottomTabs(
             onCancel = { index, press ->
                 if (activePress === press && activePressIndex == index) {
                     val isHandoffDrag = dragInProgress && handoffDragIndex == index
+                    activePress = null
+                    activePressIndex = -1
                     if (!isHandoffDrag) {
-                        cancelLongPressQualification()
-                        cancelLongPressHighlight()
-                        activePress = null
-                        activePressIndex = -1
                         val wasPreview = previewIndex == index
                         previewIndex = null
                         pendingCommitTarget = null
@@ -458,6 +368,19 @@ fun LiquidBottomTabs(
                 }
             },
         )
+
+        val interactiveHighlight = remember(animationScope) {
+            InteractiveHighlight(
+                animationScope = animationScope,
+                position = { size, _ ->
+                    Offset(
+                        if (isLtr) (dampedDragAnimation.value + 0.5f) * tabWidth + panelOffset
+                        else size.width - (dampedDragAnimation.value + 0.5f) * tabWidth + panelOffset,
+                        size.height / 2f,
+                    )
+                },
+            )
+        }
 
         CompositionLocalProvider(
             LocalLiquidBottomTabInteraction provides interactionCallbacks,
