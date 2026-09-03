@@ -403,8 +403,8 @@ class SettingsStructureTest {
         assertTrue(dock.contains("if (selectedIndexState.value != index)"))
         assertTrue(dock.contains("hapticFeedback.performHapticFeedback(HapticFeedbackType.ContextClick)"))
         assertTrue(dock.contains("selectionSink(index)"))
-        assertTrue(dock.contains("LiquidBottomTab(onClick = { requestedIndex = 0 })"))
-        assertTrue(dock.contains("LiquidBottomTab(onClick = { requestedIndex = 1 })"))
+        assertTrue(dock.contains("LiquidBottomTab(tabIndex = 0, onClick = { requestedIndex = 0 })"))
+        assertTrue(dock.contains("LiquidBottomTab(tabIndex = 1, onClick = { requestedIndex = 1 })"))
     }
 
     @Test
@@ -504,14 +504,24 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun interactiveHighlightsDoNotLaunchACoroutineForEveryPointerMove() {
+    fun interactiveHighlightsKeepTheOriginalDirectGestureModel() {
         val dockAnimations = sourceFile("BottomDockAnimations.kt")
         val interactiveHighlight = sourceFile("liquidglass/InteractiveHighlight.kt")
 
         assertTrue(dockAnimations.contains("positionUpdater.submit(generation, change.position)"))
         assertTrue(interactiveHighlight.contains("positionUpdater.submit(generation, change.position)"))
+        assertTrue(interactiveHighlight.contains("position(size, positionAnimation.value)"))
         assertTrue(dockAnimations.contains("invalidatePositionUpdates()"))
         assertTrue(interactiveHighlight.contains("invalidatePositionUpdates()"))
+        assertFalse(interactiveHighlight.contains("fun pressAt("))
+        assertFalse(interactiveHighlight.contains("fun prepareAt("))
+        assertFalse(interactiveHighlight.contains("fun reveal("))
+        assertFalse(interactiveHighlight.contains("fun cancelPrepared("))
+        assertFalse(interactiveHighlight.contains("fun moveTo("))
+        assertFalse(interactiveHighlight.contains("fun release("))
+        assertFalse(interactiveHighlight.contains("fun cancel("))
+        assertFalse(interactiveHighlight.contains("usesExternalPosition"))
+        assertFalse(interactiveHighlight.contains("visible"))
         assertFalse(
             dockAnimations.contains(
                 "animationScope.launch { positionAnimation.snapTo(change.position) }",
@@ -546,8 +556,27 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun dampedDragSeparatesDragVelocityFromProgrammaticSettling() {
+        val source = sourceFile("liquidglass/DampedDragAnimation.kt")
+        val updateValue = source.substringAfter("fun updateValue(")
+            .substringBefore("fun settleToValue(")
+        val settleToValue = source.substringAfter("fun settleToValue(")
+            .substringBefore("fun animateToValue(")
+
+        assertTrue(updateValue.contains("updateVelocity()"))
+        assertTrue(settleToValue.contains("valueAnimation.animateTo"))
+        assertTrue(settleToValue.contains("valueAnimationSpec"))
+        assertTrue(settleToValue.contains("velocityAnimation.animateTo(0f, velocityAnimationSpec)"))
+        assertFalse(settleToValue.contains("updateVelocity()"))
+        assertFalse(settleToValue.contains("press()"))
+        assertFalse(settleToValue.contains("release()"))
+        assertFalse(settleToValue.contains("mutatorMutex"))
+    }
+
+    @Test
     fun liquidBottomTabsKeepTheProductionCombinedBackdropRenderGraph() {
         val source = sourceFile("liquidglass/LiquidBottomTabs.kt")
+        val tab = sourceFile("liquidglass/LiquidBottomTab.kt")
 
         assertTrue(source.contains("val tabsBackdrop = rememberLayerBackdrop()"))
         assertTrue(source.contains("CompositionLocalProvider"))
@@ -559,9 +588,102 @@ class SettingsStructureTest {
         assertTrue(source.contains("tabsBackdrop"))
         assertTrue(source.contains("backdrop = backdrop"))
         assertTrue(source.contains("chromaticAberration = true"))
+        assertTrue(source.contains("indicatorRefractionHeight: Dp = 11.dp"))
+        assertTrue(source.contains("indicatorRefractionAmount: Dp = 18.dp"))
+        assertFalse(source.contains("indicatorRefractionHeight: Dp = 10.dp"))
+        assertFalse(source.contains("indicatorRefractionAmount: Dp = 14.dp"))
+        assertTrue(source.contains("indicatorRefractionHeight.toPx() * progress"))
+        assertTrue(source.contains("indicatorRefractionAmount.toPx() * progress"))
         assertTrue(source.contains("pressedScale = 78f / 56f"))
         assertTrue(source.contains("InteractiveHighlight("))
         assertTrue(source.contains("DampedDragAnimation("))
+        assertTrue(source.contains("var committedIndex"))
+        assertTrue(source.contains("var previewIndex"))
+        assertTrue(source.contains("val visualTargetIndex = previewIndex ?: committedIndex"))
+        assertTrue(source.contains("LocalLiquidBottomTabInteraction provides interactionCallbacks"))
+        assertTrue(source.contains("dampedDragAnimation.press()"))
+        assertTrue(source.contains("dampedDragAnimation.settleToValue(visualTargetIndex.toFloat())"))
+        assertTrue(source.contains("dampedDragAnimation.settleToValue(committed.toFloat())"))
+        assertTrue(source.contains("dampedDragAnimation.settleToValue(committedIndex.toFloat())"))
+        assertTrue(source.contains("Highlight.Default.copy(alpha = progress)"))
+        assertTrue(source.contains(".then(interactiveHighlight.gestureModifier)"))
+        assertFalse(source.contains("longPressHighlight"))
+        assertFalse(source.contains("longPressJob"))
+        assertFalse(source.contains("longPressTimeout"))
+        assertFalse(source.contains("LocalViewConfiguration"))
+        assertFalse(source.contains("prepareAt"))
+        assertFalse(source.contains("interactiveHighlight.pressAt("))
+        assertFalse(source.contains("interactiveHighlight.reveal("))
+        assertFalse(source.contains("interactiveHighlight.moveTo("))
+        val previewCallbacks = source.substringAfter("val interactionCallbacks =")
+            .substringBefore("val interactiveHighlight =")
+        assertFalse(previewCallbacks.contains("updateValue("))
+        assertTrue(previewCallbacks.contains("dampedDragAnimation.settleToValue(visualTargetIndex.toFloat())"))
+        assertFalse(previewCallbacks.contains("interactiveHighlight.pressAt("))
+        assertFalse(previewCallbacks.contains("interactiveHighlight.reveal("))
+        assertFalse(previewCallbacks.contains("interactiveHighlight.moveTo("))
+        assertTrue(source.contains("applyBottomTabDragDelta("))
+        val dragDeltaHelper = source.substringAfter(
+            "private fun DampedDragAnimation.applyBottomTabDragDelta(",
+        )
+        assertTrue(dragDeltaHelper.contains("if (fromCurrentValue) value else targetValue"))
+        assertTrue(dragDeltaHelper.contains("updateValue("))
+        assertTrue(source.contains("fromCurrentValue = handoffDragNeedsCurrentValue"))
+
+        val interactionProvider = source.substringAfter(
+            "LocalLiquidBottomTabInteraction provides interactionCallbacks",
+        )
+        val visibleRows = interactionProvider.substringBefore("LocalLiquidBottomTabScale provides")
+        val hiddenCaptureRows = interactionProvider.substringAfter("LocalLiquidBottomTabScale provides")
+        assertTrue(visibleRows.contains("content = content"))
+        assertFalse(visibleRows.contains("LocalLiquidBottomTabScale"))
+        assertTrue(hiddenCaptureRows.contains(".alpha(0f)"))
+        assertTrue(hiddenCaptureRows.contains(".layerBackdrop(tabsBackdrop)"))
+        assertTrue(source.contains("onDragStart = { index ->"))
+        assertTrue(source.contains("onDragEnd = { index ->"))
+        assertTrue(source.contains("onDragCancel = { index ->"))
+        assertTrue(source.contains("onDragCancelled = {"))
+        val handoffDragEnd = source.substringAfter("onDragEnd = { index ->")
+            .substringBefore("onDragCancel = { index ->")
+        assertTrue(handoffDragEnd.contains("dampedDragAnimation.settleToValue(targetIndex.toFloat())"))
+        assertTrue(handoffDragEnd.contains("onTabSelected(targetIndex)"))
+        assertFalse(handoffDragEnd.contains("animateToValue("))
+        val clickableCancel = source.substringAfter("onCancel = { index, press ->")
+            .substringBefore("onClick = { index ->")
+        val handoffCancel = clickableCancel.substringAfter(
+            "val isHandoffDrag = dragInProgress && handoffDragIndex == index",
+        ).substringBefore("if (!isHandoffDrag)")
+        assertFalse(handoffCancel.contains("settleToValue("))
+        assertFalse(handoffCancel.contains("release()"))
+        val trueDragCancel = source.substringAfter("onDragCancelled = {")
+            .substringBefore("onDrag = { _, dragAmount ->")
+        assertTrue(trueDragCancel.contains("settleToValue(committedIndex.toFloat())"))
+        assertTrue(trueDragCancel.contains("offsetAnimation.animateTo("))
+        assertTrue(source.contains(".then(dampedDragAnimation.modifier)"))
+        assertTrue(source.contains("onRelease = { index, press ->"))
+        assertTrue(source.contains("onCancel = { index, press ->"))
+        assertTrue(source.contains("onTabSelected(targetIndex)"))
+
+        val productionComponents = sourceFile("GlassComponents.kt")
+            .substringAfter("internal fun LiquidMainDock(")
+        assertFalse(productionComponents.contains("indicatorRefractionHeight"))
+        assertFalse(productionComponents.contains("indicatorRefractionAmount"))
+
+        assertTrue(tab.contains("clickable("))
+        assertTrue(tab.contains("interactionSource = interactionSource"))
+        assertTrue(tab.contains("MutableInteractionSource"))
+        assertTrue(tab.contains("PressInteraction.Press"))
+        assertTrue(tab.contains("PressInteraction.Release"))
+        assertTrue(tab.contains("PressInteraction.Cancel"))
+        assertTrue(tab.contains("role = Role.Tab"))
+        assertTrue(tab.contains("detectDragGestures"))
+        assertTrue(tab.contains("pointerInput(tabIndex)"))
+        assertTrue(tab.contains("onDragStart = {"))
+        assertTrue(tab.contains("val onDrag: (index: Int, dragAmountX: Float)"))
+        assertTrue(tab.contains("onDrag(tabIndex, dragAmount.x)"))
+        assertFalse(tab.contains("change.position"))
+        assertTrue(tab.contains("dragClaimed"))
+        assertFalse(tab.contains("detectTapGestures"))
     }
 
     @Test
@@ -581,7 +703,7 @@ class SettingsStructureTest {
     }
 
     @Test
-    fun liquidBottomTabsFixtureIsDebugOnlyAndContainsAllThreeComparisons() {
+    fun liquidBottomTabsFixtureIsDebugOnlyAndContainsAllFiveComparisons() {
         val settings = settingsSource()
         assertTrue(settings.contains("Liquid Bottom Tabs Fixture"))
         assertTrue(settings.contains("DEBUG_LIQUID_BOTTOM_TABS_FIXTURE_ACTIVITY"))
@@ -601,6 +723,49 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("LiquidBottomTabs("))
         assertTrue(fixture.contains("B · Codex production glass"))
         assertTrue(fixture.contains("C · Integrated production switching"))
+        assertTrue(fixture.contains("D · Press preview / commit on release"))
+        assertTrue(fixture.contains("E · Chromatic aberration presets"))
+        assertTrue(fixture.contains("ChromaticAberrationFixture(contentColor)"))
+        assertTrue(fixture.contains("private enum class AberrationBackdropMode"))
+        assertTrue(fixture.contains("AberrationBackdropMode.MULTICOLOR"))
+        assertTrue(fixture.contains("AberrationBackdropMode.BLACK"))
+        assertTrue(fixture.contains("AberrationBackdropMode.WHITE"))
+        assertTrue(fixture.contains("var backdropMode by remember { mutableStateOf(AberrationBackdropMode.MULTICOLOR) }"))
+        assertTrue(fixture.contains("val experimentBackdrop = rememberLayerBackdrop()"))
+        assertTrue(fixture.contains("Modifier.fillMaxSize().layerBackdrop(experimentBackdrop)"))
+        assertTrue(fixture.contains("FixtureBackdrop(showLabel = false)"))
+        assertTrue(fixture.contains("Color.Black"))
+        assertTrue(fixture.contains("Color.White"))
+        assertTrue(fixture.contains("backdrop = experimentBackdrop"))
+        assertTrue(fixture.contains("P0 · Legacy · 10 / 14"))
+        assertTrue(fixture.contains("P1 · Production · 11 / 18"))
+        assertTrue(fixture.contains("P2 · Strong · 12 / 20"))
+        assertTrue(fixture.contains("P3 · Reference · 14 / 24"))
+        assertTrue(fixture.contains("indicatorRefractionHeight = refractionHeight"))
+        assertTrue(fixture.contains("indicatorRefractionAmount = refractionAmount"))
+        assertTrue(fixture.contains("var selectedIndex by remember { mutableIntStateOf(0) }"))
+        assertTrue(fixture.contains("Hold or drag each preset to reveal full chromatic aberration."))
+        assertTrue(fixture.contains("Black/white isolate the glass edge; multicolor reveals RGB separation most clearly."))
+        assertTrue(fixture.contains("PressPreviewFixture"))
+        assertTrue(fixture.contains("Committed page:"))
+        assertTrue(fixture.contains("committed index:"))
+        assertTrue(fixture.contains("PRESS OTHER TAB · HOLD · RELEASE · CANCEL / MOVE AWAY"))
+        assertTrue(fixture.contains("QUICK TAP → preview → commit on release"))
+        assertTrue(fixture.contains("HOLD other tab · pill stays at target · stable press shape · page unchanged until release"))
+        assertTrue(fixture.contains("CANCEL / MOVE AWAY · pill smoothly returns · no page switch"))
+        assertTrue(fixture.contains("DRAG selected pill · original velocity stretch remains"))
+        assertTrue(fixture.contains("tap/hold preview should not use drag velocity deformation"))
+        assertTrue(fixture.contains("PRESS OTHER TAB → HOLD → DRAG ACROSS → RELEASE"))
+        assertTrue(fixture.contains("HOLD + DRAG → preview hands off → no snap back → commit nearest tab on release"))
+        assertTrue(fixture.contains("DIRECT DRAG SELECTED → original production highlight + drag behavior remains"))
+        assertTrue(fixture.contains("Unselected-tab preview/hold does not use InteractiveHighlight."))
+        val pressPreview = fixture.substringAfter("private fun PressPreviewFixture")
+            .substringBefore("private fun ProductionLiquidTabs")
+        assertFalse(pressPreview.contains("long-press highlight"))
+        assertFalse(pressPreview.contains("prewarmed"))
+        assertFalse(pressPreview.contains("reveal"))
+        assertFalse(pressPreview.contains("highlight follows pointer"))
+        assertTrue(fixture.contains("drag after preview should use the same velocity deformation as selected-pill drag"))
         assertTrue(fixture.contains("AnimatedContent("))
         assertTrue(fixture.contains("fadeIn(animationSpec = tween(200))"))
         assertTrue(fixture.contains("initialOffsetX = { width -> direction * width / 20 }"))
@@ -608,6 +773,8 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("targetOffsetX = { width -> -direction * width / 28 }"))
         assertTrue(fixture.contains("Auto stress ×100"))
         assertTrue(fixture.contains("repeat(100)"))
+        assertTrue(fixture.contains("LiquidBottomTab(tabIndex = 0"))
+        assertTrue(fixture.contains("LiquidBottomTab(tabIndex = 1"))
 
         val upstreamTabs = debugSourceFile("liquidglass/UpstreamLiquidBottomTabs.kt")
         assertTrue(upstreamTabs.contains("lerp(1f, 1.2f, dampedDragAnimation.pressProgress)"))
@@ -941,6 +1108,110 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun dashboardUsesPageTitlesAndHierarchicalSummaryContent() {
+        val main = sourceFile("MainActivity.kt")
+        assertTrue(main.contains("text = if (selectedIndex == 0) \"额度\" else \"统计\""))
+        assertFalse(main.contains("Text(\"CodexQuota\""))
+
+        val quota = sourceFile("QuotaPageView.kt")
+        val quotaContent = quota
+            .substringAfter("internal fun QuotaPageContent(")
+            .substringBefore("private fun QuotaStatusLine(")
+        assertFalse(quotaContent.contains("Text(\n            \"额度\""))
+        val quotaWindow = quota.substringAfter("private fun QuotaWindowCard(")
+            .substringBefore("private fun ResetCreditCard(")
+        assertOrdered(
+            quotaWindow,
+            "window.title",
+            "formatRemaining(window.resetsAt)",
+            "formatResetAt(window.resetsAt, locale)",
+        )
+        assertTrue(quotaWindow.contains("fontSize = 15.sp"))
+        assertTrue(quotaWindow.contains("fontWeight = FontWeight.Medium"))
+        assertTrue(quotaWindow.contains("palette.color(palette.body)"))
+        assertTrue(quotaWindow.contains("fontSize = 13.sp"))
+        assertTrue(quotaWindow.contains("palette.color(palette.muted)"))
+        assertTrue(quota.contains("return \"\$absolute 重置\""))
+
+        val token = sourceFile("TokenUsagePageView.kt")
+        val tokenContent = token
+            .substringAfter("internal fun TokenUsagePageContent(")
+            .substringBefore("private fun TokenUsageStatusLine(")
+        assertFalse(tokenContent.contains("Text(\"统计\""))
+        assertTrue(token.contains("TokenSummaryCard(presentation)"))
+        val summaryCard = token.substringAfter("private fun TokenSummaryCard(")
+            .substringBefore("private fun TokenSummaryDivider(")
+        assertTrue(summaryCard.contains("DashboardCardSurface"))
+        assertTrue(summaryCard.contains("Column(Modifier.fillMaxWidth())"))
+        assertTrue(summaryCard.contains("presentation.first"))
+        assertTrue(summaryCard.contains("presentation.second"))
+        assertFalse(summaryCard.contains("\"Token 分类\""))
+        assertTrue(summaryCard.contains("presentation.categories"))
+        assertEquals(1, summaryCard.split("TokenSummaryDivider()").size - 1)
+        assertFalse(summaryCard.contains("valueSize = 15.sp"))
+        assertFalse(summaryCard.contains("valueSize = 14.sp"))
+        assertFalse(summaryCard.contains("valueWeight = FontWeight.Medium"))
+        assertFalse(summaryCard.contains("labelSize = 10.sp"))
+        assertFalse(summaryCard.contains("itemVerticalPadding = 7.dp"))
+        assertFalse(summaryCard.contains("itemVerticalPadding = 6.dp"))
+        assertFalse(summaryCard.contains(".background("))
+        assertFalse(summaryCard.contains(".border("))
+        assertFalse(summaryCard.contains("RoundedCornerShape("))
+        assertFalse(summaryCard.contains("rememberLayerBackdrop"))
+        assertFalse(summaryCard.contains("GlassSurface"))
+        val metricRow = token.substringAfter("private fun TokenMetricRow(")
+            .substringBefore("internal fun tokenSummaryValueLabel")
+        assertTrue(metricRow.contains("maxLines = 1"))
+        assertTrue(metricRow.contains("overflow = TextOverflow.Ellipsis"))
+        listOf("今日 Token", "7 天 Token", "30 天 Token", "累计 Token", "峰值 Token", "当前连续", "最长连续").forEach {
+            assertTrue(token.contains("\"$it\""))
+        }
+        listOf("输入", "缓存输入", "输出", "推理").forEach {
+            assertTrue(token.contains("\"$it\""))
+        }
+        assertTrue(token.contains("shouldShowTokenCategories(presentation.categories)"))
+    }
+
+    @Test
+    fun dashboardCardsShareTheQuotaSurfaceAndResetCreditHierarchy() {
+        val surface = sourceFile("DashboardCardSurface.kt")
+        assertTrue(surface.contains("internal fun DashboardCardSurface("))
+        assertTrue(surface.contains("RoundedCornerShape(18.dp)"))
+        assertTrue(surface.contains("Brush.linearGradient"))
+        assertTrue(surface.contains("Brush.sweepGradient"))
+        assertTrue(surface.contains(".border(1.dp, borderBrush, cardShape)"))
+        assertTrue(surface.contains(".padding(16.dp)"))
+
+        val quota = sourceFile("QuotaPageView.kt")
+        assertFalse(quota.contains("QuotaCardSurface"))
+        val quotaWindow = quota.substringAfter("private fun QuotaWindowCard(")
+            .substringBefore("private fun ResetCreditCard(")
+        assertTrue(quotaWindow.contains("DashboardCardSurface"))
+        val resetCard = quota.substringAfter("private fun ResetCreditCard(")
+            .substringBefore("private fun ResetCreditRow(")
+        assertTrue(resetCard.contains("DashboardCardSurface"))
+        val resetRow = quota.substringAfter("private fun ResetCreditRow(")
+            .substringBefore("@Composable\ninternal fun QuotaProgressRing(")
+        assertOrdered(
+            resetRow,
+            "R.string.reset_credit_remaining",
+            "R.string.reset_credit_expiry",
+        )
+        assertTrue(resetRow.contains("fontSize = 15.sp"))
+        assertTrue(resetRow.contains("fontWeight = FontWeight.Medium"))
+        assertTrue(resetRow.contains("palette.color(palette.body)"))
+        assertTrue(resetRow.contains("fontSize = 13.sp"))
+        assertTrue(resetRow.contains("fontWeight = FontWeight.Normal"))
+        assertTrue(resetRow.contains("palette.color(palette.muted)"))
+
+        val token = sourceFile("TokenUsagePageView.kt")
+        assertFalse(token.contains("QuotaCardSurface"))
+        assertTrue(token.contains("DashboardCardSurface"))
+        val resources = resourceFile("values/strings.xml")
+        assertTrue(resources.contains("<string name=\"reset_credit_expiry\">%1\$s 到期</string>"))
+    }
+
+    @Test
     fun updateFixtureExposesContinuousProgressRegressionValues() {
         val fixture = debugSourceFile("debug/UpdateDownloadFixtureActivity.kt")
         listOf(
@@ -1149,6 +1420,16 @@ class SettingsStructureTest {
         )
         return candidates.firstOrNull(File::isFile)?.readNormalizedText()
             ?: error("$name source not found from ${System.getProperty("user.dir")}")
+    }
+
+    private fun resourceFile(relative: String): String {
+        val candidates = listOf(
+            File("android/app/src/main/res/$relative"),
+            File("app/src/main/res/$relative"),
+            File("src/main/res/$relative"),
+        )
+        return candidates.firstOrNull(File::isFile)?.readNormalizedText()
+            ?: error("resource not found: $relative")
     }
 
     private fun debugSourceFile(name: String): String {

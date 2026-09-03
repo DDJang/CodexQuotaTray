@@ -140,7 +140,12 @@ class MainActivity : ComponentActivity() {
                                 .statusBarsPadding(),
                         ) {
                             Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 72.dp, top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text("CodexQuota", color = palette.color(palette.title), fontSize = 28.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    text = if (selectedIndex == 0) "额度" else "统计",
+                                    color = palette.color(palette.title),
+                                    fontSize = 28.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
                             }
                             Box(Modifier.weight(1f)) {
                                 AnimatedContent(

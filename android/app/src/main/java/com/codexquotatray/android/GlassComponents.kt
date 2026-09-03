@@ -264,7 +264,7 @@ internal fun LiquidMainDock(
                 tabsCount = 2,
                 modifier = Modifier.size(width = navigationWidth, height = navigationHeight),
             ) {
-                LiquidBottomTab(onClick = { requestedIndex = 0 }) {
+                LiquidBottomTab(tabIndex = 0, onClick = { requestedIndex = 0 }) {
                     DockTabContent(
                         R.drawable.ic_quota_tray,
                         "额度",
@@ -273,7 +273,7 @@ internal fun LiquidMainDock(
                         iconHeight = 24.dp,
                     )
                 }
-                LiquidBottomTab(onClick = { requestedIndex = 1 }) {
+                LiquidBottomTab(tabIndex = 1, onClick = { requestedIndex = 1 }) {
                     DockTabContent(R.drawable.ic_usage, "统计", contentColor)
                 }
             }

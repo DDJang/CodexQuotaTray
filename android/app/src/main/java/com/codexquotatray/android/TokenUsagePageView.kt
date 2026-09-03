@@ -30,6 +30,7 @@ import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,8 +60,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -330,9 +334,7 @@ internal fun TokenUsagePageContent(
     onLoginOpenAi: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val palette = LocalQuotaPalette.current
     Column(modifier.padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("统计", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = palette.color(palette.title))
         TokenUsageStatusLine(status)
         if (!paired) {
             DataSourceEmptyStateCard(
@@ -422,11 +424,7 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
                 .then(if (tooltipNeedsBackdrop) Modifier.layerBackdrop(tokenContentBackdrop) else Modifier)
                 .background(palette.color(palette.background)),
         ) {
-            SummaryRow(presentation.first)
-            SummaryRow(presentation.second)
-            if (shouldShowTokenCategories(presentation.categories)) {
-                SummaryRow(presentation.categories)
-            }
+            TokenSummaryCard(presentation)
             Spacer(Modifier.height(16.dp))
             TokenHeatmap(
                 days = snapshot.days,
@@ -450,6 +448,48 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
     }
 }
 
+@Composable
+private fun TokenSummaryCard(presentation: TokenUsagePresentation) {
+    DashboardCardSurface {
+        Column(Modifier.fillMaxWidth()) {
+            TokenMetricRow(
+                items = presentation.first,
+                valueSize = 18.sp,
+                valueWeight = FontWeight.Bold,
+                labelSize = 11.sp,
+                itemVerticalPadding = 8.dp,
+            )
+            TokenMetricRow(
+                items = presentation.second,
+                valueSize = 18.sp,
+                valueWeight = FontWeight.Bold,
+                labelSize = 11.sp,
+                itemVerticalPadding = 8.dp,
+            )
+            if (shouldShowTokenCategories(presentation.categories)) {
+                TokenSummaryDivider()
+                TokenMetricRow(
+                    items = presentation.categories,
+                    valueSize = 18.sp,
+                    valueWeight = FontWeight.Bold,
+                    labelSize = 11.sp,
+                    itemVerticalPadding = 8.dp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TokenSummaryDivider() {
+    val palette = LocalQuotaPalette.current
+    HorizontalDivider(
+        modifier = Modifier.padding(vertical = 8.dp),
+        thickness = 1.dp,
+        color = palette.color(palette.border).copy(alpha = 0.48f),
+    )
+}
+
 internal fun shouldShowTokenCategories(categories: List<Pair<String, Long?>>): Boolean =
     categories.any { (_, value) -> value != null }
 
@@ -467,20 +507,36 @@ private fun completeCategoryTotal(
 }
 
 @Composable
-private fun SummaryRow(items: List<Pair<String, Long?>>) {
+private fun TokenMetricRow(
+    items: List<Pair<String, Long?>>,
+    valueSize: TextUnit,
+    valueWeight: FontWeight,
+    labelSize: TextUnit,
+    itemVerticalPadding: Dp,
+) {
     val palette = LocalQuotaPalette.current
     Row(Modifier.fillMaxWidth()) {
         items.forEach { (label, value) ->
-            Column(Modifier.weight(1f).padding(vertical = 10.dp, horizontal = 3.dp)) {
+            Column(Modifier.weight(1f).padding(vertical = itemVerticalPadding, horizontal = 3.dp)) {
                 Text(
                     tokenSummaryValueLabel(label, value),
                     Modifier.fillMaxWidth(),
                     color = palette.color(palette.title),
-                    fontSize = if (value == null && label == "今日 Token") 13.sp else 18.sp,
-                    fontWeight = FontWeight.Bold,
+                    fontSize = if (value == null && label == "今日 Token") 13.sp else valueSize,
+                    fontWeight = valueWeight,
                     textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                Text(label, Modifier.fillMaxWidth(), color = palette.color(palette.muted), fontSize = 11.sp, textAlign = TextAlign.Center)
+                Text(
+                    label,
+                    Modifier.fillMaxWidth(),
+                    color = palette.color(palette.muted),
+                    fontSize = labelSize,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
