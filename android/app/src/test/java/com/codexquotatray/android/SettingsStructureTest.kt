@@ -941,6 +941,58 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun dashboardUsesPageTitlesAndHierarchicalSummaryContent() {
+        val main = sourceFile("MainActivity.kt")
+        assertTrue(main.contains("text = if (selectedIndex == 0) \"额度\" else \"统计\""))
+        assertFalse(main.contains("Text(\"CodexQuota\""))
+
+        val quota = sourceFile("QuotaPageView.kt")
+        val quotaContent = quota
+            .substringAfter("internal fun QuotaPageContent(")
+            .substringBefore("private fun QuotaStatusLine(")
+        assertFalse(quotaContent.contains("Text(\n            \"额度\""))
+        val quotaWindow = quota.substringAfter("private fun QuotaWindowCard(")
+            .substringBefore("private fun ResetCreditCard(")
+        assertOrdered(
+            quotaWindow,
+            "window.title",
+            "formatRemaining(window.resetsAt)",
+            "formatResetAt(window.resetsAt, locale)",
+        )
+        assertTrue(quotaWindow.contains("fontSize = 15.sp"))
+        assertTrue(quotaWindow.contains("fontWeight = FontWeight.Medium"))
+        assertTrue(quotaWindow.contains("palette.color(palette.body)"))
+        assertTrue(quotaWindow.contains("fontSize = 13.sp"))
+        assertTrue(quotaWindow.contains("palette.color(palette.muted)"))
+        assertTrue(quota.contains("return \"\$absolute 重置\""))
+
+        val token = sourceFile("TokenUsagePageView.kt")
+        val tokenContent = token
+            .substringAfter("internal fun TokenUsagePageContent(")
+            .substringBefore("private fun TokenUsageStatusLine(")
+        assertFalse(tokenContent.contains("Text(\"统计\""))
+        assertTrue(token.contains("TokenSummaryCard(presentation)"))
+        val summaryCard = token.substringAfter("private fun TokenSummaryCard(")
+            .substringBefore("private fun TokenSummaryDivider(")
+        assertTrue(summaryCard.contains("RoundedCornerShape(18.dp)"))
+        assertTrue(summaryCard.contains("palette.color(palette.surface)"))
+        assertTrue(summaryCard.contains("border("))
+        assertTrue(summaryCard.contains("presentation.first"))
+        assertTrue(summaryCard.contains("presentation.second"))
+        assertTrue(summaryCard.contains("\"Token 分类\""))
+        assertTrue(summaryCard.contains("presentation.categories"))
+        assertFalse(summaryCard.contains("rememberLayerBackdrop"))
+        assertFalse(summaryCard.contains("GlassSurface"))
+        listOf("今日 Token", "7 天 Token", "30 天 Token", "累计 Token", "峰值 Token", "当前连续", "最长连续").forEach {
+            assertTrue(token.contains("\"$it\""))
+        }
+        listOf("输入", "缓存输入", "输出", "推理").forEach {
+            assertTrue(token.contains("\"$it\""))
+        }
+        assertTrue(token.contains("shouldShowTokenCategories(presentation.categories)"))
+    }
+
+    @Test
     fun updateFixtureExposesContinuousProgressRegressionValues() {
         val fixture = debugSourceFile("debug/UpdateDownloadFixtureActivity.kt")
         listOf(

@@ -387,17 +387,10 @@ internal fun QuotaPageContent(
     onPairing: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val palette = LocalQuotaPalette.current
     Column(
         modifier.padding(horizontal = 20.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text(
-            "额度",
-            fontSize = 21.sp,
-            fontWeight = FontWeight.Bold,
-            color = palette.color(palette.title),
-        )
         QuotaStatusLine(model)
         if (model.status != QuotaUiStatus.UNAUTHENTICATED) {
             if (model.status == QuotaUiStatus.LOADED && model.windows.isEmpty()) Text("暂无可用额度")
@@ -477,14 +470,16 @@ private fun QuotaWindowCard(window: QuotaCardModel) {
                     color = palette.color(palette.title),
                 )
                 Text(
-                    formatResetAt(window.resetsAt, locale),
-                    color = palette.color(palette.secondary),
-                    fontSize = 14.sp,
+                    formatRemaining(window.resetsAt),
+                    color = palette.color(palette.body),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
                 )
                 Text(
-                    formatRemaining(window.resetsAt),
-                    color = palette.color(palette.secondary),
-                    fontSize = 14.sp,
+                    formatResetAt(window.resetsAt, locale),
+                    color = palette.color(palette.muted),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Normal,
                 )
             }
         }
@@ -727,7 +722,7 @@ private const val QUOTA_PROGRESS_ANIMATION_MILLIS = 350
 private fun formatResetAt(epochSeconds: Long?, locale: Locale): String {
     if (epochSeconds == null) return "重置时间未知"
     val absolute = SimpleDateFormat("MM-dd HH:mm", locale).format(Date(epochSeconds * 1_000L))
-    return "重置 $absolute"
+    return "$absolute 重置"
 }
 
 private fun formatRemaining(epochSeconds: Long?): String {
