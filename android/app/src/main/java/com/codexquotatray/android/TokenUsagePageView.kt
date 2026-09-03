@@ -450,7 +450,6 @@ private fun TokenUsageContent(snapshot: TokenUsageSnapshot) {
 
 @Composable
 private fun TokenSummaryCard(presentation: TokenUsagePresentation) {
-    val palette = LocalQuotaPalette.current
     DashboardCardSurface {
         Column(Modifier.fillMaxWidth()) {
             TokenMetricRow(
@@ -460,29 +459,21 @@ private fun TokenSummaryCard(presentation: TokenUsagePresentation) {
                 labelSize = 11.sp,
                 itemVerticalPadding = 8.dp,
             )
-            TokenSummaryDivider()
             TokenMetricRow(
                 items = presentation.second,
-                valueSize = 15.sp,
-                valueWeight = FontWeight.Medium,
+                valueSize = 18.sp,
+                valueWeight = FontWeight.Bold,
                 labelSize = 11.sp,
-                itemVerticalPadding = 7.dp,
+                itemVerticalPadding = 8.dp,
             )
             if (shouldShowTokenCategories(presentation.categories)) {
                 TokenSummaryDivider()
-                Text(
-                    "Token 分类",
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 3.dp),
-                    color = palette.color(palette.muted),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                )
                 TokenMetricRow(
                     items = presentation.categories,
-                    valueSize = 14.sp,
-                    valueWeight = FontWeight.Medium,
-                    labelSize = 10.sp,
-                    itemVerticalPadding = 6.dp,
+                    valueSize = 18.sp,
+                    valueWeight = FontWeight.Bold,
+                    labelSize = 11.sp,
+                    itemVerticalPadding = 8.dp,
                 )
             }
         }
