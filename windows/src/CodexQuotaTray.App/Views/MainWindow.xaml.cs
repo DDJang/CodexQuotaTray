@@ -59,6 +59,13 @@ public sealed partial class MainWindow : Window
         ContentRoot.DataContext = viewModel;
         quotaView = new QuotaView();
         QuotaPageHost.Children.Add(quotaView);
+        quotaView.ContentBottomBoundary.SizeChanged += (_, _) =>
+        {
+            if (!pageTransitionRunning)
+            {
+                QueuePositionIfVisible(forceResize: true);
+            }
+        };
 
         var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         appWindow = AppWindow.GetFromWindowId(windowId);

@@ -197,10 +197,22 @@ public sealed class WindowBehaviorTests
     {
         var mainWindow = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var boundaryEventStart = mainWindow.IndexOf(
+            "quotaView.ContentBottomBoundary.SizeChanged +=",
+            StringComparison.Ordinal);
+        var boundaryEventEnd = mainWindow.IndexOf(
+            "var windowId =",
+            boundaryEventStart,
+            StringComparison.Ordinal);
 
         StringAssert.Contains(mainWindow, "quotaView.ContentBottomBoundary");
         StringAssert.Contains(mainWindow, ".TransformToVisual(PanelContent)");
         StringAssert.Contains(mainWindow, "PanelContent.Padding.Bottom");
+        Assert.IsGreaterThanOrEqualTo(0, boundaryEventStart);
+        Assert.IsGreaterThan(boundaryEventStart, boundaryEventEnd);
+        var boundaryEvent = mainWindow[boundaryEventStart..boundaryEventEnd];
+        StringAssert.Contains(boundaryEvent, "if (!pageTransitionRunning)");
+        StringAssert.Contains(boundaryEvent, "QueuePositionIfVisible(forceResize: true);");
     }
 
     [TestMethod]
