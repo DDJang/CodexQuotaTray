@@ -575,7 +575,7 @@ public sealed class AppIntegrationSourceTests
         Assert.IsTrue(revealedStart >= 0);
         Assert.IsTrue(revealedEnd > revealedStart);
         var revealed = source[revealedStart..revealedEnd];
-        StringAssert.Contains(revealed, "QueuePositionIfVisible(forceResize: true);");
+        StringAssert.Contains(revealed, "Position(forceResize: true);");
 
         StringAssert.Contains(source, "private readonly FirstPresentationGate firstPresentation = new();");
         StringAssert.Contains(source, "SetFirstPresentationCloaked");

@@ -193,7 +193,7 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
-    public void QuotaPageHeight_UsesFooterBoundaryInsteadOfInflatedDesiredSize()
+    public void PopupHeight_UsesScrollExtentInsteadOfManuallyRemeasuredContent()
     {
         var mainWindow = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
@@ -205,9 +205,9 @@ public sealed class WindowBehaviorTests
             boundaryEventStart,
             StringComparison.Ordinal);
 
-        StringAssert.Contains(mainWindow, "quotaView.ContentBottomBoundary");
-        StringAssert.Contains(mainWindow, ".TransformToVisual(PanelContent)");
-        StringAssert.Contains(mainWindow, "PanelContent.Padding.Bottom");
+        StringAssert.Contains(mainWindow, "var extentHeight = PanelScroller.ExtentHeight;");
+        Assert.IsFalse(mainWindow.Contains("PanelContent.InvalidateMeasure();", StringComparison.Ordinal));
+        Assert.IsFalse(mainWindow.Contains("PanelContent.Measure(", StringComparison.Ordinal));
         Assert.IsGreaterThanOrEqualTo(0, boundaryEventStart);
         Assert.IsGreaterThan(boundaryEventStart, boundaryEventEnd);
         var boundaryEvent = mainWindow[boundaryEventStart..boundaryEventEnd];

@@ -342,9 +342,8 @@ public sealed partial class MainWindow : Window
         }
 
         // The first presentation gate calls this only after the cloaked window
-        // has completed a render, so footer geometry no longer reflects the
-        // hidden window's stale ScrollViewer viewport.
-        QueuePositionIfVisible(forceResize: true);
+        // has completed a render, so the ScrollViewer extent is now stable.
+        Position(forceResize: true);
         if (raisePanelShown)
         {
             PanelShown?.Invoke(this, EventArgs.Empty);
@@ -542,8 +541,6 @@ public sealed partial class MainWindow : Window
     {
         var scale = ContentRoot.XamlRoot?.RasterizationScale
             ?? WindowPlacementService.GetRasterizationScale(hwnd);
-        PanelContent.InvalidateMeasure();
-        PanelContent.Measure(new Windows.Foundation.Size(PanelWidthDips, double.PositiveInfinity));
         ContentRoot.UpdateLayout();
         var fallbackHeight = Math.Max(1, Math.Ceiling(PanelContent.DesiredSize.Height));
         var measuredHeight = MeasureVisibleContentHeight(fallbackHeight);
@@ -559,28 +556,10 @@ public sealed partial class MainWindow : Window
 
     private double MeasureVisibleContentHeight(double fallbackHeight)
     {
-        if (showingTokenPage || quotaView.ContentBottomBoundary.ActualHeight <= 0)
-        {
-            return fallbackHeight;
-        }
-
-        try
-        {
-            var footer = quotaView.ContentBottomBoundary;
-            var footerTop = footer
-                .TransformToVisual(PanelContent)
-                .TransformPoint(new Windows.Foundation.Point(0, 0))
-                .Y;
-            return PopupPlacement.NaturalContentHeight(
-                footerTop,
-                footer.ActualHeight,
-                PanelContent.Padding.Bottom,
-                fallbackHeight);
-        }
-        catch (InvalidOperationException)
-        {
-            return fallbackHeight;
-        }
+        var extentHeight = PanelScroller.ExtentHeight;
+        return double.IsFinite(extentHeight) && extentHeight > 0
+            ? Math.Ceiling(extentHeight)
+            : fallbackHeight;
     }
 
     private void OnQuotaTabClick(object sender, RoutedEventArgs args) => _ = ShowPageAsync(showToken: false);
