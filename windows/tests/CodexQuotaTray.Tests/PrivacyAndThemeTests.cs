@@ -163,10 +163,13 @@ public sealed class PrivacyAndThemeTests
         var quota = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaView.xaml"));
         var quotaCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaView.xaml.cs"));
         var quotaDisplay = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaToneDisplay.xaml"));
+        var quotaDisplayCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaToneDisplay.xaml.cs"));
         var quotaProgress = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaProgressVisual.xaml"));
+        var quotaProgressCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaProgressVisual.xaml.cs"));
         var tokenUsage = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml"));
         var tokenUsageCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml.cs"));
         var heatmapCell = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "ThemeAwareHeatmapCell.xaml"));
+        var heatmapCellCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "ThemeAwareHeatmapCell.xaml.cs"));
         var releaseNotes = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "ReleaseNotesMarkdownRenderer.cs"));
         var themeResolver = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Services", "ThemeBrushResolver.cs"));
         var converters = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Converters.cs"));
@@ -194,7 +197,9 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(quotaDisplay, "WarningQuotaBrush");
         StringAssert.Contains(quotaDisplay, "CriticalQuotaBrush");
         StringAssert.Contains(quotaDisplay, "UnavailableQuotaBrush");
+        StringAssert.Contains(quotaDisplayCode, "ThemeBrushResolver.TryResolve(this, ThemeResourceKeyPolicy.Quota(Tone))");
         StringAssert.Contains(quotaProgress, "VisualStateManager.VisualStateGroups");
+        StringAssert.Contains(quotaProgressCode, "ThemeBrushResolver.TryResolve(this, ThemeResourceKeyPolicy.Quota(Tone))");
         StringAssert.Contains(tokenUsage, "ThemeAwareHeatmapCell");
         StringAssert.Contains(tokenUsageCode, "TokenUsageRoot.ActualThemeChanged");
         StringAssert.Contains(tokenUsageCode, "internal void RefreshTheme(bool isHighContrast)");
@@ -202,6 +207,7 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(heatmapCell, "TokenHeatmap0Brush");
         StringAssert.Contains(heatmapCell, "TokenHeatmap4Brush");
         StringAssert.Contains(heatmapCell, "TokenHeatmapEmptyCellHighlightBrush");
+        StringAssert.Contains(heatmapCellCode, "ThemeBrushResolver.TryResolve(this, ThemeResourceKeyPolicy.Heatmap(Bucket))");
         StringAssert.Contains(releaseNotes, "ThemeBrushResolver.TryResolve(themeScope, key)");
         StringAssert.Contains(releaseNotes, "panel.ActualThemeChanged");
         StringAssert.Contains(themeResolver, "element.ActualTheme == ElementTheme.Dark");
@@ -216,6 +222,20 @@ public sealed class PrivacyAndThemeTests
         var tokenUsage = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml.cs"));
         var tray = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Services", "TrayIconService.cs"));
         var native = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Interop", "NativeMethods.cs"));
+        var productionSources = Directory.EnumerateFiles(
+                AppContext.BaseDirectory,
+                "*.cs",
+                SearchOption.AllDirectories)
+            .Where(path => !path.Contains(
+                Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar,
+                StringComparison.OrdinalIgnoreCase));
+
+        foreach (var source in productionSources)
+        {
+            var contents = File.ReadAllText(source);
+            Assert.IsFalse(contents.Contains("AccessibilitySettings.HighContrastChanged", StringComparison.Ordinal), source);
+            Assert.IsFalse(contents.Contains("UISettings.ColorValuesChanged", StringComparison.Ordinal), source);
+        }
 
         Assert.IsFalse(app.Contains("AccessibilitySettings.HighContrastChanged", StringComparison.Ordinal));
         Assert.IsFalse(app.Contains("UISettings.ColorValuesChanged", StringComparison.Ordinal));

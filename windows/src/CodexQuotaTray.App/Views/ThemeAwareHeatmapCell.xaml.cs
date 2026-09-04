@@ -1,4 +1,5 @@
 using System.Numerics;
+using CodexQuotaTray.App.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -74,7 +75,8 @@ public sealed partial class ThemeAwareHeatmapCell : UserControl
 
     private void OnActualThemeChanged(FrameworkElement sender, object args) => RefreshTheme();
 
-    private void ApplyBucketState() =>
+    private void ApplyBucketState()
+    {
         VisualStateManager.GoToState(this, Bucket switch
         {
             1 => "Bucket1",
@@ -83,18 +85,31 @@ public sealed partial class ThemeAwareHeatmapCell : UserControl
             4 => "Bucket4",
             _ => "Bucket0",
         }, false);
+        if (ThemeBrushResolver.TryResolve(this, ThemeResourceKeyPolicy.Heatmap(Bucket)) is { } brush)
+        {
+            Background = brush;
+        }
+    }
 
     private void ApplyHighlightState(Brush derivedBrush)
     {
         if (highlightEmpty)
         {
             VisualStateManager.GoToState(this, "HighlightEmpty", false);
+            if (ThemeBrushResolver.TryResolve(this, "TokenHeatmapEmptyCellHighlightBrush") is { } brush)
+            {
+                BorderBrush = brush;
+            }
             return;
         }
 
         if (highlightHighContrast)
         {
             VisualStateManager.GoToState(this, "HighlightHighContrast", false);
+            if (ThemeBrushResolver.TryResolve(this, "TokenHeatmapCellBorderBrush") is { } brush)
+            {
+                BorderBrush = brush;
+            }
             return;
         }
 

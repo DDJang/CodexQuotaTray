@@ -71,6 +71,10 @@ public sealed partial class QuotaToneDisplay : UserControl
             QuotaTone.Unavailable => "Unavailable",
             _ => "Healthy",
         }, false);
+        if (ThemeBrushResolver.TryResolve(this, ThemeResourceKeyPolicy.Quota(Tone)) is { } brush)
+        {
+            PercentTextBlock.Foreground = brush;
+        }
         ThemeDebugTelemetry.LogQuota(
             "tone-state",
             this,

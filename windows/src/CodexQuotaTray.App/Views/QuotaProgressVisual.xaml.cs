@@ -60,6 +60,10 @@ public sealed partial class QuotaProgressVisual : UserControl
             QuotaTone.Unavailable => "Unavailable",
             _ => "Healthy",
         }, false);
+        if (ThemeBrushResolver.TryResolve(this, ThemeResourceKeyPolicy.Quota(Tone)) is { } brush)
+        {
+            Indicator.Background = brush;
+        }
         ThemeDebugTelemetry.LogQuota(
             "indicator-state",
             this,
