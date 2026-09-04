@@ -17,13 +17,22 @@
     <None Include="..\..\scripts\publish-winui.ps1" Link="Scripts\publish-winui.ps1" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Themes\Colors.xaml" Link="Themes\Colors.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Themes\Controls.xaml" Link="Themes\Controls.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Converters.cs" Link="Converters.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\MainWindow.xaml" Link="Views\MainWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\MainWindow.xaml.cs" Link="Views\MainWindow.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\QuotaView.xaml" Link="Views\QuotaView.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Views\QuotaView.xaml.cs" Link="Views\QuotaView.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Views\QuotaToneDisplay.xaml" Link="Views\QuotaToneDisplay.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Views\QuotaToneDisplay.xaml.cs" Link="Views\QuotaToneDisplay.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Views\QuotaProgressVisual.xaml" Link="Views\QuotaProgressVisual.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Views\QuotaProgressVisual.xaml.cs" Link="Views\QuotaProgressVisual.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Views\ReleaseNotesMarkdownRenderer.cs" Link="Views\ReleaseNotesMarkdownRenderer.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\SettingsWindow.xaml" Link="Views\SettingsWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\SettingsWindow.xaml.cs" Link="Views\SettingsWindow.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\TokenUsageView.xaml" Link="Views\TokenUsageView.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\TokenUsageView.xaml.cs" Link="Views\TokenUsageView.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Views\ThemeAwareHeatmapCell.xaml" Link="Views\ThemeAwareHeatmapCell.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Views\ThemeAwareHeatmapCell.xaml.cs" Link="Views\ThemeAwareHeatmapCell.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\HeatmapTooltipWindow.xaml" Link="Views\HeatmapTooltipWindow.xaml" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Views\HeatmapTooltipWindow.xaml.cs" Link="Views\HeatmapTooltipWindow.xaml.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Interop\NativeMethods.cs" Link="Interop\NativeMethods.cs" CopyToOutputDirectory="PreserveNewest" />
@@ -36,11 +45,14 @@
     <None Include="..\..\src\CodexQuotaTray.App\Services\TrayNotificationSink.cs" Link="Services\TrayNotificationSink.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\WindowsAppNotificationService.cs" Link="Services\WindowsAppNotificationService.cs" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\src\CodexQuotaTray.App\Services\TrayIconService.cs" Link="Services\TrayIconService.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Services\ThemeBrushResolver.cs" Link="Services\ThemeBrushResolver.cs" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\CodexQuotaTray.App\Services\ThemeDebugTelemetry.cs" Link="Services\ThemeDebugTelemetry.cs" CopyToOutputDirectory="PreserveNewest" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\QuotaNotificationFormatter.cs" Link="Services\QuotaNotificationFormatter.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\NotificationDeliveryRouter.cs" Link="Services\NotificationDeliveryRouter.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\NotificationDeliveryDiagnostics.cs" Link="Services\NotificationDeliveryDiagnostics.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\SessionEndingPolicy.cs" Link="Services\SessionEndingPolicy.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\FirstPresentationGate.cs" Link="Services\FirstPresentationGate.cs" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Services\ThemeResourceKeyPolicy.cs" Link="Services\ThemeResourceKeyPolicy.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TrayBalloonAttemptGate.cs" Link="Services\TrayBalloonAttemptGate.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\TokenUsageCacheSettingsState.cs" Link="Services\TokenUsageCacheSettingsState.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\WindowsUpdateInstaller.cs" Link="Services\WindowsUpdateInstaller.cs" />

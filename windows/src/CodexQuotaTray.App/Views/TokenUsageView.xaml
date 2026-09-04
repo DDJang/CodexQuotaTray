@@ -3,10 +3,10 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:CodexQuotaTray.App"
-    xmlns:presentation="using:CodexQuotaTray.Core.Presentation">
+    xmlns:presentation="using:CodexQuotaTray.Core.Presentation"
+    xmlns:views="using:CodexQuotaTray.App.Views">
     <UserControl.Resources>
         <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
-        <local:TokenHeatmapBrushConverter x:Key="TokenHeatmapBrushConverter" />
     </UserControl.Resources>
 
     <Grid x:Name="TokenUsageRoot" Margin="0,0,0,14">
@@ -82,22 +82,12 @@
                         </ItemsRepeater.Layout>
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate x:DataType="presentation:TokenHeatmapCell">
-                                <Border
+                                <views:ThemeAwareHeatmapCell
+                                    x:Name="HeatmapCell"
                                     Width="17"
                                     Height="17"
-                                    Background="{Binding Bucket, Converter={StaticResource TokenHeatmapBrushConverter}}"
-                                    BorderThickness="0"
-                                    CenterPoint="8.5,8.5,0"
-                                    CornerRadius="2"
-                                    Scale="1,1,1"
-                                    AutomationProperties.Name="{Binding AutomationText}">
-                                    <Border.ScaleTransition>
-                                        <Vector3Transition Duration="0:0:0.08" />
-                                    </Border.ScaleTransition>
-                                    <Border.TranslationTransition>
-                                        <Vector3Transition Duration="0:0:0.08" />
-                                    </Border.TranslationTransition>
-                                </Border>
+                                    Bucket="{Binding Bucket}"
+                                    AutomationProperties.Name="{Binding AutomationText}" />
                             </DataTemplate>
                         </ItemsRepeater.ItemTemplate>
                     </ItemsRepeater>

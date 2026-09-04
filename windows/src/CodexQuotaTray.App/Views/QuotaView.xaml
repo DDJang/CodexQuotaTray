@@ -7,7 +7,6 @@
     xmlns:views="using:CodexQuotaTray.App.Views">
     <UserControl.Resources>
         <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
-        <local:QuotaToneBrushConverter x:Key="QuotaToneBrushConverter" />
     </UserControl.Resources>
 
     <Grid RowSpacing="10">
@@ -41,21 +40,20 @@
                     BorderThickness="1"
                     CornerRadius="{StaticResource QuotaCornerRadius}"
                     Visibility="{Binding HasWindows, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <ItemsRepeater ItemsSource="{Binding Windows}">
+                    <ItemsRepeater x:Name="QuotaWindowsRepeater" ItemsSource="{Binding Windows}">
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate x:DataType="core:QuotaWindowItemViewModel">
                                 <StackPanel Padding="0,11" Spacing="8">
                                     <Grid>
                                         <TextBlock Style="{StaticResource QuotaNameTextStyle}" Text="{Binding Name}" />
-                                        <TextBlock
-                                            HorizontalAlignment="Right"
-                                            Foreground="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}"
-                                            Style="{StaticResource QuotaPercentTextStyle}"
-                                            Text="{Binding PercentText}" />
+                                        <views:QuotaToneDisplay
+                                            PercentStyle="{StaticResource QuotaPercentTextStyle}"
+                                            PercentText="{Binding PercentText}"
+                                            Tone="{Binding Tone}" />
                                     </Grid>
                                     <views:QuotaProgressVisual
-                                        Value="{Binding DisplayPercent}"
-                                        IndicatorBrush="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}" />
+                                        Tone="{Binding Tone}"
+                                        Value="{Binding DisplayPercent}" />
                                     <Grid ColumnSpacing="4">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />

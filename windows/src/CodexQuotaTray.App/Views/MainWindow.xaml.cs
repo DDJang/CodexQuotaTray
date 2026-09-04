@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Drawing;
 using System.Numerics;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.Core.Presentation;
@@ -32,6 +34,7 @@ public sealed partial class MainWindow : Window
     private readonly FirstPresentationGate firstPresentation = new();
     private readonly CancellationTokenSource presentationLifetime = new();
     private readonly UISettings uiSettings = new();
+    private readonly AccessibilitySettings accessibilitySettings;
     private readonly AppWindow appWindow;
     private readonly IntPtr hwnd;
     private readonly bool initiallyCloaked;
@@ -47,6 +50,9 @@ public sealed partial class MainWindow : Window
     private bool firstShowRequestedLogged;
     private Stopwatch? firstPresentationStopwatch;
     private string? queuedPositionTelemetryStage;
+    private bool highContrastMonitoringStarted;
+    private bool highContrastMonitoringUnavailable;
+    private bool themeRefreshQueued;
 #if DEBUG
     private readonly List<string> firstPresentationTiming = [];
 #endif
@@ -61,8 +67,11 @@ public sealed partial class MainWindow : Window
         hwnd = WindowNative.GetWindowHandle(this);
         initiallyCloaked = SetFirstPresentationCloaked(true);
         ContentRoot.DataContext = viewModel;
+        viewModel.PropertyChanged += OnMainViewModelPropertyChanged;
+        tokenUsageViewModel.PropertyChanged += OnTokenUsageViewModelPropertyChanged;
         quotaView = new QuotaView();
         QuotaPageHost.Children.Add(quotaView);
+        accessibilitySettings = new AccessibilitySettings();
         quotaView.ContentBottomBoundary.SizeChanged += (_, _) =>
         {
             if (!pageTransitionRunning)
@@ -91,17 +100,21 @@ public sealed partial class MainWindow : Window
         ContentRoot.ActualThemeChanged += (_, _) =>
         {
             UpdateTabSelectionVisuals();
-            if (visibility.DesiredVisible)
-            {
-                ApplyBackdrop();
-            }
+            QueueThemeRefresh("actual-theme-changed");
         };
+        ContentRoot.Loaded += OnContentRootLoaded;
+        if (ContentRoot.IsLoaded)
+        {
+            _ = ContentRoot.DispatcherQueue.TryEnqueue(
+                () => OnContentRootLoaded(ContentRoot, new RoutedEventArgs()));
+        }
         if (!uiSettings.AnimationsEnabled)
         {
             TabSelectionPill.TranslationTransition = null;
         }
 
         UpdateTabSelectionVisuals();
+        LogThemeState("constructed");
     }
 
     internal void ConfigureWindow()
@@ -184,6 +197,13 @@ public sealed partial class MainWindow : Window
         Interlocked.Increment(ref pageTransitionRevision);
         tokenUsageView?.ResetHeatmapInteraction();
         tokenUsageView?.Dispose();
+        viewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
+        tokenUsageViewModel.PropertyChanged -= OnTokenUsageViewModelPropertyChanged;
+        if (highContrastMonitoringStarted)
+        {
+            accessibilitySettings.HighContrastChanged -= OnHighContrastChanged;
+            highContrastMonitoringStarted = false;
+        }
         visibility.Hide();
         TryHideForExit();
         backdrop.Dispose();
@@ -513,10 +533,7 @@ public sealed partial class MainWindow : Window
             appWindow,
             mode == ThemeMode.Dark
                 || mode == ThemeMode.System && ContentRoot.ActualTheme == ElementTheme.Dark);
-        if (visibility.DesiredVisible)
-        {
-            ApplyBackdrop();
-        }
+        QueueThemeRefresh("apply-theme");
     }
 
     private void QueuePositionIfVisible(bool forceResize = false)
@@ -866,6 +883,7 @@ public sealed partial class MainWindow : Window
     {
         HeaderStatusText.DataContext = showingTokenPage ? tokenUsageViewModel : viewModel;
         RefreshButton.DataContext = showingTokenPage ? tokenUsageViewModel : viewModel;
+        ApplyStatusToneVisualState();
         var refreshName = showingTokenPage ? "刷新统计" : "刷新额度";
         ToolTipService.SetToolTip(RefreshButton, refreshName);
         AutomationProperties.SetName(RefreshButton, refreshName);
@@ -897,16 +915,132 @@ public sealed partial class MainWindow : Window
         TabSelectionPill.Translation = new Vector3(showingTokenPage ? tokenOffset : 0f, 0f, 0f);
     }
 
-    private static Brush ResolveThemeBrush(string key) => (Brush)Application.Current.Resources[key];
-
     private void ApplyBackdrop()
     {
         var selected = backdrop.Apply(this);
-        PanelSurface.Background = ResolveThemeBrush(
-            selected == CodexQuotaTray.Core.Models.BackdropKind.Opaque
-                ? "MainWindowOpaqueSurfaceBrush"
-                : "MainWindowSurfaceBrush");
+        var key = ThemeResourceKeyPolicy.PanelSurface(selected);
+        if (PanelSurface.IsLoaded
+            && ThemeBrushResolver.TryResolve(PanelSurface, key) is { } brush)
+        {
+            PanelSurface.Background = brush;
+        }
     }
+
+    private void OnContentRootLoaded(object sender, RoutedEventArgs args)
+    {
+        EnsureHighContrastMonitoring();
+        QueueThemeRefresh("loaded");
+    }
+
+    private void EnsureHighContrastMonitoring()
+    {
+        if (highContrastMonitoringStarted || highContrastMonitoringUnavailable)
+        {
+            return;
+        }
+
+        try
+        {
+            accessibilitySettings.HighContrastChanged += OnHighContrastChanged;
+            highContrastMonitoringStarted = true;
+        }
+        catch (COMException)
+        {
+            highContrastMonitoringUnavailable = true;
+        }
+    }
+
+    private void QueueThemeRefresh(string stage)
+    {
+        if (themeRefreshQueued || exiting)
+        {
+            return;
+        }
+
+        themeRefreshQueued = true;
+        if (!ContentRoot.DispatcherQueue.TryEnqueue(() =>
+        {
+            themeRefreshQueued = false;
+            EnsureHighContrastMonitoring();
+            ApplyStatusToneVisualState();
+            if (visibility.DesiredVisible)
+            {
+                ApplyBackdrop();
+            }
+
+            LogThemeState(stage);
+        }))
+        {
+            themeRefreshQueued = false;
+        }
+    }
+
+    private void OnHighContrastChanged(AccessibilitySettings sender, object args)
+    {
+        quotaView.RefreshTheme();
+        tokenUsageView?.RefreshTheme(accessibilitySettings.HighContrast);
+        ApplyStatusToneVisualState();
+        if (visibility.DesiredVisible)
+        {
+            ApplyBackdrop();
+        }
+
+        LogThemeState("high-contrast-changed");
+    }
+
+    private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(MainViewModel.StatusTone) or null)
+        {
+            ApplyStatusToneVisualState();
+        }
+    }
+
+    private void OnTokenUsageViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (showingTokenPage && (args.PropertyName is nameof(TokenUsageViewModel.StatusTone) or null))
+        {
+            ApplyStatusToneVisualState();
+        }
+    }
+
+    private void ApplyStatusToneVisualState()
+    {
+        if (HeaderDragRegion is null)
+        {
+            return;
+        }
+
+        var tone = showingTokenPage
+            ? tokenUsageViewModel.StatusTone
+            : viewModel.StatusTone;
+        var key = ThemeResourceKeyPolicy.Status(tone);
+        if (ContentRoot.IsLoaded
+            && ThemeBrushResolver.TryResolve(HeaderStatusText, key) is { } brush)
+        {
+            HeaderStatusText.Foreground = brush;
+        }
+        ThemeDebugTelemetry.LogMainWindow(
+            "status-state",
+            ContentRoot,
+            quotaView,
+            tokenUsageView,
+            PanelSurface.Background,
+            HeaderStatusText.Foreground,
+            key);
+    }
+
+    [Conditional("DEBUG")]
+    private void LogThemeState(string stage) => ThemeDebugTelemetry.LogMainWindow(
+        stage,
+        ContentRoot,
+        quotaView,
+        tokenUsageView,
+        PanelSurface.Background,
+        HeaderStatusText.Foreground,
+        ThemeResourceKeyPolicy.Status(showingTokenPage
+            ? tokenUsageViewModel.StatusTone
+            : viewModel.StatusTone));
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {

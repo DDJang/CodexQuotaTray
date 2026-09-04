@@ -1,4 +1,6 @@
 using System.Xml.Linq;
+using CodexQuotaTray.App.Services;
+using CodexQuotaTray.Core.Models;
 using CodexQuotaTray.Core.Presentation;
 
 namespace CodexQuotaTray.Tests;
@@ -41,6 +43,168 @@ public sealed class PrivacyAndThemeTests
         Assert.IsTrue(dictionaries["Light"].Contains("TertiaryTextBrush"));
         CollectionAssert.AreEquivalent(dictionaries["Light"].ToArray(), dictionaries["Dark"].ToArray());
         CollectionAssert.AreEquivalent(dictionaries["Light"].ToArray(), dictionaries["HighContrast"].ToArray());
+    }
+
+    [TestMethod]
+    public void ThemeResourceKeyPolicyMapsEverySemanticToneBucketAndBackdrop()
+    {
+        var quotaKeys = new Dictionary<QuotaTone, string>
+        {
+            [QuotaTone.Accent] = "HealthyQuotaBrush",
+            [QuotaTone.Warning] = "WarningQuotaBrush",
+            [QuotaTone.Critical] = "CriticalQuotaBrush",
+            [QuotaTone.Unavailable] = "UnavailableQuotaBrush",
+        };
+        var statusKeys = new Dictionary<StatusTone, string>
+        {
+            [StatusTone.Success] = "SuccessStatusBrush",
+            [StatusTone.Refreshing] = "RefreshingStatusBrush",
+            [StatusTone.Warning] = "WarningStatusBrush",
+            [StatusTone.Error] = "ErrorStatusBrush",
+            [StatusTone.Neutral] = "NeutralStatusBrush",
+        };
+
+        foreach (var (tone, expectedKey) in quotaKeys)
+        {
+            Assert.AreEqual(expectedKey, ThemeResourceKeyPolicy.Quota(tone));
+        }
+
+        foreach (var (tone, expectedKey) in statusKeys)
+        {
+            Assert.AreEqual(expectedKey, ThemeResourceKeyPolicy.Status(tone));
+        }
+
+        for (var bucket = -2; bucket <= 6; bucket++)
+        {
+            var clampedBucket = Math.Clamp(bucket, 0, 4);
+            Assert.AreEqual($"TokenHeatmap{clampedBucket}Brush", ThemeResourceKeyPolicy.Heatmap(bucket));
+        }
+
+        Assert.AreEqual(
+            "MainWindowSurfaceBrush",
+            ThemeResourceKeyPolicy.PanelSurface(BackdropKind.DesktopAcrylic));
+        Assert.AreEqual("MainWindowSurfaceBrush", ThemeResourceKeyPolicy.PanelSurface(BackdropKind.Mica));
+        Assert.AreEqual(
+            "MainWindowOpaqueSurfaceBrush",
+            ThemeResourceKeyPolicy.PanelSurface(BackdropKind.Opaque));
+    }
+
+    [TestMethod]
+    public void ThemeResourceKeyPolicyUsesActiveThemeThenLightFallbackAndHandlesMissingKeys()
+    {
+        var dictionaries = new Dictionary<ThemeResourceScope, IReadOnlyDictionary<string, string>>
+        {
+            [ThemeResourceScope.Light] = new Dictionary<string, string>
+            {
+                ["HealthyQuotaBrush"] = "light-healthy",
+                ["WarningQuotaBrush"] = "light-warning",
+                ["LightOnlyBrush"] = "light-only",
+            },
+            [ThemeResourceScope.Dark] = new Dictionary<string, string>
+            {
+                ["HealthyQuotaBrush"] = "dark-healthy",
+                ["WarningQuotaBrush"] = "dark-warning",
+            },
+            [ThemeResourceScope.HighContrast] = new Dictionary<string, string>
+            {
+                ["HealthyQuotaBrush"] = "high-contrast-healthy",
+            },
+        };
+
+        Assert.AreEqual(ThemeResourceScope.Light, ThemeResourceKeyPolicy.Scope(false, false));
+        Assert.AreEqual(ThemeResourceScope.Dark, ThemeResourceKeyPolicy.Scope(false, true));
+        Assert.AreEqual(ThemeResourceScope.HighContrast, ThemeResourceKeyPolicy.Scope(true, false));
+        Assert.AreEqual(ThemeResourceScope.HighContrast, ThemeResourceKeyPolicy.Scope(true, true));
+
+        Assert.IsTrue(
+            ThemeResourceKeyPolicy.TryResolve(
+                "HealthyQuotaBrush",
+                ThemeResourceScope.Dark,
+                dictionaries,
+                out var darkHealthy));
+        Assert.AreEqual("dark-healthy", darkHealthy);
+
+        Assert.IsTrue(
+            ThemeResourceKeyPolicy.TryResolve(
+                "HealthyQuotaBrush",
+                ThemeResourceScope.HighContrast,
+                dictionaries,
+                out var highContrastHealthy));
+        Assert.AreEqual("high-contrast-healthy", highContrastHealthy);
+
+        Assert.IsTrue(
+            ThemeResourceKeyPolicy.TryResolve(
+                "WarningQuotaBrush",
+                ThemeResourceScope.HighContrast,
+                dictionaries,
+                out var highContrastWarning));
+        Assert.AreEqual("light-warning", highContrastWarning);
+
+        Assert.IsTrue(
+            ThemeResourceKeyPolicy.TryResolve(
+                "LightOnlyBrush",
+                ThemeResourceScope.Dark,
+                dictionaries,
+                out var darkFallback));
+        Assert.AreEqual("light-only", darkFallback);
+
+        Assert.IsFalse(
+            ThemeResourceKeyPolicy.TryResolve(
+                "MissingBrush",
+                ThemeResourceScope.HighContrast,
+                dictionaries,
+                out _));
+    }
+
+    [TestMethod]
+    public void ThemeBrushBindingsAreScopedAndRefreshWhenActualThemeChanges()
+    {
+        var mainWindow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml"));
+        var mainWindowCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var quota = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaView.xaml"));
+        var quotaCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaView.xaml.cs"));
+        var quotaDisplay = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaToneDisplay.xaml"));
+        var quotaProgress = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "QuotaProgressVisual.xaml"));
+        var tokenUsage = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml"));
+        var tokenUsageCode = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml.cs"));
+        var heatmapCell = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "ThemeAwareHeatmapCell.xaml"));
+        var releaseNotes = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "ReleaseNotesMarkdownRenderer.cs"));
+        var themeResolver = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Services", "ThemeBrushResolver.cs"));
+        var converters = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Converters.cs"));
+
+        Assert.IsFalse(mainWindowCode.Contains("Application.Current.Resources", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsageCode.Contains("Application.Current.Resources", StringComparison.Ordinal));
+        Assert.IsFalse(releaseNotes.Contains("Application.Current.Resources", StringComparison.Ordinal));
+        Assert.IsFalse(converters.Contains("BrushConverter", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindow, "Background=\"{ThemeResource MainWindowSurfaceBrush}\"");
+        StringAssert.Contains(mainWindow, "Foreground=\"{ThemeResource NeutralStatusBrush}\"");
+        StringAssert.Contains(mainWindowCode, "ContentRoot.ActualThemeChanged");
+        StringAssert.Contains(mainWindowCode, "accessibilitySettings.HighContrastChanged");
+        StringAssert.Contains(mainWindowCode, "ContentRoot.Loaded += OnContentRootLoaded;");
+        StringAssert.Contains(mainWindowCode, "QueueThemeRefresh(\"loaded\")");
+        StringAssert.Contains(mainWindowCode, "ApplyStatusToneVisualState();");
+        StringAssert.Contains(mainWindowCode, "ThemeBrushResolver.TryResolve(PanelSurface, key)");
+        StringAssert.Contains(mainWindowCode, "ThemeBrushResolver.TryResolve(HeaderStatusText, key)");
+        StringAssert.Contains(quota, "<views:QuotaToneDisplay");
+        StringAssert.Contains(quota, "<views:QuotaProgressVisual");
+        StringAssert.Contains(quotaCode, "internal void RefreshTheme()");
+        StringAssert.Contains(quotaCode, "display.RefreshTheme();");
+        StringAssert.Contains(quotaCode, "progress.RefreshTheme();");
+        StringAssert.Contains(quotaDisplay, "HealthyQuotaBrush");
+        StringAssert.Contains(quotaDisplay, "WarningQuotaBrush");
+        StringAssert.Contains(quotaDisplay, "CriticalQuotaBrush");
+        StringAssert.Contains(quotaDisplay, "UnavailableQuotaBrush");
+        StringAssert.Contains(quotaProgress, "VisualStateManager.VisualStateGroups");
+        StringAssert.Contains(tokenUsage, "ThemeAwareHeatmapCell");
+        StringAssert.Contains(tokenUsageCode, "TokenUsageRoot.ActualThemeChanged");
+        StringAssert.Contains(tokenUsageCode, "internal void RefreshTheme(bool isHighContrast)");
+        StringAssert.Contains(tokenUsageCode, "cell.RefreshTheme(isHighContrast);");
+        StringAssert.Contains(heatmapCell, "TokenHeatmap0Brush");
+        StringAssert.Contains(heatmapCell, "TokenHeatmap4Brush");
+        StringAssert.Contains(heatmapCell, "TokenHeatmapEmptyCellHighlightBrush");
+        StringAssert.Contains(releaseNotes, "ThemeBrushResolver.TryResolve(themeScope, key)");
+        StringAssert.Contains(releaseNotes, "panel.ActualThemeChanged");
+        StringAssert.Contains(themeResolver, "element.ActualTheme == ElementTheme.Dark");
     }
 
     [TestMethod]
@@ -154,7 +318,8 @@ public sealed class PrivacyAndThemeTests
         Assert.IsFalse(tokenUsage.Contains("SharedHeatmapTooltip", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsage.Contains("SystemBackdropElement", StringComparison.Ordinal));
         Assert.IsFalse(tokenUsage.Contains("AcrylicBrush", StringComparison.Ordinal));
-        StringAssert.Contains(tokenUsage, "Vector3Transition Duration=\"0:0:0.08\"");
+        var heatmapCell = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "ThemeAwareHeatmapCell.xaml"));
+        StringAssert.Contains(heatmapCell, "Vector3Transition Duration=\"0:0:0.08\"");
         Assert.IsFalse(tokenUsage.Contains("ToolTipService.ToolTip", StringComparison.Ordinal));
         StringAssert.Contains(tooltipWindow, "x:Class=\"CodexQuotaTray.App.Views.HeatmapTooltipWindow\"");
         StringAssert.Contains(tooltipWindow, "Width=\"176\"");
@@ -170,7 +335,7 @@ public sealed class PrivacyAndThemeTests
         Assert.IsFalse(tooltipWindow.Contains("AcrylicBrush", StringComparison.Ordinal));
         StringAssert.Contains(tokenUsageCode, "TokenHeatmapInteraction.SelectedScale");
         StringAssert.Contains(tokenUsageCode, "new Vector3(TokenHeatmapInteraction.SelectedScale");
-        StringAssert.Contains(tokenUsageCode, "CreateHeatmapHighlightBrush(cell.Background, isEmptyCell)");
+        StringAssert.Contains(tokenUsageCode, "CreateHeatmapHighlightBrush(cell.EffectiveBackground, isEmptyCell)");
         StringAssert.Contains(tokenUsageCode, "new Thickness(isEmptyCell ? 1.5 : 1)");
         StringAssert.Contains(tokenUsageCode, "cell.Shadow = new ThemeShadow()");
         StringAssert.Contains(mainWindowCode, "tokenUsageView?.ResetHeatmapInteraction()");

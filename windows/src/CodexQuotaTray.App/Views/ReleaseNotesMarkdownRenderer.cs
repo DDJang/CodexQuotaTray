@@ -1,4 +1,5 @@
 using CodexQuotaTray.Core.Updates;
+using CodexQuotaTray.App.Services;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -12,34 +13,69 @@ internal static class ReleaseNotesMarkdownRenderer
     internal static FrameworkElement Create(string markdown)
     {
         var panel = new StackPanel { Spacing = 6 };
+        var themeBindings = new List<Action>();
         foreach (var block in ReleaseNotesMarkdown.Parse(markdown))
         {
-            panel.Children.Add(CreateBlock(block));
+            panel.Children.Add(CreateBlock(block, panel, themeBindings));
         }
 
+        void ApplyThemeBindings()
+        {
+            foreach (var apply in themeBindings)
+            {
+                apply();
+            }
+        }
+
+        panel.Loaded += (_, _) => ApplyThemeBindings();
+        panel.ActualThemeChanged += (_, _) => ApplyThemeBindings();
+        if (panel.IsLoaded)
+        {
+            ApplyThemeBindings();
+        }
         return panel;
     }
 
-    private static FrameworkElement CreateBlock(ReleaseNotesBlock block) => block.Kind switch
+    private static FrameworkElement CreateBlock(
+        ReleaseNotesBlock block,
+        FrameworkElement themeScope,
+        ICollection<Action> themeBindings) => block.Kind switch
+        {
+            ReleaseNotesBlockKind.Heading => CreateRichText(block, block.Level switch
+            {
+                1 => 19,
+                2 => 17,
+                _ => 15,
+            }, emphasized: true),
+            ReleaseNotesBlockKind.UnorderedListItem => CreateRichText(block, 14, emphasized: false, prefix: "• "),
+            ReleaseNotesBlockKind.OrderedListItem => CreateRichText(block, 14, emphasized: false, prefix: $"{block.ListIndex}. "),
+            ReleaseNotesBlockKind.Quote => CreateQuote(block, themeScope, themeBindings),
+            ReleaseNotesBlockKind.CodeBlock => CreateCodeBlock(block, themeScope, themeBindings),
+            _ => CreateRichText(block, 14, emphasized: false),
+        };
+
+    private static Border CreateQuote(
+        ReleaseNotesBlock block,
+        FrameworkElement themeScope,
+        ICollection<Action> themeBindings)
     {
-        ReleaseNotesBlockKind.Heading => CreateRichText(block, block.Level switch
+        var quote = new Border
         {
-            1 => 19,
-            2 => 17,
-            _ => 15,
-        }, emphasized: true),
-        ReleaseNotesBlockKind.UnorderedListItem => CreateRichText(block, 14, emphasized: false, prefix: "• "),
-        ReleaseNotesBlockKind.OrderedListItem => CreateRichText(block, 14, emphasized: false, prefix: $"{block.ListIndex}. "),
-        ReleaseNotesBlockKind.Quote => new Border
-        {
-            BorderBrush = ResourceBrush("SettingsCardBorderBrush"),
             BorderThickness = new Thickness(3, 0, 0, 0),
             Padding = new Thickness(8, 0, 0, 0),
             Child = CreateRichText(block, 14, emphasized: false),
-        },
-        ReleaseNotesBlockKind.CodeBlock => new Border
+        };
+        BindThemeBrush(themeScope, themeBindings, "SettingsCardBorderBrush", brush => quote.BorderBrush = brush);
+        return quote;
+    }
+
+    private static Border CreateCodeBlock(
+        ReleaseNotesBlock block,
+        FrameworkElement themeScope,
+        ICollection<Action> themeBindings)
+    {
+        var code = new Border
         {
-            Background = ResourceBrush("SettingsCardSurfaceBrush"),
             CornerRadius = new CornerRadius(5),
             Padding = new Thickness(10, 8, 10, 8),
             Child = new TextBlock
@@ -50,9 +86,24 @@ internal static class ReleaseNotesMarkdownRenderer
                 TextWrapping = TextWrapping.Wrap,
                 IsTextSelectionEnabled = true,
             },
-        },
-        _ => CreateRichText(block, 14, emphasized: false),
-    };
+        };
+        BindThemeBrush(themeScope, themeBindings, "SettingsCardSurfaceBrush", brush => code.Background = brush);
+        return code;
+    }
+
+    private static void BindThemeBrush(
+        FrameworkElement themeScope,
+        ICollection<Action> themeBindings,
+        string key,
+        Action<Brush?> apply)
+    {
+        void Apply() => apply(ThemeBrushResolver.TryResolve(themeScope, key));
+        themeBindings.Add(Apply);
+        if (themeScope.IsLoaded)
+        {
+            Apply();
+        }
+    }
 
     private static RichTextBlock CreateRichText(
         ReleaseNotesBlock block,
@@ -128,6 +179,4 @@ internal static class ReleaseNotesMarkdownRenderer
         return false;
     }
 
-    private static Brush? ResourceBrush(string key) =>
-        Application.Current.Resources.TryGetValue(key, out var value) ? value as Brush : null;
 }
