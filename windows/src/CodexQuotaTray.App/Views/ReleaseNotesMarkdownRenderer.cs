@@ -97,7 +97,14 @@ internal static class ReleaseNotesMarkdownRenderer
         string key,
         Action<Brush?> apply)
     {
-        void Apply() => apply(ThemeBrushResolver.TryResolve(themeScope, key));
+        void Apply()
+        {
+            if (ThemeBrushResolver.TryResolve(themeScope, key) is { } brush)
+            {
+                apply(brush);
+            }
+        }
+
         themeBindings.Add(Apply);
         if (themeScope.IsLoaded)
         {

@@ -3,7 +3,6 @@ using System.Globalization;
 using System.Drawing;
 using System.Numerics;
 using System.ComponentModel;
-using System.Runtime.InteropServices;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.Core.Presentation;
@@ -50,8 +49,6 @@ public sealed partial class MainWindow : Window
     private bool firstShowRequestedLogged;
     private Stopwatch? firstPresentationStopwatch;
     private string? queuedPositionTelemetryStage;
-    private bool highContrastMonitoringStarted;
-    private bool highContrastMonitoringUnavailable;
     private bool themeRefreshQueued;
 #if DEBUG
     private readonly List<string> firstPresentationTiming = [];
@@ -199,11 +196,6 @@ public sealed partial class MainWindow : Window
         tokenUsageView?.Dispose();
         viewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
         tokenUsageViewModel.PropertyChanged -= OnTokenUsageViewModelPropertyChanged;
-        if (highContrastMonitoringStarted)
-        {
-            accessibilitySettings.HighContrastChanged -= OnHighContrastChanged;
-            highContrastMonitoringStarted = false;
-        }
         visibility.Hide();
         TryHideForExit();
         backdrop.Dispose();
@@ -928,26 +920,28 @@ public sealed partial class MainWindow : Window
 
     private void OnContentRootLoaded(object sender, RoutedEventArgs args)
     {
-        EnsureHighContrastMonitoring();
         QueueThemeRefresh("loaded");
     }
 
-    private void EnsureHighContrastMonitoring()
+    internal void RefreshSystemTheme()
     {
-        if (highContrastMonitoringStarted || highContrastMonitoringUnavailable)
+        if (exiting)
         {
             return;
         }
 
-        try
+        UpdateTabSelectionVisuals();
+        quotaView.RefreshTheme();
+        tokenUsageView?.RefreshTheme(accessibilitySettings.HighContrast);
+        ApplyStatusToneVisualState();
+        if (visibility.DesiredVisible)
         {
-            accessibilitySettings.HighContrastChanged += OnHighContrastChanged;
-            highContrastMonitoringStarted = true;
+            ApplyBackdrop();
         }
-        catch (COMException)
-        {
-            highContrastMonitoringUnavailable = true;
-        }
+
+        _ = WindowIconService.TrySetIcon(appWindow, ContentRoot.ActualTheme == ElementTheme.Dark);
+        LogThemeState("system-theme-changed");
+        QueueThemeRefresh("system-theme-settled");
     }
 
     private void QueueThemeRefresh(string stage)
@@ -961,7 +955,6 @@ public sealed partial class MainWindow : Window
         if (!ContentRoot.DispatcherQueue.TryEnqueue(() =>
         {
             themeRefreshQueued = false;
-            EnsureHighContrastMonitoring();
             ApplyStatusToneVisualState();
             if (visibility.DesiredVisible)
             {
@@ -973,19 +966,6 @@ public sealed partial class MainWindow : Window
         {
             themeRefreshQueued = false;
         }
-    }
-
-    private void OnHighContrastChanged(AccessibilitySettings sender, object args)
-    {
-        quotaView.RefreshTheme();
-        tokenUsageView?.RefreshTheme(accessibilitySettings.HighContrast);
-        ApplyStatusToneVisualState();
-        if (visibility.DesiredVisible)
-        {
-            ApplyBackdrop();
-        }
-
-        LogThemeState("high-contrast-changed");
     }
 
     private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)

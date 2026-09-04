@@ -132,13 +132,12 @@ public sealed class PrivacyAndThemeTests
                 out var highContrastHealthy));
         Assert.AreEqual("high-contrast-healthy", highContrastHealthy);
 
-        Assert.IsTrue(
+        Assert.IsFalse(
             ThemeResourceKeyPolicy.TryResolve(
                 "WarningQuotaBrush",
                 ThemeResourceScope.HighContrast,
                 dictionaries,
-                out var highContrastWarning));
-        Assert.AreEqual("light-warning", highContrastWarning);
+                out _));
 
         Assert.IsTrue(
             ThemeResourceKeyPolicy.TryResolve(
@@ -179,7 +178,8 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(mainWindow, "Background=\"{ThemeResource MainWindowSurfaceBrush}\"");
         StringAssert.Contains(mainWindow, "Foreground=\"{ThemeResource NeutralStatusBrush}\"");
         StringAssert.Contains(mainWindowCode, "ContentRoot.ActualThemeChanged");
-        StringAssert.Contains(mainWindowCode, "accessibilitySettings.HighContrastChanged");
+        Assert.IsFalse(mainWindowCode.Contains("AccessibilitySettings.HighContrastChanged", StringComparison.Ordinal));
+        Assert.IsFalse(mainWindowCode.Contains("UISettings.ColorValuesChanged", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowCode, "ContentRoot.Loaded += OnContentRootLoaded;");
         StringAssert.Contains(mainWindowCode, "QueueThemeRefresh(\"loaded\")");
         StringAssert.Contains(mainWindowCode, "ApplyStatusToneVisualState();");
@@ -205,6 +205,39 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(releaseNotes, "ThemeBrushResolver.TryResolve(themeScope, key)");
         StringAssert.Contains(releaseNotes, "panel.ActualThemeChanged");
         StringAssert.Contains(themeResolver, "element.ActualTheme == ElementTheme.Dark");
+        StringAssert.Contains(themeResolver, "scope == ThemeResourceScope.HighContrast");
+    }
+
+    [TestMethod]
+    public void DesktopThemeRefreshUsesBroadcastWindowAndUiDispatcherWithoutUnsupportedEvents()
+    {
+        var app = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "App.xaml.cs"));
+        var mainWindow = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var tokenUsage = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml.cs"));
+        var tray = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Services", "TrayIconService.cs"));
+        var native = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Interop", "NativeMethods.cs"));
+
+        Assert.IsFalse(app.Contains("AccessibilitySettings.HighContrastChanged", StringComparison.Ordinal));
+        Assert.IsFalse(app.Contains("UISettings.ColorValuesChanged", StringComparison.Ordinal));
+        Assert.IsFalse(mainWindow.Contains("AccessibilitySettings.HighContrastChanged", StringComparison.Ordinal));
+        Assert.IsFalse(mainWindow.Contains("UISettings.ColorValuesChanged", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsage.Contains("AccessibilitySettings.HighContrastChanged", StringComparison.Ordinal));
+        Assert.IsFalse(tokenUsage.Contains("UISettings.ColorValuesChanged", StringComparison.Ordinal));
+        Assert.IsFalse(tray.Contains("AccessibilitySettings.HighContrastChanged", StringComparison.Ordinal));
+        Assert.IsFalse(tray.Contains("UISettings.ColorValuesChanged", StringComparison.Ordinal));
+        StringAssert.Contains(app, "mainWindow.RefreshSystemTheme");
+        StringAssert.Contains(mainWindow, "internal void RefreshSystemTheme()");
+        StringAssert.Contains(mainWindow, "quotaView.RefreshTheme();");
+        StringAssert.Contains(mainWindow, "tokenUsageView?.RefreshTheme(accessibilitySettings.HighContrast);");
+        StringAssert.Contains(mainWindow, "ApplyStatusToneVisualState();");
+        StringAssert.Contains(mainWindow, "ApplyBackdrop();");
+        StringAssert.Contains(tray, "NativeMethods.WmSettingChange");
+        StringAssert.Contains(tray, "NativeMethods.WmThemeChanged");
+        StringAssert.Contains(tray, "NativeMethods.WmSysColorChange");
+        StringAssert.Contains(tray, "dispatcher.TryEnqueue(() => systemThemeChanged());");
+        StringAssert.Contains(native, "WmSettingChange = 0x001A");
+        StringAssert.Contains(native, "WmThemeChanged = 0x031A");
+        StringAssert.Contains(native, "WmSysColorChange = 0x0015");
     }
 
     [TestMethod]

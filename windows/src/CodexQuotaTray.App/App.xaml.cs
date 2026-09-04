@@ -255,6 +255,7 @@ public partial class App : Application
             mainWindow.ShowPanel,
             ShowSettings,
             () => RequestRuntimeRefresh(RefreshReason.Resume),
+            mainWindow.RefreshSystemTheme,
             () => crashSessionLog?.MarkExpectedTermination(),
             ExitApplication,
             () => runtime?.Settings.ThemeMode ?? CodexQuotaTray.Core.Persistence.ThemeMode.System,

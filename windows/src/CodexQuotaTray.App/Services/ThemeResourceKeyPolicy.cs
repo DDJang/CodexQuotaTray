@@ -55,7 +55,7 @@ public static class ThemeResourceKeyPolicy
             return true;
         }
 
-        if (scope != ThemeResourceScope.Light
+        if (scope == ThemeResourceScope.Dark
             && dictionaries.TryGetValue(ThemeResourceScope.Light, out var light)
             && light.TryGetValue(key, out value!))
         {

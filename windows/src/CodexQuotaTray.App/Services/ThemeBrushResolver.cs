@@ -23,11 +23,16 @@ internal static class ThemeBrushResolver
             return brush;
         }
 
-        if (scope != ThemeResourceScope.Light
+        if (scope == ThemeResourceScope.Dark
             && (TryResolveThemeDictionary(element.Resources, ThemeResourceScope.Light.ToString(), key, out brush)
                 || TryResolveThemeDictionary(resources, ThemeResourceScope.Light.ToString(), key, out brush)))
         {
             return brush;
+        }
+
+        if (scope == ThemeResourceScope.HighContrast)
+        {
+            return null;
         }
 
         return resources.TryGetValue(key, out var value) ? value as Brush : null;
