@@ -591,6 +591,47 @@ public sealed class AppIntegrationSourceTests
     }
 
     [TestMethod]
+    public void FirstPresentationFinalizesPositionBeforeUncloakAndReveal()
+    {
+        var mainWindow = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var readinessStart = mainWindow.IndexOf(
+            "private async Task WaitForFirstPresentationReadyAsync(",
+            StringComparison.Ordinal);
+        var readinessEnd = mainWindow.IndexOf(
+            "private Task WaitForContentLoadedAsync(",
+            readinessStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(readinessStart >= 0);
+        Assert.IsTrue(readinessEnd > readinessStart);
+        var readiness = mainWindow[readinessStart..readinessEnd];
+
+        var layoutReady = readiness.IndexOf(
+            "cancellationToken.ThrowIfCancellationRequested();",
+            StringComparison.Ordinal);
+        var finalPosition = readiness.IndexOf(
+            "Position(forceResize: true, telemetryStage: \"first-layout-ready\");",
+            layoutReady,
+            StringComparison.Ordinal);
+        var finalFlush = readiness.IndexOf(
+            "Final Position complete while cloaked",
+            finalPosition,
+            StringComparison.Ordinal);
+        Assert.IsTrue(layoutReady >= 0);
+        Assert.IsTrue(finalPosition > layoutReady);
+        Assert.IsTrue(finalFlush > finalPosition);
+
+        var gate = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "FirstPresentationGate.cs"));
+        var waitForReady = gate.IndexOf("await waitForReady", StringComparison.Ordinal);
+        var uncloak = gate.IndexOf("_ = setCloaked(false)", waitForReady, StringComparison.Ordinal);
+        var revealed = gate.IndexOf("revealed();", uncloak, StringComparison.Ordinal);
+        Assert.IsTrue(waitForReady >= 0);
+        Assert.IsTrue(uncloak > waitForReady);
+        Assert.IsTrue(revealed > uncloak);
+    }
+
+    [TestMethod]
     public void MainWindowPresentationWaitersCleanupEventsAfterReturningToTheUiContext()
     {
         var source = File.ReadAllText(

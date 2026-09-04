@@ -377,7 +377,14 @@ public sealed partial class MainWindow : Window
 
         cancellationToken.ThrowIfCancellationRequested();
         var flushResult = NativeMethods.DwmFlush();
-        TraceFirstPresentation($"DwmFlush complete hresult=0x{flushResult:X8}");
+        TraceFirstPresentation($"Layout readiness DwmFlush complete hresult=0x{flushResult:X8}");
+
+        firstPresentationLayoutReady = true;
+        TraceFirstPresentation("Final Position before uncloak");
+        Position(forceResize: true, telemetryStage: "first-layout-ready");
+        var finalPositionFlushResult = NativeMethods.DwmFlush();
+        TraceFirstPresentation(
+            $"Final Position complete while cloaked; DwmFlush hresult=0x{finalPositionFlushResult:X8}");
     }
 
     private Task WaitForContentLoadedAsync(CancellationToken cancellationToken)
