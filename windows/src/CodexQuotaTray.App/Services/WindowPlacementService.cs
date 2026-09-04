@@ -56,8 +56,7 @@ internal sealed class WindowPlacementService
             measuredContentHeightDips,
             scale,
             workArea.Height,
-            PopupPlacement.DefaultMarginDips,
-            PopupPlacement.DefaultBottomTrimPixels);
+            PopupPlacement.DefaultMarginDips);
         var requestedSize = new SizeInt32(width, height);
         if (PopupPlacement.ShouldResizeClient(
             appWindow.ClientSize.Width,

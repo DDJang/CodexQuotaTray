@@ -172,12 +172,11 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
-    public void ContentHeight_AppliesPhysicalBottomTrimAfterDpiConversion()
+    public void ContentHeight_PreservesMeasuredClientHeightAcrossDpi()
     {
-        Assert.AreEqual(268, PopupPlacement.ContentHeightPixels(286, 1, 1080, 8, 18));
-        Assert.AreEqual(340, PopupPlacement.ContentHeightPixels(286, 1.25, 1350, 8, 18));
-        Assert.AreEqual(256, PopupPlacement.ContentHeightPixels(286, 1, 1080, 8, 30));
-        Assert.AreEqual(328, PopupPlacement.ContentHeightPixels(286, 1.25, 1350, 8, 30));
+        Assert.AreEqual(420, PopupPlacement.ContentHeightPixels(420, 1, 1080));
+        Assert.AreEqual(525, PopupPlacement.ContentHeightPixels(420, 1.25, 1350));
+        Assert.AreEqual(840, PopupPlacement.ContentHeightPixels(420, 2, 2160));
     }
 
     [TestMethod]
