@@ -332,15 +332,20 @@ public sealed partial class MainWindow : Window
             tokenUsageView?.PrepareHeatmapInteraction();
         }
 
-        // The first measure can still see the hidden window's old ScrollViewer
-        // viewport. Re-measure after the window is shown so the client height is
-        // based on the actual footer boundary instead of that stale viewport.
-        QueuePositionIfVisible(forceResize: true);
     }
 
     private void OnPanelRevealed(bool raisePanelShown)
     {
-        if (raisePanelShown && !exiting && visibility.DesiredVisible)
+        if (exiting || !visibility.DesiredVisible)
+        {
+            return;
+        }
+
+        // The first presentation gate calls this only after the cloaked window
+        // has completed a render, so footer geometry no longer reflects the
+        // hidden window's stale ScrollViewer viewport.
+        QueuePositionIfVisible(forceResize: true);
+        if (raisePanelShown)
         {
             PanelShown?.Invoke(this, EventArgs.Empty);
         }

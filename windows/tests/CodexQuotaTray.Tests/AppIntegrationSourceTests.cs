@@ -562,14 +562,20 @@ public sealed class AppIntegrationSourceTests
         var position = method.IndexOf("Position();", StringComparison.Ordinal);
         var activate = method.IndexOf("Activate();", StringComparison.Ordinal);
         var show = method.IndexOf("appWindow.Show();", StringComparison.Ordinal);
-        var correction = method.IndexOf("QueuePositionIfVisible(forceResize: true);", StringComparison.Ordinal);
 
         Assert.IsTrue(configure >= 0);
         Assert.IsTrue(backdrop > configure);
         Assert.IsTrue(position > backdrop);
         Assert.IsTrue(activate > position);
         Assert.IsTrue(show > activate);
-        Assert.IsTrue(correction > show);
+        Assert.IsFalse(method.Contains("QueuePositionIfVisible(forceResize: true);", StringComparison.Ordinal));
+
+        var revealedStart = source.IndexOf("private void OnPanelRevealed(", StringComparison.Ordinal);
+        var revealedEnd = source.IndexOf("private async Task WaitForFirstPresentationReadyAsync(", revealedStart, StringComparison.Ordinal);
+        Assert.IsTrue(revealedStart >= 0);
+        Assert.IsTrue(revealedEnd > revealedStart);
+        var revealed = source[revealedStart..revealedEnd];
+        StringAssert.Contains(revealed, "QueuePositionIfVisible(forceResize: true);");
 
         StringAssert.Contains(source, "private readonly FirstPresentationGate firstPresentation = new();");
         StringAssert.Contains(source, "SetFirstPresentationCloaked");
