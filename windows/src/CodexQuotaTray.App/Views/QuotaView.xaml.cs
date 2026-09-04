@@ -8,4 +8,6 @@ public sealed partial class QuotaView : UserControl
     {
         InitializeComponent();
     }
+
+    internal Grid ContentBottomBoundary => FooterRow;
 }

@@ -22,6 +22,7 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan FirstPresentationTimeout = TimeSpan.FromSeconds(1);
     private readonly MainViewModel viewModel;
     private readonly TokenUsageViewModel tokenUsageViewModel;
+    private readonly QuotaView quotaView;
     private TokenUsageView? tokenUsageView;
     private readonly WindowPlacementService placement = new();
     private readonly BackdropService backdrop = new();
@@ -56,7 +57,8 @@ public sealed partial class MainWindow : Window
         hwnd = WindowNative.GetWindowHandle(this);
         initiallyCloaked = SetFirstPresentationCloaked(true);
         ContentRoot.DataContext = viewModel;
-        QuotaPageHost.Children.Add(new QuotaView());
+        quotaView = new QuotaView();
+        QuotaPageHost.Children.Add(quotaView);
 
         var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         appWindow = AppWindow.GetFromWindowId(windowId);
@@ -544,7 +546,30 @@ public sealed partial class MainWindow : Window
     }
 
     private double MeasureVisibleContentHeight(double fallbackHeight)
-        => fallbackHeight;
+    {
+        if (showingTokenPage || quotaView.ContentBottomBoundary.ActualHeight <= 0)
+        {
+            return fallbackHeight;
+        }
+
+        try
+        {
+            var footer = quotaView.ContentBottomBoundary;
+            var footerTop = footer
+                .TransformToVisual(PanelContent)
+                .TransformPoint(new Windows.Foundation.Point(0, 0))
+                .Y;
+            return PopupPlacement.NaturalContentHeight(
+                footerTop,
+                footer.ActualHeight,
+                PanelContent.Padding.Bottom,
+                fallbackHeight);
+        }
+        catch (InvalidOperationException)
+        {
+            return fallbackHeight;
+        }
+    }
 
     private void OnQuotaTabClick(object sender, RoutedEventArgs args) => _ = ShowPageAsync(showToken: false);
 

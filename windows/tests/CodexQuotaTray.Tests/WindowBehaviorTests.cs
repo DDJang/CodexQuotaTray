@@ -193,6 +193,17 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
+    public void QuotaPageHeight_UsesFooterBoundaryInsteadOfInflatedDesiredSize()
+    {
+        var mainWindow = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+
+        StringAssert.Contains(mainWindow, "quotaView.ContentBottomBoundary");
+        StringAssert.Contains(mainWindow, ".TransformToVisual(PanelContent)");
+        StringAssert.Contains(mainWindow, "PanelContent.Padding.Bottom");
+    }
+
+    [TestMethod]
     public void ContentHeightInterpolation_SmoothlySupportsGrowingAndShrinkingPages()
     {
         Assert.AreEqual(200, PopupPlacement.InterpolateContentHeight(200, 400, 0));

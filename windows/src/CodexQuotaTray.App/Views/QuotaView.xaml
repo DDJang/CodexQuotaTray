@@ -170,6 +170,7 @@
         </Grid>
 
         <Grid
+            x:Name="FooterRow"
             Grid.Row="1"
             ColumnSpacing="12"
             Visibility="{Binding ShowContent, Converter={StaticResource BooleanToVisibilityConverter}}">
