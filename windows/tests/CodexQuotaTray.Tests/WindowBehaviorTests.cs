@@ -180,6 +180,14 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
+    public void ContentHeight_PreservesNaturalBoundaryAcrossCommonDpiScales()
+    {
+        Assert.AreEqual(364, PopupPlacement.ContentHeightPixels(364, 1, 1080));
+        Assert.AreEqual(455, PopupPlacement.ContentHeightPixels(364, 1.25, 1350));
+        Assert.AreEqual(546, PopupPlacement.ContentHeightPixels(364, 1.5, 1620));
+    }
+
+    [TestMethod]
     public void Placement_DefaultMarginIsDpiAware()
     {
         Assert.AreEqual(24, PopupPlacement.DipsToPixels(PopupPlacement.DefaultMarginDips, 2));
@@ -193,7 +201,14 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
-    public void PopupHeight_UsesScrollExtentInsteadOfManuallyRemeasuredContent()
+    public void NaturalContentHeight_AccountsForQuotaAndTokenDesignSpacing()
+    {
+        Assert.AreEqual(364, PopupPlacement.NaturalContentHeight(336, 24, 4, 500));
+        Assert.AreEqual(399, PopupPlacement.NaturalContentHeight(362, 19, 18, 500));
+    }
+
+    [TestMethod]
+    public void PopupHeight_UsesVisibleBoundaryWithExplicitTokenSpacing()
     {
         var mainWindow = File.ReadAllText(
             Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
@@ -205,7 +220,11 @@ public sealed class WindowBehaviorTests
             boundaryEventStart,
             StringComparison.Ordinal);
 
-        StringAssert.Contains(mainWindow, "var extentHeight = PanelScroller.ExtentHeight;");
+        StringAssert.Contains(mainWindow, "PopupPlacement.NaturalContentHeight(");
+        StringAssert.Contains(mainWindow, "quotaView.ContentBottomBoundary");
+        StringAssert.Contains(mainWindow, "tokenUsageView?.ContentBottomBoundary");
+        StringAssert.Contains(mainWindow, "ContentBottomSpacingDips");
+        Assert.IsFalse(mainWindow.Contains("var extentHeight = PanelScroller.ExtentHeight;", StringComparison.Ordinal));
         Assert.IsFalse(mainWindow.Contains("PanelContent.InvalidateMeasure();", StringComparison.Ordinal));
         Assert.IsFalse(mainWindow.Contains("PanelContent.Measure(", StringComparison.Ordinal));
         Assert.IsGreaterThanOrEqualTo(0, boundaryEventStart);
@@ -213,6 +232,19 @@ public sealed class WindowBehaviorTests
         var boundaryEvent = mainWindow[boundaryEventStart..boundaryEventEnd];
         StringAssert.Contains(boundaryEvent, "if (!pageTransitionRunning)");
         StringAssert.Contains(boundaryEvent, "QueuePositionIfVisible(forceResize: true);");
+    }
+
+    [TestMethod]
+    public void TokenUsage_ExposesStateSpecificLayoutBoundaries()
+    {
+        var tokenUsageView = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml.cs"));
+
+        StringAssert.Contains(tokenUsageView, "TokenLoadingCard");
+        StringAssert.Contains(tokenUsageView, "HeatmapCard");
+        StringAssert.Contains(tokenUsageView, "TokenEmptyPanel");
+        StringAssert.Contains(tokenUsageView, "TokenErrorPanel");
+        StringAssert.Contains(tokenUsageView, "ContentBottomSpacingDips => TokenUsageRoot.Margin.Bottom");
     }
 
     [TestMethod]
@@ -251,7 +283,7 @@ public sealed class WindowBehaviorTests
             "private void CompletePageSwitch(",
             animationStart,
             StringComparison.Ordinal);
-        var positionStart = source.IndexOf("private void Position(", StringComparison.Ordinal);
+        var positionStart = source.IndexOf("private SizeInt32 Position(", StringComparison.Ordinal);
         var positionEnd = source.IndexOf(
             "private double MeasureVisibleContentHeight(",
             positionStart,

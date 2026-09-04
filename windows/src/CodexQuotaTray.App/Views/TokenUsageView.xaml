@@ -59,6 +59,7 @@
             </Grid>
 
             <Border
+                x:Name="HeatmapCard"
                 Padding="10,9"
                 Background="{ThemeResource CardSurfaceBrush}"
                 BorderBrush="{ThemeResource CardBorderBrush}"
@@ -139,6 +140,7 @@
                 <Border Grid.Column="2" Margin="22,8" Background="{ThemeResource CardSurfaceBrush}" CornerRadius="4" />
             </Grid>
             <Border
+                x:Name="TokenLoadingCard"
                 Height="168"
                 Background="{ThemeResource CardSurfaceBrush}"
                 BorderBrush="{ThemeResource CardBorderBrush}"
@@ -154,8 +156,9 @@
         </StackPanel>
 
         <StackPanel
+            x:Name="TokenEmptyPanel"
             HorizontalAlignment="Center"
-            VerticalAlignment="Center"
+            VerticalAlignment="Top"
             Spacing="4"
             Visibility="{Binding ShowEmpty, Converter={StaticResource BooleanToVisibilityConverter}}">
             <TextBlock HorizontalAlignment="Center" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" Text="暂无 Token 数据" />
@@ -163,8 +166,9 @@
         </StackPanel>
 
         <StackPanel
+            x:Name="TokenErrorPanel"
             HorizontalAlignment="Center"
-            VerticalAlignment="Center"
+            VerticalAlignment="Top"
             Spacing="4"
             Visibility="{Binding ShowError, Converter={StaticResource BooleanToVisibilityConverter}}">
             <TextBlock HorizontalAlignment="Center" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource ErrorStatusBrush}" Text="无法刷新统计" />

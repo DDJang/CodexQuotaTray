@@ -10,7 +10,7 @@ internal sealed class WindowPlacementService
 {
     private SizeInt32? lastRequestedClientSize;
 
-    internal void ResizeAndPlaceInitial(
+    internal SizeInt32 ResizeAndPlaceInitial(
         AppWindow appWindow,
         double rasterizationScale,
         double measuredContentHeightDips,
@@ -18,13 +18,18 @@ internal sealed class WindowPlacementService
     {
         var anchor = trayRectangle ?? CursorAnchor();
         var workArea = GetWorkArea(anchor);
-        var (size, margin) = Resize(appWindow, rasterizationScale, measuredContentHeightDips, workArea);
+        var (size, clientSize, margin) = Resize(
+            appWindow,
+            rasterizationScale,
+            measuredContentHeightDips,
+            workArea);
 
         var location = PopupPlacement.PlaceAtBottomRight(workArea, size, margin);
         appWindow.Move(new PointInt32(location.X, location.Y));
+        return clientSize;
     }
 
-    internal void ResizeAndKeepPosition(
+    internal SizeInt32 ResizeAndKeepPosition(
         AppWindow appWindow,
         double rasterizationScale,
         double measuredContentHeightDips,
@@ -33,16 +38,22 @@ internal sealed class WindowPlacementService
         var current = appWindow.Position;
         var anchor = new Rectangle(current.X, current.Y, Math.Max(1, appWindow.Size.Width), Math.Max(1, appWindow.Size.Height));
         var workArea = GetWorkArea(anchor);
-        var (size, margin) = Resize(appWindow, rasterizationScale, measuredContentHeightDips, workArea, forceResize);
+        var (size, clientSize, margin) = Resize(
+            appWindow,
+            rasterizationScale,
+            measuredContentHeightDips,
+            workArea,
+            forceResize);
         var location = PopupPlacement.ClampToWorkArea(
             new Point(current.X, current.Y),
             workArea,
             size,
             margin);
         appWindow.Move(new PointInt32(location.X, location.Y));
+        return clientSize;
     }
 
-    private (Size Size, int Margin) Resize(
+    private (Size WindowSize, SizeInt32 ClientSize, int Margin) Resize(
         AppWindow appWindow,
         double rasterizationScale,
         double measuredContentHeightDips,
@@ -58,9 +69,16 @@ internal sealed class WindowPlacementService
             workArea.Height,
             PopupPlacement.DefaultMarginDips);
         var requestedSize = new SizeInt32(width, height);
+        var currentWindowSize = appWindow.Size;
+        var currentClientSize = appWindow.ClientSize;
+        var nonClientWidth = Math.Max(0, currentWindowSize.Width - currentClientSize.Width);
+        var nonClientHeight = Math.Max(0, currentWindowSize.Height - currentClientSize.Height);
+        var windowSize = new Size(
+            requestedSize.Width + nonClientWidth,
+            requestedSize.Height + nonClientHeight);
         if (PopupPlacement.ShouldResizeClient(
-            appWindow.ClientSize.Width,
-            appWindow.ClientSize.Height,
+            currentClientSize.Width,
+            currentClientSize.Height,
             requestedSize.Width,
             requestedSize.Height,
             lastRequestedClientSize?.Width,
@@ -68,7 +86,13 @@ internal sealed class WindowPlacementService
             forceResize))
         {
             lastRequestedClientSize = requestedSize;
-            appWindow.ResizeClient(requestedSize);
+            // With the WinUI custom title bar, ResizeClient does not preserve
+            // the requested effective client height on this runtime. Resize
+            // the full frame using only the current non-client delta; the
+            // content height has already been resolved by the view boundary.
+            appWindow.Resize(new SizeInt32(
+                windowSize.Width,
+                windowSize.Height));
             if (appWindow.ClientSize.Width != requestedSize.Width || appWindow.ClientSize.Height != requestedSize.Height)
             {
                 lastRequestedClientSize = null;
@@ -76,7 +100,8 @@ internal sealed class WindowPlacementService
         }
 
         return (
-            new Size(requestedSize.Width, requestedSize.Height),
+            windowSize,
+            requestedSize,
             margin);
     }
 

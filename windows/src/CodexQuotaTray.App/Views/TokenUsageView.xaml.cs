@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Numerics;
 using System.Threading.Tasks;
@@ -35,6 +36,31 @@ public sealed partial class TokenUsageView : UserControl
     private bool applyLayoutMeasurementPending;
     private long applyCompletedTimestamp;
 
+    internal event EventHandler? ContentLayoutChanged;
+
+    internal FrameworkElement? ContentBottomBoundary =>
+        tokenUsageViewModel.ShowLoading
+            ? TokenLoadingCard
+            : tokenUsageViewModel.ShowContent
+                ? HeatmapCard
+                : tokenUsageViewModel.ShowEmpty
+                    ? TokenEmptyPanel
+                    : tokenUsageViewModel.ShowError
+                        ? TokenErrorPanel
+                        : null;
+
+    internal double ContentBottomSpacingDips => TokenUsageRoot.Margin.Bottom;
+
+    internal string LayoutState => tokenUsageViewModel.ShowLoading
+        ? "loading"
+        : tokenUsageViewModel.ShowContent
+            ? "content"
+            : tokenUsageViewModel.ShowEmpty
+                ? "empty"
+                : tokenUsageViewModel.ShowError
+                    ? "error"
+                    : "unavailable";
+
     public TokenUsageView(TokenUsageViewModel viewModel, IntPtr hostWindowHandle)
     {
         tokenUsageViewModel = viewModel;
@@ -43,6 +69,7 @@ public sealed partial class TokenUsageView : UserControl
         InitializeComponent();
         sharedTooltipWindow = new HeatmapTooltipWindow(hostWindowHandle);
         tokenUsageViewModel.ApplyCompleted += OnTokenUsageApplyCompleted;
+        tokenUsageViewModel.PropertyChanged += OnTokenUsagePropertyChanged;
         LayoutUpdated += OnTokenUsageLayoutUpdated;
         DataContext = viewModel;
     }
@@ -57,6 +84,18 @@ public sealed partial class TokenUsageView : UserControl
         });
     }
 
+    private void OnTokenUsagePropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(TokenUsageViewModel.ShowLoading)
+            or nameof(TokenUsageViewModel.ShowContent)
+            or nameof(TokenUsageViewModel.ShowEmpty)
+            or nameof(TokenUsageViewModel.ShowError))
+        {
+            applyCompletedTimestamp = Stopwatch.GetTimestamp();
+            applyLayoutMeasurementPending = true;
+        }
+    }
+
     private void OnTokenUsageLayoutUpdated(object? sender, object args)
     {
         if (!applyLayoutMeasurementPending
@@ -64,14 +103,17 @@ public sealed partial class TokenUsageView : UserControl
             || Visibility != Visibility.Visible
             || ActualWidth <= 0
             || ActualHeight <= 0
-            || !tokenUsageViewModel.ShowContent)
+            || ContentBottomBoundary is not { ActualHeight: > 0 } boundary)
         {
             return;
         }
 
         applyLayoutMeasurementPending = false;
+        ContentLayoutChanged?.Invoke(this, EventArgs.Empty);
         Debug.WriteLine(
             $"TokenUsage diagnostics: stage=ui-layout-visible "
+            + $"state={LayoutState} "
+            + $"boundaryHeight={boundary.ActualHeight:F1} "
             + $"elapsedMs={Stopwatch.GetElapsedTime(applyCompletedTimestamp).TotalMilliseconds:F1}");
     }
 
@@ -207,6 +249,7 @@ public sealed partial class TokenUsageView : UserControl
     internal void Dispose()
     {
         tokenUsageViewModel.ApplyCompleted -= OnTokenUsageApplyCompleted;
+        tokenUsageViewModel.PropertyChanged -= OnTokenUsagePropertyChanged;
         sharedTooltipWindow.Dispose();
     }
 

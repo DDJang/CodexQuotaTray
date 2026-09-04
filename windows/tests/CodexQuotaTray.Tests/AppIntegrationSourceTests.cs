@@ -559,15 +559,18 @@ public sealed class AppIntegrationSourceTests
 
         var configure = method.IndexOf("ConfigureWindow();", StringComparison.Ordinal);
         var backdrop = method.IndexOf("ApplyBackdrop();", StringComparison.Ordinal);
-        var position = method.IndexOf("Position();", StringComparison.Ordinal);
+        var firstPresentTelemetry = method.IndexOf(
+            "first-present-before-layout",
+            StringComparison.Ordinal);
         var activate = method.IndexOf("Activate();", StringComparison.Ordinal);
         var show = method.IndexOf("appWindow.Show();", StringComparison.Ordinal);
 
         Assert.IsTrue(configure >= 0);
         Assert.IsTrue(backdrop > configure);
-        Assert.IsTrue(position > backdrop);
-        Assert.IsTrue(activate > position);
+        Assert.IsTrue(firstPresentTelemetry > backdrop);
+        Assert.IsTrue(activate > firstPresentTelemetry);
         Assert.IsTrue(show > activate);
+        Assert.IsFalse(method.Contains("Position();", StringComparison.Ordinal));
         Assert.IsFalse(method.Contains("QueuePositionIfVisible(forceResize: true);", StringComparison.Ordinal));
 
         var revealedStart = source.IndexOf("private void OnPanelRevealed(", StringComparison.Ordinal);
@@ -575,9 +578,10 @@ public sealed class AppIntegrationSourceTests
         Assert.IsTrue(revealedStart >= 0);
         Assert.IsTrue(revealedEnd > revealedStart);
         var revealed = source[revealedStart..revealedEnd];
-        StringAssert.Contains(revealed, "Position(forceResize: true);");
+        StringAssert.Contains(revealed, "Position(forceResize: true, telemetryStage: \"first-revealed\");");
 
         StringAssert.Contains(source, "private readonly FirstPresentationGate firstPresentation = new();");
+        StringAssert.Contains(source, "firstPresentationLayoutReady");
         StringAssert.Contains(source, "SetFirstPresentationCloaked");
         StringAssert.Contains(source, "WaitForFirstPresentationReadyAsync");
         StringAssert.Contains(source, "ContentRoot.Loaded += loaded;");
@@ -639,6 +643,18 @@ public sealed class AppIntegrationSourceTests
             Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
 
         StringAssert.Contains(source, "WindowPlacementService.GetRasterizationScale(hwnd)");
+    }
+
+    [TestMethod]
+    public void PopupResizeUsesCurrentFrameDeltaForTheMeasuredClientHeight()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "WindowPlacementService.cs"));
+
+        StringAssert.Contains(source, "var nonClientWidth =");
+        StringAssert.Contains(source, "var nonClientHeight =");
+        StringAssert.Contains(source, "appWindow.Resize(new SizeInt32(");
+        Assert.IsFalse(source.Contains("appWindow.ResizeClient(", StringComparison.Ordinal));
     }
 
     [TestMethod]
