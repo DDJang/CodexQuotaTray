@@ -22,12 +22,16 @@ URL 下载 Microsoft-signed x64 Windows App Runtime standalone installer，校�
 固定版本、包 identity、下载源和校验信息集中在
 [`windows-app-runtime.json`](../windows/installer/windows-app-runtime.json)。
 
-下载显示可取消的进度页；准备或安装失败时提供重试说明和浏览器官方下载入口。网络受限时，可将该配置
+下载显示可取消的进度页；准备或安装失败时提示退出后重新运行安装程序，并提供浏览器官方下载入口。网络受限时，可将该配置
 对应的运行库文件按原文件名放在 setup 旁，安装器会复制到临时目录并校验同一 SHA-256 后使用；也可手动
-安装该运行库后重试。静默安装失败仅返回错误，不打开浏览器或交互对话框。
+安装该运行库后退出并重新运行 setup。静默模式不显示自定义下载入口对话框；Inno Setup 自身的错误框
+需要调用方同时传入 `/SUPPRESSMSGBOXES` 才会抑制，调用方还应检查安装进程的失败退出码，详见
+[Inno Setup 命令行参数](https://jrsoftware.org/ishelp/topic_setupcmdline.htm)。
 
 安装器可通过 Windows“已安装的应用”卸载，并在卸载时明确询问是否保留用户数据。自动更新使用
-统一更新清单；用户也可以直接从上述 Release 页面下载并手动启动安装器。
+统一更新清单；下载完成后自动打开安装程序仍是交互式安装，不传静默参数。应用确认安装器进程启动后
+退出，不等待安装完成或读取安装退出码，后续错误由安装器显示。用户也可以直接从上述 Release 页面
+下载并手动启动安装器。
 
 本项目的 [Code signing policy](CODE_SIGNING.md) 说明签名范围、团队角色、隐私政策和申请前状态。
 

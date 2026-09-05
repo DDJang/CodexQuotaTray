@@ -139,10 +139,10 @@ var
   BrowserError: Integer;
 begin
   Result := MessageText + #13#10 + #13#10 +
-    '请检查网络后点击“重试”。也可从 Microsoft 官方地址下载运行库：' + #13#10 +
+    '请检查网络，退出后重新运行安装程序。也可从 Microsoft 官方地址下载运行库：' + #13#10 +
     '{#WindowsAppRuntimeDownloadUrl}' + #13#10 +
-    '将文件保存为 {#WindowsAppRuntimeFileName}，放在本安装包旁后重试；' +
-    '或手动运行该文件，完成安装后重试。';
+    '将文件保存为 {#WindowsAppRuntimeFileName}，放在本安装包旁；' +
+    '或手动运行该文件完成运行库安装。然后退出并重新运行 CodexQuotaTray 安装程序。';
   if not WizardSilent then
     if MsgBox(Result + #13#10 + #13#10 + '现在用浏览器打开官方下载地址？',
       mbError, MB_YESNO) = IDYES then
@@ -266,7 +266,7 @@ begin
       ewNoWait,
       ShutdownProcessId
     ) then begin
-      Result := '无法请求旧版 CodexQuotaTray 正常退出。请先从托盘退出后重试。';
+      Result := '无法请求旧版 CodexQuotaTray 正常退出。请先从托盘退出应用，再退出并重新运行安装程序。';
       exit;
     end;
   end;
@@ -301,7 +301,7 @@ begin
     end;
   except
     if RuntimeDownloadPage.AbortedByUser then
-      Result := '已取消 Windows App Runtime 下载，CodexQuotaTray 未完成安装。可点击“重试”继续。'
+      Result := '已取消 Windows App Runtime 下载，CodexQuotaTray 未完成安装。如需继续，请退出后重新运行安装程序。'
     else
       Result := RuntimeFailure('无法准备 Windows App Runtime，CodexQuotaTray 未完成安装。' + #13#10 +
         GetExceptionMessage);
