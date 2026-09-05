@@ -837,7 +837,17 @@ public sealed class AppIntegrationSourceTests
         StringAssert.Contains(source, "-SingletonName");
         StringAssert.Contains(source, "-DdlmNamePattern");
         StringAssert.Contains(prepare, "if IsWindowsAppRuntimeReady() then begin");
-        StringAssert.Contains(prepare, "DownloadTemporaryFile(");
+        StringAssert.Contains(source, "CreateDownloadPage(");
+        StringAssert.Contains(prepare, "RuntimeDownloadPage.Add(");
+        StringAssert.Contains(prepare, "RuntimeDownloadPage.Show;");
+        StringAssert.Contains(prepare, "RuntimeDownloadPage.Download;");
+        StringAssert.Contains(prepare, "RuntimeDownloadPage.Hide;");
+        StringAssert.Contains(prepare, "RuntimeDownloadPage.AbortedByUser");
+        StringAssert.Contains(prepare, "FileCopy(LocalRuntimePath, RuntimeInstallerPath, False)");
+        Assert.IsTrue(prepare.IndexOf("GetSHA256OfFile(RuntimeInstallerPath)", StringComparison.Ordinal)
+            < prepare.IndexOf("'--quiet'", StringComparison.Ordinal));
+        StringAssert.Contains(source, "ShellExec('open', '{#WindowsAppRuntimeDownloadUrl}'");
+        StringAssert.Contains(source, "if not WizardSilent then");
         StringAssert.Contains(prepare, "'{#WindowsAppRuntimeDownloadUrl}'");
         StringAssert.Contains(prepare, "'{#WindowsAppRuntimeSha256}'");
         StringAssert.Contains(prepare, "GetSHA256OfFile(RuntimeInstallerPath)");

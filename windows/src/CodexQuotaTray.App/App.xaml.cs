@@ -206,6 +206,11 @@ public partial class App : Application
         var tokenUsageViewModelLocal = tokenUsageViewModel;
         viewModelReference = viewModel;
         mainWindow = new MainWindow(viewModel, tokenUsageViewModelLocal, identity.DisplayName);
+        viewModel.LoginRequested += (_, _) =>
+        {
+            ShowSettings();
+            settingsWindow?.ShowAccountPage();
+        };
         mainWindow.Activated += (_, activation) =>
         {
             if (activation.WindowActivationState != WindowActivationState.Deactivated

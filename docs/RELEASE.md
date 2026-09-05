@@ -22,6 +22,10 @@ URL 下载 Microsoft-signed x64 Windows App Runtime standalone installer，校�
 固定版本、包 identity、下载源和校验信息集中在
 [`windows-app-runtime.json`](../windows/installer/windows-app-runtime.json)。
 
+下载显示可取消的进度页；准备或安装失败时提供重试说明和浏览器官方下载入口。网络受限时，可将该配置
+对应的运行库文件按原文件名放在 setup 旁，安装器会复制到临时目录并校验同一 SHA-256 后使用；也可手动
+安装该运行库后重试。静默安装失败仅返回错误，不打开浏览器或交互对话框。
+
 安装器可通过 Windows“已安装的应用”卸载，并在卸载时明确询问是否保留用户数据。自动更新使用
 统一更新清单；用户也可以直接从上述 Release 页面下载并手动启动安装器。
 

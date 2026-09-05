@@ -124,6 +124,32 @@ Type: filesandordirs; Name: "{app}"
 [Code]
 var
   KeepUserData: Boolean;
+  RuntimeDownloadPage: TDownloadWizardPage;
+
+procedure InitializeWizard();
+begin
+  RuntimeDownloadPage := CreateDownloadPage(
+    '下载 Windows App Runtime',
+    '首次安装需要 Microsoft 运行库。下载完成后将校验并安装，请稍候。', nil);
+  RuntimeDownloadPage.ShowBaseNameInsteadOfUrl := True;
+end;
+
+function RuntimeFailure(const MessageText: String): String;
+var
+  BrowserError: Integer;
+begin
+  Result := MessageText + #13#10 + #13#10 +
+    '请检查网络后点击“重试”。也可从 Microsoft 官方地址下载运行库：' + #13#10 +
+    '{#WindowsAppRuntimeDownloadUrl}' + #13#10 +
+    '将文件保存为 {#WindowsAppRuntimeFileName}，放在本安装包旁后重试；' +
+    '或手动运行该文件，完成安装后重试。';
+  if not WizardSilent then
+    if MsgBox(Result + #13#10 + #13#10 + '现在用浏览器打开官方下载地址？',
+      mbError, MB_YESNO) = IDYES then
+      if not ShellExec('open', '{#WindowsAppRuntimeDownloadUrl}', '', '',
+        SW_SHOWNORMAL, ewNoWait, BrowserError) then
+        MsgBox('无法打开浏览器，请使用上方的下载地址。', mbError, MB_OK);
+end;
 
 function HasKeepUserDataParam(): Boolean;
 var
@@ -224,6 +250,7 @@ var
   ShutdownProcessId: Integer;
   RuntimeExitCode: Integer;
   RuntimeInstallerPath: String;
+  LocalRuntimePath: String;
 begin
   Result := '';
   NeedsRestart := False;
@@ -249,27 +276,45 @@ begin
     exit;
   end;
 
-  Log('Windows App Runtime is missing or incomplete; downloading the pinned Microsoft installer.');
+  RuntimeInstallerPath := ExpandConstant('{tmp}\{#WindowsAppRuntimeFileName}');
+  LocalRuntimePath := ExpandConstant('{src}\{#WindowsAppRuntimeFileName}');
   try
-    DownloadTemporaryFile(
-      '{#WindowsAppRuntimeDownloadUrl}',
-      '{#WindowsAppRuntimeFileName}',
-      '{#WindowsAppRuntimeSha256}',
-      nil
-    );
+    if FileExists(LocalRuntimePath) then begin
+      // Copy before validating so the executed file is the same temporary copy we hash.
+      if not FileCopy(LocalRuntimePath, RuntimeInstallerPath, False) then begin
+        Result := RuntimeFailure('无法复制安装包旁的 Windows App Runtime 文件。');
+        exit;
+      end;
+    end else begin
+      Log('Windows App Runtime is missing or incomplete; downloading the pinned Microsoft installer.');
+      RuntimeDownloadPage.Clear;
+      RuntimeDownloadPage.Add(
+        '{#WindowsAppRuntimeDownloadUrl}',
+        '{#WindowsAppRuntimeFileName}',
+        '{#WindowsAppRuntimeSha256}');
+      RuntimeDownloadPage.Show;
+      try
+        RuntimeDownloadPage.Download;
+      finally
+        RuntimeDownloadPage.Hide;
+      end;
+    end;
   except
-    Result := '无法下载 Windows App Runtime，CodexQuotaTray 未完成安装。' + #13#10 +
-      GetExceptionMessage;
+    if RuntimeDownloadPage.AbortedByUser then
+      Result := '已取消 Windows App Runtime 下载，CodexQuotaTray 未完成安装。可点击“重试”继续。'
+    else
+      Result := RuntimeFailure('无法准备 Windows App Runtime，CodexQuotaTray 未完成安装。' + #13#10 +
+        GetExceptionMessage);
     exit;
   end;
 
   RuntimeInstallerPath := ExpandConstant('{tmp}\{#WindowsAppRuntimeFileName}');
   if not FileExists(RuntimeInstallerPath) then begin
-    Result := 'Windows App Runtime 下载未生成安装文件，CodexQuotaTray 未完成安装。';
+    Result := RuntimeFailure('Windows App Runtime 下载未生成安装文件，CodexQuotaTray 未完成安装。');
     exit;
   end;
   if CompareText(GetSHA256OfFile(RuntimeInstallerPath), '{#WindowsAppRuntimeSha256}') <> 0 then begin
-    Result := 'Windows App Runtime SHA-256 校验失败，CodexQuotaTray 未完成安装。';
+    Result := RuntimeFailure('Windows App Runtime SHA-256 校验失败，请删除不匹配的运行库文件并重新下载。');
     exit;
   end;
   if not Exec(
@@ -280,16 +325,16 @@ begin
     ewWaitUntilTerminated,
     RuntimeExitCode
   ) then begin
-    Result := 'Windows App Runtime 安装程序启动失败（' + SysErrorMessage(RuntimeExitCode) +
-      '），CodexQuotaTray 未完成安装。';
+    Result := RuntimeFailure('Windows App Runtime 安装程序启动失败（' + SysErrorMessage(RuntimeExitCode) +
+      '），CodexQuotaTray 未完成安装。');
     exit;
   end;
   if RuntimeExitCode <> 0 then begin
-    Result := 'Windows App Runtime 安装失败（退出码 ' + IntToStr(RuntimeExitCode) +
-      '），CodexQuotaTray 未完成安装。';
+    Result := RuntimeFailure('Windows App Runtime 安装失败（退出码 ' + IntToStr(RuntimeExitCode) +
+      '），CodexQuotaTray 未完成安装。');
     exit;
   end;
   if not IsWindowsAppRuntimeReady() then begin
-    Result := 'Windows App Runtime 安装后复检未通过，CodexQuotaTray 未完成安装。';
+    Result := RuntimeFailure('Windows App Runtime 安装后复检未通过，CodexQuotaTray 未完成安装。');
   end;
 end;

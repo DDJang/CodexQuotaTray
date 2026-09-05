@@ -22,6 +22,24 @@
             Visibility="{Binding ShowContent, Converter={StaticResource BooleanToVisibilityConverter}}">
             <StackPanel Spacing="10">
                 <Border
+                    Padding="16,15"
+                    Background="{ThemeResource CardSurfaceBrush}"
+                    BorderBrush="{ThemeResource CardBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource QuotaCornerRadius}"
+                    Visibility="{Binding ShowLoginAction, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Spacing="10">
+                        <TextBlock FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{ThemeResource PrimaryTextBrush}" Text="连接额度账户" />
+                        <TextBlock FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource SecondaryTextBrush}"
+                                   Text="尚未读取到额度。可前往设置登录 OAuth 账户，或检查已有账户和数据来源。" />
+                        <Button Content="前往设置登录" HorizontalAlignment="Left"
+                                Command="{Binding OpenLoginCommand}"
+                                AutomationProperties.Name="前往设置的账户页面登录" />
+                    </StackPanel>
+                </Border>
+                <Border
                     Padding="18,7"
                     Background="{ThemeResource BadgeSurfaceBrush}"
                     CornerRadius="10"
