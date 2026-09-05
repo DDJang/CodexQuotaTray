@@ -46,10 +46,64 @@ class CodexOAuthClientTest {
         assertEquals(OAuthCredentials.CLIENT_ID, body.getString("client_id"))
         assertEquals("refresh_token", body.getString("grant_type"))
         assertEquals("old-refresh", body.getString("refresh_token"))
-        assertEquals("openid profile email", body.getString("scope"))
+        assertEquals(3, body.length())
+        assertTrue(!body.has("scope"))
         assertEquals("new-access", result.accessToken)
         assertEquals("new-refresh", result.refreshToken)
         assertEquals("new-id", result.idToken)
+    }
+
+    @Test
+    fun refreshFailureMatchesOfficialStatusAndCodeClassification() {
+        val cases = listOf(
+            Triple(400, "refresh_token_expired", OAuthFailureKind.REFRESH_EXPIRED),
+            Triple(403, "REFRESH_TOKEN_REUSED", OAuthFailureKind.REFRESH_REUSED),
+            Triple(400, "refresh_token_invalidated", OAuthFailureKind.REFRESH_REVOKED),
+            Triple(400, "invalid_grant", OAuthFailureKind.LOGIN_REQUIRED),
+            Triple(401, "unknown", OAuthFailureKind.LOGIN_REQUIRED),
+            Triple(403, "unknown", OAuthFailureKind.SERVER),
+            Triple(403, "invalid_grant", OAuthFailureKind.SERVER),
+            Triple(500, "invalid_grant", OAuthFailureKind.SERVER),
+        )
+        for ((status, code, expected) in cases) {
+            for (body in listOf("""{"error":{"code":"$code"}}""", """{"error":"$code"}""", """{"code":"$code"}""")) {
+                server.enqueue(MockResponse().setResponseCode(status).setBody(body))
+                val error = runCatching { client().refresh(credentials()) }.exceptionOrNull() as OAuthException
+                assertEquals("$status $body", expected, error.kind)
+                assertEquals(status, error.statusCode)
+            }
+        }
+        for (body in listOf("<html>blocked</html>", "{}", "[]")) {
+            server.enqueue(MockResponse().setResponseCode(403).setBody(body))
+            val error = runCatching { client().refresh(credentials()) }.exceptionOrNull() as OAuthException
+            assertEquals(OAuthFailureKind.SERVER, error.kind)
+        }
+    }
+
+    @Test
+    fun refreshDiagnosticsAreRedactedAndDistinguishRecovery() {
+        val logs = mutableListOf<String>()
+        val client = CodexOAuthClient(OkHttpClient(), server.url("/").toString(), diagnostics = logs::add)
+        server.enqueue(MockResponse().setBody("""{"access_token":"new-access","refresh_token":"new-refresh"}"""))
+        client.refresh(credentials(), OAuthRefreshReason.UNAUTHORIZED_RECOVERY)
+        assertTrue(logs.any { "reason=UNAUTHORIZED_RECOVERY status=200 error.code=none" in it })
+        assertTrue(logs.any { "rotation=true" in it })
+        server.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":{"code":"private@example.test-secret"}}"""))
+        runCatching { client.refresh(credentials()) }
+        assertTrue(logs.any { "reason=PROACTIVE status=403 error.code=unknown_" in it })
+        for (secret in listOf("old-refresh", "old-access", "new-refresh", "new-access", "private@example.test-secret")) {
+            assertTrue(logs.none { secret in it })
+        }
+    }
+
+    @Test
+    fun refreshKeepsOmittedTokensIncludingAccessWhenOnlyRefreshRotates() {
+        server.enqueue(MockResponse().setBody("""{"refresh_token":"new-refresh"}"""))
+        val result = client().refresh(credentials())
+        assertEquals(credentials().accessToken, result.accessToken)
+        assertEquals("new-refresh", result.refreshToken)
+        server.enqueue(MockResponse().setBody("""{"access_token":"new-access"}"""))
+        assertEquals(credentials().refreshToken, client().refresh(credentials()).refreshToken)
     }
 
     @Test

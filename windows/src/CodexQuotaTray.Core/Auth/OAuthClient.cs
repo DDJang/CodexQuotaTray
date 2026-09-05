@@ -19,16 +19,25 @@ public sealed class OAuthClient : IDisposable
     private readonly bool ownsHttpClient;
     private readonly string authBaseUrl;
     private readonly string clientId;
+    private readonly Action<string> diagnostics;
 
     public OAuthClient(
         HttpClient? httpClient = null,
         string authBaseUrl = DefaultAuthBaseUrl,
-        string clientId = ClientId)
+        string clientId = ClientId,
+        Action<string>? diagnostics = null)
     {
         this.httpClient = httpClient ?? CreateDefaultHttpClient();
         ownsHttpClient = httpClient is null;
         this.authBaseUrl = authBaseUrl.TrimEnd('/');
         this.clientId = clientId;
+        this.diagnostics = diagnostics ?? (message => System.Diagnostics.Trace.WriteLine(message));
+    }
+
+    internal void LogRefresh(string message)
+    {
+        try { diagnostics("OAuth refresh " + message); }
+        catch (Exception) { /* Logging must not interfere with rotation. */ }
     }
 
     public async Task<OAuthDeviceCode> RequestDeviceCodeAsync(CancellationToken cancellationToken)
@@ -122,7 +131,8 @@ public sealed class OAuthClient : IDisposable
 
     public async Task<OAuthCredentials> RefreshAsync(
         OAuthCredentials credentials,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        OAuthRefreshReason reason = OAuthRefreshReason.Proactive)
     {
         if (string.IsNullOrWhiteSpace(credentials.RefreshToken))
         {
@@ -136,10 +146,20 @@ public sealed class OAuthClient : IDisposable
                 client_id = clientId,
                 grant_type = "refresh_token",
                 refresh_token = credentials.RefreshToken,
-                scope = "openid profile email",
             }),
         };
-        var response = await SendAsync(request, cancellationToken).ConfigureAwait(false);
+        LogRefresh($"reason={reason} phase=start");
+        HttpPayload response;
+        try
+        {
+            response = await SendAsync(request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            LogRefresh($"reason={reason} status=unavailable error.code=none rotation=unknown persisted=not_attempted");
+            throw;
+        }
+        LogRefresh($"reason={reason} status={response.StatusCode} error.code={OAuthRefreshDiagnostics.SafeCode(RefreshErrorCode(response))}");
         if (!response.IsSuccess)
         {
             throw RefreshFailure(response);
@@ -147,10 +167,11 @@ public sealed class OAuthClient : IDisposable
 
         using var document = ParseObject(response.Body, "OAuth refresh");
         var accessToken = StringValue(document.RootElement, "access_token", "accessToken")
-            ?? throw InvalidResponse("access token");
+            ?? credentials.AccessToken;
         var refreshToken = StringValue(document.RootElement, "refresh_token", "refreshToken")
             ?? credentials.RefreshToken;
         var idToken = StringValue(document.RootElement, "id_token", "idToken");
+        LogRefresh($"reason={reason} rotation={refreshToken != credentials.RefreshToken}");
         return credentials.WithTokens(accessToken, refreshToken, idToken, DateTimeOffset.UtcNow);
     }
 
@@ -367,7 +388,7 @@ public sealed class OAuthClient : IDisposable
         throw new OAuthException(OAuthFailureKind.Server, $"{operation} request failed.", response.StatusCode);
     }
 
-    private static OAuthException RefreshFailure(HttpPayload response)
+    private static string? RefreshErrorCode(HttpPayload response)
     {
         string? errorCode = null;
         try
@@ -381,18 +402,25 @@ public sealed class OAuthClient : IDisposable
                         ? error.GetString()
                         : StringValue(error, "code", "error");
                 }
+                errorCode ??= StringValue(document.RootElement, "code");
             }
         }
         catch (JsonException)
         {
         }
 
-        var kind = errorCode?.ToLowerInvariant() switch
+        return errorCode;
+    }
+
+    private static OAuthException RefreshFailure(HttpPayload response)
+    {
+        var kind = RefreshErrorCode(response)?.ToLowerInvariant() switch
         {
             "refresh_token_expired" => OAuthFailureKind.RefreshExpired,
             "refresh_token_reused" => OAuthFailureKind.RefreshReused,
-            "invalid_grant" or "refresh_token_invalidated" => OAuthFailureKind.RefreshRevoked,
-            _ when response.StatusCode is 401 or 403 => OAuthFailureKind.RefreshExpired,
+            "refresh_token_invalidated" => OAuthFailureKind.RefreshRevoked,
+            "invalid_grant" when response.StatusCode == 400 => OAuthFailureKind.LoginRequired,
+            _ when response.StatusCode == 401 => OAuthFailureKind.LoginRequired,
             _ => OAuthFailureKind.Server,
         };
         return new OAuthException(kind, "OAuth token refresh failed.", response.StatusCode);
