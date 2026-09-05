@@ -10,13 +10,13 @@
 - 支持 reset credit 的只读展示与过期提醒；不发起购买、兑换或消费请求。
 - Debug/Release 双 application identity 与平台独立 GitHub Release。
 - HyperOS/Xiaomi 4×2 quota Widget：使用最后成功 quota snapshot projection；Direct / Windows quota 成功刷新后主动更新，Xiaomi exposure refresh 只读取 Widget 本地 cache。
+- 主底栏液态玻璃高光：方案 A 已因“必须滑动才有、停住就没有”被否决；方案 B 已按用户验收确认符合，按预览胶囊实际距离连续显示高光。
 
 ## Next
 
 - 持续验证后台刷新、通知、网络切换和厂商电池策略下的真机可靠性。
 - Android 应用自身的开机恢复调度。
-- 主底栏液态玻璃的[长按高光调查与候选方案](android-long-press-highlight-investigation.md)：
-  方案 A 已因“必须滑动才有、停住就没有”被否决；当前改试方案 B，按预览胶囊实际距离连续显示高光。
+- 持续维护[长按高光调查与实现边界](android-long-press-highlight-investigation.md)中记录的回归验收标准。
 
 ## Non-goals
 
