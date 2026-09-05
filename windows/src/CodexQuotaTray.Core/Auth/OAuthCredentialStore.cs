@@ -220,6 +220,7 @@ public sealed class OAuthCredentialManager(
     private OAuthCredentials? credentials;
     private bool loaded;
     private bool disposed;
+    private bool pendingSave;
 
     public bool HasCachedCredentials => credentials is not null;
 
@@ -242,6 +243,8 @@ public sealed class OAuthCredentialManager(
                 return null;
             }
 
+            await PersistPendingAsync().ConfigureAwait(false);
+
             var now = DateTimeOffset.UtcNow;
             if (!credentials.NeedsRefresh(now))
             {
@@ -252,7 +255,8 @@ public sealed class OAuthCredentialManager(
             {
                 var refreshed = await client.RefreshAsync(credentials, cancellationToken).ConfigureAwait(false);
                 credentials = refreshed;
-                await store.SaveAsync(refreshed, cancellationToken).ConfigureAwait(false);
+                pendingSave = true;
+                await PersistPendingAsync().ConfigureAwait(false);
                 return refreshed;
             }
             catch (OAuthException error) when (error.Kind is OAuthFailureKind.RefreshExpired
@@ -261,7 +265,8 @@ public sealed class OAuthCredentialManager(
                 or OAuthFailureKind.LoginRequired)
             {
                 credentials = null;
-                await store.ClearAsync(cancellationToken).ConfigureAwait(false);
+                pendingSave = false;
+                await store.ClearAsync(CancellationToken.None).ConfigureAwait(false);
                 throw;
             }
         }
@@ -277,9 +282,10 @@ public sealed class OAuthCredentialManager(
         try
         {
             ObjectDisposedException.ThrowIf(disposed, this);
+            await store.SaveAsync(value, cancellationToken).ConfigureAwait(false);
             credentials = value;
             loaded = true;
-            await store.SaveAsync(value, cancellationToken).ConfigureAwait(false);
+            pendingSave = false;
         }
         finally
         {
@@ -306,14 +312,16 @@ public sealed class OAuthCredentialManager(
                 return null;
             }
 
-            if (!string.Equals(credentials.RefreshToken, current.RefreshToken, StringComparison.Ordinal))
+            await PersistPendingAsync().ConfigureAwait(false);
+            if (credentials != current)
             {
                 return credentials;
             }
 
-            var refreshed = await client.RefreshAsync(credentials, cancellationToken).ConfigureAwait(false);
+            var refreshed = await client.RefreshAsync(credentials, cancellationToken, OAuthRefreshReason.UnauthorizedRecovery).ConfigureAwait(false);
             credentials = refreshed;
-            await store.SaveAsync(refreshed, cancellationToken).ConfigureAwait(false);
+            pendingSave = true;
+            await PersistPendingAsync().ConfigureAwait(false);
             return refreshed;
         }
         catch (OAuthException error) when (error.Kind is OAuthFailureKind.RefreshExpired
@@ -322,7 +330,8 @@ public sealed class OAuthCredentialManager(
             or OAuthFailureKind.LoginRequired)
         {
             credentials = null;
-            await store.ClearAsync(cancellationToken).ConfigureAwait(false);
+            pendingSave = false;
+            await store.ClearAsync(CancellationToken.None).ConfigureAwait(false);
             throw;
         }
         finally
@@ -337,6 +346,7 @@ public sealed class OAuthCredentialManager(
         try
         {
             credentials = null;
+            pendingSave = false;
             loaded = true;
             await store.ClearAsync(cancellationToken).ConfigureAwait(false);
         }
@@ -357,5 +367,33 @@ public sealed class OAuthCredentialManager(
         gate.Dispose();
         client.Dispose();
         await Task.CompletedTask.ConfigureAwait(false);
+    }
+
+    // Once the server has rotated, cancellation must not skip the local commit.
+    // Retain the newest tokens under the gate and retry storage before any reuse.
+    private async Task PersistPendingAsync()
+    {
+        if (!pendingSave || credentials is null) return;
+        try
+        {
+            await store.SaveAsync(credentials, CancellationToken.None).ConfigureAwait(false);
+            pendingSave = false;
+            client.LogRefresh("persisted=true");
+        }
+        catch (Exception)
+        {
+            client.LogRefresh("persisted=false");
+            try
+            {
+                await store.ClearAsync(CancellationToken.None).ConfigureAwait(false);
+                client.LogRefresh("stale_storage_cleared=true");
+            }
+            catch (Exception)
+            {
+                client.LogRefresh("stale_storage_cleared=false");
+            }
+
+            throw new OAuthException(OAuthFailureKind.Server, "刷新后的认证信息无法保存到本机，请重试。");
+        }
     }
 }

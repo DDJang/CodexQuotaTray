@@ -122,7 +122,7 @@ public partial class App : Application
             var cliFactory = new CodexAppServerClientFactory(new CodexClientOptions(ExplicitCodexBinary: explicitCodex));
             var oauthCredentials = new OAuthCredentialManager(
                 new DpapiOAuthCredentialStore(paths.OAuthCredentials),
-                new OAuthClient());
+                new OAuthClient(diagnostics: message => OAuthRefreshDiagnostics.Append(paths.OAuthCredentials + ".log", message)));
             var liveAccountService = new WindowsAccountService(cliFactory, oauthCredentials);
             accountService = liveAccountService;
             var liveRuntime = new QuotaRuntimeService(
