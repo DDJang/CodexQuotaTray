@@ -103,6 +103,9 @@ fun LiquidBottomTabs(
 
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
+        val handoffHighlight = remember(animationScope) {
+            InteractiveHighlightHandoff(animationScope)
+        }
         var committedIndex by remember {
             mutableIntStateOf(selectedTabIndex().fastCoerceIn(0, tabsCount - 1))
         }
@@ -124,6 +127,7 @@ fun LiquidBottomTabs(
                 initialScale = 1f,
                 pressedScale = 78f / 56f,
                 onDragStarted = {
+                    handoffHighlight.invalidate()
                     dragInProgress = true
                     handoffDragIndex = -1
                     handoffDragNeedsCurrentValue = false
@@ -153,6 +157,7 @@ fun LiquidBottomTabs(
                     }
                 },
                 onDragCancelled = {
+                    handoffHighlight.finish(pressProgress)
                     dragInProgress = false
                     handoffDragIndex = -1
                     handoffDragNeedsCurrentValue = false
@@ -188,6 +193,10 @@ fun LiquidBottomTabs(
                     val committed = index.fastCoerceIn(0, tabsCount - 1)
                     if (committed == committedIndex) return@collectLatest
 
+                    if (handoffHighlight.isActive) {
+                        handoffHighlight.invalidate()
+                    }
+
                     val isPendingCommit = pendingCommitTarget == committed
                     val isPreviewCommit = isPendingCommit && previewIndex == committed
                     val isPendingDragCommit = isPendingCommit && pendingCommitFromDrag
@@ -215,6 +224,7 @@ fun LiquidBottomTabs(
         val interactionCallbacks = LiquidBottomTabInteractionCallbacks(
             onPress = { index, press ->
                 if (activePress == null) {
+                    handoffHighlight.invalidate()
                     activePress = press
                     activePressIndex = index
                     pendingCommitTarget = null
@@ -243,6 +253,7 @@ fun LiquidBottomTabs(
                     pendingCommitTarget = null
                     pendingCommitNotified = false
                     pendingCommitFromDrag = false
+                    handoffHighlight.begin()
                     true
                 } else {
                     false
@@ -264,6 +275,7 @@ fun LiquidBottomTabs(
             },
             onDragEnd = { index ->
                 if (dragInProgress && handoffDragIndex == index) {
+                    handoffHighlight.finish(dampedDragAnimation.pressProgress)
                     val targetIndex = dampedDragAnimation.targetValue
                         .fastRoundToInt()
                         .fastCoerceIn(0, tabsCount - 1)
@@ -291,6 +303,7 @@ fun LiquidBottomTabs(
             },
             onDragCancel = { index ->
                 if (dragInProgress && handoffDragIndex == index) {
+                    handoffHighlight.finish(dampedDragAnimation.pressProgress)
                     dragInProgress = false
                     handoffDragIndex = -1
                     handoffDragNeedsCurrentValue = false
@@ -372,6 +385,20 @@ fun LiquidBottomTabs(
         val interactiveHighlight = remember(animationScope) {
             InteractiveHighlight(
                 animationScope = animationScope,
+                externalProgress = {
+                    if (handoffHighlight.isActive) {
+                        dampedDragAnimation.pressProgress
+                    } else {
+                        handoffHighlight.progress
+                    }
+                },
+                externalPosition = { size ->
+                    Offset(
+                        if (isLtr) (dampedDragAnimation.value + 0.5f) * tabWidth + panelOffset
+                        else size.width - (dampedDragAnimation.value + 0.5f) * tabWidth + panelOffset,
+                        size.height / 2f,
+                    )
+                },
                 position = { size, _ ->
                     Offset(
                         if (isLtr) (dampedDragAnimation.value + 0.5f) * tabWidth + panelOffset

@@ -451,6 +451,11 @@ private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
+            "After drag handoff, local highlight reuses press progress and fades on release/cancel.",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
             "drag after preview should use the same velocity deformation as selected-pill drag",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,

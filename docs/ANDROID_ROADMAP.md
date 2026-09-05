@@ -15,6 +15,8 @@
 
 - 持续验证后台刷新、通知、网络切换和厂商电池策略下的真机可靠性。
 - Android 应用自身的开机恢复调度。
+- 主底栏液态玻璃的[长按高光调查与候选方案](android-long-press-highlight-investigation.md)：
+  方案 A 已补齐未选中 Tab 的 drag handoff 高光并完成 Debug 验证；静止长按候选仍有视觉取舍，暂未落地。
 
 ## Non-goals
 
