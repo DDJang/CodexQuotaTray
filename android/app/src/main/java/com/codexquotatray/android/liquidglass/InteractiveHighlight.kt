@@ -157,31 +157,60 @@ internal class InteractiveHighlightHandoff(
 ) {
     private enum class Phase {
         INACTIVE,
+        TRANSITIONING,
         ACTIVE,
         FADING,
     }
 
     private val phase = mutableStateOf(Phase.INACTIVE)
-    private val fadeProgress = Animatable(0f, 0.001f)
+    private val transitionProgress = Animatable(0f, 0.001f)
+    private val transitionStartProgress = mutableFloatStateOf(0f)
     private val fadeStartProgress = mutableFloatStateOf(0f)
     private val fadeAnimationReady = mutableStateOf(false)
+    private val transitionAnimationSpec = spring(0.5f, 300f, 0.001f)
     private val fadeAnimationSpec = spring(0.5f, 300f, 0.001f)
     private var generation = 0
 
-    val isActive: Boolean get() = phase.value == Phase.ACTIVE
+    val isActive: Boolean
+        get() = phase.value == Phase.TRANSITIONING || phase.value == Phase.ACTIVE
 
-    val progress: Float
-        get() = when (phase.value) {
-            Phase.FADING -> if (fadeAnimationReady.value) fadeProgress.value else fadeStartProgress.floatValue
-            Phase.INACTIVE,
-            Phase.ACTIVE,
-            -> 0f
+    fun progress(targetProgress: Float): Float {
+        val target = targetProgress.coerceIn(0f, 1f)
+        return when (phase.value) {
+            Phase.TRANSITIONING -> transitionStartProgress.floatValue
+            Phase.ACTIVE -> {
+                val transition = transitionProgress.value.coerceIn(0f, 1f)
+                (transitionStartProgress.floatValue +
+                    (target - transitionStartProgress.floatValue) * transition)
+                    .coerceIn(0f, 1f)
+            }
+            Phase.FADING -> {
+                if (fadeAnimationReady.value) transitionProgress.value else fadeStartProgress.floatValue
+            }
+            Phase.INACTIVE -> 0f
         }
+    }
 
-    fun begin() {
-        generation += 1
-        phase.value = Phase.ACTIVE
+    fun begin(initialProgress: Float) {
+        val beginGeneration = ++generation
+        transitionStartProgress.floatValue = initialProgress.coerceIn(0f, 1f)
+        phase.value = Phase.TRANSITIONING
         fadeAnimationReady.value = false
+
+        animationScope.launch {
+            if (generation != beginGeneration) return@launch
+
+            try {
+                transitionProgress.snapTo(0f)
+                if (generation != beginGeneration) return@launch
+                phase.value = Phase.ACTIVE
+                transitionProgress.animateTo(1f, transitionAnimationSpec)
+            } finally {
+                if (generation == beginGeneration && phase.value == Phase.ACTIVE) {
+                    transitionProgress.snapTo(1f)
+                }
+            }
+        }
     }
 
     fun invalidate() {
@@ -193,6 +222,19 @@ internal class InteractiveHighlightHandoff(
     fun finish(currentProgress: Float) {
         if (!isActive) return
 
+        startFade(currentProgress)
+    }
+
+    fun fadeFrom(currentProgress: Float) {
+        if (isActive) {
+            finish(currentProgress)
+            return
+        }
+
+        startFade(currentProgress)
+    }
+
+    private fun startFade(currentProgress: Float) {
         val finishGeneration = ++generation
         val startProgress = currentProgress.coerceIn(0f, 1f)
         fadeStartProgress.floatValue = startProgress
@@ -203,10 +245,10 @@ internal class InteractiveHighlightHandoff(
             if (generation != finishGeneration) return@launch
 
             try {
-                fadeProgress.snapTo(startProgress)
+                transitionProgress.snapTo(startProgress)
                 if (generation != finishGeneration) return@launch
                 fadeAnimationReady.value = true
-                fadeProgress.animateTo(0f, fadeAnimationSpec)
+                transitionProgress.animateTo(0f, fadeAnimationSpec)
             } finally {
                 if (generation == finishGeneration) {
                     phase.value = Phase.INACTIVE

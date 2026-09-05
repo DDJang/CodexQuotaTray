@@ -157,7 +157,7 @@ fun LiquidBottomTabs(
                     }
                 },
                 onDragCancelled = {
-                    handoffHighlight.finish(pressProgress)
+                    handoffHighlight.finish(handoffHighlight.progress(pressProgress))
                     dragInProgress = false
                     handoffDragIndex = -1
                     handoffDragNeedsCurrentValue = false
@@ -195,6 +195,21 @@ fun LiquidBottomTabs(
 
                     if (handoffHighlight.isActive) {
                         handoffHighlight.invalidate()
+                    } else {
+                        val previewTarget = previewIndex
+                        if (
+                            activePress != null &&
+                            previewTarget != null &&
+                            activePressIndex == previewTarget
+                        ) {
+                            handoffHighlight.fadeFrom(
+                                liquidBottomTabPreviewHighlightProgress(
+                                    pillValue = dampedDragAnimation.value,
+                                    previewIndex = previewTarget,
+                                    pressProgress = dampedDragAnimation.pressProgress,
+                                ),
+                            )
+                        }
                     }
 
                     val isPendingCommit = pendingCommitTarget == committed
@@ -249,11 +264,17 @@ fun LiquidBottomTabs(
                     dragInProgress = true
                     handoffDragIndex = index
                     handoffDragNeedsCurrentValue = true
+                    handoffHighlight.begin(
+                        liquidBottomTabPreviewHighlightProgress(
+                            pillValue = dampedDragAnimation.value,
+                            previewIndex = index,
+                            pressProgress = dampedDragAnimation.pressProgress,
+                        ),
+                    )
                     previewIndex = null
                     pendingCommitTarget = null
                     pendingCommitNotified = false
                     pendingCommitFromDrag = false
-                    handoffHighlight.begin()
                     true
                 } else {
                     false
@@ -275,7 +296,9 @@ fun LiquidBottomTabs(
             },
             onDragEnd = { index ->
                 if (dragInProgress && handoffDragIndex == index) {
-                    handoffHighlight.finish(dampedDragAnimation.pressProgress)
+                    handoffHighlight.finish(
+                        handoffHighlight.progress(dampedDragAnimation.pressProgress),
+                    )
                     val targetIndex = dampedDragAnimation.targetValue
                         .fastRoundToInt()
                         .fastCoerceIn(0, tabsCount - 1)
@@ -303,7 +326,9 @@ fun LiquidBottomTabs(
             },
             onDragCancel = { index ->
                 if (dragInProgress && handoffDragIndex == index) {
-                    handoffHighlight.finish(dampedDragAnimation.pressProgress)
+                    handoffHighlight.finish(
+                        handoffHighlight.progress(dampedDragAnimation.pressProgress),
+                    )
                     dragInProgress = false
                     handoffDragIndex = -1
                     handoffDragNeedsCurrentValue = false
@@ -326,6 +351,16 @@ fun LiquidBottomTabs(
             onRelease = { index, press ->
                 if (activePress === press && activePressIndex == index) {
                     val isHandoffDrag = dragInProgress && handoffDragIndex == index
+                    val wasPreview = previewIndex == index
+                    val previewProgress = if (wasPreview) {
+                        liquidBottomTabPreviewHighlightProgress(
+                            pillValue = dampedDragAnimation.value,
+                            previewIndex = index,
+                            pressProgress = dampedDragAnimation.pressProgress,
+                        )
+                    } else {
+                        0f
+                    }
                     activePress = null
                     activePressIndex = -1
                     if (!isHandoffDrag) {
@@ -335,7 +370,8 @@ fun LiquidBottomTabs(
                             pendingCommitNotified = false
                             pendingCommitFromDrag = false
                             dampedDragAnimation.release()
-                        } else if (previewIndex == index) {
+                        } else if (wasPreview) {
+                            handoffHighlight.fadeFrom(previewProgress)
                             pendingCommitTarget = index
                             pendingCommitNotified = false
                             pendingCommitFromDrag = false
@@ -351,15 +387,25 @@ fun LiquidBottomTabs(
             onCancel = { index, press ->
                 if (activePress === press && activePressIndex == index) {
                     val isHandoffDrag = dragInProgress && handoffDragIndex == index
+                    val wasPreview = previewIndex == index
+                    val previewProgress = if (wasPreview) {
+                        liquidBottomTabPreviewHighlightProgress(
+                            pillValue = dampedDragAnimation.value,
+                            previewIndex = index,
+                            pressProgress = dampedDragAnimation.pressProgress,
+                        )
+                    } else {
+                        0f
+                    }
                     activePress = null
                     activePressIndex = -1
                     if (!isHandoffDrag) {
-                        val wasPreview = previewIndex == index
                         previewIndex = null
                         pendingCommitTarget = null
                         pendingCommitNotified = false
                         pendingCommitFromDrag = false
                         if (wasPreview) {
+                            handoffHighlight.fadeFrom(previewProgress)
                             dampedDragAnimation.settleToValue(committedIndex.toFloat())
                         }
                         dampedDragAnimation.release()
@@ -386,11 +432,25 @@ fun LiquidBottomTabs(
             InteractiveHighlight(
                 animationScope = animationScope,
                 externalProgress = {
-                    if (handoffHighlight.isActive) {
-                        dampedDragAnimation.pressProgress
+                    val previewTarget = previewIndex
+                    val previewProgress = if (
+                        activePress != null &&
+                        previewTarget != null &&
+                        activePressIndex == previewTarget &&
+                        !dragInProgress
+                    ) {
+                        liquidBottomTabPreviewHighlightProgress(
+                            pillValue = dampedDragAnimation.value,
+                            previewIndex = previewTarget,
+                            pressProgress = dampedDragAnimation.pressProgress,
+                        )
                     } else {
-                        handoffHighlight.progress
+                        0f
                     }
+                    maxOf(
+                        previewProgress,
+                        handoffHighlight.progress(dampedDragAnimation.pressProgress),
+                    )
                 },
                 externalPosition = { size ->
                     Offset(
@@ -559,4 +619,22 @@ private fun DampedDragAnimation.applyBottomTabDragDelta(
     animationScope.launch {
         offsetAnimation.snapTo(offsetAnimation.value + dragAmountX)
     }
+}
+
+private const val PREVIEW_HIGHLIGHT_NEAR_DISTANCE = 0.08f
+private const val PREVIEW_HIGHLIGHT_FAR_DISTANCE = 0.45f
+
+internal fun liquidBottomTabPreviewHighlightProgress(
+    pillValue: Float,
+    previewIndex: Int,
+    pressProgress: Float,
+): Float {
+    val distance = abs(pillValue - previewIndex.toFloat())
+    val distanceProgress =
+        ((distance - PREVIEW_HIGHLIGHT_NEAR_DISTANCE) /
+            (PREVIEW_HIGHLIGHT_FAR_DISTANCE - PREVIEW_HIGHLIGHT_NEAR_DISTANCE))
+            .fastCoerceIn(0f, 1f)
+    val smoothDistanceProgress = distanceProgress * distanceProgress * (3f - 2f * distanceProgress)
+    val contact = 1f - smoothDistanceProgress
+    return pressProgress.fastCoerceIn(0f, 1f) * contact
 }

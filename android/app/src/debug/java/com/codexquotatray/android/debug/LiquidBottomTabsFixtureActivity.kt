@@ -446,12 +446,17 @@ private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "Unselected-tab preview/hold does not use InteractiveHighlight.",
+            "Preview/hold highlight follows the pill's actual distance to the target; release still commits.",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "After drag handoff, local highlight reuses press progress and fades on release/cancel.",
+            "Slow taps can expose the distance-based preview highlight tradeoff; no long-press detector is used.",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "After drag handoff, local highlight transitions from the preview value and fades on release/cancel.",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )

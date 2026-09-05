@@ -2,6 +2,7 @@ package com.codexquotatray.android
 
 import androidx.compose.ui.geometry.Offset
 import com.codexquotatray.android.source.DataSourcePriority
+import com.codexquotatray.android.liquidglass.liquidBottomTabPreviewHighlightProgress
 import com.codexquotatray.android.liquidglass.shouldCommitLiquidSegmentSelection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -576,6 +577,19 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun previewHighlightFollowsActualPillDistanceAndPressProgress() {
+        assertEquals(0f, liquidBottomTabPreviewHighlightProgress(0f, 1, 1f), 0f)
+        assertEquals(1f, liquidBottomTabPreviewHighlightProgress(1f, 1, 1f), 0f)
+        assertEquals(
+            0.5f,
+            liquidBottomTabPreviewHighlightProgress(0.265f, 0, 1f),
+            0.0001f,
+        )
+        assertEquals(0.25f, liquidBottomTabPreviewHighlightProgress(0f, 0, 0.25f), 0f)
+        assertEquals(0f, liquidBottomTabPreviewHighlightProgress(0f, 0, 0f), 0f)
+    }
+
+    @Test
     fun liquidBottomTabsKeepTheProductionCombinedBackdropRenderGraph() {
         val source = sourceFile("liquidglass/LiquidBottomTabs.kt")
         val tab = sourceFile("liquidglass/LiquidBottomTab.kt")
@@ -608,8 +622,10 @@ class SettingsStructureTest {
         assertTrue(source.contains("dampedDragAnimation.settleToValue(visualTargetIndex.toFloat())"))
         assertTrue(source.contains("dampedDragAnimation.settleToValue(committed.toFloat())"))
         assertTrue(source.contains("dampedDragAnimation.settleToValue(committedIndex.toFloat())"))
-        assertTrue(source.contains("handoffHighlight.begin()"))
-        assertTrue(source.contains("handoffHighlight.finish(dampedDragAnimation.pressProgress)"))
+        assertTrue(source.contains("handoffHighlight.begin("))
+        assertTrue(source.contains("handoffHighlight.progress(dampedDragAnimation.pressProgress)"))
+        assertTrue(source.contains("handoffHighlight.fadeFrom(previewProgress)"))
+        assertTrue(source.contains("liquidBottomTabPreviewHighlightProgress("))
         assertTrue(source.contains("Highlight.Default.copy(alpha = progress)"))
         assertTrue(source.contains(".then(interactiveHighlight.gestureModifier)"))
         assertFalse(source.contains("longPressHighlight"))
@@ -763,8 +779,9 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("PRESS OTHER TAB → HOLD → DRAG ACROSS → RELEASE"))
         assertTrue(fixture.contains("HOLD + DRAG → preview hands off → no snap back → commit nearest tab on release"))
         assertTrue(fixture.contains("DIRECT DRAG SELECTED → original production highlight + drag behavior remains"))
-        assertTrue(fixture.contains("Unselected-tab preview/hold does not use InteractiveHighlight."))
-        assertTrue(fixture.contains("After drag handoff, local highlight reuses press progress and fades on release/cancel."))
+        assertTrue(fixture.contains("Preview/hold highlight follows the pill's actual distance to the target; release still commits."))
+        assertTrue(fixture.contains("Slow taps can expose the distance-based preview highlight tradeoff; no long-press detector is used."))
+        assertTrue(fixture.contains("After drag handoff, local highlight transitions from the preview value and fades on release/cancel."))
         val pressPreview = fixture.substringAfter("private fun PressPreviewFixture")
             .substringBefore("private fun ProductionLiquidTabs")
         assertFalse(pressPreview.contains("long-press highlight"))
