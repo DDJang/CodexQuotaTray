@@ -172,12 +172,19 @@ public sealed class WindowBehaviorTests
     }
 
     [TestMethod]
-    public void ContentHeight_AppliesPhysicalBottomTrimAfterDpiConversion()
+    public void ContentHeight_PreservesMeasuredClientHeightAcrossDpi()
     {
-        Assert.AreEqual(268, PopupPlacement.ContentHeightPixels(286, 1, 1080, 8, 18));
-        Assert.AreEqual(340, PopupPlacement.ContentHeightPixels(286, 1.25, 1350, 8, 18));
-        Assert.AreEqual(256, PopupPlacement.ContentHeightPixels(286, 1, 1080, 8, 30));
-        Assert.AreEqual(328, PopupPlacement.ContentHeightPixels(286, 1.25, 1350, 8, 30));
+        Assert.AreEqual(420, PopupPlacement.ContentHeightPixels(420, 1, 1080));
+        Assert.AreEqual(525, PopupPlacement.ContentHeightPixels(420, 1.25, 1350));
+        Assert.AreEqual(840, PopupPlacement.ContentHeightPixels(420, 2, 2160));
+    }
+
+    [TestMethod]
+    public void ContentHeight_PreservesNaturalBoundaryAcrossCommonDpiScales()
+    {
+        Assert.AreEqual(364, PopupPlacement.ContentHeightPixels(364, 1, 1080));
+        Assert.AreEqual(455, PopupPlacement.ContentHeightPixels(364, 1.25, 1350));
+        Assert.AreEqual(546, PopupPlacement.ContentHeightPixels(364, 1.5, 1620));
     }
 
     [TestMethod]
@@ -191,6 +198,53 @@ public sealed class WindowBehaviorTests
     {
         Assert.AreEqual(210, PopupPlacement.NaturalContentHeight(176, 24, 10, 260));
         Assert.AreEqual(260, PopupPlacement.NaturalContentHeight(double.NaN, 24, 10, 260));
+    }
+
+    [TestMethod]
+    public void NaturalContentHeight_AccountsForQuotaAndTokenDesignSpacing()
+    {
+        Assert.AreEqual(364, PopupPlacement.NaturalContentHeight(336, 24, 4, 500));
+        Assert.AreEqual(399, PopupPlacement.NaturalContentHeight(362, 19, 18, 500));
+    }
+
+    [TestMethod]
+    public void PopupHeight_UsesVisibleBoundaryWithExplicitTokenSpacing()
+    {
+        var mainWindow = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var boundaryEventStart = mainWindow.IndexOf(
+            "quotaView.ContentBottomBoundary.SizeChanged +=",
+            StringComparison.Ordinal);
+        var boundaryEventEnd = mainWindow.IndexOf(
+            "var windowId =",
+            boundaryEventStart,
+            StringComparison.Ordinal);
+
+        StringAssert.Contains(mainWindow, "PopupPlacement.NaturalContentHeight(");
+        StringAssert.Contains(mainWindow, "quotaView.ContentBottomBoundary");
+        StringAssert.Contains(mainWindow, "tokenUsageView?.ContentBottomBoundary");
+        StringAssert.Contains(mainWindow, "ContentBottomSpacingDips");
+        Assert.IsFalse(mainWindow.Contains("var extentHeight = PanelScroller.ExtentHeight;", StringComparison.Ordinal));
+        Assert.IsFalse(mainWindow.Contains("PanelContent.InvalidateMeasure();", StringComparison.Ordinal));
+        Assert.IsFalse(mainWindow.Contains("PanelContent.Measure(", StringComparison.Ordinal));
+        Assert.IsGreaterThanOrEqualTo(0, boundaryEventStart);
+        Assert.IsGreaterThan(boundaryEventStart, boundaryEventEnd);
+        var boundaryEvent = mainWindow[boundaryEventStart..boundaryEventEnd];
+        StringAssert.Contains(boundaryEvent, "if (!pageTransitionRunning)");
+        StringAssert.Contains(boundaryEvent, "QueuePositionIfVisible(forceResize: true);");
+    }
+
+    [TestMethod]
+    public void TokenUsage_ExposesStateSpecificLayoutBoundaries()
+    {
+        var tokenUsageView = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "TokenUsageView.xaml.cs"));
+
+        StringAssert.Contains(tokenUsageView, "TokenLoadingCard");
+        StringAssert.Contains(tokenUsageView, "HeatmapCard");
+        StringAssert.Contains(tokenUsageView, "TokenEmptyPanel");
+        StringAssert.Contains(tokenUsageView, "TokenErrorPanel");
+        StringAssert.Contains(tokenUsageView, "ContentBottomSpacingDips => TokenUsageRoot.Margin.Bottom");
     }
 
     [TestMethod]
@@ -229,7 +283,7 @@ public sealed class WindowBehaviorTests
             "private void CompletePageSwitch(",
             animationStart,
             StringComparison.Ordinal);
-        var positionStart = source.IndexOf("private void Position(", StringComparison.Ordinal);
+        var positionStart = source.IndexOf("private SizeInt32 Position(", StringComparison.Ordinal);
         var positionEnd = source.IndexOf(
             "private double MeasureVisibleContentHeight(",
             positionStart,

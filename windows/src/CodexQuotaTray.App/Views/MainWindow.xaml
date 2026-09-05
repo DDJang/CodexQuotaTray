@@ -7,7 +7,6 @@
     <Grid x:Name="ContentRoot" Background="Transparent">
         <Grid.Resources>
             <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
-            <local:StatusToneBrushConverter x:Key="StatusToneBrushConverter" />
         </Grid.Resources>
 
         <Grid x:Name="PanelSurface" Background="{ThemeResource MainWindowSurfaceBrush}">
@@ -63,7 +62,7 @@
                                 MaxLines="2"
                                 VerticalAlignment="Center"
                                 FontSize="12"
-                                Foreground="{Binding StatusTone, Converter={StaticResource StatusToneBrushConverter}}"
+                                Foreground="{ThemeResource NeutralStatusBrush}"
                                 Text="{Binding StatusText}"
                                 TextTrimming="CharacterEllipsis"
                                 TextWrapping="Wrap"

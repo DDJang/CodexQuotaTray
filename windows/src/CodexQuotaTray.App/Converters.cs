@@ -4,42 +4,8 @@ using PersistenceThemeMode = CodexQuotaTray.Core.Persistence.ThemeMode;
 using RuntimeRefreshMode = CodexQuotaTray.Core.Runtime.RefreshMode;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Media;
 
 namespace CodexQuotaTray.App;
-
-public sealed class QuotaToneBrushConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, string language) =>
-        Resource(value switch
-        {
-            QuotaTone.Warning => "WarningQuotaBrush",
-            QuotaTone.Critical => "CriticalQuotaBrush",
-            QuotaTone.Unavailable => "UnavailableQuotaBrush",
-            _ => "HealthyQuotaBrush",
-        });
-
-    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
-        throw new NotSupportedException();
-
-    private static Brush Resource(string key) => (Brush)Application.Current.Resources[key];
-}
-
-public sealed class StatusToneBrushConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, string language) =>
-        (Brush)Application.Current.Resources[value switch
-        {
-            StatusTone.Success => "SuccessStatusBrush",
-            StatusTone.Refreshing => "RefreshingStatusBrush",
-            StatusTone.Warning => "WarningStatusBrush",
-            StatusTone.Error => "ErrorStatusBrush",
-            _ => "NeutralStatusBrush",
-        }];
-
-    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
-        throw new NotSupportedException();
-}
 
 public sealed class BooleanToVisibilityConverter : IValueConverter
 {
@@ -56,15 +22,6 @@ public sealed class BooleanToVisibilityConverter : IValueConverter
 
     public object ConvertBack(object value, Type targetType, object parameter, string language) =>
         value is Visibility.Visible;
-}
-
-public sealed class TokenHeatmapBrushConverter : IValueConverter
-{
-    public object Convert(object value, Type targetType, object parameter, string language) =>
-        (Brush)Application.Current.Resources[$"TokenHeatmap{Math.Clamp(value is int bucket ? bucket : 0, 0, 4)}Brush"];
-
-    public object ConvertBack(object value, Type targetType, object parameter, string language) =>
-        throw new NotSupportedException();
 }
 
 public sealed class RefreshModeDisplayConverter : IValueConverter

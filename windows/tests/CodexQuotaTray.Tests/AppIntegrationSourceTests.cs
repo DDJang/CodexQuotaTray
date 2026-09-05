@@ -559,25 +559,76 @@ public sealed class AppIntegrationSourceTests
 
         var configure = method.IndexOf("ConfigureWindow();", StringComparison.Ordinal);
         var backdrop = method.IndexOf("ApplyBackdrop();", StringComparison.Ordinal);
-        var position = method.IndexOf("Position();", StringComparison.Ordinal);
+        var firstPresentTelemetry = method.IndexOf(
+            "first-present-before-layout",
+            StringComparison.Ordinal);
         var activate = method.IndexOf("Activate();", StringComparison.Ordinal);
         var show = method.IndexOf("appWindow.Show();", StringComparison.Ordinal);
-        var correction = method.IndexOf("QueuePositionIfVisible(forceResize: true);", StringComparison.Ordinal);
 
         Assert.IsTrue(configure >= 0);
         Assert.IsTrue(backdrop > configure);
-        Assert.IsTrue(position > backdrop);
-        Assert.IsTrue(activate > position);
+        Assert.IsTrue(firstPresentTelemetry > backdrop);
+        Assert.IsTrue(activate > firstPresentTelemetry);
         Assert.IsTrue(show > activate);
-        Assert.IsTrue(correction > show);
+        Assert.IsFalse(method.Contains("Position();", StringComparison.Ordinal));
+        Assert.IsFalse(method.Contains("QueuePositionIfVisible(forceResize: true);", StringComparison.Ordinal));
+
+        var revealedStart = source.IndexOf("private void OnPanelRevealed(", StringComparison.Ordinal);
+        var revealedEnd = source.IndexOf("private async Task WaitForFirstPresentationReadyAsync(", revealedStart, StringComparison.Ordinal);
+        Assert.IsTrue(revealedStart >= 0);
+        Assert.IsTrue(revealedEnd > revealedStart);
+        var revealed = source[revealedStart..revealedEnd];
+        StringAssert.Contains(revealed, "Position(forceResize: true, telemetryStage: \"first-revealed\");");
 
         StringAssert.Contains(source, "private readonly FirstPresentationGate firstPresentation = new();");
+        StringAssert.Contains(source, "firstPresentationLayoutReady");
         StringAssert.Contains(source, "SetFirstPresentationCloaked");
         StringAssert.Contains(source, "WaitForFirstPresentationReadyAsync");
         StringAssert.Contains(source, "ContentRoot.Loaded += loaded;");
         StringAssert.Contains(source, "CompositionTarget.Rendering += rendering;");
         StringAssert.Contains(source, "NativeMethods.DwmFlush()");
         StringAssert.Contains(source, "() => !exiting && visibility.DesiredVisible");
+    }
+
+    [TestMethod]
+    public void FirstPresentationFinalizesPositionBeforeUncloakAndReveal()
+    {
+        var mainWindow = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var readinessStart = mainWindow.IndexOf(
+            "private async Task WaitForFirstPresentationReadyAsync(",
+            StringComparison.Ordinal);
+        var readinessEnd = mainWindow.IndexOf(
+            "private Task WaitForContentLoadedAsync(",
+            readinessStart,
+            StringComparison.Ordinal);
+        Assert.IsTrue(readinessStart >= 0);
+        Assert.IsTrue(readinessEnd > readinessStart);
+        var readiness = mainWindow[readinessStart..readinessEnd];
+
+        var layoutReady = readiness.IndexOf(
+            "cancellationToken.ThrowIfCancellationRequested();",
+            StringComparison.Ordinal);
+        var finalPosition = readiness.IndexOf(
+            "Position(forceResize: true, telemetryStage: \"first-layout-ready\");",
+            layoutReady,
+            StringComparison.Ordinal);
+        var finalFlush = readiness.IndexOf(
+            "Final Position complete while cloaked",
+            finalPosition,
+            StringComparison.Ordinal);
+        Assert.IsTrue(layoutReady >= 0);
+        Assert.IsTrue(finalPosition > layoutReady);
+        Assert.IsTrue(finalFlush > finalPosition);
+
+        var gate = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "FirstPresentationGate.cs"));
+        var waitForReady = gate.IndexOf("await waitForReady", StringComparison.Ordinal);
+        var uncloak = gate.IndexOf("_ = setCloaked(false)", waitForReady, StringComparison.Ordinal);
+        var revealed = gate.IndexOf("revealed();", uncloak, StringComparison.Ordinal);
+        Assert.IsTrue(waitForReady >= 0);
+        Assert.IsTrue(uncloak > waitForReady);
+        Assert.IsTrue(revealed > uncloak);
     }
 
     [TestMethod]
@@ -633,6 +684,18 @@ public sealed class AppIntegrationSourceTests
             Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
 
         StringAssert.Contains(source, "WindowPlacementService.GetRasterizationScale(hwnd)");
+    }
+
+    [TestMethod]
+    public void PopupResizeUsesCurrentFrameDeltaForTheMeasuredClientHeight()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "WindowPlacementService.cs"));
+
+        StringAssert.Contains(source, "var nonClientWidth =");
+        StringAssert.Contains(source, "var nonClientHeight =");
+        StringAssert.Contains(source, "appWindow.Resize(new SizeInt32(");
+        Assert.IsFalse(source.Contains("appWindow.ResizeClient(", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -774,7 +837,17 @@ public sealed class AppIntegrationSourceTests
         StringAssert.Contains(source, "-SingletonName");
         StringAssert.Contains(source, "-DdlmNamePattern");
         StringAssert.Contains(prepare, "if IsWindowsAppRuntimeReady() then begin");
-        StringAssert.Contains(prepare, "DownloadTemporaryFile(");
+        StringAssert.Contains(source, "CreateDownloadPage(");
+        StringAssert.Contains(prepare, "RuntimeDownloadPage.Add(");
+        StringAssert.Contains(prepare, "RuntimeDownloadPage.Show;");
+        StringAssert.Contains(prepare, "RuntimeDownloadPage.Download;");
+        StringAssert.Contains(prepare, "RuntimeDownloadPage.Hide;");
+        StringAssert.Contains(prepare, "RuntimeDownloadPage.AbortedByUser");
+        StringAssert.Contains(prepare, "FileCopy(LocalRuntimePath, RuntimeInstallerPath, False)");
+        Assert.IsTrue(prepare.IndexOf("GetSHA256OfFile(RuntimeInstallerPath)", StringComparison.Ordinal)
+            < prepare.IndexOf("'--quiet'", StringComparison.Ordinal));
+        StringAssert.Contains(source, "ShellExec('open', '{#WindowsAppRuntimeDownloadUrl}'");
+        StringAssert.Contains(source, "if not WizardSilent then");
         StringAssert.Contains(prepare, "'{#WindowsAppRuntimeDownloadUrl}'");
         StringAssert.Contains(prepare, "'{#WindowsAppRuntimeSha256}'");
         StringAssert.Contains(prepare, "GetSHA256OfFile(RuntimeInstallerPath)");

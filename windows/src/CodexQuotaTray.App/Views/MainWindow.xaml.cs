@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Drawing;
 using System.Numerics;
+using System.ComponentModel;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.Core.Presentation;
@@ -10,6 +12,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using CodexQuotaTray.Core.Persistence;
+using Windows.Graphics;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
 
@@ -22,6 +25,7 @@ public sealed partial class MainWindow : Window
     private static readonly TimeSpan FirstPresentationTimeout = TimeSpan.FromSeconds(1);
     private readonly MainViewModel viewModel;
     private readonly TokenUsageViewModel tokenUsageViewModel;
+    private readonly QuotaView quotaView;
     private TokenUsageView? tokenUsageView;
     private readonly WindowPlacementService placement = new();
     private readonly BackdropService backdrop = new();
@@ -29,6 +33,7 @@ public sealed partial class MainWindow : Window
     private readonly FirstPresentationGate firstPresentation = new();
     private readonly CancellationTokenSource presentationLifetime = new();
     private readonly UISettings uiSettings = new();
+    private readonly AccessibilitySettings accessibilitySettings;
     private readonly AppWindow appWindow;
     private readonly IntPtr hwnd;
     private readonly bool initiallyCloaked;
@@ -37,11 +42,14 @@ public sealed partial class MainWindow : Window
     private bool positionQueued;
     private bool forcePositionQueued;
     private bool hasSessionPosition;
+    private bool firstPresentationLayoutReady;
     private bool windowConfigured;
     private bool showingTokenPage;
     private bool pageTransitionRunning;
     private bool firstShowRequestedLogged;
     private Stopwatch? firstPresentationStopwatch;
+    private string? queuedPositionTelemetryStage;
+    private bool themeRefreshQueued;
 #if DEBUG
     private readonly List<string> firstPresentationTiming = [];
 #endif
@@ -56,7 +64,18 @@ public sealed partial class MainWindow : Window
         hwnd = WindowNative.GetWindowHandle(this);
         initiallyCloaked = SetFirstPresentationCloaked(true);
         ContentRoot.DataContext = viewModel;
-        QuotaPageHost.Children.Add(new QuotaView());
+        viewModel.PropertyChanged += OnMainViewModelPropertyChanged;
+        tokenUsageViewModel.PropertyChanged += OnTokenUsageViewModelPropertyChanged;
+        quotaView = new QuotaView();
+        QuotaPageHost.Children.Add(quotaView);
+        accessibilitySettings = new AccessibilitySettings();
+        quotaView.ContentBottomBoundary.SizeChanged += (_, _) =>
+        {
+            if (!pageTransitionRunning)
+            {
+                QueuePositionIfVisible(forceResize: true);
+            }
+        };
 
         var windowId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         appWindow = AppWindow.GetFromWindowId(windowId);
@@ -78,17 +97,21 @@ public sealed partial class MainWindow : Window
         ContentRoot.ActualThemeChanged += (_, _) =>
         {
             UpdateTabSelectionVisuals();
-            if (visibility.DesiredVisible)
-            {
-                ApplyBackdrop();
-            }
+            QueueThemeRefresh("actual-theme-changed");
         };
+        ContentRoot.Loaded += OnContentRootLoaded;
+        if (ContentRoot.IsLoaded)
+        {
+            _ = ContentRoot.DispatcherQueue.TryEnqueue(
+                () => OnContentRootLoaded(ContentRoot, new RoutedEventArgs()));
+        }
         if (!uiSettings.AnimationsEnabled)
         {
             TabSelectionPill.TranslationTransition = null;
         }
 
         UpdateTabSelectionVisuals();
+        LogThemeState("constructed");
     }
 
     internal void ConfigureWindow()
@@ -171,6 +194,8 @@ public sealed partial class MainWindow : Window
         Interlocked.Increment(ref pageTransitionRevision);
         tokenUsageView?.ResetHeatmapInteraction();
         tokenUsageView?.Dispose();
+        viewModel.PropertyChanged -= OnMainViewModelPropertyChanged;
+        tokenUsageViewModel.PropertyChanged -= OnTokenUsageViewModelPropertyChanged;
         visibility.Hide();
         TryHideForExit();
         backdrop.Dispose();
@@ -312,8 +337,8 @@ public sealed partial class MainWindow : Window
 
         ApplyBackdrop();
         TraceFirstPresentation("ApplyBackdrop complete");
-        Position();
-        TraceFirstPresentation("Position complete");
+        TraceLayout("first-present-before-layout", null);
+        TraceFirstPresentation("Position deferred until first rendered frame");
         TraceFirstPresentation("Activate called");
         Activate();
         TraceFirstPresentation("Activate returned");
@@ -323,15 +348,20 @@ public sealed partial class MainWindow : Window
             tokenUsageView?.PrepareHeatmapInteraction();
         }
 
-        // The first measure can still see the hidden window's old ScrollViewer
-        // viewport. Re-measure after the window is shown so the client height is
-        // based on the actual footer boundary instead of that stale viewport.
-        QueuePositionIfVisible(forceResize: true);
     }
 
     private void OnPanelRevealed(bool raisePanelShown)
     {
-        if (raisePanelShown && !exiting && visibility.DesiredVisible)
+        if (exiting || !visibility.DesiredVisible)
+        {
+            return;
+        }
+
+        firstPresentationLayoutReady = true;
+        // The first presentation gate calls this only after the cloaked window
+        // has completed a render, so the visual boundary is now stable.
+        Position(forceResize: true, telemetryStage: "first-revealed");
+        if (raisePanelShown)
         {
             PanelShown?.Invoke(this, EventArgs.Empty);
         }
@@ -359,7 +389,14 @@ public sealed partial class MainWindow : Window
 
         cancellationToken.ThrowIfCancellationRequested();
         var flushResult = NativeMethods.DwmFlush();
-        TraceFirstPresentation($"DwmFlush complete hresult=0x{flushResult:X8}");
+        TraceFirstPresentation($"Layout readiness DwmFlush complete hresult=0x{flushResult:X8}");
+
+        firstPresentationLayoutReady = true;
+        TraceFirstPresentation("Final Position before uncloak");
+        Position(forceResize: true, telemetryStage: "first-layout-ready");
+        var finalPositionFlushResult = NativeMethods.DwmFlush();
+        TraceFirstPresentation(
+            $"Final Position complete while cloaked; DwmFlush hresult=0x{finalPositionFlushResult:X8}");
     }
 
     private Task WaitForContentLoadedAsync(CancellationToken cancellationToken)
@@ -488,10 +525,7 @@ public sealed partial class MainWindow : Window
             appWindow,
             mode == ThemeMode.Dark
                 || mode == ThemeMode.System && ContentRoot.ActualTheme == ElementTheme.Dark);
-        if (visibility.DesiredVisible)
-        {
-            ApplyBackdrop();
-        }
+        QueueThemeRefresh("apply-theme");
     }
 
     private void QueuePositionIfVisible(bool forceResize = false)
@@ -513,38 +547,214 @@ public sealed partial class MainWindow : Window
             positionQueued = false;
             var shouldForceResize = forcePositionQueued;
             forcePositionQueued = false;
-            if (visibility.DesiredVisible)
+            var telemetryStage = queuedPositionTelemetryStage;
+            queuedPositionTelemetryStage = null;
+            if (visibility.DesiredVisible && firstPresentationLayoutReady)
             {
-                Position(shouldForceResize);
+                Position(shouldForceResize, telemetryStage ?? "position");
             }
         }))
         {
             positionQueued = false;
             forcePositionQueued = false;
+            queuedPositionTelemetryStage = null;
         }
     }
 
-    private void Position(bool forceResize = false)
+    private SizeInt32 Position(bool forceResize = false, string telemetryStage = "position")
     {
         var scale = ContentRoot.XamlRoot?.RasterizationScale
             ?? WindowPlacementService.GetRasterizationScale(hwnd);
-        PanelContent.InvalidateMeasure();
-        PanelContent.Measure(new Windows.Foundation.Size(PanelWidthDips, double.PositiveInfinity));
         ContentRoot.UpdateLayout();
         var fallbackHeight = Math.Max(1, Math.Ceiling(PanelContent.DesiredSize.Height));
         var measuredHeight = MeasureVisibleContentHeight(fallbackHeight);
+        SizeInt32 requestedClientSize;
         if (hasSessionPosition)
         {
-            placement.ResizeAndKeepPosition(appWindow, scale, measuredHeight, forceResize);
-            return;
+            requestedClientSize = placement.ResizeAndKeepPosition(
+                appWindow,
+                scale,
+                measuredHeight,
+                forceResize);
+        }
+        else
+        {
+            requestedClientSize = placement.ResizeAndPlaceInitial(
+                appWindow,
+                scale,
+                measuredHeight,
+                TrayRectangleProvider());
+            hasSessionPosition = true;
         }
 
-        placement.ResizeAndPlaceInitial(appWindow, scale, measuredHeight, TrayRectangleProvider());
-        hasSessionPosition = true;
+        TraceLayout(telemetryStage, requestedClientSize.Height);
+        return requestedClientSize;
     }
 
     private double MeasureVisibleContentHeight(double fallbackHeight)
-        => fallbackHeight;
+    {
+        if (pageTransitionRunning && double.IsFinite(PageHost.Height) && PageHost.Height > 0)
+        {
+            try
+            {
+                var pageTop = PageHost
+                    .TransformToVisual(PanelContent)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0))
+                    .Y;
+                return PopupPlacement.NaturalContentHeight(
+                    pageTop,
+                    PageHost.Height,
+                    PanelContent.Padding.Bottom,
+                    fallbackHeight);
+            }
+            catch (InvalidOperationException)
+            {
+                return fallbackHeight;
+            }
+        }
+
+        var boundary = pageTransitionRunning
+            && double.IsFinite(PageHost.Height)
+            && PageHost.Height > 0
+            ? PageHost
+            : showingTokenPage
+                ? tokenUsageView?.ContentBottomBoundary
+                : quotaView.ContentBottomBoundary;
+        if (boundary is not { ActualHeight: > 0 })
+        {
+            return fallbackHeight;
+        }
+
+        try
+        {
+            var boundaryTop = boundary
+                .TransformToVisual(PanelContent)
+                .TransformPoint(new Windows.Foundation.Point(0, 0))
+                .Y;
+            var bottomSpacing = PanelContent.Padding.Bottom
+                + (showingTokenPage ? tokenUsageView?.ContentBottomSpacingDips ?? 0 : 0);
+            return PopupPlacement.NaturalContentHeight(
+                boundaryTop,
+                boundary.ActualHeight,
+                bottomSpacing,
+                fallbackHeight);
+        }
+        catch (InvalidOperationException)
+        {
+            return fallbackHeight;
+        }
+    }
+
+    [Conditional("DEBUG")]
+    private void TraceLayout(string stage, int? requestedClientHeight)
+    {
+#if DEBUG
+        var scale = ContentRoot.XamlRoot?.RasterizationScale
+            ?? WindowPlacementService.GetRasterizationScale(hwnd);
+        var boundary = pageTransitionRunning
+            && double.IsFinite(PageHost.Height)
+            && PageHost.Height > 0
+            ? PageHost
+            : showingTokenPage
+                ? tokenUsageView?.ContentBottomBoundary
+                : quotaView.ContentBottomBoundary;
+        var boundaryTop = double.NaN;
+        var boundaryHeight = double.NaN;
+        var boundaryBottom = double.NaN;
+        if (boundary is { ActualHeight: > 0 })
+        {
+            try
+            {
+                boundaryTop = boundary
+                    .TransformToVisual(PanelContent)
+                    .TransformPoint(new Windows.Foundation.Point(0, 0))
+                    .Y;
+                boundaryHeight = boundary.ActualHeight;
+                boundaryBottom = boundaryTop + boundaryHeight;
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
+        var pageState = showingTokenPage
+            ? tokenUsageView?.LayoutState ?? "unavailable"
+            : viewModel.ShowLoading
+                ? "loading"
+                : viewModel.StatusTone == CodexQuotaTray.Core.Models.StatusTone.Error
+                    ? "error"
+                    : viewModel.HasWindows ? "content" : "empty";
+        var boundarySpacing = boundary == PageHost
+            ? 0
+            : showingTokenPage
+                ? tokenUsageView?.ContentBottomSpacingDips ?? 0
+                : 0;
+        var intendedBottomSpacing = boundarySpacing + PanelContent.Padding.Bottom;
+        var naturalBottom = double.IsFinite(boundaryBottom)
+            ? boundaryBottom + intendedBottomSpacing
+            : double.NaN;
+        var windowSize = appWindow.Size;
+        var clientSize = appWindow.ClientSize;
+        var presenter = appWindow.Presenter as OverlappedPresenter;
+        var quotaHeight = quotaView.ActualHeight;
+        var quotaDesiredHeight = quotaView.DesiredSize.Height;
+        var tokenHeight = tokenUsageView?.ActualHeight ?? double.NaN;
+        var tokenDesiredHeight = tokenUsageView?.DesiredSize.Height ?? double.NaN;
+        var line = string.Join(
+            " ",
+            $"pid={Environment.ProcessId}",
+            $"stage={stage}",
+            $"selectedPage={(showingTokenPage ? "token" : "quota")}",
+            $"state={pageState}",
+            $"scale={FormatLayoutValue(scale)}",
+            $"dpi={NativeMethods.GetDpiForWindow(hwnd)}",
+            $"appWindowSize={windowSize.Width}x{windowSize.Height}",
+            $"clientSize={clientSize.Width}x{clientSize.Height}",
+            $"preferredMinWidth={FormatLayoutValue(presenter?.PreferredMinimumWidth ?? double.NaN)}",
+            $"preferredMinHeight={FormatLayoutValue(presenter?.PreferredMinimumHeight ?? double.NaN)}",
+            $"contentRootActualHeight={FormatLayoutValue(ContentRoot.ActualHeight)}",
+            $"panelScrollerActualHeight={FormatLayoutValue(PanelScroller.ActualHeight)}",
+            $"panelScrollerViewportHeight={FormatLayoutValue(PanelScroller.ViewportHeight)}",
+            $"panelScrollerExtentHeight={FormatLayoutValue(PanelScroller.ExtentHeight)}",
+            $"panelContentActualHeight={FormatLayoutValue(PanelContent.ActualHeight)}",
+            $"panelContentDesiredHeight={FormatLayoutValue(PanelContent.DesiredSize.Height)}",
+            $"pageHostActualHeight={FormatLayoutValue(PageHost.ActualHeight)}",
+            $"pageHostDesiredHeight={FormatLayoutValue(PageHost.DesiredSize.Height)}",
+            $"pageHostHeight={FormatLayoutValue(PageHost.Height)}",
+            $"quotaActualHeight={FormatLayoutValue(quotaHeight)}",
+            $"quotaDesiredHeight={FormatLayoutValue(quotaDesiredHeight)}",
+            $"tokenActualHeight={FormatLayoutValue(tokenHeight)}",
+            $"tokenDesiredHeight={FormatLayoutValue(tokenDesiredHeight)}",
+            $"lastVisibleTop={FormatLayoutValue(boundaryTop)}",
+            $"lastVisibleHeight={FormatLayoutValue(boundaryHeight)}",
+            $"lastVisibleBottom={FormatLayoutValue(boundaryBottom)}",
+            $"intendedBottomSpacing={FormatLayoutValue(intendedBottomSpacing)}",
+            $"naturalBottom={FormatLayoutValue(naturalBottom)}",
+            $"requestedClientHeight={requestedClientHeight?.ToString(CultureInfo.InvariantCulture) ?? "none"}");
+        Debug.WriteLine($"Layout diagnostics: {line}");
+        try
+        {
+            File.AppendAllText(
+                Path.Combine(Path.GetTempPath(), $"CodexQuotaTray-layout-debug-{Environment.ProcessId}.log"),
+                line + Environment.NewLine);
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            Debug.WriteLine($"Layout diagnostics file failed: {error.GetType().Name}");
+        }
+#endif
+    }
+
+#if DEBUG
+    private static string FormatLayoutValue(double value) =>
+        double.IsNaN(value)
+            ? "NaN"
+            : double.IsPositiveInfinity(value)
+                ? "Infinity"
+                : double.IsNegativeInfinity(value)
+                    ? "-Infinity"
+                    : value.ToString("F2", CultureInfo.InvariantCulture);
+#endif
 
     private void OnQuotaTabClick(object sender, RoutedEventArgs args) => _ = ShowPageAsync(showToken: false);
 
@@ -657,6 +867,7 @@ public sealed partial class MainWindow : Window
         incoming.IsHitTestVisible = true;
         PageHost.Height = double.NaN;
         pageTransitionRunning = false;
+        queuedPositionTelemetryStage = "page-switch-complete";
         QueuePositionIfVisible(forceResize: true);
     }
 
@@ -664,6 +875,7 @@ public sealed partial class MainWindow : Window
     {
         HeaderStatusText.DataContext = showingTokenPage ? tokenUsageViewModel : viewModel;
         RefreshButton.DataContext = showingTokenPage ? tokenUsageViewModel : viewModel;
+        ApplyStatusToneVisualState();
         var refreshName = showingTokenPage ? "刷新统计" : "刷新额度";
         ToolTipService.SetToolTip(RefreshButton, refreshName);
         AutomationProperties.SetName(RefreshButton, refreshName);
@@ -677,9 +889,13 @@ public sealed partial class MainWindow : Window
         }
 
         tokenUsageView = new TokenUsageView(tokenUsageViewModel, hwnd);
+        tokenUsageView.ContentLayoutChanged += OnTokenUsageContentLayoutChanged;
         TokenPageHost.Children.Add(tokenUsageView);
         return tokenUsageView;
     }
+
+    private void OnTokenUsageContentLayoutChanged(object? sender, EventArgs args) =>
+        QueuePositionIfVisible(forceResize: true);
 
     private void OnTabSelectorSizeChanged(object sender, SizeChangedEventArgs args) => UpdateTabSelectionVisuals();
 
@@ -691,16 +907,120 @@ public sealed partial class MainWindow : Window
         TabSelectionPill.Translation = new Vector3(showingTokenPage ? tokenOffset : 0f, 0f, 0f);
     }
 
-    private static Brush ResolveThemeBrush(string key) => (Brush)Application.Current.Resources[key];
-
     private void ApplyBackdrop()
     {
         var selected = backdrop.Apply(this);
-        PanelSurface.Background = ResolveThemeBrush(
-            selected == CodexQuotaTray.Core.Models.BackdropKind.Opaque
-                ? "MainWindowOpaqueSurfaceBrush"
-                : "MainWindowSurfaceBrush");
+        var key = ThemeResourceKeyPolicy.PanelSurface(selected);
+        if (PanelSurface.IsLoaded
+            && ThemeBrushResolver.TryResolve(PanelSurface, key) is { } brush)
+        {
+            PanelSurface.Background = brush;
+        }
     }
+
+    private void OnContentRootLoaded(object sender, RoutedEventArgs args)
+    {
+        QueueThemeRefresh("loaded");
+    }
+
+    internal void RefreshSystemTheme()
+    {
+        if (exiting)
+        {
+            return;
+        }
+
+        UpdateTabSelectionVisuals();
+        quotaView.RefreshTheme();
+        tokenUsageView?.RefreshTheme(accessibilitySettings.HighContrast);
+        ApplyStatusToneVisualState();
+        if (visibility.DesiredVisible)
+        {
+            ApplyBackdrop();
+        }
+
+        _ = WindowIconService.TrySetIcon(appWindow, ContentRoot.ActualTheme == ElementTheme.Dark);
+        LogThemeState("system-theme-changed");
+        QueueThemeRefresh("system-theme-settled");
+    }
+
+    private void QueueThemeRefresh(string stage)
+    {
+        if (themeRefreshQueued || exiting)
+        {
+            return;
+        }
+
+        themeRefreshQueued = true;
+        if (!ContentRoot.DispatcherQueue.TryEnqueue(() =>
+        {
+            themeRefreshQueued = false;
+            ApplyStatusToneVisualState();
+            if (visibility.DesiredVisible)
+            {
+                ApplyBackdrop();
+            }
+
+            LogThemeState(stage);
+        }))
+        {
+            themeRefreshQueued = false;
+        }
+    }
+
+    private void OnMainViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(MainViewModel.StatusTone) or null)
+        {
+            ApplyStatusToneVisualState();
+        }
+    }
+
+    private void OnTokenUsageViewModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (showingTokenPage && (args.PropertyName is nameof(TokenUsageViewModel.StatusTone) or null))
+        {
+            ApplyStatusToneVisualState();
+        }
+    }
+
+    private void ApplyStatusToneVisualState()
+    {
+        if (HeaderDragRegion is null)
+        {
+            return;
+        }
+
+        var tone = showingTokenPage
+            ? tokenUsageViewModel.StatusTone
+            : viewModel.StatusTone;
+        var key = ThemeResourceKeyPolicy.Status(tone);
+        if (ContentRoot.IsLoaded
+            && ThemeBrushResolver.TryResolve(HeaderStatusText, key) is { } brush)
+        {
+            HeaderStatusText.Foreground = brush;
+        }
+        ThemeDebugTelemetry.LogMainWindow(
+            "status-state",
+            ContentRoot,
+            quotaView,
+            tokenUsageView,
+            PanelSurface.Background,
+            HeaderStatusText.Foreground,
+            key);
+    }
+
+    [Conditional("DEBUG")]
+    private void LogThemeState(string stage) => ThemeDebugTelemetry.LogMainWindow(
+        stage,
+        ContentRoot,
+        quotaView,
+        tokenUsageView,
+        PanelSurface.Background,
+        HeaderStatusText.Foreground,
+        ThemeResourceKeyPolicy.Status(showingTokenPage
+            ? tokenUsageViewModel.StatusTone
+            : viewModel.StatusTone));
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {

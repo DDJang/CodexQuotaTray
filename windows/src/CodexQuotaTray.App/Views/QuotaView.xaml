@@ -7,7 +7,6 @@
     xmlns:views="using:CodexQuotaTray.App.Views">
     <UserControl.Resources>
         <local:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
-        <local:QuotaToneBrushConverter x:Key="QuotaToneBrushConverter" />
     </UserControl.Resources>
 
     <Grid RowSpacing="10">
@@ -22,6 +21,24 @@
             VerticalScrollMode="Auto"
             Visibility="{Binding ShowContent, Converter={StaticResource BooleanToVisibilityConverter}}">
             <StackPanel Spacing="10">
+                <Border
+                    Padding="16,15"
+                    Background="{ThemeResource CardSurfaceBrush}"
+                    BorderBrush="{ThemeResource CardBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="{StaticResource QuotaCornerRadius}"
+                    Visibility="{Binding ShowLoginAction, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Spacing="10">
+                        <TextBlock FontSize="14" FontWeight="SemiBold"
+                                   Foreground="{ThemeResource PrimaryTextBrush}" Text="连接额度账户" />
+                        <TextBlock FontSize="12" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource SecondaryTextBrush}"
+                                   Text="尚未读取到额度。可前往设置登录 OAuth 账户，或检查已有账户和数据来源。" />
+                        <Button Content="前往设置登录" HorizontalAlignment="Left"
+                                Command="{Binding OpenLoginCommand}"
+                                AutomationProperties.Name="前往设置的账户页面登录" />
+                    </StackPanel>
+                </Border>
                 <Border
                     Padding="18,7"
                     Background="{ThemeResource BadgeSurfaceBrush}"
@@ -41,21 +58,20 @@
                     BorderThickness="1"
                     CornerRadius="{StaticResource QuotaCornerRadius}"
                     Visibility="{Binding HasWindows, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <ItemsRepeater ItemsSource="{Binding Windows}">
+                    <ItemsRepeater x:Name="QuotaWindowsRepeater" ItemsSource="{Binding Windows}">
                         <ItemsRepeater.ItemTemplate>
                             <DataTemplate x:DataType="core:QuotaWindowItemViewModel">
                                 <StackPanel Padding="0,11" Spacing="8">
                                     <Grid>
                                         <TextBlock Style="{StaticResource QuotaNameTextStyle}" Text="{Binding Name}" />
-                                        <TextBlock
-                                            HorizontalAlignment="Right"
-                                            Foreground="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}"
-                                            Style="{StaticResource QuotaPercentTextStyle}"
-                                            Text="{Binding PercentText}" />
+                                        <views:QuotaToneDisplay
+                                            PercentStyle="{StaticResource QuotaPercentTextStyle}"
+                                            PercentText="{Binding PercentText}"
+                                            Tone="{Binding Tone}" />
                                     </Grid>
                                     <views:QuotaProgressVisual
-                                        Value="{Binding DisplayPercent}"
-                                        IndicatorBrush="{Binding Tone, Converter={StaticResource QuotaToneBrushConverter}}" />
+                                        Tone="{Binding Tone}"
+                                        Value="{Binding DisplayPercent}" />
                                     <Grid ColumnSpacing="4">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
@@ -170,6 +186,7 @@
         </Grid>
 
         <Grid
+            x:Name="FooterRow"
             Grid.Row="1"
             ColumnSpacing="12"
             Visibility="{Binding ShowContent, Converter={StaticResource BooleanToVisibilityConverter}}">

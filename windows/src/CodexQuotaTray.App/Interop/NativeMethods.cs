@@ -24,6 +24,9 @@ internal static class NativeMethods
     internal const uint NinBalloonTimeout = 0x0404;
     internal const uint NinBalloonUserClick = 0x0405;
     internal const uint WmPowerBroadcast = 0x0218;
+    internal const uint WmSysColorChange = 0x0015;
+    internal const uint WmSettingChange = 0x001A;
+    internal const uint WmThemeChanged = 0x031A;
     internal const uint WmQueryEndSession = 0x0011;
     internal const uint WmEndSession = 0x0016;
     internal const uint PbtApmResumeAutomatic = 0x0012;

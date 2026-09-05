@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Numerics;
 using System.Threading.Tasks;
@@ -26,7 +27,7 @@ public sealed partial class TokenUsageView : UserControl
     private readonly IntPtr hostWindowHandle;
     private readonly HeatmapTooltipWindow sharedTooltipWindow;
     private readonly AccessibilitySettings accessibilitySettings = new();
-    private Border? activeHeatmapCell;
+    private ThemeAwareHeatmapCell? activeHeatmapCell;
     private int? activeHeatmapIndex;
     private bool sharedTooltipHasPosition;
     private bool heatmapInteractionEnabled;
@@ -34,6 +35,31 @@ public sealed partial class TokenUsageView : UserControl
     private int heatmapPointerRevision;
     private bool applyLayoutMeasurementPending;
     private long applyCompletedTimestamp;
+
+    internal event EventHandler? ContentLayoutChanged;
+
+    internal FrameworkElement? ContentBottomBoundary =>
+        tokenUsageViewModel.ShowLoading
+            ? TokenLoadingCard
+            : tokenUsageViewModel.ShowContent
+                ? HeatmapCard
+                : tokenUsageViewModel.ShowEmpty
+                    ? TokenEmptyPanel
+                    : tokenUsageViewModel.ShowError
+                        ? TokenErrorPanel
+                        : null;
+
+    internal double ContentBottomSpacingDips => TokenUsageRoot.Margin.Bottom;
+
+    internal string LayoutState => tokenUsageViewModel.ShowLoading
+        ? "loading"
+        : tokenUsageViewModel.ShowContent
+            ? "content"
+            : tokenUsageViewModel.ShowEmpty
+                ? "empty"
+                : tokenUsageViewModel.ShowError
+                    ? "error"
+                    : "unavailable";
 
     public TokenUsageView(TokenUsageViewModel viewModel, IntPtr hostWindowHandle)
     {
@@ -43,7 +69,10 @@ public sealed partial class TokenUsageView : UserControl
         InitializeComponent();
         sharedTooltipWindow = new HeatmapTooltipWindow(hostWindowHandle);
         tokenUsageViewModel.ApplyCompleted += OnTokenUsageApplyCompleted;
+        tokenUsageViewModel.PropertyChanged += OnTokenUsagePropertyChanged;
+        TokenUsageRoot.ActualThemeChanged += OnTokenUsageThemeChanged;
         LayoutUpdated += OnTokenUsageLayoutUpdated;
+        Loaded += (_, _) => LogThemeState("loaded");
         DataContext = viewModel;
     }
 
@@ -57,6 +86,18 @@ public sealed partial class TokenUsageView : UserControl
         });
     }
 
+    private void OnTokenUsagePropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(TokenUsageViewModel.ShowLoading)
+            or nameof(TokenUsageViewModel.ShowContent)
+            or nameof(TokenUsageViewModel.ShowEmpty)
+            or nameof(TokenUsageViewModel.ShowError))
+        {
+            applyCompletedTimestamp = Stopwatch.GetTimestamp();
+            applyLayoutMeasurementPending = true;
+        }
+    }
+
     private void OnTokenUsageLayoutUpdated(object? sender, object args)
     {
         if (!applyLayoutMeasurementPending
@@ -64,14 +105,17 @@ public sealed partial class TokenUsageView : UserControl
             || Visibility != Visibility.Visible
             || ActualWidth <= 0
             || ActualHeight <= 0
-            || !tokenUsageViewModel.ShowContent)
+            || ContentBottomBoundary is not { ActualHeight: > 0 } boundary)
         {
             return;
         }
 
         applyLayoutMeasurementPending = false;
+        ContentLayoutChanged?.Invoke(this, EventArgs.Empty);
         Debug.WriteLine(
             $"TokenUsage diagnostics: stage=ui-layout-visible "
+            + $"state={LayoutState} "
+            + $"boundaryHeight={boundary.ActualHeight:F1} "
             + $"elapsedMs={Stopwatch.GetElapsedTime(applyCompletedTimestamp).TotalMilliseconds:F1}");
     }
 
@@ -156,7 +200,7 @@ public sealed partial class TokenUsageView : UserControl
         var tryGetElementStarted = collectFirstTooltipDiagnostics
             ? Stopwatch.GetTimestamp()
             : 0L;
-        var cell = HeatmapItemsRepeater.TryGetElement(validIndex) as Border;
+        var cell = HeatmapItemsRepeater.TryGetElement(validIndex) as ThemeAwareHeatmapCell;
         var tryGetElementMilliseconds = collectFirstTooltipDiagnostics
             ? Stopwatch.GetElapsedTime(tryGetElementStarted).TotalMilliseconds
             : 0d;
@@ -177,7 +221,18 @@ public sealed partial class TokenUsageView : UserControl
         cell.Translation = new Vector3(0f, 0f, 16f);
         cell.Shadow = new ThemeShadow();
         var isEmptyCell = heatmapCell.Bucket == 0;
-        cell.BorderBrush = CreateHeatmapHighlightBrush(cell.Background, isEmptyCell);
+        var highlightBrush = CreateHeatmapHighlightBrush(cell.EffectiveBackground, isEmptyCell);
+        if (cell is ThemeAwareHeatmapCell themeAwareCell)
+        {
+            themeAwareCell.ApplyHighlight(
+                highlightBrush,
+                isEmptyCell,
+                accessibilitySettings.HighContrast);
+        }
+        else
+        {
+            cell.BorderBrush = highlightBrush;
+        }
         cell.BorderThickness = new Thickness(isEmptyCell ? 1.5 : 1);
         Canvas.SetZIndex(cell, 1);
         UpdateSharedHeatmapTooltip(
@@ -207,13 +262,16 @@ public sealed partial class TokenUsageView : UserControl
     internal void Dispose()
     {
         tokenUsageViewModel.ApplyCompleted -= OnTokenUsageApplyCompleted;
+        tokenUsageViewModel.PropertyChanged -= OnTokenUsagePropertyChanged;
+        TokenUsageRoot.ActualThemeChanged -= OnTokenUsageThemeChanged;
         sharedTooltipWindow.Dispose();
     }
 
     private void ClearHeatmapCell()
     {
-        if (activeHeatmapCell is Border cell)
+        if (activeHeatmapCell is { } cell)
         {
+            cell.ClearHighlight();
             cell.Scale = Vector3.One;
             cell.Translation = Vector3.Zero;
             cell.Shadow = null;
@@ -224,6 +282,66 @@ public sealed partial class TokenUsageView : UserControl
 
         activeHeatmapCell = null;
         activeHeatmapIndex = null;
+    }
+
+    private void OnTokenUsageThemeChanged(FrameworkElement sender, object args)
+        => RefreshTheme("actual-theme-changed");
+
+    internal void RefreshTheme(bool isHighContrast)
+        => RefreshTheme("high-contrast-changed", isHighContrast);
+
+    private void RefreshTheme(string stage)
+        => RefreshTheme(stage, accessibilitySettings.HighContrast);
+
+    private void RefreshTheme(string stage, bool isHighContrast)
+    {
+        var realizedCells = 0;
+        for (var index = 0; index < tokenUsageViewModel.HeatmapCells.Count; index++)
+        {
+            if (HeatmapItemsRepeater.TryGetElement(index) is ThemeAwareHeatmapCell cell)
+            {
+                realizedCells++;
+                cell.RefreshTheme(isHighContrast);
+                if (cell.DataContext is TokenHeatmapCell model)
+                {
+                    ThemeDebugTelemetry.LogTokenHeatmap(
+                        stage,
+                        this,
+                        model.Bucket,
+                        cell.EffectiveBackground,
+                        cell.EffectiveBorderBrush);
+                }
+            }
+        }
+
+        ThemeDebugTelemetry.LogTokenTheme(stage, this, realizedCells);
+        sharedTooltipWindow.ApplyTheme(TokenUsageRoot.ActualTheme);
+    }
+
+    [Conditional("DEBUG")]
+    private void LogThemeState(string stage)
+    {
+        var realizedCells = 0;
+        for (var index = 0; index < tokenUsageViewModel.HeatmapCells.Count; index++)
+        {
+            if (HeatmapItemsRepeater.TryGetElement(index) is not ThemeAwareHeatmapCell cell)
+            {
+                continue;
+            }
+
+            realizedCells++;
+            if (cell.DataContext is TokenHeatmapCell model)
+            {
+                ThemeDebugTelemetry.LogTokenHeatmap(
+                    stage,
+                    this,
+                    model.Bucket,
+                    cell.EffectiveBackground,
+                    cell.EffectiveBorderBrush);
+            }
+        }
+
+        ThemeDebugTelemetry.LogTokenTheme(stage, this, realizedCells);
     }
 
     private void UpdateSharedHeatmapTooltip(
@@ -343,21 +461,21 @@ public sealed partial class TokenUsageView : UserControl
             : (0, 0);
     }
 
-    private Brush CreateHeatmapHighlightBrush(Brush background, bool isEmptyCell)
+    private Brush CreateHeatmapHighlightBrush(Brush? background, bool isEmptyCell)
     {
         if (isEmptyCell)
         {
-            return (Brush)Application.Current.Resources["TokenHeatmapEmptyCellHighlightBrush"];
+            return background ?? new SolidColorBrush();
         }
 
         if (accessibilitySettings.HighContrast)
         {
-            return (Brush)Application.Current.Resources["TokenHeatmapCellBorderBrush"];
+            return background ?? new SolidColorBrush();
         }
 
         if (background is not SolidColorBrush solidColorBrush)
         {
-            return background;
+            return background ?? new SolidColorBrush();
         }
 
         var color = solidColorBrush.Color;
