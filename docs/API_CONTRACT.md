@@ -213,7 +213,19 @@ windows[]:
   bucketId?, limitId?, limitName?, planType?, sourceSlot
   usedPercent?, remainingPercent?, percentageReliable?
   windowDurationMins?, resetsAt?
+resetCredits?:
+  availableCount: integer?
+  credits: array?  # null 表示明细不可用；[] 表示明细读取成功但为空
+    id?, resetType?, status?, title?, description?
+    grantedAt?, expiresAt?  # Unix seconds
 ```
+
+`resetCredits` 缺失或 null 表示未知；`availableCount` 不从明细长度推算。字段以
+[`QuotaLanSnapshot`](../windows/src/CodexQuotaTray.Core/TokenUsage/QuotaLanSnapshot.cs) 为实现对照。
+
+实现缺口：Windows `QuotaNormalizer` 到 `QuotaRuntimeService.ToLanResetCredits` 当前直接传递
+`credit.Id`，未在这条路径脱敏。因此不能把该字段描述为已经脱敏；[PRIVACY](PRIVACY.md) 中
+不暴露完整 reset-credit ID 的要求仍适用，需要后续代码修复，本次字段补录不放宽隐私边界。
 
 ### Pairing 与发现
 

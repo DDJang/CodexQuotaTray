@@ -97,7 +97,7 @@ Android 只在 offline 类错误时发现相同 `deviceId`，401 不触发发现
 - Android Release 与 Debug 使用不同 application ID，因此凭据、配对和缓存自然隔离。
 - 一个身份不得删除、覆盖或关闭另一个身份的状态。
 
-来源边界：Quota provider 为 Codex CLI 或 OAuth；Token provider 为 Local、Codex CLI 或 OAuth。
+Windows 来源边界：Quota provider 为 Codex CLI 或 OAuth；Token provider 为 Local、Codex CLI 或 OAuth。
 每个 provider 是唯一 source of truth；来源 cache 使用独立 identity，unsupported 或 unavailable
 不会静默 fallback。Local 只以本机 JSONL 为输入并由本机 SQLite 账本持久化，账户 usage 只消费按日桶
 和可选 summary 字段，两者不合并。

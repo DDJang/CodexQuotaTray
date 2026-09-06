@@ -25,11 +25,13 @@ Production、Dev 和 Preview 使用相互隔离的数据目录，保存各自设
 
 本机统计页刷新或启用 Token 使用量同步后，scanner 只遍历 Codex `sessions` 与
 `archived_sessions` 中的 JSONL，
-过滤 `token_count` 事件，并只消费事件 timestamp 与 `total_token_usage` / `last_token_usage` 的数字
-计数。它不会提取、保存、聚合或传输 prompt、response、工具内容、session 正文、项目路径或账户
+消费 `token_count` 的事件 timestamp 与 `total_token_usage` / `last_token_usage` 数字计数，
+并读取 `session_meta` 中的 session ID 与 `forked_from_id`，以及 `task_started.turn_id`，
+用于会话归属及 fork 回放边界识别与去重；turn ID 不写入账本。
+它不会提取、保存、聚合或传输 prompt、response、工具内容、session 正文、项目路径或账户
 身份。身份隔离的 SQLite 账本保存 JSONL 路径、session ID、文件 offset、累计 high-water，以及由
-timestamp 和数字计数形成的增量事件；不保存其他 session metadata。用于去重的散列仅由 timestamp
-与数字计数组成；可选本地缓存和 Android 都只接收日聚合与摘要。关闭“保存统计缓存”后会删除对应
+timestamp 和数字计数形成的增量事件；还保存 fork 父会话标识与回放状态，不保存其他 session metadata。
+用于去重的散列仅由 timestamp 与数字计数组成；可选本地缓存和 Android 都只接收日聚合与摘要。关闭“保存统计缓存”后会删除对应
 聚合缓存，但不会删除用于防止历史缩水和重复入账的 Local 账本。
 
 Windows LAN 服务只绑定私人 IPv4。DNS-SD 公开稳定随机 deviceId、显示名和端口，不公开 secret。
@@ -44,8 +46,10 @@ Windows LAN 服务只绑定私人 IPv4。DNS-SD 公开稳定随机 deviceId、�
   名称/本地标识、百分比、时长和重置时间；也保存 reset credit 的只读产品投影，包括
   `availableCount` 和展示/过期提醒所需的脱敏 credit 字段。历史成功时间仅为缓存兼容和诊断保留。
   它不保存完整 reset-credit ID、OAuth token、account ID、HTTP header/body、错误正文或额度历史。
-- Token pairing 使用独立 Keystore key。`token-usage-cache.json` 只含 Windows 返回的聚合 schema，
-  绑定当前 deviceId；解除或更换 pairing 时清理，不能跨设备显示。
+- Token pairing 使用独立 Keystore key。`token-usage-cache.json` 保存 OpenAI 或 Windows 返回的
+  最小日聚合与摘要，记录实际 `transport`（OpenAI/Windows）和 `scope`（Account/Local）。Windows
+  结果绑定当前 pairing identity，解除或更换 pairing 后不能恢复旧设备数据；OpenAI Account 结果
+  只在 OAuth 仍可用时恢复。旧缓存缺少来源元数据时按 Windows/Local 兼容，不合并两类统计。
 - WorkManager 使用相同 repository/coordinator，不建立额外数据副本。Android LAN 客户端只接受
   RFC1918 IPv4，不跟随 redirect；移动网络不会用于等待 Windows。
 - `android:allowBackup` 已关闭。Debug 使用独立 application ID，凭据、配对和缓存不与正式 APK
