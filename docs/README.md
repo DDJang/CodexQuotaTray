@@ -3,8 +3,8 @@
 The documents in this directory have two lifecycles:
 
 - The root documents describe current project facts and are the authoritative references for ongoing work.
-- [`investigations/`](investigations/README.md) records historical investigations, experiments, failure
-  analysis, and implementation decisions.
+- [`investigations/`](investigations/README.md) records engineering investigations, experiments, failure
+  analysis, implementation decisions, and their historical outcomes.
 
 ## Current project facts
 
@@ -36,9 +36,9 @@ Use this decision before adding a document:
 3. If it is a diagram or shared visual asset, place it under `assets/`.
 
 Investigation files use stable kebab-case names. Keep them in place after completion and record lifecycle
-status, outcome, resolution or record commit, and last verification date in the investigation index. Do not
-create `active`, `resolved`, or `archive` directories, and rename an implemented `*-plan.md` into a record
-name.
+status, outcome, `Resolved by` (use `—` while `Active`; fill in the corresponding implementation or conclusion
+commit once `Resolved` or `Closed`), and last verification date in the investigation index. Do not create
+`active`, `resolved`, or `archive` directories, and rename an implemented `*-plan.md` into a record name.
 
 ## Supporting assets
 

@@ -38,8 +38,9 @@ reset credit。
   `docs/investigations/android/` 或 `docs/investigations/windows/`；确实跨平台时才使用
   `docs/investigations/shared/`。
 - 架构图等支持性资源放到 `docs/assets/`，不把图片或实验附件放进文档根目录。
-- 新调查必须在 [调查索引](docs/investigations/README.md) 中登记平台、状态、结论、解决或记录 commit
-  和最后验证日期；使用稳定的 kebab-case 文件名。
+- 新调查必须在 [调查索引](docs/investigations/README.md) 中登记平台、状态、结论和最后验证日期；
+  `Active` 状态的 `Resolved by` 可填写 `—`，进入 `Resolved` 或 `Closed` 后必须填写实现修复或记录最终
+  结论的 commit；使用稳定的 kebab-case 文件名。
 - 调查完成后保留历史记录，不移动到 `active`、`resolved` 或 `archive` 子目录；若结论改变当前合同，
   同时更新对应的根目录权威文档，并从权威文档链接回调查记录。
 - 已实施的方案不继续使用 `*-plan.md` 命名；不要为了日期或一次任务在 `docs/` 根目录新建临时文件。
