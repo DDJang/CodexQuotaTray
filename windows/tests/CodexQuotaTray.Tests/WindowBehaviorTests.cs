@@ -207,6 +207,88 @@ public sealed class WindowBehaviorTests
         Assert.AreEqual(399, PopupPlacement.NaturalContentHeight(362, 19, 18, 500));
     }
 
+    [DataRow(1.0, 1080)]
+    [DataRow(1.25, 1350)]
+    [DataRow(1.5, 1620)]
+    [DataRow(2.0, 2160)]
+    [TestMethod]
+    public void ContentSizing_FitRemainsNonScrollableAcrossCommonDpiScales(
+        double scale,
+        int workAreaHeightPixels)
+    {
+        var sizing = PopupPlacement.ResolveContentSizing(500, scale, workAreaHeightPixels);
+
+        Assert.IsFalse(sizing.NeedsVerticalScroll);
+        Assert.AreEqual(500, sizing.NaturalContentHeightDips);
+        Assert.AreEqual(1056, sizing.MaxAvailableClientHeightDips, 0.001);
+        Assert.AreEqual(500, sizing.TargetClientHeightDips);
+        Assert.AreEqual(PopupPlacement.DipsToPixels(500, scale), sizing.TargetClientHeightPixels);
+    }
+
+    [DataRow(1.0, 1080)]
+    [DataRow(1.25, 1350)]
+    [DataRow(1.5, 1620)]
+    [DataRow(2.0, 2160)]
+    [TestMethod]
+    public void ContentSizing_ToleranceAbsorbsSmallDpiRoundingOverflow(
+        double scale,
+        int workAreaHeightPixels)
+    {
+        var sizing = PopupPlacement.ResolveContentSizing(
+            1056.5,
+            scale,
+            workAreaHeightPixels);
+
+        Assert.IsFalse(sizing.NeedsVerticalScroll);
+        Assert.AreEqual(sizing.MaxAvailableClientHeightPixels, sizing.TargetClientHeightPixels);
+        Assert.AreEqual(sizing.MaxAvailableClientHeightDips, sizing.TargetClientHeightDips, 0.001);
+    }
+
+    [DataRow(1.0, 1080)]
+    [DataRow(1.25, 1350)]
+    [DataRow(1.5, 1620)]
+    [DataRow(2.0, 2160)]
+    [TestMethod]
+    public void ContentSizing_EnablesScrollingForMeaningfulOverflow(
+        double scale,
+        int workAreaHeightPixels)
+    {
+        var sizing = PopupPlacement.ResolveContentSizing(
+            1057.1,
+            scale,
+            workAreaHeightPixels);
+
+        Assert.IsTrue(sizing.NeedsVerticalScroll);
+        Assert.AreEqual(sizing.MaxAvailableClientHeightDips, sizing.TargetClientHeightDips, 0.001);
+        Assert.AreEqual(sizing.MaxAvailableClientHeightPixels, sizing.TargetClientHeightPixels);
+    }
+
+    [TestMethod]
+    public void PanelScrollPolicy_DisablesFitScrollingAndRetainsOverflowFallback()
+    {
+        var mainWindow = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml"));
+        var mainWindowCode = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Views", "MainWindow.xaml.cs"));
+        var placementService = File.ReadAllText(
+            Path.Combine(AppContext.BaseDirectory, "Services", "WindowPlacementService.cs"));
+        var scrollerStart = mainWindow.IndexOf("<ScrollViewer", StringComparison.Ordinal);
+        var scrollerEnd = mainWindow.IndexOf('>', scrollerStart);
+        var scroller = mainWindow[scrollerStart..scrollerEnd];
+
+        StringAssert.Contains(scroller, "VerticalScrollBarVisibility=\"Disabled\"");
+        StringAssert.Contains(scroller, "VerticalScrollMode=\"Disabled\"");
+        StringAssert.Contains(placementService, "PopupPlacement.ResolveContentSizing(");
+        StringAssert.Contains(placementService, "TargetClientHeightPixels");
+        StringAssert.Contains(mainWindowCode, "ApplyScrollPolicy(placementResult.ContentSizing.NeedsVerticalScroll);");
+        StringAssert.Contains(mainWindowCode, "PanelScroller.ChangeView(null, 0d, null, true);");
+        StringAssert.Contains(mainWindowCode, "PanelScroller.VerticalOffset");
+        StringAssert.Contains(mainWindowCode, "PanelScroller.ScrollableHeight");
+        StringAssert.Contains(mainWindowCode, "requestedClientSize={requestedSize}");
+        StringAssert.Contains(mainWindowCode, "scrollToleranceDips");
+        Assert.IsFalse(mainWindowCode.Contains("PointerWheelChanged", StringComparison.Ordinal));
+    }
+
     [TestMethod]
     public void PopupHeight_UsesVisibleBoundaryWithExplicitTokenSpacing()
     {

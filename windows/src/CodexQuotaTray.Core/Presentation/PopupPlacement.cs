@@ -5,6 +5,15 @@ namespace CodexQuotaTray.Core.Presentation;
 public static class PopupPlacement
 {
     public const double DefaultMarginDips = 12;
+    public const double DefaultScrollToleranceDips = 1;
+
+    public readonly record struct ContentSizing(
+        double NaturalContentHeightDips,
+        double MaxAvailableClientHeightDips,
+        double TargetClientHeightDips,
+        int MaxAvailableClientHeightPixels,
+        int TargetClientHeightPixels,
+        bool NeedsVerticalScroll);
 
     public static Point PlaceNearTray(Rectangle tray, Rectangle workArea, Size popup, int margin)
     {
@@ -49,10 +58,49 @@ public static class PopupPlacement
         double scale,
         int workAreaHeightPixels,
         double marginDips = DefaultMarginDips)
+        => ResolveContentSizing(
+            measuredHeightDips,
+            scale,
+            workAreaHeightPixels,
+            marginDips).TargetClientHeightPixels;
+
+    public static ContentSizing ResolveContentSizing(
+        double naturalContentHeightDips,
+        double scale,
+        int workAreaHeightPixels,
+        double marginDips = DefaultMarginDips,
+        double scrollToleranceDips = DefaultScrollToleranceDips)
     {
-        var desired = DipsToPixels(Math.Max(1, measuredHeightDips), scale);
-        var margin = DipsToPixels(marginDips, scale);
-        return Math.Clamp(desired, 1, Math.Max(1, workAreaHeightPixels - (margin * 2)));
+        var safeScale = double.IsFinite(scale) && scale >= 1 ? scale : 1;
+        var safeNaturalHeight = double.IsFinite(naturalContentHeightDips)
+            ? Math.Max(1, naturalContentHeightDips)
+            : 1;
+        var safeMarginDips = double.IsFinite(marginDips) ? Math.Max(0, marginDips) : 0;
+        var safeToleranceDips = double.IsFinite(scrollToleranceDips)
+            ? Math.Max(0, scrollToleranceDips)
+            : DefaultScrollToleranceDips;
+        var marginPixels = DipsToPixels(safeMarginDips, safeScale);
+        var maxAvailableClientHeightPixels = Math.Max(
+            1,
+            workAreaHeightPixels - (marginPixels * 2));
+        var maxAvailableClientHeightDips = maxAvailableClientHeightPixels / safeScale;
+        var needsVerticalScroll = safeNaturalHeight
+            > maxAvailableClientHeightDips + safeToleranceDips;
+        var targetClientHeightDips = Math.Min(
+            safeNaturalHeight,
+            maxAvailableClientHeightDips);
+        var targetClientHeightPixels = Math.Clamp(
+            DipsToPixels(targetClientHeightDips, safeScale),
+            1,
+            maxAvailableClientHeightPixels);
+
+        return new ContentSizing(
+            safeNaturalHeight,
+            maxAvailableClientHeightDips,
+            targetClientHeightDips,
+            maxAvailableClientHeightPixels,
+            targetClientHeightPixels,
+            needsVerticalScroll);
     }
 
     public static double NaturalContentHeight(

@@ -13,10 +13,10 @@
             <ScrollViewer
                 x:Name="PanelScroller"
                 HorizontalScrollBarVisibility="Disabled"
-                VerticalScrollBarVisibility="Auto"
+                VerticalScrollBarVisibility="Disabled"
                 VerticalAlignment="Top"
                 VerticalContentAlignment="Top"
-                VerticalScrollMode="Auto">
+                VerticalScrollMode="Disabled">
                 <StackPanel
                     x:Name="PanelContent"
                     Padding="18,14,18,4"

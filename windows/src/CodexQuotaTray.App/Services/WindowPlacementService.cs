@@ -10,7 +10,7 @@ internal sealed class WindowPlacementService
 {
     private SizeInt32? lastRequestedClientSize;
 
-    internal SizeInt32 ResizeAndPlaceInitial(
+    internal WindowPlacementResult ResizeAndPlaceInitial(
         AppWindow appWindow,
         double rasterizationScale,
         double measuredContentHeightDips,
@@ -18,7 +18,7 @@ internal sealed class WindowPlacementService
     {
         var anchor = trayRectangle ?? CursorAnchor();
         var workArea = GetWorkArea(anchor);
-        var (size, clientSize, margin) = Resize(
+        var (size, result, margin) = Resize(
             appWindow,
             rasterizationScale,
             measuredContentHeightDips,
@@ -26,10 +26,10 @@ internal sealed class WindowPlacementService
 
         var location = PopupPlacement.PlaceAtBottomRight(workArea, size, margin);
         appWindow.Move(new PointInt32(location.X, location.Y));
-        return clientSize;
+        return result;
     }
 
-    internal SizeInt32 ResizeAndKeepPosition(
+    internal WindowPlacementResult ResizeAndKeepPosition(
         AppWindow appWindow,
         double rasterizationScale,
         double measuredContentHeightDips,
@@ -38,7 +38,7 @@ internal sealed class WindowPlacementService
         var current = appWindow.Position;
         var anchor = new Rectangle(current.X, current.Y, Math.Max(1, appWindow.Size.Width), Math.Max(1, appWindow.Size.Height));
         var workArea = GetWorkArea(anchor);
-        var (size, clientSize, margin) = Resize(
+        var (size, result, margin) = Resize(
             appWindow,
             rasterizationScale,
             measuredContentHeightDips,
@@ -50,10 +50,10 @@ internal sealed class WindowPlacementService
             size,
             margin);
         appWindow.Move(new PointInt32(location.X, location.Y));
-        return clientSize;
+        return result;
     }
 
-    private (Size WindowSize, SizeInt32 ClientSize, int Margin) Resize(
+    private (Size WindowSize, WindowPlacementResult Result, int Margin) Resize(
         AppWindow appWindow,
         double rasterizationScale,
         double measuredContentHeightDips,
@@ -63,12 +63,12 @@ internal sealed class WindowPlacementService
         var scale = Math.Max(1.0, rasterizationScale);
         var width = PopupPlacement.DipsToPixels(420, scale);
         var margin = PopupPlacement.DipsToPixels(PopupPlacement.DefaultMarginDips, scale);
-        var height = PopupPlacement.ContentHeightPixels(
+        var contentSizing = PopupPlacement.ResolveContentSizing(
             measuredContentHeightDips,
             scale,
             workArea.Height,
             PopupPlacement.DefaultMarginDips);
-        var requestedSize = new SizeInt32(width, height);
+        var requestedSize = new SizeInt32(width, contentSizing.TargetClientHeightPixels);
         var currentWindowSize = appWindow.Size;
         var currentClientSize = appWindow.ClientSize;
         var nonClientWidth = Math.Max(0, currentWindowSize.Width - currentClientSize.Width);
@@ -76,6 +76,11 @@ internal sealed class WindowPlacementService
         var windowSize = new Size(
             requestedSize.Width + nonClientWidth,
             requestedSize.Height + nonClientHeight);
+        var currentMatchesRequest = currentClientSize.Width == requestedSize.Width
+            && currentClientSize.Height == requestedSize.Height;
+        var lastMatchesRequest = lastRequestedClientSize is { } last
+            && last.Width == requestedSize.Width
+            && last.Height == requestedSize.Height;
         if (PopupPlacement.ShouldResizeClient(
             currentClientSize.Width,
             currentClientSize.Height,
@@ -83,7 +88,7 @@ internal sealed class WindowPlacementService
             requestedSize.Height,
             lastRequestedClientSize?.Width,
             lastRequestedClientSize?.Height,
-            forceResize))
+            force: forceResize && (!currentMatchesRequest || !lastMatchesRequest)))
         {
             lastRequestedClientSize = requestedSize;
             // With the WinUI custom title bar, ResizeClient does not preserve
@@ -101,7 +106,7 @@ internal sealed class WindowPlacementService
 
         return (
             windowSize,
-            requestedSize,
+            new WindowPlacementResult(requestedSize, contentSizing),
             margin);
     }
 
@@ -131,3 +136,7 @@ internal sealed class WindowPlacementService
             : Rectangle.FromLTRB(0, 0, 1920, 1080);
     }
 }
+
+internal readonly record struct WindowPlacementResult(
+    SizeInt32 RequestedClientSize,
+    PopupPlacement.ContentSizing ContentSizing);
