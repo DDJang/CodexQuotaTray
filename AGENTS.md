@@ -29,6 +29,23 @@ reset credit。
 
 不要在多个文档重复维护版本、端口、依赖版本或发布步骤；优先链接到权威来源。
 
+## Documentation placement
+
+文档按生命周期放置，不按一次任务临时命名：
+
+- `docs/` 根目录只放当前仍然有效的产品、架构、协议、隐私、依赖、签名、发布和 roadmap 事实。
+- 一次性的调查、实验、根因分析、失败方案、性能记录和修复决策放到
+  `docs/investigations/android/` 或 `docs/investigations/windows/`；确实跨平台时才使用
+  `docs/investigations/shared/`。
+- 架构图等支持性资源放到 `docs/assets/`，不把图片或实验附件放进文档根目录。
+- 新调查必须在 [调查索引](docs/investigations/README.md) 中登记平台、状态、结论、解决或记录 commit
+  和最后验证日期；使用稳定的 kebab-case 文件名。
+- 调查完成后保留历史记录，不移动到 `active`、`resolved` 或 `archive` 子目录；若结论改变当前合同，
+  同时更新对应的根目录权威文档，并从权威文档链接回调查记录。
+- 已实施的方案不继续使用 `*-plan.md` 命名；不要为了日期或一次任务在 `docs/` 根目录新建临时文件。
+
+新增文档前先按 [文档索引](docs/README.md) 的放置规则判断生命周期，完成后检查全仓库引用和本地 Markdown 链接。
+
 ## Task lifecycle
 
 任务开始时报告仓库根目录、分支、HEAD、包含未跟踪文件的工作区状态，并按改动范围选定验证级别。

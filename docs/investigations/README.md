@@ -8,6 +8,25 @@ The status is maintained here so that an investigation does not need to be moved
 `resolved`, and `archived` directories. If an investigation changes a current project contract, update the
 corresponding authoritative document and link back to the investigation for rationale.
 
+## Adding an investigation
+
+Before creating a file:
+
+1. Decide whether the document is a current fact. If it is, update or extend a root-level authoritative
+   document instead.
+2. For a historical investigation, choose `android/` or `windows/`; use `shared/` only for a genuinely
+   cross-platform investigation.
+3. Use a stable kebab-case name that describes the subject, not a date or temporary task. Once implemented,
+   replace a `*-plan.md` name with a record name.
+4. Add a row to the table with `Status`, `Outcome`, `Resolved by`, and `Last verified`. A useful document
+   header also records the area, baseline, status, and date.
+5. If the conclusion changes a current product, architecture, protocol, privacy, or release rule, update
+   that authoritative document and link to this record for the rationale.
+
+Use the existing status values as needed, for example `Active`, `Resolved`, `Closed / No production change`,
+or `Closed / Not ready`. Lifecycle state belongs in this index; do not create separate `active`, `resolved`,
+or `archive` directories.
+
 | Area | Investigation | Status | Outcome | Resolved by | Last verified |
 | --- | --- | --- | --- | --- | --- |
 | Windows | [Panel wheel scrolling at 1080p](windows/panel-wheel-scroll-1080p.md) | Resolved | Conditional scrolling based on real content overflow | `61eaf12` | 2026-09-06 |
