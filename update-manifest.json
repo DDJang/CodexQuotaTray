@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.11.3",
-    "tag": "windows-v0.11.3",
+    "version": "0.11.5",
+    "tag": "windows-v0.11.5",
     "installer": {
-      "name": "CodexQuotaTray-0.11.3-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.3/CodexQuotaTray-0.11.3-setup.exe",
-      "sha256": "103af89344bd90f968f8b0de9f378b0b7d347561808fd8a37c37f79ee7d32529",
-      "size": 48547633
+      "name": "CodexQuotaTray-0.11.5-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.5/CodexQuotaTray-0.11.5-setup.exe",
+      "sha256": "53f85482812ed953bbb6e7886ae0392430e718eb82ba3626e545a028451e0969",
+      "size": 48560023
     },
-    "releaseNotes": "## Windows\r\n\r\n### 窗口布局与主题\r\n\r\n- 改进额度和 Token 页面弹窗的初始布局与动态尺寸计算，修复首次打开、内容变化及不同 DPI 缩放下窗口尺寸不准确、内容裁剪或留白的问题。\r\n- 修复浅色、深色及高对比度主题下界面颜色资源和视觉状态的解析与刷新，系统主题切换后额度、Token 热力图和托盘图标保持一致。\r\n\r\n### 安装器与登录引导\r\n\r\n- 改进首次使用时的 OAuth 登录引导；在无法读取额度且未连接账户时提供前往设置登录的入口，OAuth 登录成功后自动切换额度来源。\r\n- 改进 Windows App Runtime 的准备和安装失败恢复：支持使用安装器旁的同名运行库文件，显示可取消的下载进度，失败时提供重试和 Microsoft 官方下载入口，并在校验与安装完成后复检运行库状态。\r\n",
-    "publishedAt": "2026-09-05T04:27:17Z"
+    "releaseNotes": "## Windows\r\n\r\n### 稳定性与登录\r\n\r\n- 改进 OAuth 刷新和轮换凭据的恢复处理，减少刷新失败或凭据保存异常后继续使用旧凭据的情况。\r\n- 修复 1920×1080 等环境下使用鼠标滚轮时面板内容发生轻微位移的问题；仅在内容确实超出可视区域时启用滚动。\r\n",
+    "publishedAt": "2026-09-06T07:04:49Z"
   },
   "android": {
     "version": "0.11.2",
