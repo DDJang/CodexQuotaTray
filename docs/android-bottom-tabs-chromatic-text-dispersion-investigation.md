@@ -285,7 +285,16 @@ separate background-only `11 / 18` chromatic overlay on top. The fixture compare
 values `0.20`, `0.35`, `0.50`, and `0.65` over the existing multicolor, black, and white modes.
 
 This is still fixture-only and does not change the production call or its default rendering path.
-Option C remains pending user visual acceptance; no production recommendation is recorded yet.
+
+### Phase 3 result — Option C rejected (2026-09-06)
+
+User acceptance found the Option C composition completely unacceptable: the separate background-only
+chromatic overlay made the result directly wrong rather than preserving the intended glass effect.
+Therefore Option C is rejected and is not promoted to production.
+
+No per-frame or pixel measurements were collected; this entry records the visual acceptance result
+only. Options A, B, and C have now all been rejected. This investigation has no remaining documented
+candidate and ends without changing the production optics path.
 
 ## Performance considerations
 
