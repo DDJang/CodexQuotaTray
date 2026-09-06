@@ -33,6 +33,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -45,6 +47,7 @@ import androidx.compose.ui.util.fastRoundToInt
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
@@ -69,6 +72,7 @@ fun LiquidBottomTabs(
     tabsCount: Int,
     indicatorRefractionHeight: Dp = 11.dp,
     indicatorRefractionAmount: Dp = 18.dp,
+    tabsBackdropSourceAlpha: Float = 1f,
     modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit,
 ) {
@@ -81,6 +85,8 @@ fun LiquidBottomTabs(
         else Color(0xFF121212).copy(0.4f)
 
     val tabsBackdrop = rememberLayerBackdrop()
+    val tabsBackdropForIndicator =
+        rememberSourceAttenuatedBackdrop(tabsBackdrop, tabsBackdropSourceAlpha)
 
     BoxWithConstraints(
         modifier,
@@ -554,7 +560,7 @@ fun LiquidBottomTabs(
                 .then(interactiveHighlight.gestureModifier)
                 .then(dampedDragAnimation.modifier)
                 .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
+                    backdrop = rememberCombinedBackdrop(backdrop, tabsBackdropForIndicator),
                     shape = { Capsule() },
                     effects = {
                         val progress = dampedDragAnimation.pressProgress
@@ -599,6 +605,28 @@ fun LiquidBottomTabs(
                 .height(56f.dp)
                 .fillMaxWidth(1f / tabsCount),
         )
+    }
+}
+
+@Composable
+private fun rememberSourceAttenuatedBackdrop(
+    backdrop: Backdrop,
+    alpha: Float,
+): Backdrop {
+    val sourceAlpha = if (alpha.isFinite()) alpha.coerceIn(0f, 1f) else 1f
+    if (sourceAlpha == 1f) {
+        return backdrop
+    }
+
+    return rememberBackdrop(backdrop) { drawBackdrop ->
+        drawIntoCanvas { canvas ->
+            canvas.saveLayer(
+                androidx.compose.ui.geometry.Rect(Offset.Zero, size),
+                Paint().apply { this.alpha = sourceAlpha },
+            )
+            drawBackdrop()
+            canvas.restore()
+        }
     }
 }
 
