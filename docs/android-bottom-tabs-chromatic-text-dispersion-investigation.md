@@ -12,9 +12,8 @@ This document is investigation/design only. It does not change production optics
 ### 当前结论（2026-09-06 更新）
 
 本轮基于 `4478557062878ad287832daa610c389a87bfb808` 与用户补充截图继续调查。
-**A / B / C 均已被用户否决，不再按下面的历史实验顺序重试。** 当前建议是后文的
-[方案 D：保留完整色散，只局部修正蓝色基底](#option-d)。它已实现于 Debug fixture，但尚未通过视觉验收。
-本轮不改变 production 默认渲染路径、依赖或已经验收的长按高光。
+**A / B / C / D 均已被用户否决，不再按下面的历史实验顺序重试。** 当前没有剩余候选方案，
+production 默认渲染路径保持原样。本轮不改变 production 默认渲染路径、依赖或已经验收的长按高光。
 
 目标以用户这次描述为准：**彩虹色散尽量不变，减少胶囊上沿和下沿的蓝色折射/重影**。
 不要求把所有文字参与的色散清零，也不能预先认定喜欢的彩虹全部来自环境背景。
@@ -534,6 +533,15 @@ the D path falls back to that original lens. No production call opts in to D.
 The fixture implementation compiles and the boundary/static checks pass. Visual GPU acceptance,
 frame-time comparison, and the D0/D1/D2/D3 visual decision remain pending explicit fixture review.
 
+### Phase 4 result — Option D rejected (2026-09-06)
+
+User visual acceptance found the Option D fixture unacceptable. D0/D1/D2/D3 therefore remain
+investigation comparisons only and are not promoted to production.
+
+No per-frame or pixel measurements were collected; this entry records the visual acceptance result
+only. Options A, B, C, and D have now all been rejected, so this investigation ends with the
+original production combined-source lens path unchanged.
+
 ## Performance considerations — historical A–C estimates
 
 The current production indicator uses one combined backdrop lens pass. That remains the cheapest design.
@@ -570,12 +578,10 @@ The long-press highlight work in the base branch is independent from this optica
 
 ## Production recommendation
 
-当前 production 保持原 combined-source 色散路径。A/B/C 已否决，不再推荐 source alpha 0.60、
-content split 或 background overlay。D 目前只存在于 Debug fixture，先由 D0 和 U/E/S 诊断确认
-接入等价性与归因，再由 D1/D2/D3 做视觉验收。
+当前 production 保持原 combined-source 色散路径。A/B/C/D 已否决，不再推荐 source alpha 0.60、
+content split、background overlay 或局部蓝色基底修正。调查到此结束，没有剩余候选方案。
 
-只有在彩虹保留、蓝带改善、中央内容和交互保持以及性能均通过后，才考虑启用候选。
-本文不构成“D 已成功”的结论；本轮仅授权并完成 fixture-only 实现。
+本文不构成任何候选已成功的结论；生产默认渲染未启用 A/B/C/D。
 
 ## Expected final visual contract
 
