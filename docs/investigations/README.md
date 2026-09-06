@@ -1,12 +1,32 @@
 # Engineering Investigations
 
-These documents record historical investigations, experiments, root-cause analyses, and implementation
-decisions. They may become outdated; current product, architecture, protocol, privacy, and release facts
-belong in the authoritative documents in [`docs/`](../).
+These documents record engineering investigations, experiments, root-cause analyses, implementation
+decisions, and their historical outcomes. They may become outdated; current product, architecture, protocol,
+privacy, and release facts belong in the authoritative documents in [`docs/`](../).
 
 The status is maintained here so that an investigation does not need to be moved between `active`,
 `resolved`, and `archived` directories. If an investigation changes a current project contract, update the
 corresponding authoritative document and link back to the investigation for rationale.
+
+## Adding an investigation
+
+Before creating a file:
+
+1. Decide whether the document is a current fact. If it is, update or extend a root-level authoritative
+   document instead.
+2. For an investigation, choose `android/` or `windows/`; use `shared/` only for a genuinely
+   cross-platform investigation.
+3. Use a stable kebab-case name that describes the subject, not a date or temporary task. Once implemented,
+   replace a `*-plan.md` name with a record name.
+4. Add a row to the table with `Status`, `Outcome`, `Resolved by`, and `Last verified`. For `Active` entries,
+   `Resolved by` is `—`; once an investigation is `Resolved` or `Closed`, fill it with the implementation or
+   conclusion commit. A useful document header also records the area, baseline, status, and date.
+5. If the conclusion changes a current product, architecture, protocol, privacy, or release rule, update
+   that authoritative document and link to this record for the rationale.
+
+Use the existing status values as needed, for example `Active`, `Resolved`, `Closed / No production change`,
+or `Closed / Not ready`. Lifecycle state belongs in this index; do not create separate `active`, `resolved`,
+or `archive` directories.
 
 | Area | Investigation | Status | Outcome | Resolved by | Last verified |
 | --- | --- | --- | --- | --- | --- |
