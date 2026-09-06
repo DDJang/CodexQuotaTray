@@ -31,6 +31,7 @@ internal val LocalLiquidBottomTabScale = staticCompositionLocalOf { { 1f } }
 internal val LocalLiquidBottomTabInteraction = staticCompositionLocalOf {
     LiquidBottomTabInteractionCallbacks()
 }
+internal val LocalLiquidBottomTabContentCapture = staticCompositionLocalOf { false }
 
 internal data class LiquidBottomTabInteractionCallbacks(
     val onPress: (index: Int, press: PressInteraction.Press) -> Unit = { _, _ -> },
@@ -52,67 +53,79 @@ fun RowScope.LiquidBottomTab(
 ) {
     val scale = LocalLiquidBottomTabScale.current
     val interactionCallbacks = LocalLiquidBottomTabInteraction.current
+    val contentCaptureOnly = LocalLiquidBottomTabContentCapture.current
     val interactionCallbacksState = rememberUpdatedState(interactionCallbacks)
     val interactionSource = remember { MutableInteractionSource() }
-    LaunchedEffect(interactionSource) {
-        val activePresses = mutableListOf<PressInteraction.Press>()
-        interactionSource.interactions.collect { interaction ->
-            when (interaction) {
-                is PressInteraction.Press -> {
-                    activePresses += interaction
-                    interactionCallbacksState.value.onPress(tabIndex, interaction)
-                }
+    if (!contentCaptureOnly) {
+        LaunchedEffect(interactionSource) {
+            val activePresses = mutableListOf<PressInteraction.Press>()
+            interactionSource.interactions.collect { interaction ->
+                when (interaction) {
+                    is PressInteraction.Press -> {
+                        activePresses += interaction
+                        interactionCallbacksState.value.onPress(tabIndex, interaction)
+                    }
 
-                is PressInteraction.Release -> {
-                    val press = activePresses.firstOrNull { it === interaction.press } ?: return@collect
-                    activePresses.remove(press)
-                    interactionCallbacksState.value.onRelease(tabIndex, press)
-                }
+                    is PressInteraction.Release -> {
+                        val press = activePresses.firstOrNull { it === interaction.press } ?: return@collect
+                        activePresses.remove(press)
+                        interactionCallbacksState.value.onRelease(tabIndex, press)
+                    }
 
-                is PressInteraction.Cancel -> {
-                    val press = activePresses.firstOrNull { it === interaction.press } ?: return@collect
-                    activePresses.remove(press)
-                    interactionCallbacksState.value.onCancel(tabIndex, press)
+                    is PressInteraction.Cancel -> {
+                        val press = activePresses.firstOrNull { it === interaction.press } ?: return@collect
+                        activePresses.remove(press)
+                        interactionCallbacksState.value.onCancel(tabIndex, press)
+                    }
                 }
             }
         }
     }
-    Column(
+    val tabInteractionModifier =
         modifier
             .clip(Capsule())
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                role = Role.Tab,
-                onClick = {
-                    interactionCallbacksState.value.onClick(tabIndex)
-                    onClick()
+            .then(
+                if (contentCaptureOnly) {
+                    Modifier
+                } else {
+                    Modifier
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                            role = Role.Tab,
+                            onClick = {
+                                interactionCallbacksState.value.onClick(tabIndex)
+                                onClick()
+                            },
+                        )
+                        .pointerInput(tabIndex) {
+                            var dragClaimed = false
+                            detectDragGestures(
+                                onDragStart = {
+                                    dragClaimed = interactionCallbacksState.value.onDragStart(tabIndex)
+                                },
+                                onDragEnd = {
+                                    if (dragClaimed) {
+                                        interactionCallbacksState.value.onDragEnd(tabIndex)
+                                    }
+                                    dragClaimed = false
+                                },
+                                onDragCancel = {
+                                    if (dragClaimed) {
+                                        interactionCallbacksState.value.onDragCancel(tabIndex)
+                                    }
+                                    dragClaimed = false
+                                },
+                            ) { _, dragAmount ->
+                                if (dragClaimed) {
+                                    interactionCallbacksState.value.onDrag(tabIndex, dragAmount.x)
+                                }
+                            }
+                        }
                 },
             )
-            .pointerInput(tabIndex) {
-                var dragClaimed = false
-                detectDragGestures(
-                    onDragStart = {
-                        dragClaimed = interactionCallbacksState.value.onDragStart(tabIndex)
-                    },
-                    onDragEnd = {
-                        if (dragClaimed) {
-                            interactionCallbacksState.value.onDragEnd(tabIndex)
-                        }
-                        dragClaimed = false
-                    },
-                    onDragCancel = {
-                        if (dragClaimed) {
-                            interactionCallbacksState.value.onDragCancel(tabIndex)
-                        }
-                        dragClaimed = false
-                    },
-                ) { _, dragAmount ->
-                    if (dragClaimed) {
-                        interactionCallbacksState.value.onDrag(tabIndex, dragAmount.x)
-                    }
-                }
-            }
+    Column(
+        tabInteractionModifier
             .fillMaxHeight()
             .weight(1f)
             .graphicsLayer {

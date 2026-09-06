@@ -222,6 +222,16 @@ Acceptance for Option A:
 
 If ~`0.60` produces a clean result without visibly weakening selected content, Option A is the preferred low-risk production solution.
 
+### Phase 1 result — Option A rejected (2026-09-06)
+
+The user acceptance result is that the Option A fixture candidates A0/A1/A2/A3
+(`1.00 / 0.75 / 0.60 / 0.45`) are all unacceptable, so the whole `tabsBackdrop` attenuation path
+is not promoted to production.
+
+No pixel-by-pixel or frame-time measurements were recorded in this check; this entry records the
+visual acceptance result only and does not invent a quantitative threshold. The next experiment is
+therefore Option B, keeping the environment pass at `11 / 18` and separating the tab content source.
+
 ### Phase 2 — Only if Phase 1 is insufficient: content-only backdrop split
 
 Create a second fixture implementation that separates:
@@ -246,6 +256,16 @@ no chromatic aberration
 Then optionally compare a very small non-chromatic refraction (`4/6`, `5/8`) if completely flat content looks visually detached from the glass.
 
 Do not change production until the split path is visually and performance-wise justified.
+
+#### Phase 2 fixture implementation (2026-09-06)
+
+The Debug bottom-tabs fixture now contains the split-source experiment with B0 (no content lens),
+B1 (`4 / 6`, non-chromatic), and B2 (`5 / 8`, non-chromatic), each against the same multicolor,
+black, and white backdrop modes. The environment pass remains `11 / 18` with chromatic aberration;
+the content-only capture has no row glass surface and is rendered as a separate clipped pass.
+
+This is still an investigation fixture, not a production opt-in. Visual and frame-time acceptance
+for B remains pending before changing the default production composition.
 
 ## Performance considerations
 

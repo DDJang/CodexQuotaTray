@@ -51,6 +51,7 @@ import com.kyant.backdrop.backdrops.rememberBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.drawPlainBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
@@ -73,6 +74,9 @@ fun LiquidBottomTabs(
     indicatorRefractionHeight: Dp = 11.dp,
     indicatorRefractionAmount: Dp = 18.dp,
     tabsBackdropSourceAlpha: Float = 1f,
+    useSplitIndicatorContentSource: Boolean = false,
+    indicatorContentRefractionHeight: Dp = 0.dp,
+    indicatorContentRefractionAmount: Dp = 0.dp,
     modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit,
 ) {
@@ -87,6 +91,8 @@ fun LiquidBottomTabs(
     val tabsBackdrop = rememberLayerBackdrop()
     val tabsBackdropForIndicator =
         rememberSourceAttenuatedBackdrop(tabsBackdrop, tabsBackdropSourceAlpha)
+    val selectedContentBackdrop =
+        if (useSplitIndicatorContentSource) rememberLayerBackdrop() else null
 
     BoxWithConstraints(
         modifier,
@@ -512,44 +518,70 @@ fun LiquidBottomTabs(
                     lerp(1f, 1.2f, dampedDragAnimation.pressProgress)
                 },
             ) {
-                Row(
-                    Modifier
-                        .clearAndSetSemantics {}
-                        .alpha(0f)
-                        .layerBackdrop(tabsBackdrop)
-                        .graphicsLayer {
-                            translationX = panelOffset
+                if (!useSplitIndicatorContentSource) {
+                    Row(
+                        Modifier
+                            .clearAndSetSemantics {}
+                            .alpha(0f)
+                            .layerBackdrop(tabsBackdrop)
+                            .graphicsLayer {
+                                translationX = panelOffset
+                            }
+                            .drawBackdrop(
+                                backdrop = backdrop,
+                                shape = { Capsule() },
+                                effects = {
+                                    val progress = dampedDragAnimation.pressProgress
+                                    vibrancy()
+                                    blur(8f.dp.toPx())
+                                    lens(
+                                        24f.dp.toPx() * progress,
+                                        24f.dp.toPx() * progress,
+                                    )
+                                },
+                                highlight = {
+                                    val progress = dampedDragAnimation.pressProgress
+                                    Highlight.Default.copy(alpha = progress)
+                                },
+                                onDrawSurface = { drawRect(containerColor) },
+                            )
+                            .then(interactiveHighlight.modifier)
+                            .height(56f.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 4f.dp)
+                            .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
+                        verticalAlignment = Alignment.CenterVertically,
+                        content = content,
+                    )
+                }
+                if (useSplitIndicatorContentSource) {
+                    val contentBackdrop = selectedContentBackdrop
+                        ?: error("Split indicator content source is not initialized")
+                    Row(
+                        Modifier
+                            .clearAndSetSemantics {}
+                            .alpha(0f)
+                            .layerBackdrop(contentBackdrop)
+                            .graphicsLayer {
+                                translationX = panelOffset
+                            }
+                            .height(56f.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 4f.dp)
+                            .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CompositionLocalProvider(
+                            LocalLiquidBottomTabContentCapture provides true,
+                        ) {
+                            content()
                         }
-                        .drawBackdrop(
-                            backdrop = backdrop,
-                            shape = { Capsule() },
-                            effects = {
-                                val progress = dampedDragAnimation.pressProgress
-                                vibrancy()
-                                blur(8f.dp.toPx())
-                                lens(
-                                    24f.dp.toPx() * progress,
-                                    24f.dp.toPx() * progress,
-                                )
-                            },
-                            highlight = {
-                                val progress = dampedDragAnimation.pressProgress
-                                Highlight.Default.copy(alpha = progress)
-                            },
-                            onDrawSurface = { drawRect(containerColor) },
-                        )
-                        .then(interactiveHighlight.modifier)
-                        .height(56f.dp)
-                        .fillMaxWidth()
-                        .padding(horizontal = 4f.dp)
-                        .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
-                    verticalAlignment = Alignment.CenterVertically,
-                    content = content,
-                )
+                    }
+                }
             }
         }
 
-        Box(
+        val indicatorPositionModifier =
             Modifier
                 .padding(horizontal = 4f.dp)
                 .graphicsLayer {
@@ -559,52 +591,130 @@ fun LiquidBottomTabs(
                 }
                 .then(interactiveHighlight.gestureModifier)
                 .then(dampedDragAnimation.modifier)
-                .drawBackdrop(
-                    backdrop = rememberCombinedBackdrop(backdrop, tabsBackdropForIndicator),
-                    shape = { Capsule() },
-                    effects = {
-                        val progress = dampedDragAnimation.pressProgress
-                        lens(
-                            indicatorRefractionHeight.toPx() * progress,
-                            indicatorRefractionAmount.toPx() * progress,
-                            chromaticAberration = true,
-                        )
-                    },
-                    highlight = {
-                        val progress = dampedDragAnimation.pressProgress
-                        Highlight.Default.copy(alpha = progress)
-                    },
-                    shadow = {
-                        val progress = dampedDragAnimation.pressProgress
-                        Shadow(alpha = progress)
-                    },
-                    innerShadow = {
-                        val progress = dampedDragAnimation.pressProgress
-                        InnerShadow(
-                            radius = 8f.dp * progress,
-                            alpha = progress,
-                        )
-                    },
-                    layerBlock = {
-                        scaleX = dampedDragAnimation.scaleX
-                        scaleY = dampedDragAnimation.scaleY
-                        val velocity = dampedDragAnimation.velocity / 10f
-                        scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
-                        scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
-                    },
-                    onDrawSurface = {
-                        val progress = dampedDragAnimation.pressProgress
-                        drawRect(
-                            if (isLightTheme) Color.Black.copy(0.1f)
-                            else Color.White.copy(0.1f),
-                            alpha = 1f - progress,
-                        )
-                        drawRect(Color.Black.copy(alpha = 0.03f * progress))
-                    },
-                )
+        val indicatorSizeModifier =
+            Modifier
                 .height(56f.dp)
-                .fillMaxWidth(1f / tabsCount),
-        )
+                .fillMaxWidth(1f / tabsCount)
+        val indicatorLayerBlock: androidx.compose.ui.graphics.GraphicsLayerScope.() -> Unit = {
+            scaleX = dampedDragAnimation.scaleX
+            scaleY = dampedDragAnimation.scaleY
+            val velocity = dampedDragAnimation.velocity / 10f
+            scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
+            scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
+        }
+        val environmentIndicatorModifier =
+            Modifier.drawBackdrop(
+                backdrop = backdrop,
+                shape = { Capsule() },
+                effects = {
+                    val progress = dampedDragAnimation.pressProgress
+                    lens(
+                        indicatorRefractionHeight.toPx() * progress,
+                        indicatorRefractionAmount.toPx() * progress,
+                        chromaticAberration = true,
+                    )
+                },
+                highlight = {
+                    val progress = dampedDragAnimation.pressProgress
+                    Highlight.Default.copy(alpha = progress)
+                },
+                shadow = {
+                    val progress = dampedDragAnimation.pressProgress
+                    Shadow(alpha = progress)
+                },
+                innerShadow = {
+                    val progress = dampedDragAnimation.pressProgress
+                    InnerShadow(
+                        radius = 8f.dp * progress,
+                        alpha = progress,
+                    )
+                },
+                layerBlock = indicatorLayerBlock,
+                onDrawSurface = {
+                    val progress = dampedDragAnimation.pressProgress
+                    drawRect(
+                        if (isLightTheme) Color.Black.copy(0.1f)
+                        else Color.White.copy(0.1f),
+                        alpha = 1f - progress,
+                    )
+                    drawRect(Color.Black.copy(alpha = 0.03f * progress))
+                },
+            )
+        if (useSplitIndicatorContentSource) {
+            val contentBackdrop = selectedContentBackdrop
+                ?: error("Split indicator content source is not initialized")
+            Box(indicatorPositionModifier.then(indicatorSizeModifier)) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .then(environmentIndicatorModifier),
+                )
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .drawPlainBackdrop(
+                            backdrop = contentBackdrop,
+                            shape = { Capsule() },
+                            effects = {
+                                val progress = dampedDragAnimation.pressProgress
+                                if (
+                                    indicatorContentRefractionHeight != 0.dp ||
+                                    indicatorContentRefractionAmount != 0.dp
+                                ) {
+                                    lens(
+                                        indicatorContentRefractionHeight.toPx() * progress,
+                                        indicatorContentRefractionAmount.toPx() * progress,
+                                        chromaticAberration = false,
+                                    )
+                                }
+                            },
+                            layerBlock = indicatorLayerBlock,
+                        ),
+                )
+            }
+        } else {
+            Box(
+                indicatorPositionModifier
+                    .drawBackdrop(
+                        backdrop = rememberCombinedBackdrop(backdrop, tabsBackdropForIndicator),
+                        shape = { Capsule() },
+                        effects = {
+                            val progress = dampedDragAnimation.pressProgress
+                            lens(
+                                indicatorRefractionHeight.toPx() * progress,
+                                indicatorRefractionAmount.toPx() * progress,
+                                chromaticAberration = true,
+                            )
+                        },
+                        highlight = {
+                            val progress = dampedDragAnimation.pressProgress
+                            Highlight.Default.copy(alpha = progress)
+                        },
+                        shadow = {
+                            val progress = dampedDragAnimation.pressProgress
+                            Shadow(alpha = progress)
+                        },
+                        innerShadow = {
+                            val progress = dampedDragAnimation.pressProgress
+                            InnerShadow(
+                                radius = 8f.dp * progress,
+                                alpha = progress,
+                            )
+                        },
+                        layerBlock = indicatorLayerBlock,
+                        onDrawSurface = {
+                            val progress = dampedDragAnimation.pressProgress
+                            drawRect(
+                                if (isLightTheme) Color.Black.copy(0.1f)
+                                else Color.White.copy(0.1f),
+                                alpha = 1f - progress,
+                            )
+                            drawRect(Color.Black.copy(alpha = 0.03f * progress))
+                        },
+                    )
+                    .then(indicatorSizeModifier),
+            )
+        }
     }
 }
 
