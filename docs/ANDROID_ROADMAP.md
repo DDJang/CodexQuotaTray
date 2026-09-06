@@ -16,7 +16,7 @@
 
 - 持续验证后台刷新、通知、网络切换和厂商电池策略下的真机可靠性。
 - Android 应用自身的开机恢复调度。
-- 持续维护[长按高光调查与实现边界](android-long-press-highlight-investigation.md)中记录的回归验收标准。
+- 持续维护[长按高光调查与实现边界](investigations/android/long-press-highlight.md)中记录的回归验收标准。
 
 ## Non-goals
 

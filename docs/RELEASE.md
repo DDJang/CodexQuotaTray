@@ -84,6 +84,8 @@ Windows workflow 运行 `windows/scripts/verify-winui.ps1 -Mode Release`（只�
 和产物检查），再生成 portable ZIP 和 Inno installer。上述 `publish-winui.ps1`、`package-winui.ps1`、
 `package-inno.ps1` 属于正式 Release workflow 的底层 publish/package 实现，但不作为维护者日常手工
 发布入口；正式发布入口仍由统一发布状态机和 GitHub Actions 管理。PR CI 的 Full 验证负责格式检查和离线测试。
+Windows Release 当前保持 `PublishTrimmed=false`；Trim 尚未达到 Production 条件，原因与验证结果见
+[Windows Trim 调查记录](investigations/windows/trim-experiment.md)。
 
 Android workflow 使用 JDK 17、Android SDK、Gradle Wrapper，运行带正式签名的 `assembleRelease`，再
 定位 SDK build-tools 中的 `apksigner` 验证签名。PR CI 负责测试、lint 和 Debug assemble。签名缺少任一 Secret 时 fail closed：

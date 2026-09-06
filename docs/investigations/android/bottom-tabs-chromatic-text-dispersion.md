@@ -344,7 +344,7 @@ candidate; production optics remained unchanged. The subsequent design-only cont
 [Maven Central 源码包](https://repo.maven.apache.org/maven2/io/github/kyant0/backdrop-android/2.0.0/backdrop-android-2.0.0-sources.jar)，
 核对了 `commonMain/com/kyant/backdrop/effects/Lens.kt`、`internal/Shaders.kt`、
 `BackdropEffectScope.kt`、`backdrops/CombinedBackdrop.kt` 和 Android 的 RenderEffect 包装。
-这里只记录调查基线；项目依赖以 [app/build.gradle.kts](../android/app/build.gradle.kts) 为准。
+这里只记录调查基线；项目依赖以 [app/build.gradle.kts](../../../android/app/build.gradle.kts) 为准。
 
 源码确认：
 
@@ -457,13 +457,13 @@ F、U、N 的 RGB 运算要在同一预乘约定和工作空间下进行，E 不
 Android 本地 `BottomTabBandLens.kt` 内部包含 D 所需 shader 和 effect 适配；它只通过 Debug 可选入口
 启用，默认保持关闭。
 
-- 在 [LiquidBottomTabs.kt](../android/app/src/main/java/com/codexquotatray/android/liquidglass/LiquidBottomTabs.kt)
+- 在 [LiquidBottomTabs.kt](../../../android/app/src/main/java/com/codexquotatray/android/liquidglass/LiquidBottomTabs.kt)
   的 `combinedIndicatorModifier.effects` 中以 D **替换该次 lens 调用**，不在原 lens 后再跑一遍折射。
 - source 仍为 `rememberCombinedBackdrop(backdrop, tabsBackdropForIndicator)`，source alpha 固定使用基线 1；
   `useSplitIndicatorContentSource` 和 `useBackgroundChromaticOverlay` 均保持 false。
 - 原始 shader 字符串与 SDF 在库中是 internal。不能假设直接 import 可编译，也不为此升级依赖。
   若复制最小必要源码，应记录本轮核实的 artifact 基线并保留
-  [现有第三方许可要求](../THIRD_PARTY_NOTICES.md)。
+  [现有第三方许可要求](../../../THIRD_PARTY_NOTICES.md)。
 - `BackdropEffectScope` 提供 shader cache 与可写 `renderEffect`。Android 适配可使用公开 shader
   转换接口与 [createRuntimeShaderEffect](https://developer.android.com/reference/android/graphics/RenderEffect)，
   再转 Compose RenderEffect。不能直接调用库 internal 包装；如存在前置 effect，须保持原链顺序。
@@ -472,7 +472,7 @@ Android 本地 `BottomTabBandLens.kt` 内部包含 D 所需 shader 和 effect �
 - 不改 `indicatorLayerBlock`、隐藏捕获 Row、tab scale、panelOffset、高光、阴影或手势。
   mask 在既有图层变换之前的局部坐标计算，从而随胶囊缩放和移动。
 - 不支持 RuntimeShader、参数无效或候选初始化失败时退回原效果；可用
-  [InteractiveHighlight.kt](../android/app/src/main/java/com/codexquotatray/android/liquidglass/InteractiveHighlight.kt)
+  [InteractiveHighlight.kt](../../../android/app/src/main/java/com/codexquotatray/android/liquidglass/InteractiveHighlight.kt)
   的平台支持检查作为仓库内参考。回退不改变应用身份或最低 SDK。
 
 以上接口已做源码层面的可行性检查，并已完成 Debug 编译；尚未进行真机 GPU 执行、视觉或性能证明。
@@ -488,7 +488,7 @@ Android 本地 `BottomTabBandLens.kt` 内部包含 D 所需 shader 和 effect �
 | D2 | 0.25 | 首选观察点，不代表推荐 production 参数 |
 | D3 | 0.40 | 只用于确定收益/误伤边界，不作为默认 |
 
-已在 [LiquidBottomTabsFixtureActivity.kt](../android/app/src/debug/java/com/codexquotatray/android/debug/LiquidBottomTabsFixtureActivity.kt)
+已在 [LiquidBottomTabsFixtureActivity.kt](../../../android/app/src/debug/java/com/codexquotatray/android/debug/LiquidBottomTabsFixtureActivity.kt)
 增加独立 D 区与诊断视图，并保留 A/B/C 的失败对照。第一优先级是接近截图的黑底、蓝色“统计”、
 相同按住状态；之后检查白底、多色、接近 accent 的蓝底、额度页图标及明暗主题。
 锁定相同位置与 progress 对比，再检查完整 tap、hold、慢拖、快拖和释放过程，避免用不同帧解释改善。
@@ -513,9 +513,9 @@ Android 本地 `BottomTabBandLens.kt` 内部包含 D 所需 shader 和 effect �
 也不追加固定彩虹贴图来伪造保留结果。若蓝带和彩虹确实共享同一色散结构，
 只能接受少量残留蓝色或放宽“彩虹尽量不变”，不能承诺完全独立控制。
 
-本轮实现仍为 fixture-only。常规验证按 [Android README](../android/README.md)，并增加了
+本轮实现仍为 fixture-only。常规验证按 [Android README](../../../android/README.md)，并增加了
 strength 有限性/边界测试；保留
-[SettingsStructureTest.kt](../android/app/src/test/java/com/codexquotatray/android/SettingsStructureTest.kt)
+[SettingsStructureTest.kt](../../../android/app/src/test/java/com/codexquotatray/android/SettingsStructureTest.kt)
 对 production 默认拓扑和交互的现有检查。GUI、安装与真机比较需另行明确授权。
 
 ### Phase 4 — Option D fixture implementation (2026-09-06)

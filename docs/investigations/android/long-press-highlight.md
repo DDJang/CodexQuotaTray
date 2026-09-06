@@ -32,13 +32,13 @@
 
 | 入口 / 文件 | 当前行为 | 对本问题的意义 |
 | --- | --- | --- |
-| [LiquidBottomTabs.kt](../android/app/src/main/java/com/codexquotatray/android/liquidglass/LiquidBottomTabs.kt) | 可见 Row 和隐藏捕获 Row 都绘制 `interactiveHighlight.modifier`；preview 使用胶囊实际动画位置计算接触强度，drag handoff 从当前 preview 强度过渡到按压强度 | preview/hold 和 handoff 共用一次局部高光绘制 |
-| [DragGestureInspector.kt](../android/app/src/main/java/com/codexquotatray/android/liquidglass/DragGestureInspector.kt) | `inspectDragGestures` 在 `awaitFirstDown` 后立即调用 `onDragStart`，没有等 touch slop 或 long-press timeout | 选中胶囊上的按住本来就能启动高光；“拖动高光”这个叫法掩盖了它实际由 down 驱动 |
-| [InteractiveHighlight.kt](../android/app/src/main/java/com/codexquotatray/android/liquidglass/InteractiveHighlight.kt) | 直接胶囊手势仍用独立 spring；方案 B 通过可复用绘制接收 preview/handoff 强度，handoff 结束时从当前值单一回落 | 两条路径只绘制一次，不新增 prepare/reveal 生命周期 |
-| [LiquidBottomTab.kt](../android/app/src/main/java/com/codexquotatray/android/liquidglass/LiquidBottomTab.kt) | `clickable` 发出 Press/Release/Cancel；`detectDragGestures` 负责未选中 Tab 的拖动接管 | handoff 仍由既有 press identity 和 drag ownership 驱动 |
+| [LiquidBottomTabs.kt](../../../android/app/src/main/java/com/codexquotatray/android/liquidglass/LiquidBottomTabs.kt) | 可见 Row 和隐藏捕获 Row 都绘制 `interactiveHighlight.modifier`；preview 使用胶囊实际动画位置计算接触强度，drag handoff 从当前 preview 强度过渡到按压强度 | preview/hold 和 handoff 共用一次局部高光绘制 |
+| [DragGestureInspector.kt](../../../android/app/src/main/java/com/codexquotatray/android/liquidglass/DragGestureInspector.kt) | `inspectDragGestures` 在 `awaitFirstDown` 后立即调用 `onDragStart`，没有等 touch slop 或 long-press timeout | 选中胶囊上的按住本来就能启动高光；“拖动高光”这个叫法掩盖了它实际由 down 驱动 |
+| [InteractiveHighlight.kt](../../../android/app/src/main/java/com/codexquotatray/android/liquidglass/InteractiveHighlight.kt) | 直接胶囊手势仍用独立 spring；方案 B 通过可复用绘制接收 preview/handoff 强度，handoff 结束时从当前值单一回落 | 两条路径只绘制一次，不新增 prepare/reveal 生命周期 |
+| [LiquidBottomTab.kt](../../../android/app/src/main/java/com/codexquotatray/android/liquidglass/LiquidBottomTab.kt) | `clickable` 发出 Press/Release/Cancel；`detectDragGestures` 负责未选中 Tab 的拖动接管 | handoff 仍由既有 press identity 和 drag ownership 驱动 |
 | `LiquidBottomTabs` 的 `onPress` | 立即 `press()`，未选中时设置 `previewIndex`，调用 `settleToValue` 移动胶囊 | 已有按下反馈和预览；静止按住不提前提交页面 |
 | `LiquidBottomTabs` 的 `onDragStart` / `onDrag` | 接管时检查 press/index/preview 所有权，首次增量从当前动画值起算，后续从 target 起算；handoff 从当前 preview 强度连续过渡 | 保证预览转拖动不跳回；不因模式切换突亮 |
-| [DampedDragAnimation.kt](../android/app/src/main/java/com/codexquotatray/android/liquidglass/DampedDragAnimation.kt) | `pressProgress` 驱动折射、边缘高光、阴影；`settleToValue` 不注入拖动速度 | 普通按住已有边缘亮度和形变，但不是 InteractiveHighlight 的局部加色光斑 |
+| [DampedDragAnimation.kt](../../../android/app/src/main/java/com/codexquotatray/android/liquidglass/DampedDragAnimation.kt) | `pressProgress` 驱动折射、边缘高光、阴影；`settleToValue` 不注入拖动速度 | 普通按住已有边缘亮度和形变，但不是 InteractiveHighlight 的局部加色光斑 |
 
 这里必须区分两种“高光”：`Highlight.Default.copy(alpha = progress)` 是 backdrop 的边缘高光；
 `InteractiveHighlight` 是 Row 上的加色底光与局部径向光斑。只增强前者不能算完成本任务。
@@ -69,7 +69,7 @@ Compose 对同一 pointer 使用首次命中的事件链，胶囊后来移到手
 官方 `awaitLongPressOrCancellation` 的
 [参考实现](https://android.googlesource.com/platform/frameworks/support/+/eeade07c1fa47231e3c7a30afdebd5d0d91f1832/compose/foundation/foundation/src/commonMain/kotlin/androidx/compose/foundation/gestures/DragGestureDetector.kt)
 也使用 `viewConfiguration.longPressTimeoutMillis`。引用用于解释识别机制；它不是本项目依赖的
-精确版本源码，依赖基线仍以 [app/build.gradle.kts](../android/app/build.gradle.kts) 为准。
+精确版本源码，依赖基线仍以 [app/build.gradle.kts](../../../android/app/build.gradle.kts) 为准。
 
 ## 方案 A：先补齐未选中 Tab 的拖动接管（已否决）
 
@@ -137,14 +137,14 @@ contact = 1 - smoothstep(nearDistance, farDistance, distance)
 本轮改动涉及 `liquidglass/InteractiveHighlight.kt` 的内部绘制复用、`LiquidBottomTabs.kt`
 的 preview 接触函数与 handoff 连接、相关回归测试，以及 Debug fixture 的验收说明。
 `LiquidBottomTab.kt` 只有在现有回调确实不足时才调整；不重写整个手势系统。
-保留 [PRD](PRD.md) 的底栏页面切换边界和 [TECH_DESIGN](TECH_DESIGN.md) 的 Android 架构。
+保留 [PRD](../../PRD.md) 的底栏页面切换边界和 [TECH_DESIGN](../../TECH_DESIGN.md) 的 Android 架构。
 
-现有 [SettingsStructureTest.kt](../android/app/src/test/java/com/codexquotatray/android/SettingsStructureTest.kt)
+现有 [SettingsStructureTest.kt](../../../android/app/src/test/java/com/codexquotatray/android/SettingsStructureTest.kt)
 中的 `interactiveHighlightsKeepTheOriginalDirectGestureModel`、
 `liquidBottomTabsKeepTheProductionCombinedBackdropRenderGraph` 和 fixture 检查，明确保护无
 prepare/reveal/long-press job 的现状；本轮另补充 preview 距离函数的离线回归测试。指针命中
 链、事件消费和视觉时序仍需 Compose 输入测试或 fixture 实测，不能简单删掉断言来迁就实现。
-[MainTabStateTest.kt](../android/app/src/test/java/com/codexquotatray/android/MainTabStateTest.kt)
+[MainTabStateTest.kt](../../../android/app/src/test/java/com/codexquotatray/android/MainTabStateTest.kt)
 只验证页面状态，不证明指针路由或高光时序正确。
 
 纯逻辑测试应验证接管所有权、结束/取消、旧回落被新手势打断以及提交次数。
@@ -153,7 +153,7 @@ Compose instrumentation 测试依赖，不能承诺现有 JVM 测试已覆盖这
 若需新增测试基础设施，应另行明确范围，不能在本次文档调查中更改依赖。
 
 如需在其他设备复核，使用已有
-[LiquidBottomTabsFixtureActivity.kt](../android/app/src/debug/java/com/codexquotatray/android/debug/LiquidBottomTabsFixtureActivity.kt)：
+[LiquidBottomTabsFixtureActivity.kt](../../../android/app/src/debug/java/com/codexquotatray/android/debug/LiquidBottomTabsFixtureActivity.kt)：
 保留上游对照与已确认符合的 production 方案 B，直接观察快 tap、慢 tap、静止长按和 handoff；fixture 使用离线假数据。
 不要改写原 production 区来掩盖与基线的差异。
 
@@ -174,4 +174,4 @@ Compose instrumentation 测试依赖，不能承诺现有 JVM 测试已覆盖这
 在后续实测中对齐 down、接管、首个可见高光帧和 up，使用相同输入节奏逐帧比较。
 “接管后无需额外识别等待”与“肉眼无延迟”必须分别判断；当前没有帧时数据，也没有自然度结论。
 
-方案 B 已按用户验收确认符合；如需在其他设备做 GUI/真机复核，遵循 [Android README](../android/README.md)。
+方案 B 已按用户验收确认符合；如需在其他设备做 GUI/真机复核，遵循 [Android README](../../../android/README.md)。

@@ -43,3 +43,4 @@ Windows 和 Android 正式版本均从
 - [统一发布流程](docs/RELEASE.md)
 - [Windows 路线图](docs/ROADMAP.md)
 - [Android 路线图](docs/ANDROID_ROADMAP.md)
+- [文档索引](docs/README.md)
