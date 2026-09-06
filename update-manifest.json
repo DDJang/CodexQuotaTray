@@ -13,15 +13,15 @@
     "publishedAt": "2026-09-06T07:04:49Z"
   },
   "android": {
-    "version": "0.11.2",
-    "tag": "android-v0.11.2",
+    "version": "0.11.5",
+    "tag": "android-v0.11.5",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.11.2.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.2/CodexQuotaTray-Android-v0.11.2.apk",
-      "sha256": "296d192954190509c95f552b6a602295ca0a7645cdd5200053e443a716f3fb73",
-      "size": 3221910
+      "name": "CodexQuotaTray-Android-v0.11.5.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.5/CodexQuotaTray-Android-v0.11.5.apk",
+      "sha256": "f89e31a23f2e7a3352793944d6d8107c524b0571350d0f1f58c7d5a5ed4297f0",
+      "size": 3238294
     },
-    "releaseNotes": "## Android\n\n### 页面与统计信息\n\n- 优化额度与 Token 统计卡片的信息层级与布局，修复统计摘要内容重叠问题，让不同数据内容保持清晰可读。\n- 统一仪表盘卡片的表面与间距表现，提升深浅色主题下的信息阅读体验。\n\n### 底部导航与液态玻璃\n\n- 优化底部 Tab 按下时的预览、松开提交和取消恢复行为，长按后拖动可无缝接管，减少回弹并保持拖动反馈连贯。\n- 调整底部指示器的液态玻璃折射与色散表现，让交互反馈更加自然。\n",
-    "publishedAt": "2026-09-03T12:09:36Z"
+    "releaseNotes": "## Android\n\n### 稳定性与登录\n\n- 改进 OAuth 刷新和轮换凭据的恢复处理，让刷新失败或本地凭据保存异常时的恢复状态更可靠。\n\n### 底部导航交互\n\n- 改进未选中 Tab 的按住预览与拖动接管，高光随液态玻璃胶囊的实际位置连续过渡，松开或取消时自然恢复。\n",
+    "publishedAt": "2026-09-06T07:06:08Z"
   }
 }
