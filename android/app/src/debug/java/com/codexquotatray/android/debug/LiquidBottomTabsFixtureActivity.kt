@@ -54,6 +54,7 @@ import com.codexquotatray.android.R
 import com.codexquotatray.android.ThemeMode
 import com.codexquotatray.android.ThemePalette
 import com.codexquotatray.android.color
+import com.codexquotatray.android.liquidglass.BottomTabBandLensDiagnostic
 import com.codexquotatray.android.liquidglass.LiquidBottomTab
 import com.codexquotatray.android.liquidglass.LiquidBottomTabs
 import com.codexquotatray.android.liquidglass.UpstreamLiquidBottomTab
@@ -135,8 +136,12 @@ private fun LiquidBottomTabsFixtureScreen(palette: ThemePalette) {
             IntegratedTransitionFixture(backdrop, contentColor)
             PressPreviewFixture(backdrop, contentColor)
             ChromaticAberrationFixture(contentColor)
+            SourceAttenuationFixture(contentColor)
+            SplitContentFixture(contentColor)
+            BackgroundChromaticFixture(contentColor)
+            BottomTabBandLensFixture(contentColor)
             Text(
-                "A/B/C/D share one backdrop; no OAuth, LAN, API, worker, or network access.",
+                "A/B/C/D/E/F/G/H/I share one backdrop; no OAuth, LAN, API, worker, or network access.",
                 color = Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -304,6 +309,89 @@ private fun ChromaticAberrationFixture(contentColor: Color) {
 }
 
 @Composable
+private fun SourceAttenuationFixture(contentColor: Color) {
+    var backdropMode by remember { mutableStateOf(AberrationBackdropMode.MULTICOLOR) }
+    val experimentBackdrop = rememberLayerBackdrop()
+    val labelColor = if (backdropMode == AberrationBackdropMode.WHITE) Color.Black else Color.White
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "F · Option A · attenuated tab source",
+            color = labelColor,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { backdropMode = AberrationBackdropMode.MULTICOLOR }) {
+                Text("多色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.BLACK }) {
+                Text("黑色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.WHITE }) {
+                Text("白色")
+            }
+        }
+        Text(
+            "backdrop: ${backdropMode.name} · lens: 11 / 18",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Box(Modifier.fillMaxWidth().height(620.dp)) {
+            Box(Modifier.fillMaxSize().layerBackdrop(experimentBackdrop)) {
+                when (backdropMode) {
+                    AberrationBackdropMode.MULTICOLOR -> FixtureBackdrop(showLabel = false)
+                    AberrationBackdropMode.BLACK -> Box(Modifier.fillMaxSize().background(Color.Black))
+                    AberrationBackdropMode.WHITE -> Box(Modifier.fillMaxSize().background(Color.White))
+                }
+            }
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SourceAttenuationPresetRow(
+                    name = "A0 · Tabs source · 1.00 · baseline",
+                    sourceAlpha = 1f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                SourceAttenuationPresetRow(
+                    name = "A1 · Tabs source · 0.75",
+                    sourceAlpha = 0.75f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                SourceAttenuationPresetRow(
+                    name = "A2 · Tabs source · 0.60 · recommended",
+                    sourceAlpha = 0.60f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                SourceAttenuationPresetRow(
+                    name = "A3 · Tabs source · 0.45",
+                    sourceAlpha = 0.45f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+            }
+        }
+        Text(
+            "Only the tabsBackdrop source is attenuated before the combined 11 / 18 indicator lens.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "Compare selected blue clarity and glyph-shaped color against the environmental edge rainbow.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
 private fun AberrationPresetRow(
     name: String,
     refractionHeight: Dp,
@@ -323,6 +411,417 @@ private fun AberrationPresetRow(
                 tabsCount = 2,
                 indicatorRefractionHeight = refractionHeight,
                 indicatorRefractionAmount = refractionAmount,
+                modifier = fixtureDockModifier(),
+            ) {
+                LiquidBottomTab(tabIndex = 0, onClick = { selectedIndex = 0 }) {
+                    FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
+                }
+                LiquidBottomTab(tabIndex = 1, onClick = { selectedIndex = 1 }) {
+                    FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SourceAttenuationPresetRow(
+    name: String,
+    sourceAlpha: Float,
+    backdrop: Backdrop,
+    contentColor: Color,
+    labelColor: Color,
+) {
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(name, color = labelColor, style = MaterialTheme.typography.labelLarge)
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            LiquidBottomTabs(
+                selectedTabIndex = { selectedIndex },
+                onTabSelected = { selectedIndex = it },
+                backdrop = backdrop,
+                tabsCount = 2,
+                indicatorRefractionHeight = 11.dp,
+                indicatorRefractionAmount = 18.dp,
+                tabsBackdropSourceAlpha = sourceAlpha,
+                modifier = fixtureDockModifier(),
+            ) {
+                LiquidBottomTab(tabIndex = 0, onClick = { selectedIndex = 0 }) {
+                    FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
+                }
+                LiquidBottomTab(tabIndex = 1, onClick = { selectedIndex = 1 }) {
+                    FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SplitContentFixture(contentColor: Color) {
+    var backdropMode by remember { mutableStateOf(AberrationBackdropMode.MULTICOLOR) }
+    val experimentBackdrop = rememberLayerBackdrop()
+    val labelColor = if (backdropMode == AberrationBackdropMode.WHITE) Color.Black else Color.White
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "G · Option B · split environment / content",
+            color = labelColor,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { backdropMode = AberrationBackdropMode.MULTICOLOR }) {
+                Text("多色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.BLACK }) {
+                Text("黑色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.WHITE }) {
+                Text("白色")
+            }
+        }
+        Text(
+            "backdrop: ${backdropMode.name} · environment lens: 11 / 18",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Box(Modifier.fillMaxWidth().height(520.dp)) {
+            Box(Modifier.fillMaxSize().layerBackdrop(experimentBackdrop)) {
+                when (backdropMode) {
+                    AberrationBackdropMode.MULTICOLOR -> FixtureBackdrop(showLabel = false)
+                    AberrationBackdropMode.BLACK -> Box(Modifier.fillMaxSize().background(Color.Black))
+                    AberrationBackdropMode.WHITE -> Box(Modifier.fillMaxSize().background(Color.White))
+                }
+            }
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SplitContentPresetRow(
+                    name = "B0 · Content pass · no lens",
+                    contentRefractionHeight = 0.dp,
+                    contentRefractionAmount = 0.dp,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                SplitContentPresetRow(
+                    name = "B1 · Content pass · 4 / 6 · no chromatic",
+                    contentRefractionHeight = 4.dp,
+                    contentRefractionAmount = 6.dp,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                SplitContentPresetRow(
+                    name = "B2 · Content pass · 5 / 8 · no chromatic",
+                    contentRefractionHeight = 5.dp,
+                    contentRefractionAmount = 8.dp,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+            }
+        }
+        Text(
+            "Environment stays chromatic 11 / 18; content is captured separately and rendered without chromatic aberration.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "B0 is flat content; B1/B2 add only a small non-chromatic content refraction.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun SplitContentPresetRow(
+    name: String,
+    contentRefractionHeight: Dp,
+    contentRefractionAmount: Dp,
+    backdrop: Backdrop,
+    contentColor: Color,
+    labelColor: Color,
+) {
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(name, color = labelColor, style = MaterialTheme.typography.labelLarge)
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            LiquidBottomTabs(
+                selectedTabIndex = { selectedIndex },
+                onTabSelected = { selectedIndex = it },
+                backdrop = backdrop,
+                tabsCount = 2,
+                indicatorRefractionHeight = 11.dp,
+                indicatorRefractionAmount = 18.dp,
+                useSplitIndicatorContentSource = true,
+                indicatorContentRefractionHeight = contentRefractionHeight,
+                indicatorContentRefractionAmount = contentRefractionAmount,
+                modifier = fixtureDockModifier(),
+            ) {
+                LiquidBottomTab(tabIndex = 0, onClick = { selectedIndex = 0 }) {
+                    FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
+                }
+                LiquidBottomTab(tabIndex = 1, onClick = { selectedIndex = 1 }) {
+                    FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundChromaticFixture(contentColor: Color) {
+    var backdropMode by remember { mutableStateOf(AberrationBackdropMode.MULTICOLOR) }
+    val experimentBackdrop = rememberLayerBackdrop()
+    val labelColor = if (backdropMode == AberrationBackdropMode.WHITE) Color.Black else Color.White
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "H · Option C · combined non-chromatic + background chromatic",
+            color = labelColor,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { backdropMode = AberrationBackdropMode.MULTICOLOR }) {
+                Text("多色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.BLACK }) {
+                Text("黑色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.WHITE }) {
+                Text("白色")
+            }
+        }
+        Text(
+            "backdrop: ${backdropMode.name} · combined lens: 11 / 18 · chromatic overlay on top",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Box(Modifier.fillMaxWidth().height(620.dp)) {
+            Box(Modifier.fillMaxSize().layerBackdrop(experimentBackdrop)) {
+                when (backdropMode) {
+                    AberrationBackdropMode.MULTICOLOR -> FixtureBackdrop(showLabel = false)
+                    AberrationBackdropMode.BLACK -> Box(Modifier.fillMaxSize().background(Color.Black))
+                    AberrationBackdropMode.WHITE -> Box(Modifier.fillMaxSize().background(Color.White))
+                }
+            }
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BackgroundChromaticPresetRow(
+                    name = "C0 · background overlay · 0.20",
+                    overlayAlpha = 0.20f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BackgroundChromaticPresetRow(
+                    name = "C1 · background overlay · 0.35 · recommended",
+                    overlayAlpha = 0.35f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BackgroundChromaticPresetRow(
+                    name = "C2 · background overlay · 0.50",
+                    overlayAlpha = 0.50f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BackgroundChromaticPresetRow(
+                    name = "C3 · background overlay · 0.65",
+                    overlayAlpha = 0.65f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+            }
+        }
+        Text(
+            "Combined tabs/background source is rendered without chromatic aberration; a separate background-only 11 / 18 chromatic pass is drawn last.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "Compare the overlay alpha on multicolor first, then use black/white to isolate edge color and content coverage.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun BackgroundChromaticPresetRow(
+    name: String,
+    overlayAlpha: Float,
+    backdrop: Backdrop,
+    contentColor: Color,
+    labelColor: Color,
+) {
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(name, color = labelColor, style = MaterialTheme.typography.labelLarge)
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            LiquidBottomTabs(
+                selectedTabIndex = { selectedIndex },
+                onTabSelected = { selectedIndex = it },
+                backdrop = backdrop,
+                tabsCount = 2,
+                indicatorRefractionHeight = 11.dp,
+                indicatorRefractionAmount = 18.dp,
+                useBackgroundChromaticOverlay = true,
+                backgroundChromaticOverlayAlpha = overlayAlpha,
+                modifier = fixtureDockModifier(),
+            ) {
+                LiquidBottomTab(tabIndex = 0, onClick = { selectedIndex = 0 }) {
+                    FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
+                }
+                LiquidBottomTab(tabIndex = 1, onClick = { selectedIndex = 1 }) {
+                    FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BottomTabBandLensFixture(contentColor: Color) {
+    var backdropMode by remember { mutableStateOf(AberrationBackdropMode.MULTICOLOR) }
+    val experimentBackdrop = rememberLayerBackdrop()
+    val labelColor = if (backdropMode == AberrationBackdropMode.WHITE) Color.Black else Color.White
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "I · Option D · local blue-base correction",
+            color = labelColor,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { backdropMode = AberrationBackdropMode.MULTICOLOR }) {
+                Text("多色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.BLACK }) {
+                Text("黑色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.WHITE }) {
+                Text("白色")
+            }
+        }
+        Text(
+            "backdrop: ${backdropMode.name} · combined source · original 11 / 18 chromatic lens",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Box(Modifier.fillMaxWidth().height(820.dp)) {
+            Box(Modifier.fillMaxSize().layerBackdrop(experimentBackdrop)) {
+                when (backdropMode) {
+                    AberrationBackdropMode.MULTICOLOR -> FixtureBackdrop(showLabel = false)
+                    AberrationBackdropMode.BLACK -> Box(Modifier.fillMaxSize().background(Color.Black))
+                    AberrationBackdropMode.WHITE -> Box(Modifier.fillMaxSize().background(Color.White))
+                }
+            }
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BottomTabBandLensPresetRow(
+                    name = "D0 · original F · strength 0.00",
+                    strength = 0f,
+                    diagnostic = BottomTabBandLensDiagnostic.NONE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "D1 · local correction · strength 0.15",
+                    strength = 0.15f,
+                    diagnostic = BottomTabBandLensDiagnostic.NONE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "D2 · local correction · strength 0.25",
+                    strength = 0.25f,
+                    diagnostic = BottomTabBandLensDiagnostic.NONE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "D3 · local correction · strength 0.40",
+                    strength = 0.40f,
+                    diagnostic = BottomTabBandLensDiagnostic.NONE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "U · ordinary refraction reference",
+                    strength = 0f,
+                    diagnostic = BottomTabBandLensDiagnostic.REFRACTION_REFERENCE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "E · signed F − U difference",
+                    strength = 0f,
+                    diagnostic = BottomTabBandLensDiagnostic.SIGNED_DIFFERENCE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "S · original combined source",
+                    strength = 0f,
+                    diagnostic = BottomTabBandLensDiagnostic.SOURCE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+            }
+        }
+        Text(
+            "D0 routes through the original lens. D1–D3 keep the seven-sample chromatic result and only correct a guarded blue base in the upper/lower band.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "U, E, and S are diagnostics: reference, signed difference mapped around gray, and source. Compare black/blue first, then multicolor and white.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun BottomTabBandLensPresetRow(
+    name: String,
+    strength: Float,
+    diagnostic: BottomTabBandLensDiagnostic,
+    backdrop: Backdrop,
+    contentColor: Color,
+    labelColor: Color,
+) {
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(name, color = labelColor, style = MaterialTheme.typography.labelLarge)
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            LiquidBottomTabs(
+                selectedTabIndex = { selectedIndex },
+                onTabSelected = { selectedIndex = it },
+                backdrop = backdrop,
+                tabsCount = 2,
+                indicatorRefractionHeight = 11.dp,
+                indicatorRefractionAmount = 18.dp,
+                bottomTabBandLensStrength = strength,
+                bottomTabBandLensDiagnostic = diagnostic,
                 modifier = fixtureDockModifier(),
             ) {
                 LiquidBottomTab(tabIndex = 0, onClick = { selectedIndex = 0 }) {
@@ -446,7 +945,17 @@ private fun PressPreviewFixture(backdrop: Backdrop, contentColor: Color) {
             style = MaterialTheme.typography.bodySmall,
         )
         Text(
-            "Unselected-tab preview/hold does not use InteractiveHighlight.",
+            "Preview/hold highlight follows the pill's actual distance to the target; release still commits.",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "Slow taps can expose the distance-based preview highlight tradeoff; no long-press detector is used.",
+            color = Color.White.copy(alpha = 0.65f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "After drag handoff, local highlight transitions from the preview value and fades on release/cancel.",
             color = Color.White.copy(alpha = 0.65f),
             style = MaterialTheme.typography.bodySmall,
         )

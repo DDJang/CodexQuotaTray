@@ -45,3 +45,4 @@ See the [code signing policy](docs/CODE_SIGNING.md).
 - [Release process](docs/RELEASE.md)
 - [Windows roadmap](docs/ROADMAP.md)
 - [Android roadmap](docs/ANDROID_ROADMAP.md)
+- [Documentation index](docs/README.md)

@@ -21,7 +21,7 @@
 
 ## 基线与实验参数
 
-当前相关发布参数来自 `windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj` 和 `windows/scripts/publish-winui.ps1`；正式发布步骤仍以 [Windows README](../windows/README.md) 和 [Release 文档](RELEASE.md) 为准。
+当前相关发布参数来自 `windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj` 和 `windows/scripts/publish-winui.ps1`；正式发布步骤仍以 [Windows README](../../../windows/README.md) 和 [Release 文档](../../RELEASE.md) 为准。
 
 | 参数 | 未 Trim Release | Trim 实验 |
 | --- | --- | --- |

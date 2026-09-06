@@ -50,6 +50,7 @@ public sealed partial class MainWindow : Window
     private Stopwatch? firstPresentationStopwatch;
     private string? queuedPositionTelemetryStage;
     private bool themeRefreshQueued;
+    private PopupPlacement.ContentSizing? lastContentSizing;
 #if DEBUG
     private readonly List<string> firstPresentationTiming = [];
 #endif
@@ -568,10 +569,10 @@ public sealed partial class MainWindow : Window
         ContentRoot.UpdateLayout();
         var fallbackHeight = Math.Max(1, Math.Ceiling(PanelContent.DesiredSize.Height));
         var measuredHeight = MeasureVisibleContentHeight(fallbackHeight);
-        SizeInt32 requestedClientSize;
+        WindowPlacementResult placementResult;
         if (hasSessionPosition)
         {
-            requestedClientSize = placement.ResizeAndKeepPosition(
+            placementResult = placement.ResizeAndKeepPosition(
                 appWindow,
                 scale,
                 measuredHeight,
@@ -579,7 +580,7 @@ public sealed partial class MainWindow : Window
         }
         else
         {
-            requestedClientSize = placement.ResizeAndPlaceInitial(
+            placementResult = placement.ResizeAndPlaceInitial(
                 appWindow,
                 scale,
                 measuredHeight,
@@ -587,8 +588,37 @@ public sealed partial class MainWindow : Window
             hasSessionPosition = true;
         }
 
-        TraceLayout(telemetryStage, requestedClientSize.Height);
-        return requestedClientSize;
+        lastContentSizing = placementResult.ContentSizing;
+        ApplyScrollPolicy(placementResult.ContentSizing.NeedsVerticalScroll);
+        TraceLayout(telemetryStage, placementResult.RequestedClientSize);
+        return placementResult.RequestedClientSize;
+    }
+
+    private void ApplyScrollPolicy(bool needsVerticalScroll)
+    {
+        if (!needsVerticalScroll && PanelScroller.VerticalOffset > 0)
+        {
+            _ = PanelScroller.ChangeView(null, 0d, null, true);
+        }
+
+        var scrollMode = needsVerticalScroll ? ScrollMode.Auto : ScrollMode.Disabled;
+        var scrollbarVisibility = needsVerticalScroll
+            ? ScrollBarVisibility.Auto
+            : ScrollBarVisibility.Disabled;
+        if (PanelScroller.VerticalScrollMode != scrollMode)
+        {
+            PanelScroller.VerticalScrollMode = scrollMode;
+        }
+
+        if (PanelScroller.VerticalScrollBarVisibility != scrollbarVisibility)
+        {
+            PanelScroller.VerticalScrollBarVisibility = scrollbarVisibility;
+        }
+
+        if (!needsVerticalScroll && PanelScroller.VerticalOffset > 0)
+        {
+            _ = PanelScroller.ChangeView(null, 0d, null, true);
+        }
     }
 
     private double MeasureVisibleContentHeight(double fallbackHeight)
@@ -646,7 +676,7 @@ public sealed partial class MainWindow : Window
     }
 
     [Conditional("DEBUG")]
-    private void TraceLayout(string stage, int? requestedClientHeight)
+    private void TraceLayout(string stage, SizeInt32? requestedClientSize)
     {
 #if DEBUG
         var scale = ContentRoot.XamlRoot?.RasterizationScale
@@ -700,6 +730,9 @@ public sealed partial class MainWindow : Window
         var quotaDesiredHeight = quotaView.DesiredSize.Height;
         var tokenHeight = tokenUsageView?.ActualHeight ?? double.NaN;
         var tokenDesiredHeight = tokenUsageView?.DesiredSize.Height ?? double.NaN;
+        var requestedSize = requestedClientSize is { } size
+            ? $"{size.Width}x{size.Height}"
+            : "none";
         var line = string.Join(
             " ",
             $"pid={Environment.ProcessId}",
@@ -716,6 +749,8 @@ public sealed partial class MainWindow : Window
             $"panelScrollerActualHeight={FormatLayoutValue(PanelScroller.ActualHeight)}",
             $"panelScrollerViewportHeight={FormatLayoutValue(PanelScroller.ViewportHeight)}",
             $"panelScrollerExtentHeight={FormatLayoutValue(PanelScroller.ExtentHeight)}",
+            $"panelScrollerScrollableHeight={FormatLayoutValue(PanelScroller.ScrollableHeight)}",
+            $"panelScrollerVerticalOffset={FormatLayoutValue(PanelScroller.VerticalOffset)}",
             $"panelContentActualHeight={FormatLayoutValue(PanelContent.ActualHeight)}",
             $"panelContentDesiredHeight={FormatLayoutValue(PanelContent.DesiredSize.Height)}",
             $"pageHostActualHeight={FormatLayoutValue(PageHost.ActualHeight)}",
@@ -730,7 +765,15 @@ public sealed partial class MainWindow : Window
             $"lastVisibleBottom={FormatLayoutValue(boundaryBottom)}",
             $"intendedBottomSpacing={FormatLayoutValue(intendedBottomSpacing)}",
             $"naturalBottom={FormatLayoutValue(naturalBottom)}",
-            $"requestedClientHeight={requestedClientHeight?.ToString(CultureInfo.InvariantCulture) ?? "none"}");
+            $"naturalContentHeightDips={FormatLayoutValue(lastContentSizing?.NaturalContentHeightDips ?? double.NaN)}",
+            $"maxAvailableClientHeightDips={FormatLayoutValue(lastContentSizing?.MaxAvailableClientHeightDips ?? double.NaN)}",
+            $"targetClientHeightDips={FormatLayoutValue(lastContentSizing?.TargetClientHeightDips ?? double.NaN)}",
+            $"maxAvailableClientHeightPixels={lastContentSizing?.MaxAvailableClientHeightPixels.ToString(CultureInfo.InvariantCulture) ?? "none"}",
+            $"targetClientHeightPixels={lastContentSizing?.TargetClientHeightPixels.ToString(CultureInfo.InvariantCulture) ?? "none"}",
+            $"needsVerticalScroll={lastContentSizing?.NeedsVerticalScroll.ToString() ?? "none"}",
+            $"scrollToleranceDips={PopupPlacement.DefaultScrollToleranceDips.ToString("F2", CultureInfo.InvariantCulture)}",
+            $"overflow={FormatLayoutValue(PanelScroller.ExtentHeight - PanelScroller.ViewportHeight)}",
+            $"requestedClientSize={requestedSize}");
         Debug.WriteLine($"Layout diagnostics: {line}");
         try
         {
