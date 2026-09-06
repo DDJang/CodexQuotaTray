@@ -73,6 +73,12 @@ internal class CredentialRefreshCoordinator(
             flight.future.complete(result)
             return result
         } catch (error: Throwable) {
+            // Storage may already expose the new value in memory despite a failed
+            // durable commit. Never reinterpret that failure as refresh success.
+            if (error is CredentialPersistenceException) {
+                flight.future.completeExceptionally(error)
+                throw error
+            }
             val outcome = synchronized(monitor) {
                 val current = loadCurrent()
                 when {

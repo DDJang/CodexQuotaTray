@@ -5,9 +5,6 @@ namespace CodexQuotaTray.Core.Presentation;
 public static class PopupPlacement
 {
     public const double DefaultMarginDips = 12;
-    // Compensates for the non-client/client viewport delta so the footer's
-    // bottom gap matches the measured top inset at the target DPI.
-    public const int DefaultBottomTrimPixels = 50;
 
     public static Point PlaceNearTray(Rectangle tray, Rectangle workArea, Size popup, int margin)
     {
@@ -51,13 +48,11 @@ public static class PopupPlacement
         double measuredHeightDips,
         double scale,
         int workAreaHeightPixels,
-        double marginDips = DefaultMarginDips,
-        int bottomTrimPixels = 0)
+        double marginDips = DefaultMarginDips)
     {
         var desired = DipsToPixels(Math.Max(1, measuredHeightDips), scale);
-        var trimmed = Math.Max(1, desired - Math.Max(0, bottomTrimPixels));
         var margin = DipsToPixels(marginDips, scale);
-        return Math.Clamp(trimmed, 1, Math.Max(1, workAreaHeightPixels - (margin * 2)));
+        return Math.Clamp(desired, 1, Math.Max(1, workAreaHeightPixels - (margin * 2)));
     }
 
     public static double NaturalContentHeight(

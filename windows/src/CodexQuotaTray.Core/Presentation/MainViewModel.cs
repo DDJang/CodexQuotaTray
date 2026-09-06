@@ -26,6 +26,7 @@ public sealed partial class MainViewModel : ObservableObject
     private string statusText = "正在连接 Codex…";
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowLoginAction))]
     private StatusTone statusTone = StatusTone.Refreshing;
 
     [ObservableProperty]
@@ -37,9 +38,11 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowContent))]
+    [NotifyPropertyChangedFor(nameof(ShowLoginAction))]
     private bool showLoading;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowLoginAction))]
     private bool isPrototype;
 
     public MainViewModel(
@@ -61,6 +64,13 @@ public sealed partial class MainViewModel : ObservableObject
     public bool HasWindows => Windows.Count != 0;
 
     public bool ShowContent => !ShowLoading;
+
+    public bool ShowLoginAction => !IsPrototype && !ShowLoading && !HasWindows && StatusTone == StatusTone.Error;
+
+    public event EventHandler? LoginRequested;
+
+    [RelayCommand]
+    private void OpenLogin() => LoginRequested?.Invoke(this, EventArgs.Empty);
 
     partial void OnPlanBadgeChanged(string? value) => OnPropertyChanged(nameof(HasPlanBadge));
 
@@ -143,6 +153,7 @@ public sealed partial class MainViewModel : ObservableObject
         SyncWindows(state.Windows);
 
         OnPropertyChanged(nameof(HasWindows));
+        OnPropertyChanged(nameof(ShowLoginAction));
     }
 
     private void SyncWindows(IReadOnlyList<QuotaWindowView> incoming)

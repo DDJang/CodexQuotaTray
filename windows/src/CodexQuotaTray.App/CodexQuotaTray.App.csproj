@@ -9,7 +9,7 @@
     <Company>CodexQuotaTray</Company>
     <Description>CodexQuotaTray</Description>
     <RootNamespace>CodexQuotaTray.App</RootNamespace>
-    <Version>0.11.2</Version>
+    <Version>0.11.3</Version>
     <ApplicationIcon>..\..\assets\app-icon.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Platforms>x64</Platforms>

@@ -14,6 +14,7 @@ import com.codexquotatray.android.auth.OAuthCredentials
 import com.codexquotatray.android.auth.OAuthException
 import com.codexquotatray.android.auth.OAuthFailureKind
 import com.codexquotatray.android.auth.OAuthLoginUpdate
+import com.codexquotatray.android.auth.OAuthRefreshReason
 import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.auth.ProcessCredentialRefreshCoordinator
 import com.codexquotatray.android.protocol.DirectQuotaResult
@@ -62,7 +63,7 @@ internal fun commitIfPairingCurrent(
 class CodexQuotaRepository(
     context: Context,
     private val credentialStore: OAuthStore = OAuthStore(context),
-    private val oauthClient: CodexOAuthClient = CodexOAuthClient(),
+    private val oauthClient: CodexOAuthClient = CodexOAuthClient(diagnostics = { AppLogStore.record(context, it) }),
     private val usageClient: CodexUsageClient = CodexUsageClient(),
     private val alertStateStore: QuotaAlertStateStore = QuotaAlertStateStore(context),
     private val notificationPublisher: QuotaNotificationPublisher =
@@ -224,13 +225,18 @@ class CodexQuotaRepository(
             observedGeneration = observedGeneration,
             currentGeneration = CredentialGeneration::current,
             loadCurrent = credentialStore::load,
-            performRefresh = { credentials -> oauthClient.refresh(credentials) },
-            saveRefreshed = ::saveCredentials,
+            performRefresh = { credentials ->
+                oauthClient.refresh(
+                    credentials,
+                    if (allowStaleAccess) OAuthRefreshReason.PROACTIVE else OAuthRefreshReason.UNAUTHORIZED_RECOVERY,
+                )
+            },
+            saveRefreshed = credentialStore::saveRefreshed,
             onFailure = { _, error ->
                 if (error is OAuthException) {
                     AppLogStore.record(
                         appContext,
-                        "OAuth token refresh 失败：${error.message ?: "未知错误"}",
+                        "OAuth token refresh 失败：${error.kind}",
                         "WARN",
                     )
                     if (isPermanentAuthFailure(error.kind)) {

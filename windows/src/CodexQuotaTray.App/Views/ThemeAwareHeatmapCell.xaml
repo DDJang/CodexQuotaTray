@@ -1,0 +1,89 @@
+<UserControl
+    x:Class="CodexQuotaTray.App.Views.ThemeAwareHeatmapCell"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <VisualStateManager.VisualStateGroups>
+        <VisualStateGroup x:Name="HeatmapBucketStates">
+            <VisualState x:Name="Bucket0">
+                <Storyboard>
+                    <ObjectAnimationUsingKeyFrames
+                        Storyboard.TargetName="CellSurface"
+                        Storyboard.TargetProperty="Background">
+                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TokenHeatmap0Brush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                </Storyboard>
+            </VisualState>
+            <VisualState x:Name="Bucket1">
+                <Storyboard>
+                    <ObjectAnimationUsingKeyFrames
+                        Storyboard.TargetName="CellSurface"
+                        Storyboard.TargetProperty="Background">
+                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TokenHeatmap1Brush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                </Storyboard>
+            </VisualState>
+            <VisualState x:Name="Bucket2">
+                <Storyboard>
+                    <ObjectAnimationUsingKeyFrames
+                        Storyboard.TargetName="CellSurface"
+                        Storyboard.TargetProperty="Background">
+                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TokenHeatmap2Brush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                </Storyboard>
+            </VisualState>
+            <VisualState x:Name="Bucket3">
+                <Storyboard>
+                    <ObjectAnimationUsingKeyFrames
+                        Storyboard.TargetName="CellSurface"
+                        Storyboard.TargetProperty="Background">
+                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TokenHeatmap3Brush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                </Storyboard>
+            </VisualState>
+            <VisualState x:Name="Bucket4">
+                <Storyboard>
+                    <ObjectAnimationUsingKeyFrames
+                        Storyboard.TargetName="CellSurface"
+                        Storyboard.TargetProperty="Background">
+                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TokenHeatmap4Brush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                </Storyboard>
+            </VisualState>
+        </VisualStateGroup>
+        <VisualStateGroup x:Name="HeatmapHighlightStates">
+            <VisualState x:Name="HighlightNone" />
+            <VisualState x:Name="HighlightEmpty">
+                <Storyboard>
+                    <ObjectAnimationUsingKeyFrames
+                        Storyboard.TargetName="CellSurface"
+                        Storyboard.TargetProperty="BorderBrush">
+                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TokenHeatmapEmptyCellHighlightBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                </Storyboard>
+            </VisualState>
+            <VisualState x:Name="HighlightHighContrast">
+                <Storyboard>
+                    <ObjectAnimationUsingKeyFrames
+                        Storyboard.TargetName="CellSurface"
+                        Storyboard.TargetProperty="BorderBrush">
+                        <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource TokenHeatmapCellBorderBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                </Storyboard>
+            </VisualState>
+        </VisualStateGroup>
+    </VisualStateManager.VisualStateGroups>
+    <Grid x:Name="StateRoot">
+        <Border
+            x:Name="CellSurface"
+            Background="{x:Bind Background, Mode=OneWay}"
+            BorderBrush="{x:Bind BorderBrush, Mode=OneWay}"
+            BorderThickness="{x:Bind BorderThickness, Mode=OneWay}"
+            CornerRadius="2" />
+    </Grid>
+    <UserControl.ScaleTransition>
+        <Vector3Transition Duration="0:0:0.08" />
+    </UserControl.ScaleTransition>
+    <UserControl.TranslationTransition>
+        <Vector3Transition Duration="0:0:0.08" />
+    </UserControl.TranslationTransition>
+</UserControl>

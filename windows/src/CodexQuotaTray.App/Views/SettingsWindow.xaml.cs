@@ -199,6 +199,9 @@ public sealed partial class SettingsWindow : Window
         appWindow.Hide();
     }
 
+    internal void ShowAccountPage() =>
+        ShowSettingsPage(new SettingsPageNavigation(AccountSettingsPanel, viewModel, "账户", ShowSettingsHome));
+
     private void OnSettingsCategoryClick(object sender, RoutedEventArgs args)
     {
         if (sender is not Button { Tag: string category })

@@ -22,6 +22,33 @@ public sealed class FirstPresentationGateTests
     }
 
     [TestMethod]
+    public async Task FinalPositionCompletesBetweenLayoutReadinessAndUncloak()
+    {
+        var gate = new FirstPresentationGate();
+        var events = new List<string>();
+
+        var outcome = await gate.PresentAsync(
+            value => { events.Add(value ? "cloaked" : "uncloak"); return true; },
+            () => events.Add("present"),
+            _ =>
+            {
+                events.Add("layout-ready");
+                events.Add("final-position");
+                return Task.CompletedTask;
+            },
+            () => true,
+            () => events.Add("hide"),
+            () => events.Add("revealed"),
+            TimeSpan.FromSeconds(1),
+            CancellationToken.None);
+
+        Assert.AreEqual(FirstPresentationOutcome.First, outcome);
+        CollectionAssert.AreEqual(
+            new[] { "cloaked", "present", "layout-ready", "final-position", "uncloak", "revealed" },
+            events);
+    }
+
+    [TestMethod]
     public async Task ConcurrentShowWhileFirstPresentationRunsIsCoalesced()
     {
         var gate = new FirstPresentationGate();

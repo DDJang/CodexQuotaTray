@@ -1,6 +1,8 @@
 package com.codexquotatray.android.usage
 
 import android.content.Context
+import com.codexquotatray.android.AppLogStore
+import com.codexquotatray.android.auth.OAuthRefreshReason
 import com.codexquotatray.android.auth.CodexOAuthClient
 import com.codexquotatray.android.auth.CodexProcessLock
 import com.codexquotatray.android.auth.CredentialGeneration
@@ -105,7 +107,11 @@ internal class OpenAIAccountTokenUsageProvider(
     private val oauthClient: CodexOAuthClient,
     private val usageClient: CodexUsageClient,
 ) : TokenUsageProvider {
-    constructor(context: Context) : this(OAuthStore(context), CodexOAuthClient(), CodexUsageClient())
+    constructor(context: Context) : this(
+        OAuthStore(context),
+        CodexOAuthClient(diagnostics = { AppLogStore.record(context, it) }),
+        CodexUsageClient(),
+    )
 
     override fun read(forceRefresh: Boolean): TokenUsageSourceRead {
         val generation = CredentialGeneration.current()
@@ -171,12 +177,13 @@ internal class OpenAIAccountTokenUsageProvider(
             observedGeneration = generation,
             currentGeneration = CredentialGeneration::current,
             loadCurrent = credentialStore::load,
-            performRefresh = oauthClient::refresh,
-            saveRefreshed = { refreshed ->
-                if (!credentialStore.save(refreshed)) {
-                    throw TokenUsageException(TokenUsageFailureKind.SERVER, "认证信息无法保存到本机")
-                }
+            performRefresh = { credentials ->
+                oauthClient.refresh(
+                    credentials,
+                    if (allowStaleAccess) OAuthRefreshReason.PROACTIVE else OAuthRefreshReason.UNAUTHORIZED_RECOVERY,
+                )
             },
+            saveRefreshed = credentialStore::saveRefreshed,
             onFailure = { _, error ->
                 if (error is OAuthException && error.kind in PERMANENT_AUTH_FAILURES) credentialStore.clear()
             },

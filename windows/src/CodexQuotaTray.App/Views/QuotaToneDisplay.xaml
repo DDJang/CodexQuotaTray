@@ -1,36 +1,41 @@
 <UserControl
-    x:Class="CodexQuotaTray.App.Views.QuotaProgressVisual"
+    x:Class="CodexQuotaTray.App.Views.QuotaToneDisplay"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Height="16"
-    MinHeight="16"
-    HorizontalAlignment="Stretch">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <VisualStateManager.VisualStateGroups>
         <VisualStateGroup x:Name="QuotaToneStates">
             <VisualState x:Name="Healthy">
                 <Storyboard>
-                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Indicator" Storyboard.TargetProperty="Background">
+                    <ObjectAnimationUsingKeyFrames
+                        Storyboard.TargetName="PercentTextBlock"
+                        Storyboard.TargetProperty="Foreground">
                         <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource HealthyQuotaBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                 </Storyboard>
             </VisualState>
             <VisualState x:Name="Warning">
                 <Storyboard>
-                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Indicator" Storyboard.TargetProperty="Background">
+                    <ObjectAnimationUsingKeyFrames
+                        Storyboard.TargetName="PercentTextBlock"
+                        Storyboard.TargetProperty="Foreground">
                         <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource WarningQuotaBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                 </Storyboard>
             </VisualState>
             <VisualState x:Name="Critical">
                 <Storyboard>
-                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Indicator" Storyboard.TargetProperty="Background">
+                    <ObjectAnimationUsingKeyFrames
+                        Storyboard.TargetName="PercentTextBlock"
+                        Storyboard.TargetProperty="Foreground">
                         <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource CriticalQuotaBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                 </Storyboard>
             </VisualState>
             <VisualState x:Name="Unavailable">
                 <Storyboard>
-                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Indicator" Storyboard.TargetProperty="Background">
+                    <ObjectAnimationUsingKeyFrames
+                        Storyboard.TargetName="PercentTextBlock"
+                        Storyboard.TargetProperty="Foreground">
                         <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource UnavailableQuotaBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                 </Storyboard>
@@ -38,17 +43,11 @@
         </VisualStateGroup>
     </VisualStateManager.VisualStateGroups>
     <Grid x:Name="StateRoot">
-        <Grid
-            x:Name="Track"
-            Background="{ThemeResource TrackBrush}"
-            CornerRadius="{StaticResource QuotaProgressCornerRadius}"
-            SizeChanged="OnTrackSizeChanged">
-            <Border
-                x:Name="Indicator"
-                Width="0"
-                HorizontalAlignment="Left"
-                Background="{ThemeResource HealthyQuotaBrush}"
-                CornerRadius="{StaticResource QuotaProgressCornerRadius}" />
-        </Grid>
+        <TextBlock
+            x:Name="PercentTextBlock"
+            HorizontalAlignment="Right"
+            Foreground="{ThemeResource HealthyQuotaBrush}"
+            Style="{x:Bind PercentStyle, Mode=OneWay}"
+            Text="{x:Bind PercentText, Mode=OneWay}" />
     </Grid>
 </UserControl>

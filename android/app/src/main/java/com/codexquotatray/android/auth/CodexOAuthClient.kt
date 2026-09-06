@@ -28,7 +28,7 @@ enum class OAuthFailureKind {
     SERVER,
 }
 
-class OAuthException(
+open class OAuthException(
     val kind: OAuthFailureKind,
     override val message: String,
     val statusCode: Int? = null,
@@ -42,7 +42,12 @@ class CodexOAuthClient(
     private val httpClient: OkHttpClient = defaultClient(),
     private val authBaseUrl: String = OAuthCredentials.DEFAULT_AUTH_BASE_URL,
     private val clientId: String = OAuthCredentials.CLIENT_ID,
+    private val diagnostics: (String) -> Unit = {},
 ) {
+    private fun log(message: String) {
+        runCatching { diagnostics("OAuth refresh $message") }
+    }
+
     fun login(onUpdate: (OAuthLoginUpdate) -> Unit = {}): OAuthCredentials {
         onUpdate(OAuthLoginUpdate("login_starting"))
         val device = requestDeviceCode()
@@ -58,7 +63,10 @@ class CodexOAuthClient(
         return exchangeDeviceCode(authorization)
     }
 
-    fun refresh(credentials: OAuthCredentials): OAuthCredentials {
+    fun refresh(
+        credentials: OAuthCredentials,
+        reason: OAuthRefreshReason = OAuthRefreshReason.PROACTIVE,
+    ): OAuthCredentials {
         if (credentials.refreshToken.isBlank()) {
             throw OAuthException(OAuthFailureKind.LOGIN_REQUIRED, "refresh token unavailable")
         }
@@ -66,22 +74,29 @@ class CodexOAuthClient(
             .put("client_id", clientId)
             .put("grant_type", "refresh_token")
             .put("refresh_token", credentials.refreshToken)
-            .put("scope", "openid profile email")
             .toString()
             .toRequestBody(JSON_MEDIA_TYPE)
-        val response = execute(
-            Request.Builder()
-                .url(url("/oauth/token"))
-                .post(requestBody)
-                .header("Content-Type", "application/json")
-                .build(),
-        )
+        log("reason=$reason phase=start")
+        val response = try {
+            execute(
+                Request.Builder()
+                    .url(url("/oauth/token"))
+                    .post(requestBody)
+                    .header("Content-Type", "application/json")
+                    .build(),
+            )
+        } catch (error: IOException) {
+            log("reason=$reason status=unavailable error.code=none rotation=unknown persisted=not_attempted")
+            throw error
+        }
+        log("reason=$reason status=${response.code} error.code=${safeRefreshErrorCode(refreshErrorCode(response))}")
         if (response.code !in 200..299) throw refreshFailure(response)
         val json = parseObject(response.body, "refresh")
         val access = string(json, "access_token", "accessToken")
-            ?: throw OAuthException(OAuthFailureKind.INVALID_RESPONSE, "refresh response missing access token")
+            ?: credentials.accessToken
         val refresh = string(json, "refresh_token", "refreshToken") ?: credentials.refreshToken
         val idToken = string(json, "id_token", "idToken") ?: credentials.idToken
+        log("reason=$reason rotation=${refresh != credentials.refreshToken}")
         return credentials.withTokens(access, refresh, idToken)
     }
 
@@ -196,15 +211,24 @@ class CodexOAuthClient(
         )
     }
 
+    private fun refreshErrorCode(response: HttpPayload): String? = runCatching {
+        val json = JSONObject(response.body)
+        when (val error = json.opt("error")) {
+            is JSONObject -> error.opt("code") as? String
+            is String -> error
+            else -> null
+        } ?: (json.opt("code") as? String)
+    }.getOrNull()
+
     private fun refreshFailure(response: HttpPayload): OAuthException {
-        val code = runCatching { JSONObject(response.body).opt("error") }.getOrNull()
-            ?.let { if (it is JSONObject) it.optString("code") else it.toString() }
-            ?.lowercase()
+        val code = refreshErrorCode(response)?.lowercase(java.util.Locale.ROOT)
         val kind = when (code) {
             "refresh_token_expired" -> OAuthFailureKind.REFRESH_EXPIRED
             "refresh_token_reused" -> OAuthFailureKind.REFRESH_REUSED
-            "invalid_grant", "refresh_token_invalidated" -> OAuthFailureKind.REFRESH_REVOKED
-            else -> if (response.code == 401) OAuthFailureKind.REFRESH_EXPIRED else OAuthFailureKind.SERVER
+            "refresh_token_invalidated" -> OAuthFailureKind.REFRESH_REVOKED
+            else -> if (response.code == 401 || response.code == 400 && code == "invalid_grant") {
+                OAuthFailureKind.LOGIN_REQUIRED
+            } else OAuthFailureKind.SERVER
         }
         return OAuthException(kind, "OAuth token refresh failed", response.code)
     }

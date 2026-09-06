@@ -665,6 +665,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             OAuthLoginInProgress = false;
             LoginOAuthCommand.NotifyCanExecuteChanged();
         }
+
+        if (OAuthAvailable)
+        {
+            await SelectQuotaDataSourceAsync(QuotaDataSource.OAuth, cancellationToken);
+            StatusText = runtime.Settings.QuotaDataSource == QuotaDataSource.OAuth
+                ? "OAuth 登录成功，额度来源已切换为 OAuth"
+                : "OAuth 登录成功，但额度来源切换失败，请在数据来源中重试";
+        }
     }
 
     [RelayCommand]

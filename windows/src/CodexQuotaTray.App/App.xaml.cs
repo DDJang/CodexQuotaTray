@@ -122,7 +122,7 @@ public partial class App : Application
             var cliFactory = new CodexAppServerClientFactory(new CodexClientOptions(ExplicitCodexBinary: explicitCodex));
             var oauthCredentials = new OAuthCredentialManager(
                 new DpapiOAuthCredentialStore(paths.OAuthCredentials),
-                new OAuthClient());
+                new OAuthClient(diagnostics: message => OAuthRefreshDiagnostics.Append(paths.OAuthCredentials + ".log", message)));
             var liveAccountService = new WindowsAccountService(cliFactory, oauthCredentials);
             accountService = liveAccountService;
             var liveRuntime = new QuotaRuntimeService(
@@ -206,6 +206,11 @@ public partial class App : Application
         var tokenUsageViewModelLocal = tokenUsageViewModel;
         viewModelReference = viewModel;
         mainWindow = new MainWindow(viewModel, tokenUsageViewModelLocal, identity.DisplayName);
+        viewModel.LoginRequested += (_, _) =>
+        {
+            ShowSettings();
+            settingsWindow?.ShowAccountPage();
+        };
         mainWindow.Activated += (_, activation) =>
         {
             if (activation.WindowActivationState != WindowActivationState.Deactivated
@@ -255,6 +260,7 @@ public partial class App : Application
             mainWindow.ShowPanel,
             ShowSettings,
             () => RequestRuntimeRefresh(RefreshReason.Resume),
+            mainWindow.RefreshSystemTheme,
             () => crashSessionLog?.MarkExpectedTermination(),
             ExitApplication,
             () => runtime?.Settings.ThemeMode ?? CodexQuotaTray.Core.Persistence.ThemeMode.System,

@@ -72,6 +72,27 @@ GET https://chatgpt.com/backend-api/wham/rate-limit-reset-credits  # 仅可用�
 浏览器 Cookie、HTML 或嵌入式浏览器。401/403 最多触发一次 refresh 后重试；失败保留 OAuth
 来源的错误状态，不回退到 CLI 或 Local。
 
+### Shared OAuth refresh behavior
+
+Android / Windows 的 refresh POST JSON 只包含 `client_id`、`grant_type=refresh_token` 和
+`refresh_token`，不发送 `scope`。错误码支持 `error.code`、字符串 `error` 和顶层 `code`：
+`refresh_token_expired` / `refresh_token_reused` / `refresh_token_invalidated` 为明确永久失效；
+HTTP 401 和 HTTP 400 + `invalid_grant` 为通用永久失败，不误报为 expired 或 revoked。
+未知 403 及其他未明确永久失效的响应保留凭据，交由后续有界刷新重试。
+实现依据为[官方 Codex refresh 源码](https://github.com/openai/codex/blob/ddf04ad26789d040f9ef6a96736f76602e35a6cc/codex-rs/login/src/auth/manager.rs#L1583)，
+不改变仓库 App Server schema 基线。
+
+refresh 的新凭据在本进程内保持权威，保存失败后先重试保存，不能重新使用旧 refresh token。
+保存失败同时尝试清除磁盘旧凭据；保存和清除均失败时记录 `stale_storage_cleared=false`，
+进程内仍禁止回退，但无法保证重启后的存储状态。此时应修复本地存储后重试或重新登录。
+服务端完成 rotation 但响应丢失、进程在本地提交前退出，以及其他客户端共享旧 refresh token
+引起的失效仍不能由本地单飞协调完全消除。
+
+脱敏日志记录 proactive / unauthorized recovery、HTTP status、安全 `error.code`、rotation 和
+persisted 结果；未知错误码只记录短 SHA-256 fingerprint，不写响应正文、token 或账户标识。
+Windows 写入私有 OAuth 凭据文件旁的 `.log`（有界 64 KiB 滚动），Android 使用现有 App 日志。
+这里 unauthorized recovery 包括只读 usage/profile 合同中既有的 401/403 恢复入口。
+
 ## Android Direct HTTPS quota
 
 Android 通过设备代码 OAuth 获得 App 私有凭据，额度请求为：

@@ -1,5 +1,4 @@
 using CodexQuotaTray.Core.Models;
-using CodexQuotaTray.Core.Presentation;
 using CodexQuotaTray.App.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -7,31 +6,43 @@ using Microsoft.UI.Xaml.Media;
 
 namespace CodexQuotaTray.App.Views;
 
-public sealed partial class QuotaProgressVisual : UserControl
+public sealed partial class QuotaToneDisplay : UserControl
 {
-    public static readonly DependencyProperty ValueProperty = DependencyProperty.Register(
-        nameof(Value),
-        typeof(double),
-        typeof(QuotaProgressVisual),
-        new PropertyMetadata(0d, OnGeometryPropertyChanged));
+    public static readonly DependencyProperty PercentStyleProperty = DependencyProperty.Register(
+        nameof(PercentStyle),
+        typeof(Style),
+        typeof(QuotaToneDisplay),
+        new PropertyMetadata(null));
+
+    public static readonly DependencyProperty PercentTextProperty = DependencyProperty.Register(
+        nameof(PercentText),
+        typeof(string),
+        typeof(QuotaToneDisplay),
+        new PropertyMetadata(string.Empty));
 
     public static readonly DependencyProperty ToneProperty = DependencyProperty.Register(
         nameof(Tone),
         typeof(QuotaTone),
-        typeof(QuotaProgressVisual),
+        typeof(QuotaToneDisplay),
         new PropertyMetadata(QuotaTone.Accent, OnToneChanged));
 
-    public QuotaProgressVisual()
+    public QuotaToneDisplay()
     {
         InitializeComponent();
         Loaded += OnLoaded;
         ActualThemeChanged += OnActualThemeChanged;
     }
 
-    public double Value
+    public Style? PercentStyle
     {
-        get => (double)GetValue(ValueProperty);
-        set => SetValue(ValueProperty, value);
+        get => (Style?)GetValue(PercentStyleProperty);
+        set => SetValue(PercentStyleProperty, value);
+    }
+
+    public string PercentText
+    {
+        get => (string)GetValue(PercentTextProperty);
+        set => SetValue(PercentTextProperty, value);
     }
 
     public QuotaTone Tone
@@ -40,12 +51,12 @@ public sealed partial class QuotaProgressVisual : UserControl
         set => SetValue(ToneProperty, value);
     }
 
-    internal Brush? CurrentIndicatorBrush => Indicator?.Background;
+    internal Brush? CurrentBrush => PercentTextBlock?.Foreground;
 
     internal void RefreshTheme() => ApplyToneState();
 
     private static void OnToneChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs args) =>
-        ((QuotaProgressVisual)dependencyObject).ApplyToneState();
+        ((QuotaToneDisplay)dependencyObject).ApplyToneState();
 
     private void OnLoaded(object sender, RoutedEventArgs args) => ApplyToneState();
 
@@ -62,30 +73,13 @@ public sealed partial class QuotaProgressVisual : UserControl
         }, false);
         if (ThemeBrushResolver.TryResolve(this, ThemeResourceKeyPolicy.Quota(Tone)) is { } brush)
         {
-            Indicator.Background = brush;
+            PercentTextBlock.Foreground = brush;
         }
         ThemeDebugTelemetry.LogQuota(
-            "indicator-state",
+            "tone-state",
             this,
             ThemeResourceKeyPolicy.Quota(Tone),
-            null,
-            Indicator.Background);
-    }
-
-    private static void OnGeometryPropertyChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs args)
-    {
-        ((QuotaProgressVisual)dependencyObject).UpdateIndicatorWidth();
-    }
-
-    private void OnTrackSizeChanged(object sender, SizeChangedEventArgs args) => UpdateIndicatorWidth();
-
-    private void UpdateIndicatorWidth()
-    {
-        if (Track is null || Indicator is null)
-        {
-            return;
-        }
-
-        Indicator.Width = QuotaProgressGeometry.Calculate(Track.ActualWidth, Value).Width;
+            PercentTextBlock.Foreground,
+            null);
     }
 }

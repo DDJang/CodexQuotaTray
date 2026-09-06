@@ -972,7 +972,7 @@ public sealed class ViewModelTests
         public void OpenOfficialUsage() => WasOpened = true;
     }
 
-    private sealed class StubRuntimeControl(AppSettings? initialSettings = null) : IQuotaRuntimeControl
+    private sealed class StubRuntimeControl(AppSettings? initialSettings = null, bool rejectSettings = false) : IQuotaRuntimeControl
     {
         public AppSettings Settings { get; private set; } = initialSettings ?? AppSettings.Defaults;
 
@@ -986,6 +986,11 @@ public sealed class ViewModelTests
 
         public Task ApplySettingsAsync(AppSettings settings, CancellationToken cancellationToken)
         {
+            if (rejectSettings)
+            {
+                throw new IOException("Offline settings write failure.");
+            }
+
             var previousMode = Settings.TokenRefreshMode;
             Settings = settings;
             if (previousMode != Settings.TokenRefreshMode)
@@ -997,6 +1002,77 @@ public sealed class ViewModelTests
 
         public ValueTask RequestAsync(RefreshReason reason, CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
+    }
+
+    [TestMethod]
+    public void EmptyFailedQuotaOffersAccountNavigationAndHidesAfterRecovery()
+    {
+        var empty = new AppUiState("Codex", null, "未登录", StatusTone.Error, [],
+            new ResetCreditViewState(ResetCreditKind.Unavailable), IsPrototype: false);
+        var viewModel = new MainViewModel(new StubProvider(empty), new StubNavigation());
+        var navigated = false;
+        viewModel.LoginRequested += (_, _) => navigated = true;
+        viewModel.ApplySnapshot(empty);
+        Assert.IsTrue(viewModel.ShowLoginAction);
+        viewModel.OpenLoginCommand.Execute(null);
+        Assert.IsTrue(navigated);
+        viewModel.ApplySnapshot(empty with { StatusTone = StatusTone.Success });
+        Assert.IsFalse(viewModel.ShowLoginAction);
+        viewModel.ApplySnapshot(empty with { IsPrototype = true });
+        Assert.IsFalse(viewModel.ShowLoginAction);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SuccessfulOAuthLoginSwitchesQuotaAndPreservesStatisticsSource(bool rejectSettings)
+    {
+        using var httpClient = new HttpClient(new OAuthLoginSuccessHandler());
+        var credentials = new OAuthCredentialManager(
+            new EmptyOAuthCredentialStore(), new OAuthClient(httpClient, "https://auth.test"));
+        await using var account = new WindowsAccountService(new UnusedCliFactory(), credentials);
+        var runtime = new StubRuntimeControl(AppSettings.Defaults with
+        {
+            TokenUsageDataSource = TokenUsageDataSource.CodexCli,
+        }, rejectSettings);
+        var viewModel = new SettingsViewModel(runtime, new StubSettingsPlatformActions(),
+            new StubSettingsPageActions(), account: account);
+        DataSourcesChangedEventArgs? changed = null;
+        viewModel.DataSourcesChanged += (_, args) => changed = args;
+
+        await viewModel.LoginOAuthCommand.ExecuteAsync(null);
+
+        Assert.IsTrue(viewModel.OAuthAvailable);
+        Assert.AreEqual(TokenUsageDataSource.CodexCli, runtime.Settings.TokenUsageDataSource);
+        if (rejectSettings)
+        {
+            Assert.AreEqual(QuotaDataSource.CodexCli, runtime.Settings.QuotaDataSource);
+            Assert.IsNull(changed);
+            StringAssert.Contains(viewModel.StatusText, "OAuth 登录成功，但额度来源切换失败");
+            return;
+        }
+
+        Assert.AreEqual(QuotaDataSource.OAuth, runtime.Settings.QuotaDataSource);
+        Assert.AreEqual((int)QuotaDataSource.OAuth, viewModel.SelectedQuotaDataSourceIndex);
+        Assert.AreEqual(TokenUsageDataSource.CodexCli, runtime.Settings.TokenUsageDataSource);
+        Assert.IsNotNull(changed);
+        Assert.IsTrue(changed.QuotaDataSourceChanged);
+        Assert.IsFalse(changed.TokenUsageDataSourceChanged);
+    }
+
+    private sealed class OAuthLoginSuccessHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var body = request.RequestUri!.AbsolutePath switch
+            {
+                "/api/accounts/deviceauth/usercode" => """{"device_auth_id":"device-1","user_code":"ABCD-EFGH","interval":1}""",
+                "/api/accounts/deviceauth/token" => """{"authorization_code":"code","code_verifier":"verifier","code_challenge":"challenge"}""",
+                "/oauth/token" => """{"access_token":"offline-access","refresh_token":"offline-refresh","expires_in":3600}""",
+                _ => """{"plan_type":"plus"}""",
+            };
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+        }
     }
 
     private sealed class EmptyOAuthCredentialStore : IOAuthCredentialStore

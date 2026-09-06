@@ -4,6 +4,7 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.codexquotatray.android.AppLogStore
 import org.json.JSONObject
 import java.io.File
 import java.security.KeyStore
@@ -64,6 +65,14 @@ internal object CredentialGeneration {
 }
 
 class OAuthStore(context: Context) {
+    private val appContext = context.applicationContext
+    private val pendingWrite = synchronized(OAuthStoreLock.monitor) {
+        pendingWrites.getOrPut(appContext.filesDir.absolutePath) { PendingCredentialWrite() }
+    }
+    private fun logRefresh(message: String) {
+        AppLogStore.record(appContext, message)
+    }
+
     private val preferences = context.applicationContext.getSharedPreferences(
         PREFERENCES_NAME,
         Context.MODE_PRIVATE,
@@ -74,6 +83,13 @@ class OAuthStore(context: Context) {
     )
 
     fun load(): OAuthCredentials? = synchronized(OAuthStoreLock.monitor) {
+        if (pendingWrite.hasPending) {
+            // Keep load's nullable/unavailable contract for schedulers and source
+            // routing. The next load retries; never fall through to stale disk.
+            return@synchronized runCatching {
+                pendingWrite.retry(::saveUnlocked, ::clearStored, ::logRefresh)
+            }.getOrNull()
+        }
         val encrypted = preferences.getString(KEY_ENCRYPTED_CREDENTIALS, null)
         when (LegacyAuthMigrationPolicy.choose(
             // Presence, rather than non-empty content, is authoritative:
@@ -91,7 +107,7 @@ class OAuthStore(context: Context) {
 
     /** Checks storage presence without decrypting or parsing credential contents. */
     fun hasCredentials(): Boolean = synchronized(OAuthStoreLock.monitor) {
-        OAuthCredentialAvailabilityPolicy.hasCredentials(
+        pendingWrite.hasPending || OAuthCredentialAvailabilityPolicy.hasCredentials(
             hasEncryptedCredentials = preferences.contains(KEY_ENCRYPTED_CREDENTIALS),
             migrationCompleted = preferences.getBoolean(KEY_LEGACY_MIGRATION_COMPLETED, false),
             hasLegacyCredentialsFile = legacyAuthFile::isFile,
@@ -99,14 +115,23 @@ class OAuthStore(context: Context) {
     }
 
     fun save(credentials: OAuthCredentials): Boolean = synchronized(OAuthStoreLock.monitor) {
-        saveUnlocked(credentials)
+        saveUnlocked(credentials).also { if (it) pendingWrite.clear() }
+    }
+
+    fun saveRefreshed(credentials: OAuthCredentials) = synchronized(OAuthStoreLock.monitor) {
+        pendingWrite.save(credentials, ::saveUnlocked, ::clearStored, ::logRefresh)
     }
 
     fun clear() = synchronized(OAuthStoreLock.monitor) {
         CredentialGeneration.invalidate()
+        pendingWrite.clear()
+        clearStored()
+    }
+
+    private fun clearStored(): Boolean {
         // Keep the migration marker. Explicit logout must not re-import the
         // old plaintext file on the next load.
-        preferences.edit()
+        return preferences.edit()
             .remove(KEY_ENCRYPTED_CREDENTIALS)
             .remove(KEY_ACCESS_TOKEN)
             .remove(KEY_REFRESH_TOKEN)
@@ -195,6 +220,7 @@ class OAuthStore(context: Context) {
     }
 
     companion object {
+        private val pendingWrites = mutableMapOf<String, PendingCredentialWrite>()
         private const val PREFERENCES_NAME = "oauth_credentials"
         private const val KEY_ENCRYPTED_CREDENTIALS = "encrypted_credentials"
         private const val KEY_ACCESS_TOKEN = "access_token"
