@@ -267,6 +267,26 @@ the content-only capture has no row glass surface and is rendered as a separate 
 This is still an investigation fixture, not a production opt-in. Visual and frame-time acceptance
 for B remains pending before changing the default production composition.
 
+### Phase 2 result — Option B rejected (2026-09-06)
+
+User acceptance found the split-source Option B path unacceptable: the chromatic dispersion that
+was expected to remain on the environment/background pass disappeared completely. Therefore the
+B fixture path is rejected and is not promoted to production.
+
+This records the visual result only; no per-frame or pixel measurements were collected. Option C is
+the only remaining documented candidate: keep a non-chromatic combined pass and add a separate
+background-only chromatic pass, with alpha and pass ordering still requiring fixture validation.
+
+### Phase 3 — Option C fixture implementation (2026-09-06)
+
+The Debug bottom-tabs fixture now contains Option C as an additional experiment. It keeps the
+combined background/content source at `11 / 18` with `chromaticAberration = false`, then draws a
+separate background-only `11 / 18` chromatic overlay on top. The fixture compares overlay alpha
+values `0.20`, `0.35`, `0.50`, and `0.65` over the existing multicolor, black, and white modes.
+
+This is still fixture-only and does not change the production call or its default rendering path.
+Option C remains pending user visual acceptance; no production recommendation is recorded yet.
+
 ## Performance considerations
 
 The current production indicator uses one combined backdrop lens pass. That remains the cheapest design.

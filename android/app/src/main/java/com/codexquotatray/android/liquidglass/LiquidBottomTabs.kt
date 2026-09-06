@@ -77,6 +77,8 @@ fun LiquidBottomTabs(
     useSplitIndicatorContentSource: Boolean = false,
     indicatorContentRefractionHeight: Dp = 0.dp,
     indicatorContentRefractionAmount: Dp = 0.dp,
+    useBackgroundChromaticOverlay: Boolean = false,
+    backgroundChromaticOverlayAlpha: Float = 0.35f,
     modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit,
 ) {
@@ -640,6 +642,50 @@ fun LiquidBottomTabs(
                     drawRect(Color.Black.copy(alpha = 0.03f * progress))
                 },
             )
+        val combinedIndicatorModifier =
+            Modifier.drawBackdrop(
+                backdrop = rememberCombinedBackdrop(backdrop, tabsBackdropForIndicator),
+                shape = { Capsule() },
+                effects = {
+                    val progress = dampedDragAnimation.pressProgress
+                    lens(
+                        indicatorRefractionHeight.toPx() * progress,
+                        indicatorRefractionAmount.toPx() * progress,
+                        chromaticAberration = !useBackgroundChromaticOverlay,
+                    )
+                },
+                highlight = {
+                    val progress = dampedDragAnimation.pressProgress
+                    Highlight.Default.copy(alpha = progress)
+                },
+                shadow = {
+                    val progress = dampedDragAnimation.pressProgress
+                    Shadow(alpha = progress)
+                },
+                innerShadow = {
+                    val progress = dampedDragAnimation.pressProgress
+                    InnerShadow(
+                        radius = 8f.dp * progress,
+                        alpha = progress,
+                    )
+                },
+                layerBlock = indicatorLayerBlock,
+                onDrawSurface = {
+                    val progress = dampedDragAnimation.pressProgress
+                    drawRect(
+                        if (isLightTheme) Color.Black.copy(0.1f)
+                        else Color.White.copy(0.1f),
+                        alpha = 1f - progress,
+                    )
+                    drawRect(Color.Black.copy(alpha = 0.03f * progress))
+                },
+            )
+        val normalizedBackgroundChromaticOverlayAlpha =
+            if (backgroundChromaticOverlayAlpha.isFinite()) {
+                backgroundChromaticOverlayAlpha.coerceIn(0f, 1f)
+            } else {
+                0f
+            }
         if (useSplitIndicatorContentSource) {
             val contentBackdrop = selectedContentBackdrop
                 ?: error("Split indicator content source is not initialized")
@@ -669,49 +715,43 @@ fun LiquidBottomTabs(
                                 }
                             },
                             layerBlock = indicatorLayerBlock,
+                    ),
+                )
+            }
+        } else if (useBackgroundChromaticOverlay) {
+            // Option C fixture: preserve the combined source without chromatic aberration,
+            // then add a low-alpha background-only chromatic pass on top.
+            Box(indicatorPositionModifier.then(indicatorSizeModifier)) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .then(combinedIndicatorModifier),
+                )
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .graphicsLayer {
+                            alpha = normalizedBackgroundChromaticOverlayAlpha
+                        }
+                        .drawPlainBackdrop(
+                            backdrop = backdrop,
+                            shape = { Capsule() },
+                            effects = {
+                                val progress = dampedDragAnimation.pressProgress
+                                lens(
+                                    indicatorRefractionHeight.toPx() * progress,
+                                    indicatorRefractionAmount.toPx() * progress,
+                                    chromaticAberration = true,
+                                )
+                            },
+                            layerBlock = indicatorLayerBlock,
                         ),
                 )
             }
         } else {
             Box(
                 indicatorPositionModifier
-                    .drawBackdrop(
-                        backdrop = rememberCombinedBackdrop(backdrop, tabsBackdropForIndicator),
-                        shape = { Capsule() },
-                        effects = {
-                            val progress = dampedDragAnimation.pressProgress
-                            lens(
-                                indicatorRefractionHeight.toPx() * progress,
-                                indicatorRefractionAmount.toPx() * progress,
-                                chromaticAberration = true,
-                            )
-                        },
-                        highlight = {
-                            val progress = dampedDragAnimation.pressProgress
-                            Highlight.Default.copy(alpha = progress)
-                        },
-                        shadow = {
-                            val progress = dampedDragAnimation.pressProgress
-                            Shadow(alpha = progress)
-                        },
-                        innerShadow = {
-                            val progress = dampedDragAnimation.pressProgress
-                            InnerShadow(
-                                radius = 8f.dp * progress,
-                                alpha = progress,
-                            )
-                        },
-                        layerBlock = indicatorLayerBlock,
-                        onDrawSurface = {
-                            val progress = dampedDragAnimation.pressProgress
-                            drawRect(
-                                if (isLightTheme) Color.Black.copy(0.1f)
-                                else Color.White.copy(0.1f),
-                                alpha = 1f - progress,
-                            )
-                            drawRect(Color.Black.copy(alpha = 0.03f * progress))
-                        },
-                    )
+                    .then(combinedIndicatorModifier)
                     .then(indicatorSizeModifier),
             )
         }

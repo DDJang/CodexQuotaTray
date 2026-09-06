@@ -137,8 +137,9 @@ private fun LiquidBottomTabsFixtureScreen(palette: ThemePalette) {
             ChromaticAberrationFixture(contentColor)
             SourceAttenuationFixture(contentColor)
             SplitContentFixture(contentColor)
+            BackgroundChromaticFixture(contentColor)
             Text(
-                "A/B/C/D/E/F/G share one backdrop; no OAuth, LAN, API, worker, or network access.",
+                "A/B/C/D/E/F/G/H share one backdrop; no OAuth, LAN, API, worker, or network access.",
                 color = Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -556,6 +557,123 @@ private fun SplitContentPresetRow(
                 useSplitIndicatorContentSource = true,
                 indicatorContentRefractionHeight = contentRefractionHeight,
                 indicatorContentRefractionAmount = contentRefractionAmount,
+                modifier = fixtureDockModifier(),
+            ) {
+                LiquidBottomTab(tabIndex = 0, onClick = { selectedIndex = 0 }) {
+                    FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
+                }
+                LiquidBottomTab(tabIndex = 1, onClick = { selectedIndex = 1 }) {
+                    FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundChromaticFixture(contentColor: Color) {
+    var backdropMode by remember { mutableStateOf(AberrationBackdropMode.MULTICOLOR) }
+    val experimentBackdrop = rememberLayerBackdrop()
+    val labelColor = if (backdropMode == AberrationBackdropMode.WHITE) Color.Black else Color.White
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "H · Option C · combined non-chromatic + background chromatic",
+            color = labelColor,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { backdropMode = AberrationBackdropMode.MULTICOLOR }) {
+                Text("多色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.BLACK }) {
+                Text("黑色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.WHITE }) {
+                Text("白色")
+            }
+        }
+        Text(
+            "backdrop: ${backdropMode.name} · combined lens: 11 / 18 · chromatic overlay on top",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Box(Modifier.fillMaxWidth().height(620.dp)) {
+            Box(Modifier.fillMaxSize().layerBackdrop(experimentBackdrop)) {
+                when (backdropMode) {
+                    AberrationBackdropMode.MULTICOLOR -> FixtureBackdrop(showLabel = false)
+                    AberrationBackdropMode.BLACK -> Box(Modifier.fillMaxSize().background(Color.Black))
+                    AberrationBackdropMode.WHITE -> Box(Modifier.fillMaxSize().background(Color.White))
+                }
+            }
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BackgroundChromaticPresetRow(
+                    name = "C0 · background overlay · 0.20",
+                    overlayAlpha = 0.20f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BackgroundChromaticPresetRow(
+                    name = "C1 · background overlay · 0.35 · recommended",
+                    overlayAlpha = 0.35f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BackgroundChromaticPresetRow(
+                    name = "C2 · background overlay · 0.50",
+                    overlayAlpha = 0.50f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BackgroundChromaticPresetRow(
+                    name = "C3 · background overlay · 0.65",
+                    overlayAlpha = 0.65f,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+            }
+        }
+        Text(
+            "Combined tabs/background source is rendered without chromatic aberration; a separate background-only 11 / 18 chromatic pass is drawn last.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "Compare the overlay alpha on multicolor first, then use black/white to isolate edge color and content coverage.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun BackgroundChromaticPresetRow(
+    name: String,
+    overlayAlpha: Float,
+    backdrop: Backdrop,
+    contentColor: Color,
+    labelColor: Color,
+) {
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(name, color = labelColor, style = MaterialTheme.typography.labelLarge)
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            LiquidBottomTabs(
+                selectedTabIndex = { selectedIndex },
+                onTabSelected = { selectedIndex = it },
+                backdrop = backdrop,
+                tabsCount = 2,
+                indicatorRefractionHeight = 11.dp,
+                indicatorRefractionAmount = 18.dp,
+                useBackgroundChromaticOverlay = true,
+                backgroundChromaticOverlayAlpha = overlayAlpha,
                 modifier = fixtureDockModifier(),
             ) {
                 LiquidBottomTab(tabIndex = 0, onClick = { selectedIndex = 0 }) {
