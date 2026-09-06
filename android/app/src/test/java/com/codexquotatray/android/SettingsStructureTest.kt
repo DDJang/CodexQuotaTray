@@ -2,6 +2,7 @@ package com.codexquotatray.android
 
 import androidx.compose.ui.geometry.Offset
 import com.codexquotatray.android.source.DataSourcePriority
+import com.codexquotatray.android.liquidglass.normalizeBottomTabBandLensStrength
 import com.codexquotatray.android.liquidglass.liquidBottomTabPreviewHighlightProgress
 import com.codexquotatray.android.liquidglass.shouldCommitLiquidSegmentSelection
 import org.junit.Assert.assertEquals
@@ -590,6 +591,15 @@ class SettingsStructureTest {
     }
 
     @Test
+    fun bottomTabBandLensStrengthIsFiniteAndBounded() {
+        assertEquals(0f, normalizeBottomTabBandLensStrength(-0.2f), 0f)
+        assertEquals(0.25f, normalizeBottomTabBandLensStrength(0.25f), 0f)
+        assertEquals(1f, normalizeBottomTabBandLensStrength(1.2f), 0f)
+        assertEquals(0f, normalizeBottomTabBandLensStrength(Float.NaN), 0f)
+        assertEquals(0f, normalizeBottomTabBandLensStrength(Float.POSITIVE_INFINITY), 0f)
+    }
+
+    @Test
     fun liquidBottomTabsKeepTheProductionCombinedBackdropRenderGraph() {
         val source = sourceFile("liquidglass/LiquidBottomTabs.kt")
         val tab = sourceFile("liquidglass/LiquidBottomTab.kt")
@@ -623,6 +633,18 @@ class SettingsStructureTest {
         assertTrue(source.contains("normalizedBackgroundChromaticOverlayAlpha"))
         assertTrue(source.contains("Option C fixture"))
         assertTrue(source.contains("background-only chromatic pass"))
+        assertTrue(source.contains("bottomTabBandLensStrength: Float = 0f"))
+        assertTrue(source.contains("bottomTabBandLensDiagnostic: BottomTabBandLensDiagnostic = BottomTabBandLensDiagnostic.NONE"))
+        assertTrue(source.contains("normalizeBottomTabBandLensStrength(bottomTabBandLensStrength)"))
+        assertTrue(source.contains("applyBottomTabBandLens("))
+        val bandLens = sourceFile("liquidglass/BottomTabBandLens.kt")
+        assertTrue(bandLens.contains("enum class BottomTabBandLensDiagnostic"))
+        assertTrue(bandLens.contains("runtimeShaderEffect("))
+        assertTrue(bandLens.contains("setFloatUniform(\"cornerRadii\", cornerRadii)"))
+        assertTrue(bandLens.contains("dispersionIntensity"))
+        assertTrue(bandLens.contains("safeCorrectionScale"))
+        assertTrue(bandLens.contains("rainbowProtection"))
+        assertTrue(bandLens.contains("diagnosticMode"))
         assertTrue(source.contains("indicatorRefractionHeight: Dp = 11.dp"))
         assertTrue(source.contains("indicatorRefractionAmount: Dp = 18.dp"))
         assertFalse(source.contains("indicatorRefractionHeight: Dp = 10.dp"))
@@ -710,6 +732,7 @@ class SettingsStructureTest {
         assertFalse(productionComponents.contains("indicatorRefractionAmount"))
         assertFalse(productionComponents.contains("tabsBackdropSourceAlpha"))
         assertFalse(productionComponents.contains("useSplitIndicatorContentSource"))
+        assertFalse(productionComponents.contains("bottomTabBandLensStrength"))
 
         assertTrue(tab.contains("clickable("))
         assertTrue(tab.contains("interactionSource = interactionSource"))
@@ -798,6 +821,20 @@ class SettingsStructureTest {
         assertTrue(fixture.contains("useBackgroundChromaticOverlay = true"))
         assertTrue(fixture.contains("backgroundChromaticOverlayAlpha = overlayAlpha"))
         assertTrue(fixture.contains("background-only 11 / 18 chromatic pass is drawn last"))
+        assertTrue(fixture.contains("I · Option D · local blue-base correction"))
+        assertTrue(fixture.contains("BottomTabBandLensFixture(contentColor)"))
+        assertTrue(fixture.contains("D0 · original F · strength 0.00"))
+        assertTrue(fixture.contains("D1 · local correction · strength 0.15"))
+        assertTrue(fixture.contains("D2 · local correction · strength 0.25"))
+        assertTrue(fixture.contains("D3 · local correction · strength 0.40"))
+        assertTrue(fixture.contains("U · ordinary refraction reference"))
+        assertTrue(fixture.contains("E · signed F − U difference"))
+        assertTrue(fixture.contains("S · original combined source"))
+        assertTrue(fixture.contains("BottomTabBandLensDiagnostic.REFRACTION_REFERENCE"))
+        assertTrue(fixture.contains("BottomTabBandLensDiagnostic.SIGNED_DIFFERENCE"))
+        assertTrue(fixture.contains("BottomTabBandLensDiagnostic.SOURCE"))
+        assertTrue(fixture.contains("bottomTabBandLensStrength = strength"))
+        assertTrue(fixture.contains("bottomTabBandLensDiagnostic = diagnostic"))
         assertTrue(fixture.contains("private enum class AberrationBackdropMode"))
         assertTrue(fixture.contains("AberrationBackdropMode.MULTICOLOR"))
         assertTrue(fixture.contains("AberrationBackdropMode.BLACK"))

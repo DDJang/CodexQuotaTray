@@ -54,6 +54,7 @@ import com.codexquotatray.android.R
 import com.codexquotatray.android.ThemeMode
 import com.codexquotatray.android.ThemePalette
 import com.codexquotatray.android.color
+import com.codexquotatray.android.liquidglass.BottomTabBandLensDiagnostic
 import com.codexquotatray.android.liquidglass.LiquidBottomTab
 import com.codexquotatray.android.liquidglass.LiquidBottomTabs
 import com.codexquotatray.android.liquidglass.UpstreamLiquidBottomTab
@@ -138,8 +139,9 @@ private fun LiquidBottomTabsFixtureScreen(palette: ThemePalette) {
             SourceAttenuationFixture(contentColor)
             SplitContentFixture(contentColor)
             BackgroundChromaticFixture(contentColor)
+            BottomTabBandLensFixture(contentColor)
             Text(
-                "A/B/C/D/E/F/G/H share one backdrop; no OAuth, LAN, API, worker, or network access.",
+                "A/B/C/D/E/F/G/H/I share one backdrop; no OAuth, LAN, API, worker, or network access.",
                 color = Color.White.copy(alpha = 0.7f),
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -674,6 +676,152 @@ private fun BackgroundChromaticPresetRow(
                 indicatorRefractionAmount = 18.dp,
                 useBackgroundChromaticOverlay = true,
                 backgroundChromaticOverlayAlpha = overlayAlpha,
+                modifier = fixtureDockModifier(),
+            ) {
+                LiquidBottomTab(tabIndex = 0, onClick = { selectedIndex = 0 }) {
+                    FixtureTabContent(R.drawable.ic_quota_tray, "额度", contentColor, 22, 24)
+                }
+                LiquidBottomTab(tabIndex = 1, onClick = { selectedIndex = 1 }) {
+                    FixtureTabContent(R.drawable.ic_usage, "统计", contentColor)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BottomTabBandLensFixture(contentColor: Color) {
+    var backdropMode by remember { mutableStateOf(AberrationBackdropMode.MULTICOLOR) }
+    val experimentBackdrop = rememberLayerBackdrop()
+    val labelColor = if (backdropMode == AberrationBackdropMode.WHITE) Color.Black else Color.White
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "I · Option D · local blue-base correction",
+            color = labelColor,
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { backdropMode = AberrationBackdropMode.MULTICOLOR }) {
+                Text("多色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.BLACK }) {
+                Text("黑色")
+            }
+            Button(onClick = { backdropMode = AberrationBackdropMode.WHITE }) {
+                Text("白色")
+            }
+        }
+        Text(
+            "backdrop: ${backdropMode.name} · combined source · original 11 / 18 chromatic lens",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Box(Modifier.fillMaxWidth().height(820.dp)) {
+            Box(Modifier.fillMaxSize().layerBackdrop(experimentBackdrop)) {
+                when (backdropMode) {
+                    AberrationBackdropMode.MULTICOLOR -> FixtureBackdrop(showLabel = false)
+                    AberrationBackdropMode.BLACK -> Box(Modifier.fillMaxSize().background(Color.Black))
+                    AberrationBackdropMode.WHITE -> Box(Modifier.fillMaxSize().background(Color.White))
+                }
+            }
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                BottomTabBandLensPresetRow(
+                    name = "D0 · original F · strength 0.00",
+                    strength = 0f,
+                    diagnostic = BottomTabBandLensDiagnostic.NONE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "D1 · local correction · strength 0.15",
+                    strength = 0.15f,
+                    diagnostic = BottomTabBandLensDiagnostic.NONE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "D2 · local correction · strength 0.25",
+                    strength = 0.25f,
+                    diagnostic = BottomTabBandLensDiagnostic.NONE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "D3 · local correction · strength 0.40",
+                    strength = 0.40f,
+                    diagnostic = BottomTabBandLensDiagnostic.NONE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "U · ordinary refraction reference",
+                    strength = 0f,
+                    diagnostic = BottomTabBandLensDiagnostic.REFRACTION_REFERENCE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "E · signed F − U difference",
+                    strength = 0f,
+                    diagnostic = BottomTabBandLensDiagnostic.SIGNED_DIFFERENCE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+                BottomTabBandLensPresetRow(
+                    name = "S · original combined source",
+                    strength = 0f,
+                    diagnostic = BottomTabBandLensDiagnostic.SOURCE,
+                    backdrop = experimentBackdrop,
+                    contentColor = contentColor,
+                    labelColor = labelColor,
+                )
+            }
+        }
+        Text(
+            "D0 routes through the original lens. D1–D3 keep the seven-sample chromatic result and only correct a guarded blue base in the upper/lower band.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Text(
+            "U, E, and S are diagnostics: reference, signed difference mapped around gray, and source. Compare black/blue first, then multicolor and white.",
+            color = labelColor.copy(alpha = 0.78f),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+}
+
+@Composable
+private fun BottomTabBandLensPresetRow(
+    name: String,
+    strength: Float,
+    diagnostic: BottomTabBandLensDiagnostic,
+    backdrop: Backdrop,
+    contentColor: Color,
+    labelColor: Color,
+) {
+    var selectedIndex by remember { mutableIntStateOf(0) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(name, color = labelColor, style = MaterialTheme.typography.labelLarge)
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            LiquidBottomTabs(
+                selectedTabIndex = { selectedIndex },
+                onTabSelected = { selectedIndex = it },
+                backdrop = backdrop,
+                tabsCount = 2,
+                indicatorRefractionHeight = 11.dp,
+                indicatorRefractionAmount = 18.dp,
+                bottomTabBandLensStrength = strength,
+                bottomTabBandLensDiagnostic = diagnostic,
                 modifier = fixtureDockModifier(),
             ) {
                 LiquidBottomTab(tabIndex = 0, onClick = { selectedIndex = 0 }) {

@@ -79,6 +79,8 @@ fun LiquidBottomTabs(
     indicatorContentRefractionAmount: Dp = 0.dp,
     useBackgroundChromaticOverlay: Boolean = false,
     backgroundChromaticOverlayAlpha: Float = 0.35f,
+    bottomTabBandLensStrength: Float = 0f,
+    bottomTabBandLensDiagnostic: BottomTabBandLensDiagnostic = BottomTabBandLensDiagnostic.NONE,
     modifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit,
 ) {
@@ -95,6 +97,11 @@ fun LiquidBottomTabs(
         rememberSourceAttenuatedBackdrop(tabsBackdrop, tabsBackdropSourceAlpha)
     val selectedContentBackdrop =
         if (useSplitIndicatorContentSource) rememberLayerBackdrop() else null
+    val normalizedBottomTabBandLensStrength =
+        normalizeBottomTabBandLensStrength(bottomTabBandLensStrength)
+    val useBottomTabBandLens =
+        normalizedBottomTabBandLensStrength > 0f ||
+            bottomTabBandLensDiagnostic != BottomTabBandLensDiagnostic.NONE
 
     BoxWithConstraints(
         modifier,
@@ -648,11 +655,32 @@ fun LiquidBottomTabs(
                 shape = { Capsule() },
                 effects = {
                     val progress = dampedDragAnimation.pressProgress
-                    lens(
-                        indicatorRefractionHeight.toPx() * progress,
-                        indicatorRefractionAmount.toPx() * progress,
-                        chromaticAberration = !useBackgroundChromaticOverlay,
-                    )
+                    val refractionHeight = indicatorRefractionHeight.toPx() * progress
+                    val refractionAmount = indicatorRefractionAmount.toPx() * progress
+                    if (
+                        useBottomTabBandLens &&
+                        refractionHeight > 0f &&
+                        refractionAmount > 0f &&
+                        !applyBottomTabBandLens(
+                            refractionHeight = refractionHeight,
+                            refractionAmount = refractionAmount,
+                            strength = normalizedBottomTabBandLensStrength,
+                            accentColor = accentColor,
+                            diagnostic = bottomTabBandLensDiagnostic,
+                        )
+                    ) {
+                        lens(
+                            refractionHeight,
+                            refractionAmount,
+                            chromaticAberration = !useBackgroundChromaticOverlay,
+                        )
+                    } else if (!useBottomTabBandLens) {
+                        lens(
+                            refractionHeight,
+                            refractionAmount,
+                            chromaticAberration = !useBackgroundChromaticOverlay,
+                        )
+                    }
                 },
                 highlight = {
                     val progress = dampedDragAnimation.pressProgress
