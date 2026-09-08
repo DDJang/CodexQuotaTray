@@ -733,12 +733,56 @@ function Get-ReleasePrBaseSha {
     return ([string]$baseRefOidProperty.Value).Trim()
 }
 
+function Get-ReleasePrCheckStatus {
+    param(
+        [AllowEmptyCollection()][object[]]$Checks,
+        [Parameter(Mandatory = $true)][string[]]$Platforms
+    )
+    # Job names must stay aligned with the pull_request jobs in the CI workflows.
+    $required = @(
+        if ($Platforms -contains 'Windows') {
+            @{ Workflow = 'Windows CI'; Name = 'verify' }
+            @{ Workflow = 'Windows CI'; Name = 'packaging-smoke' }
+        }
+        if ($Platforms -contains 'Android') {
+            @{ Workflow = 'Android CI'; Name = 'debug' }
+        }
+    )
+    if ($required.Count -eq 0) { throw 'No platform CI checks selected.' }
+    $selectedWorkflows = @($required | ForEach-Object { $_.Workflow } | Select-Object -Unique)
+    $failed = @($Checks | Where-Object {
+        $_.workflow -cin $selectedWorkflows -and $_.bucket -in @('fail', 'cancel', 'error')
+    })
+    if ($failed.Count -gt 0) { throw 'A selected platform PR check failed or was cancelled.' }
+    $missing = @()
+    $pending = @()
+    foreach ($expected in $required) {
+        $matches = @($Checks | Where-Object {
+            $_.workflow -ceq $expected.Workflow -and $_.name -ceq $expected.Name -and
+            $_.event -ceq 'pull_request'
+        })
+        $label = "$($expected.Workflow)/$($expected.Name)"
+        if ($matches.Count -eq 0) { $missing += $label; continue }
+        if (@($matches | Where-Object { $_.bucket -eq 'skipping' }).Count -gt 0) {
+            throw "Required PR check was skipped: $label"
+        }
+        if (@($matches | Where-Object { $_.bucket -cne 'pass' -or $_.state -cne 'SUCCESS' }).Count -gt 0) {
+            $pending += $label
+        }
+    }
+    return [pscustomobject]@{
+        Ready = $missing.Count -eq 0 -and $pending.Count -eq 0
+        Missing = $missing
+        Pending = $pending
+    }
+}
+
 function Wait-PrChecks {
     param([Parameter(Mandatory = $true)][int]$Number)
     $deadline = (Get-Date).AddMinutes($TimeoutMinutes)
     while ((Get-Date) -lt $deadline) {
         $result = Invoke-Captured -FilePath $script:Gh -Arguments @(
-            'pr', 'checks', ([string]$Number), '--json', 'name,state,bucket,workflow,link'
+            'pr', 'checks', ([string]$Number), '--json', 'name,state,bucket,workflow,link,event'
         )
         if ($result.ExitCode -ne 0) {
             if ($result.Text -match 'no checks') {
@@ -748,18 +792,12 @@ function Wait-PrChecks {
             }
         } else {
             $checks = @($result.Text | ConvertFrom-Json)
-            if ($checks.Count -gt 0) {
-                $failed = @($checks | Where-Object { $_.bucket -in @('fail', 'cancel', 'error') })
-                if ($failed.Count -gt 0) {
-                    throw 'A required PR check failed or was cancelled.'
-                }
-                $pending = @($checks | Where-Object { $_.bucket -notin @('pass', 'skipping') })
-                if ($pending.Count -eq 0) {
-                    Write-Host "All visible PR checks passed for #$Number."
-                    return
-                }
-                Write-Host "$($pending.Count) PR check(s) are still pending."
+            $status = Get-ReleasePrCheckStatus -Checks $checks -Platforms $script:SelectedPlatforms
+            if ($status.Ready) {
+                Write-Host "All required selected-platform PR checks passed for #$Number."
+                return
             }
+            Write-Host "Waiting for PR checks. Missing: $($status.Missing -join ', '); pending: $($status.Pending -join ', ')."
         }
         Start-Sleep -Seconds 15
     }

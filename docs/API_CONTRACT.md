@@ -161,8 +161,10 @@ Android `QuotaSnapshotStore` 保存最后成功的脱敏产品快照：套餐、
 凭据、HTTP body/header、账户 ID、错误正文或历史序列；退出登录会清除快照。
 
 Android Token cache 保存实际 `transport`（OpenAI/Windows）与 `scope`（Account/Local）。Windows
-结果绑定 pairing device identity，OpenAI Account 结果只在 OAuth 仍可用时恢复；旧缓存缺少 metadata
-时迁移为 Windows/Local。不同 scope 不合并、不互相恢复。
+结果绑定 pairing device identity；OpenAI Account 结果绑定随机本地登录会话标识，只有 OAuth 仍
+可用且标识匹配时恢复。该标识随凭据加密保存，每次新登录更换，正常 refresh 保留，不由账户或
+token 派生。旧 OpenAI 缓存缺少该标识时不恢复；旧缓存缺少 transport/scope metadata 时仍按
+Windows/Local 兼容。不同 scope 不合并、不互相恢复；前台延迟提交也重新检查当前身份。
 
 ## Windows LAN schemaVersion 1
 
@@ -223,9 +225,9 @@ resetCredits?:
 `resetCredits` 缺失或 null 表示未知；`availableCount` 不从明细长度推算。字段以
 [`QuotaLanSnapshot`](../windows/src/CodexQuotaTray.Core/TokenUsage/QuotaLanSnapshot.cs) 为实现对照。
 
-实现缺口：Windows `QuotaNormalizer` 到 `QuotaRuntimeService.ToLanResetCredits` 当前直接传递
-`credit.Id`，未在这条路径脱敏。因此不能把该字段描述为已经脱敏；[PRIVACY](PRIVACY.md) 中
-不暴露完整 reset-credit ID 的要求仍适用，需要后续代码修复，本次字段补录不放宽隐私边界。
+Windows 在 `QuotaRuntimeService.ToLanResetCredits` 中将 `id` 置为 null；原始 ID 仅保留在
+进程内的提醒输入中，不随 LAN 快照传输，也不进入磁盘额度缓存。数量、明细可用性和到期时间
+保持原语义，符合 [PRIVACY](PRIVACY.md) 的最小投影边界。
 
 ### Pairing 与发现
 

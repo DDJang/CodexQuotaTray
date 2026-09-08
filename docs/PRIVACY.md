@@ -49,7 +49,9 @@ Windows LAN 服务只绑定私人 IPv4。DNS-SD 公开稳定随机 deviceId、�
 - Token pairing 使用独立 Keystore key。`token-usage-cache.json` 保存 OpenAI 或 Windows 返回的
   最小日聚合与摘要，记录实际 `transport`（OpenAI/Windows）和 `scope`（Account/Local）。Windows
   结果绑定当前 pairing identity，解除或更换 pairing 后不能恢复旧设备数据；OpenAI Account 结果
-  只在 OAuth 仍可用时恢复。旧缓存缺少来源元数据时按 Windows/Local 兼容，不合并两类统计。
+  绑定随机本地登录会话标识，只在 OAuth 仍可用且标识匹配时恢复。标识不含账户 ID 或 token，
+  新登录更换、正常 refresh 保留；旧 OpenAI 缓存缺少该标识时不恢复。旧缓存缺少来源元数据时
+  按 Windows/Local 兼容，不合并两类统计。
 - WorkManager 使用相同 repository/coordinator，不建立额外数据副本。Android LAN 客户端只接受
   RFC1918 IPv4，不跟随 redirect；移动网络不会用于等待 Windows。
 - `android:allowBackup` 已关闭。Debug 使用独立 application ID，凭据、配对和缓存不与正式 APK

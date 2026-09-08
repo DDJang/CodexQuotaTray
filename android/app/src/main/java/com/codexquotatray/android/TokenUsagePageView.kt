@@ -126,6 +126,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     var paired by mutableStateOf(false)
         private set
     private var lastObservedPriority: DataSourcePriority? = null
+    private var lastObservedOpenAIIdentity: String? = null
 
     val canSync get() = !syncing && (store.load() != null || oauthStore.hasCredentials())
 
@@ -160,7 +161,10 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         val priorityChanged = observeTokenPriority()
         val currentPairing = store.load()
         val hasOAuth = oauthStore.hasCredentials()
-        val cached = cache.loadForAvailableSources(currentPairing, hasOAuth)
+        val identity = oauthStore.load()?.cacheIdentity
+        snapshot = tokenSnapshotForLoginIdentity(snapshot, lastObservedOpenAIIdentity, identity)
+        lastObservedOpenAIIdentity = identity
+        val cached = cache.loadForAvailableSources(currentPairing, identity)
         if (currentPairing == null && !hasOAuth) {
             paired = false
             snapshot = null
@@ -223,9 +227,14 @@ internal class TokenUsagePageController(private val host: MainActivity) {
                 main.postDelayed({
                     if (destroyed) return@postDelayed
                     syncing = false
-                    result.onSuccess { synced ->
-                        snapshot = synced.snapshot
-                        status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(synced.snapshot), formatSyncTime(synced.snapshot.generatedAtUtc))
+                    reconcilePairingState()
+                    result.onSuccess {
+                        // The login may have changed since the background commit.
+                        // Only restore a cache that still belongs to the current sources.
+                        loadCachedSnapshot()?.let { current ->
+                            snapshot = current
+                            status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(current), formatSyncTime(current.generatedAtUtc))
+                        }
                     }.onFailure { error ->
                         if (error.isLanAttemptStale()) {
                             status = statusAtStart
@@ -249,7 +258,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     }
 
     private fun loadCachedSnapshot(): TokenUsageSnapshot? =
-        cache.loadForAvailableSources(store.load(), oauthStore.hasCredentials())
+        cache.loadForAvailableSources(store.load(), oauthStore.load()?.cacheIdentity)
 
     private fun observeTokenPriority(): Boolean {
         val currentPriority = sourcePriorityStore.load().token
@@ -257,6 +266,15 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         lastObservedPriority = currentPriority
         return changed
     }
+}
+
+internal fun tokenSnapshotForLoginIdentity(
+    snapshot: TokenUsageSnapshot?,
+    previousIdentity: String?,
+    currentIdentity: String?,
+): TokenUsageSnapshot? = snapshot?.takeUnless {
+    it.transport == DataTransport.OPENAI &&
+        (currentIdentity.isNullOrBlank() || previousIdentity != currentIdentity)
 }
 
 internal fun tokenUsageSourceLabel(snapshot: TokenUsageSnapshot): String = when {

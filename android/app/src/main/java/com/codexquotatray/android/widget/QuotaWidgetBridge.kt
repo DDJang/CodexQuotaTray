@@ -49,8 +49,8 @@ object QuotaWidgetBridge {
 
     private fun tokenSummary(context: Context): QuotaWidgetTokenSummary? {
         val pairing = TokenSyncStore(context).load()
-        val hasOAuth = OAuthStore(context).load() != null
-        return TokenUsageCache(context).loadForAvailableSources(pairing, hasOAuth)?.summary?.let { summary ->
+        val identity = OAuthStore(context).load()?.cacheIdentity
+        return TokenUsageCache(context).loadForAvailableSources(pairing, identity)?.summary?.let { summary ->
             summary.toQuotaWidgetTokenSummary()
         }
     }

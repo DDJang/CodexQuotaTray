@@ -107,7 +107,8 @@ Windows 来源边界：Quota provider 为 Codex CLI 或 OAuth；Token provider �
 - 所有磁盘缓存都是最小产品投影，不是 raw response archive。
 - 文件提交使用临时文件/原子替换或平台原子 preferences commit。
 - Token cache 保存实际 transport/scope；Windows 结果绑定当前 device identity，OpenAI Account 结果
-  绑定 OAuth 可用性，旧缓存迁移为 Windows/Local，同步期间身份改变时丢弃旧结果。
+  绑定 OAuth 可用性与随机本地登录会话标识。新登录更换标识，refresh 保留；旧 OpenAI 缓存缺少
+  标识时不恢复，缺少来源 metadata 的旧缓存仍按 Windows/Local 兼容。同步期间身份改变时丢弃旧结果。
 - 同步 single-flight 必须包含完整 pairing 配置的不可逆 fingerprint，不能让换 secret 的请求共享结果。
 - 解除配对以删除凭据为强保证，缓存清理仅 best-effort。
 

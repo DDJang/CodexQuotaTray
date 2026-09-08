@@ -29,7 +29,7 @@ interface TokenSyncPairingStore {
 
 internal interface TokenUsageCacheStore {
     fun save(pairing: TokenSyncPairing, snapshot: TokenUsageSnapshot): Boolean
-    fun saveOpenAI(snapshot: TokenUsageSnapshot): Boolean = false
+    fun saveOpenAI(snapshot: TokenUsageSnapshot, cacheIdentity: String): Boolean = false
     fun clear(): Boolean
 }
 
@@ -161,7 +161,7 @@ class TokenUsageCache private constructor(private val file: File) : TokenUsageCa
 
     fun loadForAvailableSources(
         pairing: TokenSyncPairing?,
-        hasOAuth: Boolean,
+        openAICacheIdentity: String?,
     ): TokenUsageSnapshot? = runCatching {
         if (!file.isFile || file.length() > MAXIMUM_BYTES) null else {
             val root = JSONObject(file.readText(Charsets.UTF_8))
@@ -171,7 +171,8 @@ class TokenUsageCache private constructor(private val file: File) : TokenUsageCa
                     pairing != null && root.optString("pairingIdentity") == pairing.cacheIdentity()
                 }
                 DataTransport.OPENAI -> snapshot.takeIf {
-                    hasOAuth && root.optString("pairingIdentity") == OPENAI_CACHE_IDENTITY
+                    !openAICacheIdentity.isNullOrBlank() &&
+                        root.optString("pairingIdentity") == "openai:$openAICacheIdentity"
                 }
                 null -> null
             }
@@ -182,9 +183,10 @@ class TokenUsageCache private constructor(private val file: File) : TokenUsageCa
         write(pairing.cacheIdentity(), snapshot.copy(transport = DataTransport.WINDOWS))
     }.getOrDefault(false)
 
-    override fun saveOpenAI(snapshot: TokenUsageSnapshot): Boolean = runCatching {
+    override fun saveOpenAI(snapshot: TokenUsageSnapshot, cacheIdentity: String): Boolean = runCatching {
+        require(cacheIdentity.isNotBlank())
         write(
-            OPENAI_CACHE_IDENTITY,
+            "openai:$cacheIdentity",
             snapshot.copy(transport = DataTransport.OPENAI, scope = TokenUsageScope.ACCOUNT),
         )
     }.getOrDefault(false)
@@ -216,7 +218,6 @@ class TokenUsageCache private constructor(private val file: File) : TokenUsageCa
 
     companion object {
         private const val MAXIMUM_BYTES = 512 * 1024
-        private const val OPENAI_CACHE_IDENTITY = "openai-account"
         internal fun forTest(file: File) = TokenUsageCache(file)
     }
 }
