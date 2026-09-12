@@ -38,6 +38,12 @@ Windows LAN 服务只绑定私人 IPv4。DNS-SD 公开稳定随机 deviceId、�
 二维码包含 LAN 地址、deviceId 和独立 pairing secret，不包含 OpenAI 凭据或 Token 数据。应用不
 自动提权或修改防火墙。
 
+LAN 本地诊断会保留连接两端的私人/loopback IP 与端口、网卡索引/类型/状态/IPv4 prefix、
+UTC 和单调时间，以及随机进程会话、listener 与 connection 标识，用于对齐连接失败。
+它不保存 HTTP header/body、原始异常消息或配对 secret；请求路径只保留已知 API，其他路径记为
+`<other>`。导出文本也包含这些网络元数据。日志沿用有界轮转，见
+[LAN 诊断观测边界](TECH_DESIGN.md#lan-服务)。
+
 ## Android 数据
 
 - OAuth 凭据与路由 account ID 使用 Android Keystore 保护并存于 App 私有空间。当前仍支持从旧

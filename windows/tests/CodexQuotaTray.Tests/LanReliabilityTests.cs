@@ -384,7 +384,8 @@ public sealed class LanReliabilityTests
         await controller.SetEnabledAsync(true, CancellationToken.None);
         Assert.AreEqual("无可用局域网地址", controller.StatusText);
         currentAddress = IPAddress.Parse("192.168.1.20");
-        await WaitUntilAsync(() => created == 1 && controller.AddressText.Length > 0);
+        // Address is published before the asynchronous DNS-SD startup updates status.
+        await WaitUntilAsync(() => created == 1 && controller.AddressText.Length > 0 && controller.StatusText == "正在监听");
         Assert.AreEqual("正在监听", controller.StatusText);
     }
 

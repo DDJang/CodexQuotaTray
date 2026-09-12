@@ -94,7 +94,11 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
         var startupLaunch = arguments.Any(value => string.Equals(value, "--startup", StringComparison.OrdinalIgnoreCase));
         var explicitCodex = ReadOption(arguments, "--codex-bin");
-        var lanDiagnosticBuffer = new LanDiagnosticBuffer(paths.Root);
+        var lanDiagnosticBuffer = new LanDiagnosticBuffer(paths.Root, write =>
+        {
+            write("LAN network snapshot reason=diagnostic-export networkProfile=unavailable");
+            TokenUsageSyncServer.FindPrivateLanSelection(write);
+        });
         lanDiagnostics = lanDiagnosticBuffer;
         var tokenUsageScanner = new TokenUsageScanner(paths.TokenUsageDatabase);
 

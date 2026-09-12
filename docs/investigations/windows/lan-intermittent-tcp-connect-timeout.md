@@ -5,6 +5,30 @@
 - Status: Active
 - Date: 2026-09-06
 
+## Phase 0 实施进度（2026-09-12）
+
+已同步 `main@b4b2c20`，本轮仅增加观测与诊断文案，不调整 timeout、retry、配对协议或网络恢复行为。
+
+- Windows 沿用 `LanDiagnosticBuffer` 的有界轮转与脱敏通道。事件保留 UTC、随机进程
+  `processSession` 与 `monotonicMs`；单调值是系统单调时钟毫秒值，不是进程 uptime，也不能
+  与另一台设备直接比较。跨进程、跨设备先用 UTC 对齐，同一 session 内用单调差值确认顺序/耗时。
+- 每次 bind 尝试分配递增 `listenerGeneration`，记录 starting、started、bind-failed、stopping、
+  socket-stopped、stopped；controller 记录 restart-requested 及原因。原来提前报告 stopped 的
+  事件改为 stop-requested，停止完成在 dispose 后记录。异常只写类型与 socket 错误码，不写原始消息。
+- accept 分配 listener 内的 `connectionId`，与 request/closed 事件共同记录远端地址、远端端口、
+  本地 endpoint。日志首次见到连接的边界是 `AcceptTcpClientAsync` 返回；队列和 TCP 握手仍需抓包。
+- 网卡候选日志增加 prefix、状态与索引；start/reconcile 和诊断导出复用本地枚举。候选字段不会
+  覆盖已记录的绑定接口。network profile、SSID/BSSID、网卡电源状态仍未采集，显示 unavailable；
+  listener 摘要仍是应用观测，不是 OS LISTEN/端口所属进程快照。
+- Android 拆分 Last recorded attempt、Last success、Last failure。历史成功/失败的 attempt ID
+  未单独持久化，明确显示 unavailable，不把最新 attempt ID 归给历史失败；细节仍需完整事件日志。
+  Quota 元数据保存日志明确标记 `endpointChanged`，Token relocation 同时比较 host 与 port。
+
+本轮离线验证覆盖连接关联、listener generation、日志故障隔离、时间线持久化、导出采样故障、
+Android 摘要归属与 endpoint 日志。尚未获取真实失败的双端抓包证据，调查维持 Active。
+下一步为 Phase 1：在 Dev/Debug 现场保存失败前后完整日志、TCP 包头与 OS listener 快照，
+再按 Phase 2 归因；本轮没有启动抓包或改变正式版运行状态。
+
 ## 背景与现象
 
 Android 端 LAN Diagnostics 已捕获到一次具有较高诊断价值的间歇性连接失败。失败发生在 TCP 建连阶段，而不是 pairing、HTTP、quota/token 协议或 JSON 处理阶段。

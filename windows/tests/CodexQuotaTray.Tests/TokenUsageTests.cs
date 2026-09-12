@@ -587,6 +587,57 @@ public sealed class TokenUsageTests
     }
 
     [TestMethod]
+    public async Task LanDiagnosticsCorrelateAcceptedRequestsAndListenerGenerations()
+    {
+        using var corpus = new TokenCorpus();
+        var events = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        long previousGeneration = 0;
+        for (var iteration = 0; iteration < 2; iteration++)
+        {
+            events.Clear();
+            var server = new TokenUsageSyncServer(new TokenUsageScanner(), "never-log-secret", corpus.Root, diagnostic: events.Enqueue);
+            try
+            {
+                server.Start(IPAddress.Loopback, 0);
+                using var client = new HttpClient();
+                using var response = await client.GetAsync($"http://127.0.0.1:{server.Port}/unknown?token=never-log-secret");
+                Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+            }
+            finally { await server.DisposeAsync(); }
+
+            var lines = events.ToArray();
+            var accepted = lines.Single(line => line.StartsWith("LAN accept ", StringComparison.Ordinal));
+            var fields = accepted.Split(' ').Where(value => value.Contains('=')).Select(value => value.Split('=', 2)).ToDictionary(value => value[0], value => value[1]);
+            var generation = long.Parse(fields["listenerGeneration"]);
+            Assert.IsTrue(generation > previousGeneration);
+            previousGeneration = generation;
+            Assert.IsTrue(int.Parse(fields["remotePort"]) > 0);
+            StringAssert.StartsWith(fields["localEndpoint"], "127.0.0.1:");
+            var completed = lines.Single(line => line.StartsWith("LAN request ", StringComparison.Ordinal) && line.Contains("result=", StringComparison.Ordinal));
+            StringAssert.Contains(completed, $"connectionId={fields["connectionId"]}");
+            StringAssert.Contains(completed, $"listenerGeneration={generation}");
+            StringAssert.Contains(completed, "path=<other>");
+            Assert.IsTrue(Array.FindIndex(lines, line => line.Contains("listener stopping ", StringComparison.Ordinal)) <
+                Array.FindIndex(lines, line => line.Contains("listener socket-stopped ", StringComparison.Ordinal)));
+            StringAssert.StartsWith(lines[^1], "LAN listener stopped ");
+            Assert.IsFalse(string.Join('\n', lines).Contains("never-log-secret", StringComparison.Ordinal));
+        }
+    }
+
+    [TestMethod]
+    public async Task DiagnosticSinkFailureDoesNotBreakListenerOrRequests()
+    {
+        using var corpus = new TokenCorpus();
+        await using var server = new TokenUsageSyncServer(new TokenUsageScanner(), "test-secret", corpus.Root,
+            diagnostic: _ => throw new IOException("diagnostic sink unavailable"));
+        server.Start(IPAddress.Loopback, 0);
+        using var client = new HttpClient();
+        using var response = await client.GetAsync($"http://127.0.0.1:{server.Port}/v1/quota");
+        Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.IsTrue(server.IsHealthy);
+    }
+
+    [TestMethod]
     public async Task LanServerEnforcesContractAndBearerAuthentication()
     {
         using var corpus = new TokenCorpus();

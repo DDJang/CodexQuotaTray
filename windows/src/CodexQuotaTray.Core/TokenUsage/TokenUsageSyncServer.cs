@@ -38,6 +38,9 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
     private Task? backgroundRefreshTask;
     private readonly HashSet<Task> activeClientTasks = [];
     private int peakActiveClientCount;
+    private static long nextListenerGeneration;
+    private long listenerGeneration;
+    private long nextConnectionId;
 
     public TokenUsageSyncServer(
         TokenUsageScanner scanner,
@@ -115,13 +118,22 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
             throw new ArgumentException("Token usage sync requires a private IPv4 address.", nameof(address));
         }
 
+        listenerGeneration = Interlocked.Increment(ref nextListenerGeneration);
+        RecordDiagnostic($"LAN listener starting bind={address} port={port} reason=start");
         listener = new TcpListener(address, port);
-        listener.Start();
+        try
+        {
+            listener.Start();
+        }
+        catch (SocketException error)
+        {
+            RecordDiagnostic($"LAN listener bind-failed bind={address} port={port} exceptionClass={error.GetType().Name} socketError={error.SocketErrorCode}");
+            throw;
+        }
         Address = address;
         Port = ((IPEndPoint)listener.LocalEndpoint).Port;
         acceptTask = AcceptLoopAsync(listener, lifetime.Token);
-        diagnostic($"LAN listener start bind={Address} port={Port}");
-        diagnostic($"LAN listener started address={Address}:{Port}");
+        RecordDiagnostic($"LAN listener started address={Address}:{Port}");
     }
 
     public static LanEndpointSelection? FindPrivateLanSelection(Action<string>? diagnostic = null)
@@ -181,8 +193,8 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         foreach (var item in ranked)
         {
             diagnostic?.Invoke(
-                $"LAN candidate interface={item.Candidate.SafeInterfaceId} type={item.Candidate.InterfaceType} " +
-                $"address={item.Candidate.Address} private={IsPrivateLanAddress(item.Candidate.Address)} " +
+                $"LAN candidate candidateInterface={item.Candidate.SafeInterfaceId} type={item.Candidate.InterfaceType} " +
+                $"address={item.Candidate.Address} prefixLength={item.PrefixLength} status={item.Candidate.Status} candidateInterfaceIndex={item.Candidate.InterfaceIndex} private={IsPrivateLanAddress(item.Candidate.Address)} " +
                 $"physical={item.Physical} virtualOrVpn={item.Virtual} onLinkGateway={item.OnLinkGateway}");
         }
 
@@ -275,9 +287,10 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
 
     private async Task DisposeCoreAsync()
     {
+        RecordDiagnostic($"LAN listener stopping address={Address}:{Port} reason=dispose");
         lifetime.Cancel();
         listener?.Stop();
-        diagnostic($"LAN listener stop requested address={Address}:{Port}");
+        RecordDiagnostic($"LAN listener socket-stopped address={Address}:{Port}");
         if (acceptTask is not null)
         {
             try
@@ -292,7 +305,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
             }
             catch (Exception error)
             {
-                diagnostic($"LAN listener completion fault={error.GetType().Name}");
+                RecordDiagnostic($"LAN listener completion fault={error.GetType().Name}");
             }
         }
 
@@ -308,6 +321,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         }
 
         lifetime.Dispose();
+        RecordDiagnostic($"LAN listener stopped address={Address}:{Port}");
     }
 
     private async Task AcceptLoopAsync(TcpListener activeListener, CancellationToken cancellationToken)
@@ -320,10 +334,16 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
             try
             {
                 client = await activeListener.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
-                diagnostic($"LAN accept remote={RemoteAddress(client)}");
-                var task = HandleClientWithinSlotAsync(client, cancellationToken);
+                var connection = $"remote={RemoteAddress(client)} remotePort={(client.Client.RemoteEndPoint as IPEndPoint)?.Port} localEndpoint={client.Client.LocalEndPoint} connectionId={Interlocked.Increment(ref nextConnectionId)}";
+                RecordDiagnostic($"LAN accept {connection}");
+                var task = HandleClientWithinSlotAsync(client, connection, cancellationToken);
                 TrackClientTask(task);
                 handedOff = true;
+            }
+            catch (SocketException error) when (!cancellationToken.IsCancellationRequested)
+            {
+                RecordDiagnostic($"LAN listener accept-failed exceptionClass={error.GetType().Name} socketError={error.SocketErrorCode}");
+                throw;
             }
             finally
             {
@@ -336,20 +356,21 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         }
     }
 
-    private async Task HandleClientWithinSlotAsync(TcpClient client, CancellationToken cancellationToken)
+    private async Task HandleClientWithinSlotAsync(TcpClient client, string connection, CancellationToken cancellationToken)
     {
         try
         {
-            await HandleClientAsync(client, cancellationToken).ConfigureAwait(false);
+            await HandleClientAsync(client, connection, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
-            diagnostic($"LAN client handler fault={error.GetType().Name}");
+            RecordDiagnostic($"LAN client handler fault={error.GetType().Name}");
         }
         finally
         {
             client.Dispose();
             clientSlots.Release();
+            RecordDiagnostic($"LAN connection closed {connection}");
         }
     }
 
@@ -386,17 +407,16 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         }
         catch (TimeoutException)
         {
-            diagnostic($"LAN shutdown drain timed out component={description} active={tasks.Count(task => !task.IsCompleted)}");
+            RecordDiagnostic($"LAN shutdown drain timed out component={description} active={tasks.Count(task => !task.IsCompleted)}");
         }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
-            diagnostic($"LAN shutdown drain fault component={description} fault={error.GetType().Name}");
+            RecordDiagnostic($"LAN shutdown drain fault component={description} fault={error.GetType().Name}");
         }
     }
 
-    private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
+    private async Task HandleClientAsync(TcpClient client, string connection, CancellationToken cancellationToken)
     {
-        var remote = RemoteAddress(client);
         var requestPath = "unavailable";
         var handlerEntered = false;
         try
@@ -414,24 +434,24 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     }
                     catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                     {
-                        RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 408, "SocketTimeoutException");
+                        RecordRequestResult(connection, requestPath, handlerEntered, "HTTP_FAILED", 408, "SocketTimeoutException");
                         return;
                     }
                 }
                 if (request is null)
                 {
                     await WriteResponseAsync(stream, 400, "Bad Request", null, cancellationToken).ConfigureAwait(false);
-                    RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 400);
+                    RecordRequestResult(connection, requestPath, handlerEntered, "HTTP_FAILED", 400);
                     return;
                 }
                 requestPath = SafePath(request.Path);
                 handlerEntered = true;
-                diagnostic($"LAN request remote={remote} path={requestPath} handler=entered=true");
+                RecordDiagnostic($"LAN request {connection} path={requestPath} handler=entered=true");
 
                 if (!string.Equals(request.Method, "GET", StringComparison.Ordinal))
                 {
                     await WriteResponseAsync(stream, 405, "Method Not Allowed", null, cancellationToken).ConfigureAwait(false);
-                    RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 405);
+                    RecordRequestResult(connection, requestPath, handlerEntered, "HTTP_FAILED", 405);
                     return;
                 }
 
@@ -439,14 +459,14 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     && !string.Equals(request.Path, "/v1/quota", StringComparison.Ordinal))
                 {
                     await WriteResponseAsync(stream, 404, "Not Found", null, cancellationToken).ConfigureAwait(false);
-                    RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 404);
+                    RecordRequestResult(connection, requestPath, handlerEntered, "HTTP_FAILED", 404);
                     return;
                 }
 
                 if (!Authorized(request.Authorization))
                 {
                     await WriteResponseAsync(stream, 401, "Unauthorized", null, cancellationToken).ConfigureAwait(false);
-                    RecordRequestResult(remote, requestPath, handlerEntered, "AUTH_FAILED", 401);
+                    RecordRequestResult(connection, requestPath, handlerEntered, "AUTH_FAILED", 401);
                     return;
                 }
 
@@ -456,13 +476,13 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     if (quota is null)
                     {
                         await WriteResponseAsync(stream, 503, "Service Unavailable", null, cancellationToken).ConfigureAwait(false);
-                        RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 503);
+                        RecordRequestResult(connection, requestPath, handlerEntered, "HTTP_FAILED", 503);
                         return;
                     }
 
                     var quotaBody = JsonSerializer.SerializeToUtf8Bytes(quota, JsonOptions);
                     await WriteResponseAsync(stream, 200, "OK", quotaBody, cancellationToken).ConfigureAwait(false);
-                    RecordRequestResult(remote, requestPath, handlerEntered, "SUCCESS", 200);
+                    RecordRequestResult(connection, requestPath, handlerEntered, "SUCCESS", 200);
                     return;
                 }
 
@@ -484,7 +504,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
                     snapshot.Days,
                 }, JsonOptions);
                 await WriteResponseAsync(stream, 200, "OK", body, cancellationToken).ConfigureAwait(false);
-                RecordRequestResult(remote, requestPath, handlerEntered, "SUCCESS", 200);
+                RecordRequestResult(connection, requestPath, handlerEntered, "SUCCESS", 200);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -492,13 +512,13 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         }
         catch (Exception error)
         {
-            RecordRequestResult(remote, requestPath, handlerEntered, "HTTP_FAILED", 500, error.GetType().Name);
+            RecordRequestResult(connection, requestPath, handlerEntered, "HTTP_FAILED", 500, error.GetType().Name);
             throw;
         }
     }
 
     private void RecordRequestResult(
-        string remote,
+        string connection,
         string path,
         bool handlerEntered,
         string result,
@@ -506,11 +526,20 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
         string? exceptionClass = null)
     {
         var exception = exceptionClass is null ? string.Empty : $" exceptionClass={exceptionClass}";
-        diagnostic($"LAN request remote={remote} path={path} handler=entered={handlerEntered.ToString().ToLowerInvariant()} result={result} status={status}{exception}");
+        RecordDiagnostic($"LAN request {connection} path={path} handler=entered={handlerEntered.ToString().ToLowerInvariant()} result={result} status={status}{exception}");
         try { requestObserved?.Invoke(); }
         catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
         {
-            diagnostic($"LAN request observer fault={error.GetType().Name}");
+            RecordDiagnostic($"LAN request observer fault={error.GetType().Name}");
+        }
+    }
+
+    private void RecordDiagnostic(string message)
+    {
+        try { diagnostic($"{message} listenerGeneration={listenerGeneration}"); }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            // Observability must not interrupt bind, accept, request handling or shutdown.
         }
     }
 
@@ -555,7 +584,7 @@ public sealed class TokenUsageSyncServer : IAsyncDisposable
     {
         try { _ = await RefreshSnapshotAsync(false, lifetime.Token).ConfigureAwait(false); }
         catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
-        catch (Exception error) { diagnostic($"Token background refresh fault={error.GetType().Name}"); }
+        catch (Exception error) { RecordDiagnostic($"Token background refresh fault={error.GetType().Name}"); }
     }
 
     private async Task<TokenUsageSnapshot> RefreshSnapshotAsync(bool forceRefresh, CancellationToken cancellationToken)

@@ -73,6 +73,12 @@ Bearer secret 使用固定时间比较。DNS-SD 只发布 `deviceId`、显示名
 - LAN listener 与 DNS-SD publisher 使用同一个 `LanEndpointSelection`：private IPv4 与 interface
   index。地址或 interface index 变化时，controller 重建 listener/publisher。
 - monitor 会检测 listener 是否 unhealthy；accept loop 异常或退出后自动重建。
+- LAN 诊断沿用有界持久化日志：UTC、进程随机 `processSession` 和单调时钟 `monotonicMs`
+  用于时间线对齐；`listenerGeneration` 标记每次 bind 尝试，`connectionId` 在该 listener 内关联
+  accept、请求结果和关闭。accept 日志记录本地 endpoint 与远端地址/端口，它发生在应用接收连接时，
+  不代表 TCP 握手开始或结束时刻。导出时额外采样本机网卡候选，不发起网络探测。
+  listener 摘要来自应用生命周期，不等同于 OS LISTEN 表；network profile 等未采集字段保持
+  unavailable。取证步骤与剩余缺口见 [TCP timeout 调查](investigations/windows/lan-intermittent-tcp-connect-timeout.md)。
 - DNS-SD registration、cancellation 和 deregistration 使用有界生命周期；pending registration
   取消后不依赖 registration callback 作为 terminal signal，deregistration completion 作为 native
   cleanup fence。

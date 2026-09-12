@@ -19,6 +19,32 @@ import java.util.concurrent.Callable
 import java.util.concurrent.Executors
 
 class LanDiagnosticsTest {
+    @Test fun latestSuccessIsNotPresentedAsThePreviousFailedAttempt() {
+        val text = AndroidLanDiagnosticsFormatter.format(
+            "test",
+            pairing().copy(
+                lastLanAttemptId = 38L,
+                lastLanAttemptChannel = "quota",
+                lastLanSuccessAtMillis = 2_000L,
+                lastLanFailureAtMillis = 1_000L,
+                lastLanFailurePhase = "TCP_CONNECT_TIMEOUT",
+            ),
+            null,
+            "",
+            3_000L,
+        )
+        val attempt = text.substringAfter("Last recorded attempt:").substringBefore("Last success:")
+        val success = text.substringAfter("Last success:").substringBefore("Last failure:")
+        val failure = text.substringAfter("Last failure:").substringBefore("Network:")
+        assertTrue(attempt.contains("attempt=38"))
+        assertFalse(attempt.contains("TCP_CONNECT_TIMEOUT"))
+        assertTrue(success.contains("1970-01-01T00:00:02.000Z"))
+        assertTrue(failure.contains("1970-01-01T00:00:01.000Z"))
+        assertTrue(failure.contains("phase=TCP_CONNECT_TIMEOUT"))
+        assertTrue(failure.contains("attempt=unavailable"))
+        assertFalse(failure.contains("attempt=38"))
+    }
+
     @Test fun networkCallbackRegistrationFailureAllowsRetryOnNextStart() {
         val lifecycle = LanNetworkLifecycleState()
         var attempts = 0
@@ -371,7 +397,9 @@ class LanDiagnosticsTest {
             nowMillis = 1_700_000_000_000L,
         )
 
-        assertTrue(text.contains("lastSuccess=unavailable"))
+        val success = text.substringAfter("Last success:").substringBefore("Last failure:")
+        assertTrue(success.contains("timestamp=unavailable"))
+        assertFalse(success.contains("2023-11-14"))
     }
 
     @Test fun formatterCanReuseTheLastRecordedRouteWithoutProbingTheNetwork() {

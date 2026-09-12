@@ -30,7 +30,7 @@ or `archive` directories.
 
 | Area | Investigation | Status | Outcome | Resolved by | Last verified |
 | --- | --- | --- | --- | --- | --- |
-| Windows | [LAN intermittent TCP connect timeout](windows/lan-intermittent-tcp-connect-timeout.md) | Active | Awaiting correlated Android, Windows listener, and packet-level evidence | — | 2026-09-06 |
+| Windows | [LAN intermittent TCP connect timeout](windows/lan-intermittent-tcp-connect-timeout.md) | Active | Phase 0 diagnostics added; awaiting correlated device logs, OS listener snapshot and packet evidence | — | 2026-09-12 |
 | Windows | [Panel wheel scrolling at 1080p](windows/panel-wheel-scroll-1080p.md) | Resolved | Conditional scrolling based on real content overflow | `61eaf12` | 2026-09-06 |
 | Windows | [.NET trimming experiment](windows/trim-experiment.md) | Closed / Not ready | `PublishTrimmed` remains disabled; trimmed Preview failed functional smoke | `99294ab` | 2026-08-31 |
 | Android | [Bottom-tabs chromatic text dispersion](android/bottom-tabs-chromatic-text-dispersion.md) | Closed / No production change | Options A–D rejected; production default rendering remains unchanged | `1c2d426` | 2026-09-06 |

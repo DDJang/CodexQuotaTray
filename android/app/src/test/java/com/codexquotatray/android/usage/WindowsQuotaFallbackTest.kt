@@ -19,6 +19,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.SocketTimeoutException
 
@@ -122,6 +123,26 @@ class WindowsQuotaFallbackTest {
         assertEquals(QuotaNetworkTimeouts.WINDOWS_CONNECT_TIMEOUT_MILLIS.toInt(), client.connectTimeoutMillis)
         assertEquals(QuotaNetworkTimeouts.WINDOWS_READ_TIMEOUT_MILLIS.toInt(), client.readTimeoutMillis)
         assertEquals(QuotaNetworkTimeouts.WINDOWS_CALL_TIMEOUT_MILLIS.toInt(), client.callTimeoutMillis)
+    }
+
+    @Test fun metadataOnlySaveIsNotReportedAsEndpointRelocation() {
+        val original = pairing()
+        val updated = original.copy(lastLanSuccessAtMillis = 123L)
+        val events = mutableListOf<String>()
+        val resolver = WindowsQuotaFallbackResolver(
+            pairingStore = object : TokenSyncPairingStore {
+                override fun load() = original
+                override fun save(pairing: TokenSyncPairing) = true
+            },
+            lanAvailability = object : LanAvailability { override fun isAvailable() = true },
+            fallbackClient = object : WindowsQuotaFallback {
+                override fun sync(pairing: TokenSyncPairing) = WindowsQuotaFallbackResult(windowsSuccess(), updated)
+            },
+            diagnostics = object : LanDiagnosticLogger { override fun record(message: String) { events += message } },
+        )
+        resolver.fetchWithPairing { throw networkFailure() }
+        assertTrue(events.any { it.contains("pairing metadata persisted=true endpointChanged=false") })
+        assertFalse(events.any { it.contains("relocated endpoint") })
     }
 
     @Test fun relocatedHostIsPersistedThroughTheExistingPairingStore() {
