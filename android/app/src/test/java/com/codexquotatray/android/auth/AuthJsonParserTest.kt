@@ -2,6 +2,7 @@ package com.codexquotatray.android.auth
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 class AuthJsonParserTest {
@@ -35,6 +36,18 @@ class AuthJsonParserTest {
     fun malformedOrIncompleteLegacyAuthIsIgnored() {
         assertNull(AuthJsonParser.parse("not json"))
         assertNull(AuthJsonParser.parse("{\"tokens\":{\"refresh_token\":\"only-refresh\"}}"))
+    }
+
+    @Test
+    fun persistedLoginIdentitySurvivesParsingAndRefreshButChangesOnNewLogin() {
+        val original = OAuthCredentials("fake-access", "fake-refresh").forNewLogin()
+        val parsed = AuthJsonParser.parse(
+            """{"tokens":{"access_token":"fake-access","refresh_token":"fake-refresh"},"cache_identity":"${original.cacheIdentity}"}""",
+        )!!
+        assertEquals(original.cacheIdentity, parsed.cacheIdentity)
+        assertEquals(parsed.cacheIdentity, parsed.withTokens("fake-new-access", "fake-new-refresh").cacheIdentity)
+        assertNotEquals(parsed.cacheIdentity, parsed.forNewLogin().cacheIdentity)
+        assertNull(AuthJsonParser.parse("""{"tokens":{"access_token":"fake-access"}}""")!!.cacheIdentity)
     }
 
     private fun testRefreshMillis(): Long =

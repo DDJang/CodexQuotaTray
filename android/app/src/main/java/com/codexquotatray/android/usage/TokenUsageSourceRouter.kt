@@ -21,6 +21,7 @@ internal data class TokenUsageSourceRead(
     val pairing: TokenSyncPairing? = null,
     val expectedPairing: TokenSyncPairing? = pairing,
     val identityStillCurrent: () -> Boolean = { true },
+    val openAICacheIdentity: String? = null,
 )
 
 internal fun interface TokenUsageProvider {
@@ -139,6 +140,7 @@ internal class OpenAIAccountTokenUsageProvider(
                 val expectedCredentials = credentials
                 TokenUsageSourceRead(
                     snapshot = snapshot,
+                    openAICacheIdentity = expectedCredentials.cacheIdentity,
                     identityStillCurrent = {
                         CredentialGeneration.current() == generation && credentialStore.load() == expectedCredentials
                     },

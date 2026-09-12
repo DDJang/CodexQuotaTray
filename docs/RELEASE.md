@@ -60,8 +60,9 @@ Windows 与 Android 正式 Release 当前只支持严格的 `MAJOR.MINOR.PATCH` 
   进行 release-specific publish/artifact verification。
 - Android 本地只构建/安装 Debug 的 **CodexQuotaTray Dev**，使用默认 debug 签名。
 - 本地 `-Mode Release` 验证不安装、签名或发布 Production；Android 本地开发也不读取 Release JKS 或 secret。
-- 正式 Production 的安装、产物构建与签名、平台 tag、GitHub Release 和正式发布只由既有发布状态机及
-  GitHub Actions 从 `main` 上的平台 tag 完成。
+- 相关 installer / packaging 开发任务所需的本地编译与打包验证按 [AGENTS.md](../AGENTS.md) 执行。
+  正式分发产物由既有发布状态机及 GitHub Actions 从 `main` 上的平台 tag 生成，按当前平台签名策略处理。
+  Production 安装属于独立的显式授权操作，不由构建或发布授权自动包含。
 - 真实账户、Explorer 托盘、系统通知和真机网络 smoke 都必须显式授权。
 
 ## 正式发布步骤
@@ -71,9 +72,10 @@ Windows 与 Android 正式 Release 当前只支持严格的 `MAJOR.MINOR.PATCH` 
 3. 确认 `main` 上的实际目标 commit、项目版本和 release notes 正确；Android `versionCode`
    必须大于既有 `android-v*` tag 历史中的最大值。
 4. 在该 `main` commit 创建对应平台 tag 并 push。
-5. Release workflow 执行 Release build、签名验证、产物校验、SHA-256 校验、release notes 和
-   `update-manifest` 验证，再创建 GitHub Release。完整测试、lint、format 和 Debug build 由 PR CI
-   负责；任何校验、签名或构建失败都不得发布。
+5. Release workflow 执行 Release build、产物与 SHA-256 校验及 release notes 检查；Android 额外执行
+   正式签名与签名验证，Windows 当前未接入项目产物签名，状态见 [CODE_SIGNING](CODE_SIGNING.md)。
+   GitHub Release 与资产创建成功后再发布对应 `update-manifest` 节点。完整测试、lint、format 和
+   Debug build 由 PR CI 负责；任何必需校验、签名或构建失败都不得继续发布。
 
 PR CI 是合并前验证；Release workflow 是正式发布验证。发布流程不再把 merge 后的普通 main CI
 作为额外的独立发布门禁。

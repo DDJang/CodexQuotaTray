@@ -36,6 +36,117 @@ function Assert-Matches {
     }
 }
 
+# Exercise the decision function without running the release script or contacting GitHub.
+$checkFunction = $ast.Find({ param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -ceq 'Get-ReleasePrCheckStatus'
+}, $true)
+if ($null -eq $checkFunction) { throw 'Missing platform CI decision function.' }
+. ([scriptblock]::Create($checkFunction.Extent.Text))
+function New-TestCheck([string]$Workflow, [string]$Name, [string]$Bucket = 'pass', [string]$State = 'SUCCESS', [string]$Event = 'pull_request') {
+    [pscustomobject]@{ workflow = $Workflow; name = $Name; bucket = $Bucket; state = $State; event = $Event }
+}
+$winVerify = New-TestCheck 'Windows CI' 'verify'
+$winPackage = New-TestCheck 'Windows CI' 'packaging-smoke'
+$androidDebug = New-TestCheck 'Android CI' 'debug'
+foreach ($case in @(
+    @{ Checks = @(); Platforms = @('Windows'); Ready = $false },
+    @{ Checks = @($winVerify); Platforms = @('Windows'); Ready = $false },
+    @{ Checks = @($winVerify, (New-TestCheck 'Windows CI' 'packaging-smoke' 'pending' 'IN_PROGRESS')); Platforms = @('Windows'); Ready = $false },
+    @{ Checks = @($winVerify, $winPackage); Platforms = @('Windows'); Ready = $true },
+    @{ Checks = @($androidDebug); Platforms = @('Android'); Ready = $true },
+    @{ Checks = @($winVerify, $winPackage); Platforms = @('Windows', 'Android'); Ready = $false },
+    @{ Checks = @($winVerify, $winPackage, $androidDebug); Platforms = @('Windows', 'Android'); Ready = $true },
+    @{ Checks = @((New-TestCheck 'Unrelated' 'debug')); Platforms = @('Android'); Ready = $false },
+    @{ Checks = @((New-TestCheck 'Android CI' 'debug' 'pass' 'SUCCESS' 'workflow_dispatch')); Platforms = @('Android'); Ready = $false },
+    @{ Checks = @($androidDebug, (New-TestCheck 'Windows CI' 'verify' 'fail' 'FAILURE')); Platforms = @('Android'); Ready = $true },
+    @{ Checks = @($androidDebug, (New-TestCheck 'Android CI' 'debug' 'fail' 'FAILURE' 'workflow_dispatch')); Platforms = @('Android'); Ready = $true },
+    @{ Checks = @($androidDebug, (New-TestCheck 'Android CI' 'optional' 'fail' 'FAILURE')); Platforms = @('Android'); Ready = $true },
+    @{ Checks = @((New-TestCheck 'Android CI' 'debug' 'pass' 'NEUTRAL')); Platforms = @('Android'); Ready = $false }
+)) {
+    $result = Get-ReleasePrCheckStatus -Checks $case.Checks -Platforms $case.Platforms
+    if ($result.Ready -ne $case.Ready) { throw "Wrong CI gate result: $($case | ConvertTo-Json -Depth 5 -Compress)" }
+}
+foreach ($bucket in @('fail', 'cancel', 'error', 'skipping')) {
+    $rejected = $false
+    try { Get-ReleasePrCheckStatus -Checks @((New-TestCheck 'Android CI' 'debug' $bucket 'FAILURE')) -Platforms Android | Out-Null }
+    catch { $rejected = $true }
+    if (-not $rejected) { throw "CI gate accepted $bucket for a required job." }
+}
+# Exercise the actual polling function with captured CLI responses, without sleeping
+# or contacting GitHub. A module keeps the fake commands and script state isolated.
+$waitFunction = $ast.Find({ param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -ceq 'Wait-PrChecks'
+}, $true)
+if ($null -eq $waitFunction) { throw 'Missing PR check polling function.' }
+$null = New-Module -ArgumentList $checkFunction.Extent.Text, $waitFunction.Extent.Text -ScriptBlock {
+    param($DecisionSource, $WaitSource)
+    Set-StrictMode -Version Latest
+    . ([scriptblock]::Create($DecisionSource))
+    . ([scriptblock]::Create($WaitSource))
+    $script:Gh = 'offline-gh'
+    $script:SelectedPlatforms = @('Android')
+    $TimeoutMinutes = 1
+    $pass = '[{"workflow":"Android CI","name":"debug","event":"pull_request","bucket":"pass","state":"SUCCESS"}]'
+    $pending = $pass.Replace('"pass"', '"pending"').Replace('SUCCESS', 'IN_PROGRESS')
+    $fail = $pass.Replace('"pass"', '"fail"').Replace('SUCCESS', 'FAILURE')
+    $manualFail = $fail.Replace('pull_request', 'workflow_dispatch')
+    $optionalFail = $fail.Replace('debug', 'optional')
+    foreach ($case in @(
+        @{ Responses = @(@{ ExitCode = 8; Text = $pending }, @{ ExitCode = 0; Text = $pass }); Sleeps = 1; Error = $null },
+        @{ Responses = @(@{ ExitCode = 0; Text = $pending }, @{ ExitCode = 0; Text = $pass }); Sleeps = 1; Error = $null },
+        @{ Responses = @(@{ ExitCode = 1; Text = 'no checks reported on branch' }, @{ ExitCode = 0; Text = $pass }); Sleeps = 1; Error = $null },
+        @{ Responses = @(@{ ExitCode = 0; Text = '[]' }, @{ ExitCode = 0; Text = $pass }); Sleeps = 1; Error = $null },
+        @{ Responses = @(@{ ExitCode = 1; Text = $fail }); Sleeps = 0; Error = 'Required PR check failed*' },
+        @{ Responses = @(@{ ExitCode = 1; Text = ($pass.TrimEnd(']') + ',' + $manualFail.TrimStart('[')) }); Sleeps = 0; Error = $null },
+        @{ Responses = @(@{ ExitCode = 1; Text = ($pass.TrimEnd(']') + ',' + $optionalFail.TrimStart('[')) }); Sleeps = 0; Error = $null },
+        @{ Responses = @(@{ ExitCode = 1; Text = 'authentication failed' }); Sleeps = 0; Error = 'Could not read PR checks*' },
+        @{ Responses = @(@{ ExitCode = 8; Text = '[invalid JSON' }); Sleeps = 0; Error = 'Could not read PR checks*' },
+        @{ Responses = @(@{ ExitCode = 1; Text = '{}' }); Sleeps = 0; Error = 'Could not read PR checks*' },
+        @{ Responses = @(@{ ExitCode = 4; Text = $pass }); Sleeps = 0; Error = 'Could not read PR checks*' }
+    )) {
+        $pollState = @{ Calls = 0; Sleeps = 0 }
+        function Invoke-Captured {
+            param($FilePath, $Arguments)
+            if ($FilePath -cne 'offline-gh' -or
+                ($Arguments -join ' ') -cne 'pr checks 123 --json name,state,bucket,workflow,link,event') {
+                throw 'Unexpected gh invocation.'
+            }
+            if ($pollState.Calls -ge $case.Responses.Count) { throw 'Unexpected extra poll.' }
+            $response = $case.Responses[$pollState.Calls]
+            $pollState.Calls++
+            return [pscustomobject]$response
+        }
+        function Start-Sleep {
+            param($Seconds)
+            if ($Seconds -ne 15) { throw 'Unexpected polling interval.' }
+            $pollState.Sleeps++
+        }
+        $actualError = $null
+        try { Wait-PrChecks -Number 123 }
+        catch { $actualError = $_.Exception.Message }
+        if (($null -eq $case.Error -and $null -ne $actualError) -or
+            ($null -ne $case.Error -and ($null -eq $actualError -or $actualError -notlike $case.Error))) {
+            throw "Unexpected polling error: $actualError; expected: $($case.Error)"
+        }
+        if ($pollState.Calls -ne $case.Responses.Count -or $pollState.Sleeps -ne $case.Sleeps) {
+            throw "Wrong polling behavior: $($pollState | ConvertTo-Json -Compress)"
+        }
+    }
+}
+
+foreach ($workflow in @(
+    @{ Path = '.github/workflows/windows-ci.yml'; Name = 'Windows CI'; Jobs = @('verify', 'packaging-smoke') },
+    @{ Path = '.github/workflows/android-ci.yml'; Name = 'Android CI'; Jobs = @('debug') }
+)) {
+    $yaml = [IO.File]::ReadAllText((Join-Path $repoRoot $workflow.Path))
+    Assert-Matches $yaml ('(?m)^name: ' + [regex]::Escape($workflow.Name) + '\s*$') 'CI workflow name drifted from the release gate.'
+    foreach ($job in $workflow.Jobs) {
+        Assert-Matches $yaml ('(?m)^  ' + [regex]::Escape($job) + ':\s*$') 'Required CI job drifted from the release gate.'
+    }
+}
+
 $platformParameter = @($ast.ParamBlock.Parameters | Where-Object {
     $_.Name.VariablePath.UserPath -ceq 'Platform'
 })
@@ -507,7 +618,7 @@ if "%1"=="pr" if "%2"=="view" (
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="checks" (
-  echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
+  echo [{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/package"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="merge" (
@@ -609,7 +720,7 @@ if "%1"=="pr" if "%2"=="view" (
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="checks" (
-  echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
+  echo [{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/package"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="merge" (
@@ -672,7 +783,7 @@ if "%1"=="pr" if "%2"=="checks" (
   if errorlevel 1 exit /b 91
   git push origin HEAD:$headDriftBranch >nul 2>nul
   if errorlevel 1 exit /b 92
-  echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
+  echo [{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/package"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="merge" (
@@ -689,7 +800,7 @@ exit /b 99
     $headDriftExitCode = $LASTEXITCODE
     $headDriftText = ($headDriftOutput -join [Environment]::NewLine)
     if ($headDriftExitCode -eq 0 -or
-        $headDriftText -notmatch 'All visible PR checks passed for #45' -or
+        $headDriftText -notmatch 'All required selected-platform PR checks passed for #45' -or
         $headDriftText -notmatch 'headRefOid .* does not match release branch HEAD') {
         throw "Release PR head-drift regression did not fail closed after successful CI. Output: $headDriftText"
     }
@@ -724,7 +835,7 @@ if "%1"=="pr" if "%2"=="view" (
 )
 if "%1"=="pr" if "%2"=="checks" (
   git -C "$resumeRepo" push origin refs/heads/main:refs/heads/main >nul 2>nul
-  echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
+  echo [{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/package"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="merge" (
@@ -795,7 +906,7 @@ if "%1"=="pr" if "%2"=="checks" (
   if errorlevel 1 exit /b 93
   git switch $baseRefDriftBranch >nul 2>nul
   if errorlevel 1 exit /b 94
-  echo [{"name":"Windows PR","state":"SUCCESS","bucket":"pass","workflow":"windows-ci","link":"https://example.invalid/check"}]
+  echo [{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/package"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="merge" (
@@ -812,7 +923,7 @@ exit /b 99
     $baseRefDriftExitCode = $LASTEXITCODE
     $baseRefDriftText = ($baseRefDriftOutput -join [Environment]::NewLine)
     if ($baseRefDriftExitCode -eq 0 -or
-        $baseRefDriftText -notmatch 'All visible PR checks passed for #46' -or
+        $baseRefDriftText -notmatch 'All required selected-platform PR checks passed for #46' -or
         $baseRefDriftText -notmatch 'baseRefOid changed after PR checks') {
         throw "Release PR refreshed-base drift regression did not fail closed after main advanced. Output: $baseRefDriftText"
     }
