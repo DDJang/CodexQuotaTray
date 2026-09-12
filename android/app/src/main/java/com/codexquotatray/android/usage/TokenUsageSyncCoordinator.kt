@@ -1,6 +1,7 @@
 package com.codexquotatray.android.usage
 
 import android.content.Context
+import com.codexquotatray.android.auth.CodexProcessLock
 import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import java.io.IOException
 
@@ -40,29 +41,35 @@ internal class TokenUsageSyncCoordinator(
         val router = checkNotNull(sourceRouter) { "A routed Token coordinator is required" }
         return TokenUsageSyncSingleFlight.runRefresh(router.singleFlightIdentity(forceRefresh)) {
             val read = router.read(forceRefresh)
-            TokenUsagePairingLifecycle.withLock {
-                if (!read.identityStillCurrent()) throw TokenUsageCommitException()
-                val committed = when (read.snapshot.transport) {
-                    DataTransport.OPENAI -> cache.saveOpenAI(read.snapshot)
-                    DataTransport.WINDOWS -> {
-                        val expected = read.expectedPairing ?: throw TokenUsagePairingChangedException()
-                        val resolved = read.pairing ?: throw TokenUsagePairingChangedException()
-                        val current = pairingStore.load()
-                        if (current == null || !current.matchesConfiguration(expected)) {
-                            throw TokenUsagePairingChangedException()
+            // Same lock order as logout: OAuth lifecycle, then pairing/cache commit.
+            synchronized(CodexProcessLock.monitor) {
+                TokenUsagePairingLifecycle.withLock {
+                    if (!read.identityStillCurrent()) throw TokenUsageCommitException()
+                    val committed = when (read.snapshot.transport) {
+                        DataTransport.OPENAI -> cache.saveOpenAI(
+                            read.snapshot,
+                            read.openAICacheIdentity ?: throw TokenUsageCommitException(),
+                        )
+                        DataTransport.WINDOWS -> {
+                            val expected = read.expectedPairing ?: throw TokenUsagePairingChangedException()
+                            val resolved = read.pairing ?: throw TokenUsagePairingChangedException()
+                            val current = pairingStore.load()
+                            if (current == null || !current.matchesConfiguration(expected)) {
+                                throw TokenUsagePairingChangedException()
+                            }
+                            if (!resolved.deviceId.equals(expected.deviceId, ignoreCase = true)) {
+                                throw TokenUsagePairingChangedException()
+                            }
+                            if (!cache.save(expected, read.snapshot)) throw TokenUsageCommitException()
+                            val updated = TokenSyncEndpoint.markSynced(resolved, read.snapshot)
+                            if (!pairingStore.saveIfCurrent(expected, updated)) throw TokenUsageCommitException()
+                            true
                         }
-                        if (!resolved.deviceId.equals(expected.deviceId, ignoreCase = true)) {
-                            throw TokenUsagePairingChangedException()
-                        }
-                        if (!cache.save(expected, read.snapshot)) throw TokenUsageCommitException()
-                        val updated = TokenSyncEndpoint.markSynced(resolved, read.snapshot)
-                        if (!pairingStore.saveIfCurrent(expected, updated)) throw TokenUsageCommitException()
-                        true
                     }
+                    if (!committed) throw TokenUsageCommitException()
+                    notifyCompleted()
+                    TokenUsageRefreshResult(read.snapshot, read.pairing)
                 }
-                if (!committed) throw TokenUsageCommitException()
-                notifyCompleted()
-                TokenUsageRefreshResult(read.snapshot, read.pairing)
             }
         }
     }

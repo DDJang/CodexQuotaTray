@@ -1313,7 +1313,7 @@ public sealed class QuotaRuntimeService :
         SetCurrent(projector.Project(latestNormalized, cache.LastSuccessUtc, Settings.ShowRemainingPercent, Settings.Use24HourTime));
     }
 
-    private static QuotaLanSnapshot ToLanSnapshot(NormalizedQuotaSnapshot snapshot, DateTimeOffset generatedAtUtc)
+    internal static QuotaLanSnapshot ToLanSnapshot(NormalizedQuotaSnapshot snapshot, DateTimeOffset generatedAtUtc)
     {
         var visibleWindows = snapshot.Windows
             .Where(window => QuotaBucketPolicy.IsCanonical(window.BucketId))
@@ -1343,7 +1343,7 @@ public sealed class QuotaRuntimeService :
             : new QuotaLanResetCredits(
                 snapshot.ResetCredits.AvailableCount,
                 snapshot.ResetCredits.Credits?.Select(credit => new QuotaLanResetCredit(
-                    credit.Id,
+                    Id: null,
                     credit.ResetType,
                     credit.Status,
                     credit.GrantedAtUtc?.ToUnixTimeSeconds(),

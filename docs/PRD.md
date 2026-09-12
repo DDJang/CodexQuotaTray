@@ -7,7 +7,8 @@
 
 ## 共同需求
 
-- 展示所有可识别额度窗口的剩余百分比、名称、重置时间和数据状态。
+- 展示 canonical `codex` bucket 内所有可识别额度窗口的剩余百分比、名称、重置时间和数据状态；
+  其他 bucket 不进入用户展示，识别与缺失值规则见 [API_CONTRACT](API_CONTRACT.md)。
 - 不把 `primary` / `secondary` 固定解释为特定周期；缺失、未知和 malformed 数据不显示为零。
 - 刷新失败保留最后有效数据，并区分刷新中、过期、离线、未登录和不可用。
 - 支持手动刷新、可配置后台刷新、主题和脱敏诊断。
@@ -16,12 +17,13 @@
 
 ## Windows 客户端
 
-- 使用本机 Codex CLI 既有认证，通过 App Server 读取额度。
+- 额度来源可选择本机 Codex CLI App Server（默认，复用 CLI 既有认证）或独立 OAuth。
 - 账户页分别展示 Codex CLI 与独立 OAuth 账户；数据来源按额度与统计分别选择并立即生效，未登录的
   账户来源不可选择。OAuth 登录成功后自动将额度来源切换为 OAuth，统计来源保持独立选择；切换失败时
   保留登录状态并提示重试。额度读取失败且没有可展示数据时，面板提供直达设置账户页的登录入口。
 - 提供主面板、设置、托盘入口、开机启动、缓存和提醒。
-- 主面板以额度/统计双页展示额度窗口和本机 Token 日聚合、摘要与热力图。
+- 主面板以额度/统计双页展示额度窗口和 Token 日聚合、摘要与热力图；统计来源独立选择
+  本机 Local（默认）、Codex CLI 账户使用量或 OAuth 账户使用量，各来源不合并。
 - 关闭窗口后保持低资源后台运行；显式退出才结束进程。
 - Debug/Dev 与 Production 可同时运行，设置、缓存、启动项、托盘和 LAN 身份互不覆盖。
 - 可由用户启用私人 LAN 服务，向已配对 Android 提供聚合 Token 使用量和最后成功额度快照。
@@ -41,8 +43,9 @@
 
 ## Token 使用量同步
 
-- Windows 只扫描本机 Codex session 中的 `token_count` 事件时间戳和数字计数，以 SQLite 增量账本保留
-  已确认的本机历史，并生成日聚合与摘要；原始 JSONL 后续移动或删除不移除已入账数据。
+- Windows Local 来源扫描本机 Codex session 中的 `token_count` 事件时间戳和数字计数，以及
+  会话归属与 fork 去重所需的最小元数据，以 SQLite 增量账本保留已确认的本机历史，并生成日聚合
+  与摘要；原始 JSONL 后续移动或删除不移除已入账数据。字段边界见 [PRIVACY](PRIVACY.md)。
 - Windows 可按设置保存最小日聚合统计缓存，用于启动时快速恢复统计页；关闭后删除该缓存。
 - Android 必须由用户扫码或手动输入进行配对；LAN 只接受私人 IPv4，不跟随 redirect。
 - 配对 secret 与 OAuth 凭据分开加密；Windows Token 缓存绑定 `deviceId`，OpenAI Account Token

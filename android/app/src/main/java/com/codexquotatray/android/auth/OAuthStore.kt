@@ -99,7 +99,7 @@ class OAuthStore(context: Context) {
         )) {
             // A corrupted encrypted record is still authoritative. Never
             // fall back to a stale plaintext file after encryption was used.
-            LegacyAuthLoadPath.ENCRYPTED -> encrypted?.let(::decrypt)
+            LegacyAuthLoadPath.ENCRYPTED -> encrypted?.let(::decrypt)?.let(::ensureCacheIdentity)
             LegacyAuthLoadPath.UNAVAILABLE -> null
             LegacyAuthLoadPath.LEGACY -> migrateLegacyCredentials()
         }
@@ -115,7 +115,12 @@ class OAuthStore(context: Context) {
     }
 
     fun save(credentials: OAuthCredentials): Boolean = synchronized(OAuthStoreLock.monitor) {
-        saveUnlocked(credentials).also { if (it) pendingWrite.clear() }
+        saveUnlocked(credentials.forNewLogin()).also {
+            if (it) {
+                CredentialGeneration.invalidate()
+                pendingWrite.clear()
+            }
+        }
     }
 
     fun saveRefreshed(credentials: OAuthCredentials) = synchronized(OAuthStoreLock.monitor) {
@@ -150,14 +155,22 @@ class OAuthStore(context: Context) {
             markMigrationCompleted()
             return null
         }
-        if (!saveUnlocked(migrated)) return null
+        val identified = migrated.forNewLogin()
+        if (!saveUnlocked(identified)) return null
         markMigrationCompleted()
         runCatching { legacyAuthFile.delete() }
-        return migrated
+        return identified
+    }
+
+    private fun ensureCacheIdentity(credentials: OAuthCredentials): OAuthCredentials? {
+        if (!credentials.cacheIdentity.isNullOrBlank()) return credentials
+        val identified = credentials.forNewLogin()
+        return identified.takeIf { saveUnlocked(it) }
     }
 
     private fun saveUnlocked(credentials: OAuthCredentials): Boolean = runCatching {
         val payload = JSONObject()
+            .put("cache_identity", credentials.cacheIdentity)
             .put(
                 "tokens",
                 JSONObject()
@@ -256,6 +269,7 @@ internal object AuthJsonParser {
             accountId = accountId,
             accessTokenExpiresAtSeconds = expires,
             lastRefreshMillis = parseTime(root.opt("last_refresh") ?: root.opt("lastRefresh")),
+            cacheIdentity = string(root, "cache_identity"),
         )
     }
 

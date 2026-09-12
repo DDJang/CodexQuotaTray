@@ -1,14 +1,29 @@
 # Windows 1080p 面板滚轮轻微滚动问题：调查与修复记录
 
+## 已实施结果
+
+修复提交：`61eaf12`。状态与最后验证日期见[调查索引](../README.md)。
+
+- [`PopupPlacement.ResolveContentSizing`](../../../windows/src/CodexQuotaTray.Core/Presentation/PopupPlacement.cs)
+  统一计算自然内容高度、工作区可用高度、目标 client 高度与 `NeedsVerticalScroll`，默认容差为 1 DIP。
+- [`MainWindow.xaml`](../../../windows/src/CodexQuotaTray.App/Views/MainWindow.xaml) 默认关闭纵向滚动；
+  [`MainWindow.xaml.cs`](../../../windows/src/CodexQuotaTray.App/Views/MainWindow.xaml.cs) 根据上述结果
+  切换滚动模式与滚动条，回到 fit 模式时归零 offset，仅在属性变化时更新。
+- [`WindowBehaviorTests`](../../../windows/tests/CodexQuotaTray.Tests/WindowBehaviorTests.cs) 包含
+  fit、微小取整溢出、真实溢出及结构回归检查。下文完整设备矩阵保留为回归目标，不代表这些场景
+  都已完成 GUI 验收；本次文档核对没有新增真机或 GUI 验证结果。
+
+下文保留修复前的分析与方案。历史段落中的“当前”“现有”均指修复前基线，不是待实施任务。
+
 ## 背景与现象
 
 在 Windows 端面板中，1920×1080 环境下使用鼠标滚轮上下滚动时，面板主体会发生一小段上下位移；原先的高分辨率环境下没有可感知滚动。
 
 这个现象不是“1080p 下滚轮事件异常”，而是 1080p/当前 DPI 与窗口几何组合让 `ScrollViewer` 出现了很小的正 `ScrollableHeight`，而高分辨率环境下最终布局没有产生这段溢出。
 
-## 调查结论
+## 修复前调查结论
 
-### 1. 面板当前明确允许纵向滚动
+### 1. 修复前面板明确允许纵向滚动
 
 `windows/src/CodexQuotaTray.App/Views/MainWindow.xaml` 中的主体容器为：
 
@@ -78,7 +93,7 @@ PanelScroller.ExtentHeight > PanelScroller.ViewportHeight
 4. 不通过盲目增大固定窗口高度来规避问题。
 5. 避免 `SizeChanged -> resize -> layout -> SizeChanged` 的尺寸反馈循环。
 
-## 推荐修复方案
+## 历史修复方案
 
 ### 1. 将“窗口高度策略”和“是否允许滚动”统一到同一套几何判断
 
@@ -183,7 +198,7 @@ actualClientSize
 
 只有在产品明确保证窗口内容在所有支持环境都必然能完整放入工作区时才可采用。当前实现已经使用 `Auto`，更稳妥的方案是保留“真实溢出时可滚动”的 fallback。
 
-## 实现步骤
+## 历史实施步骤
 
 1. 在 1920×1080 环境抓取现有布局诊断，确认 `ExtentHeight - ViewportHeight` 的实际差值。
 2. 在原高分辨率环境抓取同一组数据作为对照。

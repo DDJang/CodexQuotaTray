@@ -12,6 +12,7 @@ properties 为准。更新依赖时必须同步审查许可证、维护状态、
 | Microsoft.WindowsAppSDK | WinUI 3 编译时 SDK reference；版本以 `windows/Directory.Packages.props` 为准 |
 | Microsoft Windows App Runtime | unpackaged WinUI 3 的共享运行时；固定的 x64 standalone installer 版本、下载源、SHA-256 和 Microsoft Authenticode publisher 以 [`windows-app-runtime.json`](../windows/installer/windows-app-runtime.json) 为准 |
 | CommunityToolkit.Mvvm | ViewModel 与 MVVM 基础 |
+| Microsoft.Data.Sqlite | Local Token 增量账本与日聚合查询 |
 | ZXing.Net | 本地生成 Windows 配对二维码 |
 | MSTest.Sdk | 离线测试平台 |
 
@@ -29,6 +30,7 @@ Windows 客户端保持 unpackaged 普通 EXE；.NET runtime 继续使用 self-c
 | Android Gradle Plugin、Gradle Wrapper、Kotlin | 构建工具链 |
 | AndroidX Activity Compose、Compose UI/Foundation/Animation、Material 3 | UI 与系统控件 |
 | Kyant Backdrop、Shapes | Compose 玻璃与形状绘制 |
+| Haze、Haze Blur | Compose 背景模糊与表面效果 |
 | OkHttp | OAuth、Direct quota 与 LAN HTTP |
 | ZXing Android Embedded | 扫描配对二维码 |
 | AndroidX WorkManager、Core KTX | 后台调度与平台兼容 |

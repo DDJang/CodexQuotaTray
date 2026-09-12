@@ -4,12 +4,14 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.nio.file.Files
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import com.codexquotatray.android.auth.OAuthCredentials
 import com.codexquotatray.android.tokenSummaryValueLabel
+import com.codexquotatray.android.tokenSnapshotForLoginIdentity
 
 class OpenAIAccountTokenUsageTest {
     private val now = ZonedDateTime.of(2026, 8, 23, 12, 0, 0, 0, ZoneId.of("Asia/Shanghai"))
@@ -102,17 +104,52 @@ class OpenAIAccountTokenUsageTest {
                 "secret",
             )
             val openAI = snapshot(DataTransport.OPENAI, TokenUsageScope.ACCOUNT)
-            assertTrue(cache.saveOpenAI(openAI))
-            assertNull(cache.loadForAvailableSources(pairing, hasOAuth = false))
-            assertEquals(openAI, cache.loadForAvailableSources(null, hasOAuth = true))
+            assertTrue(cache.saveOpenAI(openAI, "login-a"))
+            assertNull(cache.loadForAvailableSources(pairing, openAICacheIdentity = null))
+            assertEquals(openAI, cache.loadForAvailableSources(null, openAICacheIdentity = "login-a"))
 
             val local = snapshot(DataTransport.WINDOWS, TokenUsageScope.LOCAL)
             assertTrue(cache.save(pairing, local))
-            assertNull(cache.loadForAvailableSources(null, hasOAuth = true))
-            assertEquals(local, cache.loadForAvailableSources(pairing, hasOAuth = false))
+            assertNull(cache.loadForAvailableSources(null, openAICacheIdentity = "login-a"))
+            assertEquals(local, cache.loadForAvailableSources(pairing, openAICacheIdentity = null))
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    @Test fun reloginAndLegacyOpenAICachesCannotRestoreAnotherLoginHistory() {
+        val root = Files.createTempDirectory("token-login-cache").toFile()
+        try {
+            val file = root.resolve("cache.json")
+            val firstLogin = OAuthCredentials("fake-access", "fake-refresh").forNewLogin()
+            val secondLogin = firstLogin.forNewLogin()
+            val openAI = snapshot(DataTransport.OPENAI, TokenUsageScope.ACCOUNT)
+            val cache = TokenUsageCache.forTest(file)
+            assertTrue(cache.saveOpenAI(openAI, firstLogin.cacheIdentity!!))
+            // A new cache instance models process restart; refresh retains the login identity.
+            val restarted = TokenUsageCache.forTest(file)
+            val refreshed = firstLogin.withTokens("fake-rotated-access", "fake-rotated-refresh")
+            assertEquals(openAI, restarted.loadForAvailableSources(null, refreshed.cacheIdentity))
+            assertNull(restarted.loadForAvailableSources(null, null))
+            assertNull(restarted.loadForAvailableSources(null, secondLogin.cacheIdentity))
+            assertFalse(file.readText().contains("fake-access"))
+
+            val legacy = JSONObject(file.readText()).put("pairingIdentity", "openai-account")
+            file.writeText(legacy.toString())
+            assertNull(restarted.loadForAvailableSources(null, firstLogin.cacheIdentity))
+            assertFalse(cache.saveOpenAI(openAI, ""))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test fun inMemoryOpenAIProjectionIsClearedWhenLoginChangesOrExpires() {
+        val openAI = snapshot(DataTransport.OPENAI, TokenUsageScope.ACCOUNT)
+        assertNull(tokenSnapshotForLoginIdentity(openAI, "login-a", "login-b"))
+        assertNull(tokenSnapshotForLoginIdentity(openAI, "login-a", null))
+        assertEquals(openAI, tokenSnapshotForLoginIdentity(openAI, "login-a", "login-a"))
+        val windows = snapshot(DataTransport.WINDOWS, TokenUsageScope.LOCAL)
+        assertEquals(windows, tokenSnapshotForLoginIdentity(windows, "login-a", "login-b"))
     }
 
     private fun wireJson(metadata: String = "") = """

@@ -345,6 +345,28 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public void LanProjectionRemovesCreditIdsWithoutChangingAlertInputsOrNullableDetails()
+    {
+        var normalized = QuotaNormalizer.Normalize(LoadFixture("rate_limits_reset_credits.json", true));
+        var original = normalized.ResetCredits.Credits![0] with { Id = "anonymous-credit-must-not-leave-runtime" };
+        normalized = normalized with { ResetCredits = normalized.ResetCredits with { Credits = [original] } };
+        var projected = CodexQuotaTray.Core.Runtime.QuotaRuntimeService.ToLanSnapshot(normalized, DateTimeOffset.UtcNow);
+
+        Assert.IsNull(projected.ResetCredits!.Credits![0].Id);
+        Assert.AreEqual(original.Id, normalized.ResetCredits.Credits![0].Id);
+        Assert.AreEqual((long?)normalized.ResetCredits.AvailableCount, projected.ResetCredits.AvailableCount);
+        Assert.AreEqual(original.ExpiresAtUtc?.ToUnixTimeSeconds(), projected.ResetCredits.Credits[0].ExpiresAt);
+        Assert.IsFalse(JsonSerializer.Serialize(projected).Contains(original.Id!, StringComparison.Ordinal));
+
+        var missing = normalized with { ResetCredits = normalized.ResetCredits with { Credits = null } };
+        Assert.IsNull(CodexQuotaTray.Core.Runtime.QuotaRuntimeService.ToLanSnapshot(missing, DateTimeOffset.UtcNow).ResetCredits!.Credits);
+        var empty = normalized with { ResetCredits = normalized.ResetCredits with { Credits = [] } };
+        Assert.HasCount(0, CodexQuotaTray.Core.Runtime.QuotaRuntimeService.ToLanSnapshot(empty, DateTimeOffset.UtcNow).ResetCredits!.Credits!);
+        Assert.IsNull(CodexQuotaTray.Core.Runtime.QuotaRuntimeService.ToLanSnapshot(
+            normalized with { ResetCreditsFieldPresent = false }, DateTimeOffset.UtcNow).ResetCredits);
+    }
+
+    [TestMethod]
     public void ResetCreditInvalidTimestamps_DoNotThrowAndYieldCountOnly()
     {
         using var negative = JsonDocument.Parse("-1");

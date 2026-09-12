@@ -118,6 +118,11 @@ Android: android\gradlew.bat -p android :app:testDebugUnitTest :app:lintDebug :a
 
 PR CI 是合并前验证。脚本使用 GitHub CLI 查询 PR checks 的真实状态，直到相关检查全部成功；失败、取消或错误立即停止，不执行 merge。PR CI 全通过后使用 squash merge 合并到 `main`。
 
+等待条件以所选平台的必需 workflow/job 集合为准，不能仅凭已经出现的检查全部通过就继续。
+每个必需 job 必须来自 `pull_request` 且明确 `SUCCESS`；缺失或运行中继续有界等待，跳过则停止。
+单平台发布不以未选平台的检查作为门禁。集合由 `scripts/publish-release.ps1` 定义，离线测试
+核对它与对应 CI workflow 的名称和 job 标识保持一致。
+
 普通 CI 只由 PR 和显式 `workflow_dispatch` 触发；merge 到 `main` 不会再次触发重复的普通 CI。
 
 ### 9. 确认实际 main commit

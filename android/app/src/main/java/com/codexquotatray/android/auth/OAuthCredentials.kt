@@ -1,6 +1,7 @@
 package com.codexquotatray.android.auth
 
 import java.util.concurrent.TimeUnit
+import java.util.UUID
 
 data class OAuthCredentials(
     val accessToken: String,
@@ -9,7 +10,11 @@ data class OAuthCredentials(
     val accountId: String? = null,
     val accessTokenExpiresAtSeconds: Long? = null,
     val lastRefreshMillis: Long? = null,
+    val cacheIdentity: String? = null,
 ) {
+    /** Random local login identity, never derived from account identifiers or tokens. */
+    fun forNewLogin(): OAuthCredentials = copy(cacheIdentity = UUID.randomUUID().toString())
+
     fun needsRefresh(nowMillis: Long = System.currentTimeMillis()): Boolean {
         val expiresAt = accessTokenExpiresAtSeconds
         if (expiresAt != null) {

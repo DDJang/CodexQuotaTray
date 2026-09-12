@@ -10,8 +10,61 @@ import java.time.LocalDate
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
+import com.codexquotatray.android.source.DataSourcePriority
+import com.codexquotatray.android.source.DataSourcePrioritySettings
+import com.codexquotatray.android.source.DataSourcePriorityStore
 
 class TokenUsageSyncCoordinatorTest {
+    @Test
+    fun routedOpenAICommitRequiresTheOriginalLoginAndPersistsItsIdentity() {
+        for (currentIdentity in listOf("login-a", "login-b", null)) {
+            var savedIdentity: String? = null
+            var notified = false
+            val source = snapshot().copy(transport = DataTransport.OPENAI, scope = TokenUsageScope.ACCOUNT)
+            val router = TokenUsageSourceRouter(
+                priorityStore = object : DataSourcePriorityStore {
+                    override fun load() = DataSourcePrioritySettings(token = DataSourcePriority.OPENAI_FIRST)
+                    override fun save(value: DataSourcePrioritySettings) = true
+                },
+                hasOpenAI = { true },
+                hasWindows = { false },
+                openAI = TokenUsageProvider {
+                    TokenUsageSourceRead(
+                        snapshot = source,
+                        openAICacheIdentity = "login-a",
+                        identityStillCurrent = { currentIdentity == "login-a" },
+                    )
+                },
+                windows = TokenUsageProvider { error("Windows must not be read") },
+            )
+            val cache = object : TokenUsageCacheStore {
+                override fun save(pairing: TokenSyncPairing, snapshot: TokenUsageSnapshot) = false
+                override fun clear() = true
+                override fun saveOpenAI(snapshot: TokenUsageSnapshot, cacheIdentity: String): Boolean {
+                    assertEquals(source, snapshot)
+                    savedIdentity = cacheIdentity
+                    return true
+                }
+            }
+            val coordinator = TokenUsageSyncCoordinator(
+                transport = TokenUsageSyncTransport { error("Legacy transport must not be read") },
+                cache = cache,
+                pairingStore = MemoryPairingStore(mutableListOf(), null),
+                notifyCompleted = { notified = true },
+                sourceRouter = router,
+            )
+            if (currentIdentity == "login-a") {
+                assertEquals(source, coordinator.sync().snapshot)
+                assertEquals("login-a", savedIdentity)
+                assertTrue(notified)
+            } else {
+                assertThrows(TokenUsageCommitException::class.java) { coordinator.sync() }
+                assertNull(savedIdentity)
+                assertFalse(notified)
+            }
+        }
+    }
+
     @Test
     fun successfulSyncCommitsCacheBeforePairingAndThenPublishesEvent() {
         val calls = mutableListOf<String>()

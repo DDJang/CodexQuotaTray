@@ -36,6 +36,8 @@ Production、Dev、Preview 使用独立单实例 key、托盘 GUID、数据目�
 
 ## 验证
 
+以下是按改动范围选择的独立入口，不是依次执行的步骤；最终验证组合见 [Validation 规则](../AGENTS.md)。
+
 ```powershell
 pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Quick
 pwsh -NoProfile -File .\windows\scripts\verify-winui.ps1 -Mode Full
@@ -58,21 +60,14 @@ NuGet 配置是 [`NuGet.Config`](NuGet.Config)。日常验证优先使用
 `--configfile .\windows\NuGet.Config`，并在后续 build/测试阶段传入
 `-p:RestoreConfigFile=.\windows\NuGet.Config`。
 
-如需单独运行测试，必须先用同一 solution 和仓库配置完成 restore，再使用 `--no-restore`：
+如需单独运行测试，先按验证脚本的顺序选择并检查 SDK，再用同一 SDK、solution 和仓库配置完成
+restore；restore 成功后才运行带 `--no-restore` 的测试。以下命令从仓库根目录执行：
 
 ```powershell
 $solution = '.\windows\CodexQuotaTray.WinUI.sln'
 $config = '.\windows\NuGet.Config'
+$ErrorActionPreference = 'Stop'
 
-dotnet restore $solution --configfile $config -p:Platform=x64
-dotnet test '.\windows\tests\CodexQuotaTray.Tests\CodexQuotaTray.Tests.csproj' `
-  -c Debug -p:RestoreConfigFile=$config --no-restore
-```
-
-不要使用不存在的 `windows\CodexQuotaTray.sln`，也不要在未成功 restore 前直接运行未指定配置的
-`dotnet test`。Windows 验证和聚焦测试都必须优先解析并显式使用仓库 SDK：
-
-```powershell
 $requiredVersion = [string](Get-Content '.\global.json' -Raw | ConvertFrom-Json).sdk.version
 $dotnet = @(
   ".\target\dotnet-sdk-$requiredVersion-full\dotnet.exe",
@@ -81,13 +76,29 @@ $dotnet = @(
 if (-not $dotnet) {
   $dotnet = (Get-Command dotnet -ErrorAction Stop).Source
 }
+$actualVersion = & $dotnet --version
+if ($LASTEXITCODE -ne 0) { throw '无法读取所选 SDK 版本。' }
+$actual = [version]$actualVersion
+$required = [version]$requiredVersion
+if ($actual.Major -ne $required.Major -or $actual.Minor -ne $required.Minor -or
+    [Math]::Floor($actual.Build / 100) -ne [Math]::Floor($required.Build / 100) -or
+    $actual.Build -lt $required.Build) {
+  throw "所选 SDK $actualVersion 不符合 global.json 的 latestPatch 规则。"
+}
+& $dotnet restore $solution --configfile $config -p:Platform=x64
+if ($LASTEXITCODE -ne 0) { throw 'Restore 失败，停止测试。' }
 & $dotnet test '.\windows\tests\CodexQuotaTray.Tests\CodexQuotaTray.Tests.csproj' `
   -c Debug -p:RestoreConfigFile=$config --no-restore
+if ($LASTEXITCODE -ne 0) { throw '聚焦测试失败。' }
 ```
+
+不要使用不存在的 `windows\CodexQuotaTray.sln`，也不要在未成功 restore 前直接运行未指定配置的
+`dotnet test`。SDK 解析与版本兼容策略以 `verify-winui.ps1` 为准，不以安装或降级 SDK 绕过失败。
 
 `windows/NuGet.Config` 使用 `<clear />`，这决定仓库 restore/package source，但不保证每个
 MSBuild/NuGet SDK resolver 阶段都不会触碰用户级 `%APPDATA%\NuGet\NuGet.Config`。如果当前
 sandbox 在读取 SDK、NuGet cache 或用户级配置时出现明确 `AccessDenied`、`UnauthorizedAccessException`
-或 permission denied，应将其分类为环境权限问题，并对同一仓库验证命令申请一次 elevated rerun。
+或 permission denied，应将其分类为环境权限问题；仅在当前执行环境支持且允许申请提权时，
+对同一仓库验证命令申请一次 elevated rerun。环境不支持或禁止申请时，直接报告原始错误与环境阻塞。
 提升权限只用于执行验证，不得安装 SDK、编辑用户配置、修改 ACL、删除用户配置或创建替代
-`global.json`；elevated 后仍失败才停止并报告原始错误与提升权限后的错误。
+`global.json`；elevated 后仍失败则停止并报告原始错误与提升权限后的错误。
