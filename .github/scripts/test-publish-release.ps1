@@ -60,6 +60,8 @@ foreach ($case in @(
     @{ Checks = @((New-TestCheck 'Unrelated' 'debug')); Platforms = @('Android'); Ready = $false },
     @{ Checks = @((New-TestCheck 'Android CI' 'debug' 'pass' 'SUCCESS' 'workflow_dispatch')); Platforms = @('Android'); Ready = $false },
     @{ Checks = @($androidDebug, (New-TestCheck 'Windows CI' 'verify' 'fail' 'FAILURE')); Platforms = @('Android'); Ready = $true },
+    @{ Checks = @($androidDebug, (New-TestCheck 'Android CI' 'debug' 'fail' 'FAILURE' 'workflow_dispatch')); Platforms = @('Android'); Ready = $true },
+    @{ Checks = @($androidDebug, (New-TestCheck 'Android CI' 'optional' 'fail' 'FAILURE')); Platforms = @('Android'); Ready = $true },
     @{ Checks = @((New-TestCheck 'Android CI' 'debug' 'pass' 'NEUTRAL')); Platforms = @('Android'); Ready = $false }
 )) {
     $result = Get-ReleasePrCheckStatus -Checks $case.Checks -Platforms $case.Platforms
@@ -71,6 +73,69 @@ foreach ($bucket in @('fail', 'cancel', 'error', 'skipping')) {
     catch { $rejected = $true }
     if (-not $rejected) { throw "CI gate accepted $bucket for a required job." }
 }
+# Exercise the actual polling function with captured CLI responses, without sleeping
+# or contacting GitHub. A module keeps the fake commands and script state isolated.
+$waitFunction = $ast.Find({ param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -ceq 'Wait-PrChecks'
+}, $true)
+if ($null -eq $waitFunction) { throw 'Missing PR check polling function.' }
+$null = New-Module -ArgumentList $checkFunction.Extent.Text, $waitFunction.Extent.Text -ScriptBlock {
+    param($DecisionSource, $WaitSource)
+    Set-StrictMode -Version Latest
+    . ([scriptblock]::Create($DecisionSource))
+    . ([scriptblock]::Create($WaitSource))
+    $script:Gh = 'offline-gh'
+    $script:SelectedPlatforms = @('Android')
+    $TimeoutMinutes = 1
+    $pass = '[{"workflow":"Android CI","name":"debug","event":"pull_request","bucket":"pass","state":"SUCCESS"}]'
+    $pending = $pass.Replace('"pass"', '"pending"').Replace('SUCCESS', 'IN_PROGRESS')
+    $fail = $pass.Replace('"pass"', '"fail"').Replace('SUCCESS', 'FAILURE')
+    $manualFail = $fail.Replace('pull_request', 'workflow_dispatch')
+    $optionalFail = $fail.Replace('debug', 'optional')
+    foreach ($case in @(
+        @{ Responses = @(@{ ExitCode = 8; Text = $pending }, @{ ExitCode = 0; Text = $pass }); Sleeps = 1; Error = $null },
+        @{ Responses = @(@{ ExitCode = 0; Text = $pending }, @{ ExitCode = 0; Text = $pass }); Sleeps = 1; Error = $null },
+        @{ Responses = @(@{ ExitCode = 1; Text = 'no checks reported on branch' }, @{ ExitCode = 0; Text = $pass }); Sleeps = 1; Error = $null },
+        @{ Responses = @(@{ ExitCode = 0; Text = '[]' }, @{ ExitCode = 0; Text = $pass }); Sleeps = 1; Error = $null },
+        @{ Responses = @(@{ ExitCode = 1; Text = $fail }); Sleeps = 0; Error = 'Required PR check failed*' },
+        @{ Responses = @(@{ ExitCode = 1; Text = ($pass.TrimEnd(']') + ',' + $manualFail.TrimStart('[')) }); Sleeps = 0; Error = $null },
+        @{ Responses = @(@{ ExitCode = 1; Text = ($pass.TrimEnd(']') + ',' + $optionalFail.TrimStart('[')) }); Sleeps = 0; Error = $null },
+        @{ Responses = @(@{ ExitCode = 1; Text = 'authentication failed' }); Sleeps = 0; Error = 'Could not read PR checks*' },
+        @{ Responses = @(@{ ExitCode = 8; Text = '[invalid JSON' }); Sleeps = 0; Error = 'Could not read PR checks*' },
+        @{ Responses = @(@{ ExitCode = 1; Text = '{}' }); Sleeps = 0; Error = 'Could not read PR checks*' },
+        @{ Responses = @(@{ ExitCode = 4; Text = $pass }); Sleeps = 0; Error = 'Could not read PR checks*' }
+    )) {
+        $pollState = @{ Calls = 0; Sleeps = 0 }
+        function Invoke-Captured {
+            param($FilePath, $Arguments)
+            if ($FilePath -cne 'offline-gh' -or
+                ($Arguments -join ' ') -cne 'pr checks 123 --json name,state,bucket,workflow,link,event') {
+                throw 'Unexpected gh invocation.'
+            }
+            if ($pollState.Calls -ge $case.Responses.Count) { throw 'Unexpected extra poll.' }
+            $response = $case.Responses[$pollState.Calls]
+            $pollState.Calls++
+            return [pscustomobject]$response
+        }
+        function Start-Sleep {
+            param($Seconds)
+            if ($Seconds -ne 15) { throw 'Unexpected polling interval.' }
+            $pollState.Sleeps++
+        }
+        $actualError = $null
+        try { Wait-PrChecks -Number 123 }
+        catch { $actualError = $_.Exception.Message }
+        if (($null -eq $case.Error -and $null -ne $actualError) -or
+            ($null -ne $case.Error -and ($null -eq $actualError -or $actualError -notlike $case.Error))) {
+            throw "Unexpected polling error: $actualError; expected: $($case.Error)"
+        }
+        if ($pollState.Calls -ne $case.Responses.Count -or $pollState.Sleeps -ne $case.Sleeps) {
+            throw "Wrong polling behavior: $($pollState | ConvertTo-Json -Compress)"
+        }
+    }
+}
+
 foreach ($workflow in @(
     @{ Path = '.github/workflows/windows-ci.yml'; Name = 'Windows CI'; Jobs = @('verify', 'packaging-smoke') },
     @{ Path = '.github/workflows/android-ci.yml'; Name = 'Android CI'; Jobs = @('debug') }

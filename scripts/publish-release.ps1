@@ -749,11 +749,6 @@ function Get-ReleasePrCheckStatus {
         }
     )
     if ($required.Count -eq 0) { throw 'No platform CI checks selected.' }
-    $selectedWorkflows = @($required | ForEach-Object { $_.Workflow } | Select-Object -Unique)
-    $failed = @($Checks | Where-Object {
-        $_.workflow -cin $selectedWorkflows -and $_.bucket -in @('fail', 'cancel', 'error')
-    })
-    if ($failed.Count -gt 0) { throw 'A selected platform PR check failed or was cancelled.' }
     $missing = @()
     $pending = @()
     foreach ($expected in $required) {
@@ -763,6 +758,9 @@ function Get-ReleasePrCheckStatus {
         })
         $label = "$($expected.Workflow)/$($expected.Name)"
         if ($matches.Count -eq 0) { $missing += $label; continue }
+        if (@($matches | Where-Object { $_.bucket -in @('fail', 'cancel', 'error') }).Count -gt 0) {
+            throw "Required PR check failed or was cancelled: $label"
+        }
         if (@($matches | Where-Object { $_.bucket -eq 'skipping' }).Count -gt 0) {
             throw "Required PR check was skipped: $label"
         }
@@ -784,14 +782,20 @@ function Wait-PrChecks {
         $result = Invoke-Captured -FilePath $script:Gh -Arguments @(
             'pr', 'checks', ([string]$Number), '--json', 'name,state,bucket,workflow,link,event'
         )
-        if ($result.ExitCode -ne 0) {
-            if ($result.Text -match 'no checks') {
-                Write-Host 'PR checks are not visible yet.'
-            } else {
-                throw "Could not read PR checks: $($result.Text)"
-            }
+        if ($result.ExitCode -eq 1 -and $result.Text -match '^no checks') {
+            Write-Host 'PR checks are not visible yet.'
         } else {
-            $checks = @($result.Text | ConvertFrom-Json)
+            # gh may report pending (8) or failed checks (1) alongside JSON.
+            # Only structured check results may reach the platform gate.
+            if ($result.ExitCode -notin @(0, 1, 8)) {
+                throw "Could not read PR checks (exit $($result.ExitCode)): $($result.Text)"
+            }
+            try {
+                $checks = ConvertFrom-Json -InputObject $result.Text -NoEnumerate -ErrorAction Stop
+                if ($checks -isnot [array]) { throw 'Expected a JSON array of checks.' }
+            } catch {
+                throw "Could not read PR checks (exit $($result.ExitCode)): $($result.Text)"
+            }
             $status = Get-ReleasePrCheckStatus -Checks $checks -Platforms $script:SelectedPlatforms
             if ($status.Ready) {
                 Write-Host "All required selected-platform PR checks passed for #$Number."
