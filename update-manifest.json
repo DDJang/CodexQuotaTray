@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.11.5",
-    "tag": "windows-v0.11.5",
+    "version": "0.11.6",
+    "tag": "windows-v0.11.6",
     "installer": {
-      "name": "CodexQuotaTray-0.11.5-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.5/CodexQuotaTray-0.11.5-setup.exe",
-      "sha256": "53f85482812ed953bbb6e7886ae0392430e718eb82ba3626e545a028451e0969",
-      "size": 48560023
+      "name": "CodexQuotaTray-0.11.6-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.6/CodexQuotaTray-0.11.6-setup.exe",
+      "sha256": "517f6fb889690b2e50d16e2440c859eabf7bb9dd5e536953dc411a1680661bdc",
+      "size": 48563680
     },
-    "releaseNotes": "## Windows\r\n\r\n### 稳定性与登录\r\n\r\n- 改进 OAuth 刷新和轮换凭据的恢复处理，减少刷新失败或凭据保存异常后继续使用旧凭据的情况。\r\n- 修复 1920×1080 等环境下使用鼠标滚轮时面板内容发生轻微位移的问题；仅在内容确实超出可视区域时启用滚动。\r\n",
-    "publishedAt": "2026-09-06T07:04:49Z"
+    "releaseNotes": "# CodexQuotaTray Windows 0.11.6\r\n\r\n## 改进\r\n\r\n- 增强局域网监听器、连接和请求结果的关联诊断，便于定位超时与重连问题。\r\n- 临时网络枚举失败时继续保留后续周期恢复，不再中断局域网同步重试。\r\n- 改进局域网监听器切换、停止和异常恢复过程中的状态记录。\r\n",
+    "publishedAt": "2026-09-20T12:01:40Z"
   },
   "android": {
     "version": "0.11.5",
