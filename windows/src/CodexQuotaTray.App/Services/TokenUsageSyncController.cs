@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.Core.Persistence;
@@ -371,7 +372,16 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(addressCheckInterval, cancellationToken).ConfigureAwait(false);
-                await ReconcileAsync("PERIODIC", cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await ReconcileAsync("PERIODIC", cancellationToken).ConfigureAwait(false);
+                }
+                catch (NetworkInformationException)
+                {
+                    // A transient enumeration failure must not terminate all future
+                    // periodic recovery or prevent normal controller shutdown.
+                    diagnostic("LAN reconcile result=failed reason=PERIODIC exceptionClass=NetworkInformationException");
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -332,6 +333,46 @@ public sealed class LanReliabilityTests
         native.ReleaseDeregistrationCallback();
         await dispose;
         native.AssertEveryInstanceFreedOnce(includeDeregistrationCallback: true);
+    }
+
+    [TestMethod]
+    public async Task ControllerPeriodicMonitorSurvivesTransientNetworkEnumerationFailure()
+    {
+        var firstAddress = IPAddress.Parse("192.168.1.20");
+        var recoveredAddress = IPAddress.Parse("192.168.1.21");
+        var reads = 0;
+        var logs = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        var recovered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var settings = new TokenUsageSettings(2, Guid.NewGuid(), new string('a', 64));
+        await using var controller = new TokenUsageSyncController(
+            _ => Task.FromResult(settings),
+            _ => Task.FromResult(settings),
+            () => Interlocked.Increment(ref reads) switch
+            {
+                1 => new LanEndpointSelection(firstAddress, 7),
+                2 => throw new NetworkInformationException(123),
+                _ => new LanEndpointSelection(recoveredAddress, 7),
+            },
+            _ => new FakeLanServer(false, []),
+            (_, _) => new FakePublisher(),
+            43821,
+            "",
+            TimeSpan.FromMilliseconds(20),
+            message =>
+            {
+                logs.Enqueue(message);
+                if (message.Contains("LAN reconcile result=restarted reason=PERIODIC", StringComparison.Ordinal))
+                    recovered.TrySetResult();
+            });
+
+        await controller.SetEnabledAsync(true, CancellationToken.None);
+        await recovered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        Assert.IsTrue(reads >= 3);
+        StringAssert.StartsWith(controller.AddressText, recoveredAddress.ToString());
+        Assert.AreEqual("正在监听", controller.StatusText);
+        Assert.IsTrue(logs.Any(message => message.Contains(
+            "LAN reconcile result=failed reason=PERIODIC exceptionClass=NetworkInformationException", StringComparison.Ordinal)));
     }
 
     [TestMethod]

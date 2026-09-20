@@ -73,6 +73,8 @@ Bearer secret 使用固定时间比较。DNS-SD 只发布 `deviceId`、显示名
 - LAN listener 与 DNS-SD publisher 使用同一个 `LanEndpointSelection`：private IPv4 与 interface
   index。地址或 interface index 变化时，controller 重建 listener/publisher。
 - monitor 会检测 listener 是否 unhealthy；accept loop 异常或退出后自动重建。
+  周期检查遇到网卡枚举 `NetworkInformationException` 时记录失败并保留当前 listener，
+  在原定下一周期继续检查，不因一次枚举失败终止后续恢复。
 - LAN 诊断沿用有界持久化日志：UTC、进程随机 `processSession` 和单调时钟 `monotonicMs`
   用于时间线对齐；`listenerGeneration` 标记每次 bind 尝试，`connectionId` 在该 listener 内关联
   accept、请求结果和关闭。accept 日志记录本地 endpoint 与远端地址/端口，它发生在应用接收连接时，

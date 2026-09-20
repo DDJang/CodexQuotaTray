@@ -1,9 +1,115 @@
-# Windows LAN 间歇性 TCP Connect Timeout：调查方案
+# Windows LAN 间歇性 TCP Connect Timeout：调查记录
 
 - Area: Windows / Android LAN sync
 - Baseline: `main@7cd4fe8ad834248b21a6c542b82753d577b820e7`, app `0.11.5`
 - Status: Active
 - Date: 2026-09-06
+
+## 现场复查（2026-09-20）
+
+本次在 `34218c9` 分支上只读检查已连接手机、Windows 现有诊断日志和 OS listener；
+没有安装应用、改变配对、调整网络或 timeout/retry，也没有启动抓包。
+
+### 运行版本与复现环境
+
+- Windows 当前运行 Production `0.11.5+5fe9461`，OS listener 为当前 Wi-Fi 地址的
+  `43821`，所属进程与正式版安装路径一致；没有 `43822` Dev listener。
+- Android 正式版为 `0.11.5`，Dev 为 `0.11.2`，均在 9 月 6 日更新，早于本分支 Phase 0
+  诊断增强。Windows 日志同样没有新增的 `processSession` / `listenerGeneration` / `connectionId`。
+- Android Dev 保存的目标仍是旧家庭网段的 `192.168.1.58:43822`，当前手机位于校园 Wi-Fi
+  `172.26.0.0/17`。9 月 20 日 17:05 与 17:06 的连接均为 4 秒超时，随后 NSD 超时。
+  当前可读取的 Dev LAN 文件中 81 条 `connectFailed` 均指向这个旧主机；不能作为原始
+  “同一有效 endpoint 短暂失败后恢复”的复现样本。
+- 该样本中的 `route matching=true` 匹配的是 `0.0.0.0/0`，并不证明目标处于直连子网，
+  更不证明目标 Dev 服务正在监听。需要同时阅读 `routePrefix`、endpoint 和端口身份。
+
+### Windows 时间线与证据边界
+
+以下时间为 UTC+8，来源为现有 Production LAN 事件日志：
+
+| 时间 | 观测 |
+| --- | --- |
+| 16:42:06 起 | 收到 connectivity/address change 事件 |
+| 16:42:07.068 | 原地址 listener 报告停止；地址选择不可用 |
+| 16:42:21.676 | 新 Wi-Fi 地址 listener 报告启动，端口仍为 `43821` |
+| 16:54:45、17:01:28、17:03:29 | 手机 Token 请求 HTTP 200 |
+| 17:01:31、17:03:28 | 手机 Quota 请求 HTTP 200 |
+
+停止到启动的日志间隔约 14.6 秒，且伴随地址变化；这只能证明一次网络切换恢复窗口。
+旧版 stopped 日志的边界仍有 Phase 0 所述限制，不能据此精确确定 socket 关闭时刻。
+缺少该窗口内对应 Android attempt 与包级证据，不能把此窗口归因为原始间歇性 timeout。
+复查时的 OS LISTEN 也只能证明当前状态，不能回推历史失败时状态。
+
+Windows 三个轮转文件最早保留到 9 月 17 日，已不含 9 月 6 日原始故障时段。
+抽样时约八成日志行是重复 `LAN candidate` 枚举，说明保存失败窗口需要及时导出；
+当前不能依赖固定大小的日志长期保留历史证据。本次未改变日志保留策略。
+
+### 结论与下一步
+
+调查仍为 Active。当前 Dev 超时与原始案例属于不同条件；正式版当前 LAN 成功也不能证明
+原始问题已修复。继续 Phase 1 前，应部署本分支的 Windows Dev / Android Debug 诊断构建，
+确保手机配对当前 Dev listener，再保存一次真实失败前后的双端事件与 TCP 包头证据。
+安装与配对变更需要用户授权，不能默默覆盖当前 Dev 配对或替换 Production。
+
+本机存在 `PktMon.exe`，当前执行进程不是管理员；仅确认了工具存在和权限状态，尚未验证
+抓包能力。本次执行环境不允许申请提权，不能承诺能在当前会话直接完成系统级抓包。
+
+## 诊断构建部署与正常基线（2026-09-20，18:13–18:16 UTC+8）
+
+用户随后授权继续部署与现场调查。使用 `34218c9` 代码完成验证并启动 Windows Dev，
+以 `adb install -r` 更新 Android Debug（界面版本现在为 `0.11.5`）；Production 保持原进程运行。
+Android 原有配对与数据保留，没有重新扫码或人工修改 endpoint。
+
+- Windows `verify-winui.ps1 -Mode Full` 通过：539 项测试，0 失败，0 跳过，构建无警告。
+- Android `:app:testDebugUnitTest :app:assembleDebug` 成功，Gradle 判定任务为 up-to-date；
+  对应 XML 结果为 417 项测试，0 失败/错误/跳过。SDK XML 版本提示不影响本次构建成功。
+- Windows Dev OS listener 为当前 Wi-Fi 地址的 `43822`，Production 的 `43821` 同时存在。
+- `pktmon status` 实际返回“无法与 PktMon 驱动程序通信。拒绝访问。”，没有启动抓包，
+  没有尝试绕过权限或更改防火墙。
+
+### 关联样本
+
+| Android attempt | 行为与结果 | Android socket 本地端口 | Windows 关联 |
+| --- | --- | --- | --- |
+| 1 / token，18:13:52–57 | 旧地址 4 秒 timeout 后 NSD 发现当前 Dev；新地址 HTTP 200，77 ms | 51712（新地址） | session A，generation 1，connection 1，HTTP 200 |
+| 2 / quota，18:13:58 | 使用已保存的新地址；HTTP 200，28 ms | 51724 | session A，generation 1，connection 2，HTTP 200 |
+| 3 / token，18:14:53 | 手动同步；HTTP 200，47 ms | 50658 | session A，generation 1，connection 3，HTTP 200 |
+| 4 / token，18:15:37 | Windows Dev 重启后的手动同步；HTTP 200，212 ms | 57814 | session B，generation 1，connection 1，HTTP 200 |
+
+session A/B 代表不同的随机 `processSession`，不是账户或设备标识。跨进程 generation 和
+connection 序号可重新从 1 开始，必须一起使用 session 关联。Android 日志只有秒级时间，
+两端时间戳可能跨秒，以上使用源/目标 endpoint 与手机临时端口核对。
+
+Dev 于 18:15:07 正常退出，日志依次记录 stop-requested、stopping、socket-stopped、stopped；
+OS 快照只剩 Production listener。重新启动后 18:15:24 Dev listener 恢复，手机直接使用
+已更新 endpoint 成功同步。测试没有在主动关闭 listener 的窗口制造失败，也没有切换 Wi-Fi、
+睡眠或修改系统网络设置。
+
+这证明了旧地址的 NSD 恢复、配对复用、双端连接关联和 Dev 重启后恢复路径当前可用，
+没有复现原始“有效 endpoint 间歇 timeout”，也不能证明它已经修复。
+脱敏窗口日志与含采样时间、OS listener、HEAD、Debug APK SHA-256 的快照保存在本机忽略目录
+`target/lan-investigation/2026-09-20/`，不作为长期版本化附件；上表保留最小必要证据摘要。
+诊断版现已部署，下一步重点变为捕获真实失败窗口；系统级包头采集仍受管理员权限限制。
+
+## 离线复现：周期监控因网卡枚举异常退出
+
+继续代码审查发现，`FindPrivateLanSelection` 对单个网卡属性读取的
+`NetworkInformationException` 有保护，但最外层 `GetAllNetworkInterfaces()` 仍可抛出该异常。
+`MonitorAddressAsync` 原先只捕获取消异常，因此一次枚举失败会使周期监控任务 fault；
+之后不再执行周期 reconcile，`StopAsync` 等待该任务时也会重新抛出异常并跳过后续 listener 清理。
+网络变化事件有独立的 reconcile 路径，因此这里不能表述为所有恢复路径都失效。
+
+新增离线回归在首次启动成功后，第二次地址枚举注入 `NetworkInformationException`，
+之后提供新地址。修复前未等到新地址 listener 恢复，且 dispose 抛出相同异常，已复现失败。
+修复仅在周期循环内捕获这一异常、记录异常类型并继续原定下一周期；不输出原始异常消息，
+不增加重试频率，不修改连接超时，也不捕获取消或所有未知异常。
+回归同时检查后续新地址恢复、诊断事件和正常 dispose。
+
+此缺陷由确定性离线注入证明，但现有现场日志没有证明原始手机 timeout 时发生过该异常。
+它属于独立恢复缺陷修复，不能据此关闭原始 TCP timeout 调查。
+修复后 Windows `Full` 验证通过：540 项离线测试，0 失败/跳过，构建 0 警告/错误。
+更新后的 Dev 已启动，OS 确认 `43822` 监听，Production `43821` 保持原进程。
+收尾时 ADB 已无连接设备，因此没有将此前正常基线报告为本次修复后的手机回归。
 
 ## Phase 0 实施进度（2026-09-12）
 
