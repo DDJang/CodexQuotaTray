@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.Core.Persistence;
@@ -371,7 +372,16 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             while (!cancellationToken.IsCancellationRequested)
             {
                 await Task.Delay(addressCheckInterval, cancellationToken).ConfigureAwait(false);
-                await ReconcileAsync("PERIODIC", cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await ReconcileAsync("PERIODIC", cancellationToken).ConfigureAwait(false);
+                }
+                catch (NetworkInformationException)
+                {
+                    // A transient enumeration failure must not terminate all future
+                    // periodic recovery or prevent normal controller shutdown.
+                    diagnostic("LAN reconcile result=failed reason=PERIODIC exceptionClass=NetworkInformationException");
+                }
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
@@ -423,6 +433,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             else if (!address.Address.Equals(server.Address) || address.InterfaceIndex != currentInterfaceIndex)
             {
                 var oldAddress = server.Address;
+                diagnostic($"LAN listener restart-requested reason=selection-change trigger={reason}");
                 diagnostic($"LAN selection change {oldAddress}/interface={currentInterfaceIndex} -> {address.Address}/interface={address.InterfaceIndex}");
                 SetStatus("正在重新连接…");
                 await StopListenerResourcesAsync().ConfigureAwait(false);
@@ -433,6 +444,7 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
             else if (!server.IsHealthy)
             {
                 var fault = server.ListenerFault?.GetType().Name ?? "Completed";
+                diagnostic($"LAN listener restart-requested reason=unhealthy trigger={reason} exceptionClass={fault}");
                 diagnostic($"LAN listener healthy=false bind={server.Address} port={server.Port} interfaceIndex={currentInterfaceIndex} restartReason={fault}");
                 diagnostic($"LAN listener unhealthy fault={fault}; retry in {addressCheckInterval.TotalSeconds:0.###}s");
                 SetStatus("正在重新连接…");
@@ -494,8 +506,9 @@ internal sealed class TokenUsageSyncController : IAsyncDisposable
         if (server is not null)
         {
             diagnostic($"LAN listener healthy=false bind={server.Address} port={server.Port} interfaceIndex={currentInterfaceIndex} restartReason=stopped");
-            diagnostic($"LAN listener stopped address={server.Address}:{server.Port}");
+            diagnostic($"LAN listener stop-requested address={server.Address}:{server.Port}");
             await server.DisposeAsync().ConfigureAwait(false);
+            diagnostic($"LAN controller listener-disposed address={server.Address}:{server.Port}");
             server = null;
             currentInterfaceIndex = 0;
         }

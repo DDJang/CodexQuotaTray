@@ -82,6 +82,7 @@ internal static class LanDiagnosticRedactor
 
 internal sealed class LanDiagnosticBuffer : IAsyncDisposable
 {
+    private static readonly string ProcessSession = Guid.NewGuid().ToString("N");
     internal const int MaximumEntries = 200;
     internal const int MaximumSlotBytes = 1024 * 1024;
     internal const int SlotCount = 3;
@@ -97,14 +98,16 @@ internal sealed class LanDiagnosticBuffer : IAsyncDisposable
     private readonly CancellationTokenSource lifetime = new();
     private readonly string? persistenceDirectory;
     private readonly string? statePath;
+    private readonly Action<Action<string>>? captureNetworkContext;
     private readonly Task persistenceTask;
     private LanDiagnosticState state;
     private bool stateDirty;
     private DateTimeOffset lastStateWriteUtc;
     private int disposed;
 
-    internal LanDiagnosticBuffer(string? dataDirectory = null)
+    internal LanDiagnosticBuffer(string? dataDirectory = null, Action<Action<string>>? captureNetworkContext = null)
     {
+        this.captureNetworkContext = captureNetworkContext;
         if (!string.IsNullOrWhiteSpace(dataDirectory))
         {
             persistenceDirectory = Path.Combine(dataDirectory, "lan-diagnostics");
@@ -125,7 +128,8 @@ internal sealed class LanDiagnosticBuffer : IAsyncDisposable
     {
         var timestamp = DateTimeOffset.UtcNow;
         var safe = LanDiagnosticRedactor.Sanitize(message);
-        var line = $"{timestamp:O} {safe}";
+        var monotonicMs = System.Diagnostics.Stopwatch.GetElapsedTime(0).Ticks / TimeSpan.TicksPerMillisecond;
+        var line = $"{timestamp:O} processSession={ProcessSession} monotonicMs={monotonicMs} {safe}";
         lock (gate)
         {
             entries.Enqueue(line);
@@ -148,6 +152,11 @@ internal sealed class LanDiagnosticBuffer : IAsyncDisposable
 
     internal string CreateDiagnosticText()
     {
+        try { captureNetworkContext?.Invoke(Record); }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            Record($"LAN network snapshot unavailable exceptionClass={error.GetType().Name}");
+        }
         string[] recent;
         LanDiagnosticState current;
         lock (gate)
@@ -327,7 +336,9 @@ internal sealed class LanDiagnosticBuffer : IAsyncDisposable
             BindAddress = Value(line, "bind") ?? current.BindAddress,
             Port = ParseInt(Value(line, "port")) ?? current.Port,
             InterfaceIndex = ParseUInt(Value(line, "interfaceIndex")) ?? current.InterfaceIndex,
-            DnsSdInterfaceIndex = ParseUInt(Value(line, "interface")) ?? current.DnsSdInterfaceIndex,
+            DnsSdInterfaceIndex = line.StartsWith("DNS-SD ", StringComparison.OrdinalIgnoreCase)
+                ? ParseUInt(Value(line, "interface")) ?? current.DnsSdInterfaceIndex
+                : current.DnsSdInterfaceIndex,
         };
 
         if (line.Contains("listener healthy=true", StringComparison.OrdinalIgnoreCase)
@@ -434,6 +445,10 @@ internal sealed class LanDiagnosticBuffer : IAsyncDisposable
     {
         var marker = key + "=";
         var start = line.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+        while (start > 0 && !char.IsWhiteSpace(line[start - 1]))
+        {
+            start = line.IndexOf(marker, start + marker.Length, StringComparison.OrdinalIgnoreCase);
+        }
         if (start < 0) return null;
         start += marker.Length;
         var end = line.IndexOf(' ', start);

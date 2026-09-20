@@ -6,6 +6,28 @@ namespace CodexQuotaTray.Tests;
 public sealed class LanDiagnosticsTests
 {
     [TestMethod]
+    public async Task ExportSamplesNetworkContextWithoutChangingRecordedBindAndSurvivesSamplingFailure()
+    {
+        var samples = 0;
+        await using var buffer = new LanDiagnosticBuffer(captureNetworkContext: record =>
+        {
+            samples++;
+            if (samples > 1) throw new IOException("never-log-network-error");
+            record("LAN candidate candidateInterfaceIndex=9 status=Down address=192.168.2.3 prefixLength=24");
+            record("LAN address selected=192.168.2.3 interface=9");
+        });
+        buffer.Record("LAN listener start bind=192.168.1.3 port=43821 interfaceIndex=7");
+        buffer.Record("DNS-SD register success interface=7");
+        Assert.AreEqual(0, samples);
+        StringAssert.Contains(buffer.CreateDiagnosticText(), "candidateInterfaceIndex=9");
+        Assert.AreEqual(7U, buffer.Snapshot.InterfaceIndex);
+        Assert.AreEqual(7U, buffer.Snapshot.DnsSdInterfaceIndex);
+        var failedSample = buffer.CreateDiagnosticText();
+        StringAssert.Contains(failedSample, "network snapshot unavailable exceptionClass=IOException");
+        Assert.IsFalse(failedSample.Contains("never-log-network-error", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public async Task ListenerRequestStateSurvivesRestartAndTracksLastRemoteSuccess()
     {
         var root = Path.Combine(Path.GetTempPath(), "CodexQuotaTray-LanDiagnostics-" + Guid.NewGuid().ToString("N"));
@@ -28,6 +50,13 @@ public sealed class LanDiagnosticsTests
             Assert.IsNotNull(state.LastSuccessUtc);
             StringAssert.Contains(restarted.CreateDiagnosticText(), "lastRemote=192.168.1.92");
             StringAssert.Contains(restarted.CreateDiagnosticText(), "result=SUCCESS");
+            var events = restarted.CreateRecentEventsText().Split(Environment.NewLine);
+            var stamps = events.Select(line => line.Split(' ').Where(value => value.Contains('='))
+                .Select(value => value.Split('=', 2)).ToDictionary(value => value[0], value => value[1])).ToArray();
+            Assert.AreEqual(1, stamps.Select(fields => fields["processSession"]).Distinct().Count());
+            Assert.IsTrue(stamps.All(fields => Guid.TryParseExact(fields["processSession"], "N", out _)));
+            var times = stamps.Select(fields => long.Parse(fields["monotonicMs"])).ToArray();
+            CollectionAssert.AreEqual(times.Order().ToArray(), times);
         }
         finally
         {

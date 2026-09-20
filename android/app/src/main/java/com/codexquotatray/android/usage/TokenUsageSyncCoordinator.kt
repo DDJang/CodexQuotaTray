@@ -92,7 +92,7 @@ internal class TokenUsageSyncCoordinator(
             }
             val updatedPairing = TokenSyncEndpoint.markSynced(synced.pairing, synced.snapshot)
             val pairingSaved = pairingStore.saveIfCurrent(pairing, updatedPairing)
-            if (updatedPairing.host != pairing.host) {
+            if (updatedPairing.host != pairing.host || updatedPairing.port != pairing.port) {
                 diagnostics.record("Token LAN relocated endpoint persisted=$pairingSaved")
             }
             if (!pairingSaved) {

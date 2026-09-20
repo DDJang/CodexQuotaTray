@@ -261,7 +261,8 @@ internal class WindowsQuotaFallbackResolver(
                 }
                 if (resultPairing != pairing) {
                     val saved = pairingStore.saveIfCurrent(pairing, resultPairing)
-                    diagnostics.record("Quota LAN relocated endpoint persisted=$saved")
+                    val relocated = resultPairing.host != pairing.host || resultPairing.port != pairing.port
+                    diagnostics.record("Quota LAN pairing metadata persisted=$saved endpointChanged=$relocated")
                     if (!saved) {
                         throw WindowsQuotaFallbackException(
                             WindowsQuotaFallbackFailureKind.PAIRING_CHANGED,
