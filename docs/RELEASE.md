@@ -98,3 +98,27 @@ Android workflow 使用 JDK 17、Android SDK、Gradle Wrapper，运行带正式�
 - `ANDROID_RELEASE_KEY_PASSWORD`
 
 Keystore 只在 runner 临时目录解码，不得提交到仓库或写入本地开发文档。
+
+## Android 已有 tag 的构建环境恢复
+
+如果 Android tag 已正确指向 main 历史中的发布提交，但 Release 在 SDK setup 等构建环境阶段失败，
+且尚未创建该 GitHub Release，可先通过 PR CI 将 workflow 修复合入 main，再使用
+`android-release.yml` 的 `workflow_dispatch` 恢复原 tag。不能移动或删除 tag，也不以当前 main
+的产品源码替代原 tagged source。
+
+手动入口只允许选择 `main`，必须提供 `release_tag` 和它已有的完整 commit SHA `expected_sha`。
+workflow 校验 tag 格式、SHA 一致性和 main ancestry 后，按解析出的 SHA checkout 产品代码；
+后续 versionName/versionCode、notes、签名、APK 和 manifest 校验均保持执行。manifest job 同样
+使用原 source SHA 和 tag，不使用手动运行的 main HEAD 作为产物来源。相同 tag 的构建发布 job 串行且不取消；
+manifest job 继续使用双平台共享的独立并发锁。
+
+```powershell
+gh workflow run android-release.yml --ref main -f release_tag=android-vX.Y.Z -f expected_sha=<full-tag-commit-sha>
+```
+
+手动运行的 Actions `headSha` 是 workflow 所在的 main 提交，不是 APK source SHA；恢复验收必须
+另外核对 `Resolve immutable release source` 和 tag/version 验证步骤，再检查 Release 资产、checksum、
+size、notes 和 Android manifest 节点。原发布脚本按 tag push 的精确 SHA 查找运行，不作为这一
+人工恢复入口的调度或成功判据。已完成的 Windows Release 和 manifest 节点保持不变。
+
+若 Release 已存在而仅 manifest 失败，应重跑失败的 manifest job；不要用恢复入口覆盖已有资产。

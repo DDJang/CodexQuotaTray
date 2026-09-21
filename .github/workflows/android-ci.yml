@@ -11,6 +11,8 @@ on:
       - 'scripts/publish-release.ps1'
       - '.github/scripts/test-publish-release.ps1'
       - '.github/update-manifest.seed.json'
+      - '.github/scripts/resolve-android-release-source.ps1'
+      - '.github/scripts/test-android-release-source.ps1'
   workflow_dispatch:
     inputs:
       commit_sha:
@@ -92,6 +94,8 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
 
       - name: Test and assemble Debug
         working-directory: android
@@ -100,6 +104,10 @@ jobs:
       - name: Test unified update manifest writer
         shell: pwsh
         run: ./.github/scripts/test-update-release-manifest.ps1
+
+      - name: Test immutable Android release source resolution
+        shell: pwsh
+        run: ./.github/scripts/test-android-release-source.ps1
 
       - name: Test platform-independent release planner
         shell: pwsh

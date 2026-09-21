@@ -174,3 +174,9 @@ DryRun 不执行版本写入、fetch 写 refs、构建、commit、push、PR 查�
 ## 失败与重跑
 
 任何关键步骤以非零状态退出，并保留当前状态供人工处理。脚本不会自动 reset、restore、stash、删除/移动 tag、删除 Release 或绕过 CI。已存在且正确完成的 PR 可以复用；已存在但指向错误 SHA 的 tag 直接失败。已存在的正确 tag、Release 或选定平台 manifest 状态只在脚本能够验证完整一致时识别为已完成，否则停止并报告。
+
+Android 已有正确 tag、但构建环境失败且尚未创建 Release 时，可以在用户授权后按
+[已有 tag 的构建环境恢复](RELEASE.md#android-已有-tag-的构建环境恢复) 使用 main 上修复后的
+workflow 构建原 tag。此恢复必须先通过修复 PR 的 CI，不更换 tag 或源码 SHA，也不能把旧失败
+run 的重新执行当作已采用新 workflow。恢复运行与资产、manifest 的验收遵循上述专门入口，
+不放宽普通发布脚本的 tag push 身份校验。
