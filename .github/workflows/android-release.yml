@@ -4,24 +4,59 @@ on:
   push:
     tags:
       - 'android-v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing Android tag to recover (tag is never moved)
+        required: true
+        type: string
+      expected_sha:
+        description: Full commit SHA already referenced by the release tag
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   release:
+    concurrency:
+      group: android-release-${{ inputs.release_tag || github.ref_name }}
+      cancel-in-progress: false
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.source.outputs.tag }}
+      source_sha: ${{ steps.source.outputs.sha }}
     runs-on: ubuntu-latest
     env:
       GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx2g
 
     steps:
-      - name: Check out tagged commit
+      - name: Check out workflow implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ github.ref }}
+
+      - name: Resolve immutable release source
+        id: source
+        shell: pwsh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          WORKFLOW_REF: ${{ github.ref }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          EVENT_SHA: ${{ github.sha }}
+        run: |
+          $source = & ./.github/scripts/resolve-android-release-source.ps1 -EventName $env:EVENT_NAME -WorkflowRef $env:WORKFLOW_REF -RequestedTag $env:RELEASE_TAG -ExpectedSha $env:EXPECTED_SHA -EventSha $env:EVENT_SHA
+          "tag=$($source.Tag)" >> $env:GITHUB_OUTPUT
+          "sha=$($source.Sha)" >> $env:GITHUB_OUTPUT
+
+      - name: Check out exact tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.source.outputs.sha }}
 
       - name: Set up JDK 17 and Gradle cache
         uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
@@ -32,13 +67,15 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          packages: platform-tools
 
       - name: Verify tag, Android version, and main ancestry
         id: version
         shell: bash
         env:
-          TAG_NAME: ${{ github.ref_name }}
-          TAG_SHA: ${{ github.sha }}
+          TAG_NAME: ${{ steps.source.outputs.tag }}
+          TAG_SHA: ${{ steps.source.outputs.sha }}
         run: |
           set -euo pipefail
 
@@ -187,7 +224,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_DIR: ${{ steps.artifact.outputs.release_dir }}
           ARTIFACT_NAME: ${{ steps.artifact.outputs.artifact_name }}
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ steps.source.outputs.tag }}
           NOTES_PATH: ${{ steps.notes.outputs.notes_path }}
         run: |
           set -euo pipefail
@@ -209,14 +246,15 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ github.ref }}
+          ref: ${{ needs.release.outputs.source_sha }}
 
       - name: Publish unified update manifest
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_VERSION: ${{ needs.release.outputs.version }}
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ needs.release.outputs.tag }}
+          SOURCE_SHA: ${{ needs.release.outputs.source_sha }}
         run: |
           $ErrorActionPreference = 'Stop'
           $worktree = Join-Path $env:RUNNER_TEMP 'update-manifest-worktree'
@@ -226,7 +264,7 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Could not fetch update-manifest branch.' }
             git worktree add --detach $worktree refs/remotes/origin/update-manifest
           } elseif ($LASTEXITCODE -eq 2) {
-            git worktree add --detach $worktree $env:GITHUB_SHA
+            git worktree add --detach $worktree $env:SOURCE_SHA
             Push-Location $worktree
             git switch --orphan update-manifest
             Pop-Location
