@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.11.6",
-    "tag": "windows-v0.11.6",
+    "version": "0.11.7",
+    "tag": "windows-v0.11.7",
     "installer": {
-      "name": "CodexQuotaTray-0.11.6-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.6/CodexQuotaTray-0.11.6-setup.exe",
-      "sha256": "517f6fb889690b2e50d16e2440c859eabf7bb9dd5e536953dc411a1680661bdc",
-      "size": 48563680
+      "name": "CodexQuotaTray-0.11.7-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.7/CodexQuotaTray-0.11.7-setup.exe",
+      "sha256": "5607a83e62b2e2385062a8bc92f0e17ab1222c474a59e5c88f3d314c91377bdc",
+      "size": 48571193
     },
-    "releaseNotes": "# CodexQuotaTray Windows 0.11.6\r\n\r\n## 改进\r\n\r\n- 增强局域网监听器、连接和请求结果的关联诊断，便于定位超时与重连问题。\r\n- 临时网络枚举失败时继续保留后续周期恢复，不再中断局域网同步重试。\r\n- 改进局域网监听器切换、停止和异常恢复过程中的状态记录。\r\n",
-    "publishedAt": "2026-09-20T12:01:40Z"
+    "releaseNotes": "# CodexQuotaTray Windows 0.11.7\r\n\r\n## 改进\r\n\r\n- 优化最后更新时间展示：当天显示具体时分，跨日后显示月日。\r\n- 数据超过 7 天未更新时显示“已过期”，刷新失败时仍保留上次更新时间和过期状态。\r\n",
+    "publishedAt": "2026-09-21T16:12:32Z"
   },
   "android": {
     "version": "0.11.6",
