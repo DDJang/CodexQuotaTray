@@ -13,15 +13,15 @@
     "publishedAt": "2026-09-21T16:12:32Z"
   },
   "android": {
-    "version": "0.11.6",
-    "tag": "android-v0.11.6",
+    "version": "0.11.7",
+    "tag": "android-v0.11.7",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.11.6.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.6/CodexQuotaTray-Android-v0.11.6.apk",
-      "sha256": "ad3d3c5416b3af27b5e84ecc09e6b7ecfbac2c88a2e4ec61b8d3d048b6115384",
+      "name": "CodexQuotaTray-Android-v0.11.7.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.7/CodexQuotaTray-Android-v0.11.7.apk",
+      "sha256": "6b17a57ff36388bb151b612b0cf1de5467884a7048b98667eaa3e0c315f9143e",
       "size": 3238294
     },
-    "releaseNotes": "# CodexQuotaTray Android 0.11.6\n\n## 改进\n\n- 按本地登录身份隔离 Token 用量缓存，切换账户时避免复用其他账户的缓存数据。\n- 改进 Windows 局域网回退连接的超时诊断、连接状态记录和异常恢复。\n- 临时网络枚举失败时继续保留后续周期恢复，不再中断局域网同步重试。\n",
-    "publishedAt": "2026-09-21T01:50:45Z"
+    "releaseNotes": "# CodexQuotaTray Android 0.11.7\n\n## 改进\n\n- 优化 App 和小组件的最后更新时间展示：当天显示具体时分，跨日后显示月日。\n- 数据超过 7 天未更新时显示“已过期”和警告色，刷新失败时仍保留过期提示。\n",
+    "publishedAt": "2026-09-21T16:14:25Z"
   }
 }
