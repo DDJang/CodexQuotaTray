@@ -71,6 +71,25 @@ All     -> 两者都选择
 
 Codex 以选定平台的上一 tag → 当前 HEAD 为边界，筛选该平台用户可感知的变化，生成对应 Markdown，并在调用脚本前提交 notes。只保留新增、优化、修复等用户能理解的内容，不写 commit hash、作者、PR 编号、完整 changelog 或普通测试/重构细节。
 
+Release 标题和平台 tag 已表达产品、平台与版本，notes 正文不再重复以下标题：
+
+- 不写 `# CodexQuotaTray Windows/Android X.Y.Z` 等产品与版本大标题；
+- 不写 `## Windows` 或 `## Android` 平台标题。
+
+正文直接从三级标题开始，该层级与既有 Release 中“窗口布局与主题”等分类标题的字号一致。优先使用用户能理解的具体主题；内容较少时可使用 `### 改进`、`### 修复` 或 `### 新功能`。每个主题下使用项目符号列出变化，例如：
+
+```markdown
+### 窗口布局与主题
+
+- 改进不同 DPI 缩放下的窗口尺寸计算。
+
+### 安装器与登录引导
+
+- 优化首次使用时的登录和安装失败恢复。
+```
+
+该格式只约束新增的 release notes；已发布版本的历史文件保持不变，以便与既有 GitHub Release 和 `update-manifest` 内容对应。
+
 脚本在版本修改和构建前只检查选定平台的文件存在且非空。Windows-only 不要求 Android notes；Android-only 不要求 Windows notes；All 两者都要求。
 
 ### 4. 更新版本
