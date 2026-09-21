@@ -1606,7 +1606,7 @@ public sealed class QuotaRuntimeService :
         IsRefreshing: true,
         IsPrototype: false);
 
-    private static AppUiState FailureState(AppUiState previous, CodexClientErrorKind kind)
+    private AppUiState FailureState(AppUiState previous, CodexClientErrorKind kind)
     {
         var reason = kind switch
         {
@@ -1624,11 +1624,14 @@ public sealed class QuotaRuntimeService :
             CodexClientErrorKind.OAuthProtocol => "OAuth 响应无法解析",
             _ => "连接失败",
         };
+        var statusText = previous.Windows.Count == 0
+            ? $"刷新失败：{reason} · 点击刷新重试"
+            : (lastAppliedSuccessUtc ?? coordinator.LastSuccessUtc) is { } lastSuccess
+                ? $"{UpdatedAtFormatter.Format(lastSuccess, timeProvider.GetUtcNow(), timeZone)} · 刷新失败：{reason} · 显示上次数据"
+                : $"刷新失败：{reason} · 显示上次数据";
         return previous with
         {
-            StatusText = previous.Windows.Count == 0
-                ? $"刷新失败：{reason} · 点击刷新重试"
-                : $"刷新失败：{reason} · 显示上次数据",
+            StatusText = statusText,
             StatusTone = StatusTone.Error,
             IsRefreshing = false,
         };

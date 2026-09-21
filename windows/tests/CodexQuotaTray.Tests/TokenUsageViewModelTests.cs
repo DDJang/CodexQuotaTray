@@ -67,7 +67,27 @@ public sealed class TokenUsageViewModelTests
         Assert.IsTrue(viewModel.ShowContent);
         Assert.IsFalse(viewModel.ShowLoading);
         Assert.IsFalse(viewModel.HasErrorWithoutData);
-        Assert.AreEqual("刷新失败 · 显示上次数据", viewModel.StatusText);
+        Assert.AreEqual(
+            $"更新于 {snapshot.GeneratedAtUtc.ToLocalTime():HH:mm} · 刷新失败 · 显示上次数据",
+            viewModel.StatusText);
+        Assert.AreEqual(StatusTone.Warning, viewModel.StatusTone);
+    }
+
+    [TestMethod]
+    public async Task RefreshFailurePreservesExpiredCacheTimestamp()
+    {
+        var snapshot = CreateSnapshot(128_392);
+        var viewModel = new TokenUsageViewModel(
+            _ => Task.FromException<TokenUsageSnapshot>(new IOException("scan failed")),
+            timeProvider: new FixedTimeProvider(snapshot.GeneratedAtUtc.AddDays(8)),
+            timeZone: TimeZoneInfo.Utc);
+        viewModel.RestoreSnapshot(snapshot);
+
+        await viewModel.RefreshCommand.ExecuteAsync(null);
+
+        Assert.AreEqual(
+            "更新于 8月12日 · 已过期 · 刷新失败 · 显示上次数据",
+            viewModel.StatusText);
         Assert.AreEqual(StatusTone.Warning, viewModel.StatusTone);
     }
 

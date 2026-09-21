@@ -200,7 +200,9 @@ public sealed partial class TokenUsageViewModel : ObservableObject
                                 return;
                             }
 
-                            completionStatusText = snapshot is null ? "刷新失败" : "刷新失败 · 显示上次数据";
+                            completionStatusText = snapshot is null
+                                ? "刷新失败"
+                                : $"{UpdatedAtFormatter.Format(snapshot.GeneratedAtUtc, timeProvider.GetUtcNow(), timeZone)} · 刷新失败 · 显示上次数据";
                             completionStatusTone = snapshot is null ? StatusTone.Error : StatusTone.Warning;
                             completionHasErrorWithoutData = snapshot is null;
                             hasCompletionPresentation = true;
