@@ -47,6 +47,7 @@ public sealed class QuotaRuntimeService :
     private readonly IQuotaNotificationSink notificationSink;
     private readonly QuotaViewProjector projector;
     private readonly TimeProvider timeProvider;
+    private readonly TimeZoneInfo timeZone;
     private readonly RefreshCoordinator coordinator = new();
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim initializationGate = new(1, 1);
@@ -130,7 +131,8 @@ public sealed class QuotaRuntimeService :
         this.persistence = persistence;
         this.notificationSink = notificationSink ?? new NullQuotaNotificationSink();
         this.timeProvider = timeProvider ?? TimeProvider.System;
-        projector = new QuotaViewProjector(this.timeProvider, timeZone ?? TimeZoneInfo.Local);
+        this.timeZone = timeZone ?? TimeZoneInfo.Local;
+        projector = new QuotaViewProjector(this.timeProvider, this.timeZone);
     }
 
     public event EventHandler<AppUiState>? StateChanged;
@@ -1208,12 +1210,16 @@ public sealed class QuotaRuntimeService :
             return;
         }
 
-        if (timeProvider.GetUtcNow() - last < coordinator.StaleAfter(MinimumReliableRemaining()))
+        var now = timeProvider.GetUtcNow();
+        if (now - last < coordinator.StaleAfter(MinimumReliableRemaining()))
         {
             return;
         }
 
-        if (string.Equals(current.StatusText, "数据可能已过期", StringComparison.Ordinal)
+        var statusText = UpdatedAtFormatter.IsExpired(last, now)
+            ? UpdatedAtFormatter.Format(last, now, timeZone)
+            : "数据可能已过期";
+        if (string.Equals(current.StatusText, statusText, StringComparison.Ordinal)
             && current.Windows.All(window => window.IsStale))
         {
             return;
@@ -1221,7 +1227,7 @@ public sealed class QuotaRuntimeService :
 
         SetCurrent(current with
         {
-            StatusText = "数据可能已过期",
+            StatusText = statusText,
             StatusTone = StatusTone.Warning,
             Windows = current.Windows.Select(window => window with { IsStale = true, Tone = QuotaTone.Unavailable }).ToArray(),
         });

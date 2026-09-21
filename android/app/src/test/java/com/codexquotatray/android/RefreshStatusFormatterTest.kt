@@ -40,6 +40,8 @@ class RefreshStatusFormatterTest {
     fun refreshStatusLineRecognizesBothRefreshAndSyncFailures() {
         assertEquals("刷新失败：", refreshStatusErrorMarker("刷新失败：网络连接异常"))
         assertEquals("同步失败：", refreshStatusErrorMarker("同步失败：Windows 暂不可用"))
+        assertEquals(true, refreshStatusIsExpired("更新于 9月1日 · 已过期 · OpenAI"))
+        assertEquals(false, refreshStatusIsExpired("更新于 15:03 · OpenAI"))
     }
 
     @Test

@@ -410,7 +410,7 @@ private fun QuotaStatusLine(model: QuotaUiModel) {
 }
 
 private fun quotaStatusLine(model: QuotaUiModel, locale: Locale): String {
-    val updatedAt = model.updatedAtMillis?.let { formatClockTime(it, locale) }
+    val updatedAt = model.updatedAtMillis?.let { UpdatedAtFormatter.formatValue(it, locale = locale) }
     return when (model.status) {
         QuotaUiStatus.LOADING -> RefreshStatusFormatter.refreshing(model.updatedAtMillis != null)
         QuotaUiStatus.UNAUTHENTICATED -> RefreshStatusFormatter.quotaNoSource()
@@ -668,5 +668,3 @@ private fun formatRemaining(epochSeconds: Long?): String {
     if (remainingSeconds in 1L until 60L) return "剩余不足 1 分钟"
     return "剩余 ${formatResetRemaining(remainingSeconds)}"
 }
-
-private fun formatClockTime(epochMillis: Long, locale: Locale) = SimpleDateFormat("HH:mm", locale).format(Date(epochMillis))

@@ -48,7 +48,8 @@ public sealed class TokenUsageViewModelTests
         var snapshot = CreateSnapshot(128_392);
         var viewModel = new TokenUsageViewModel(_ => ++calls == 1
             ? Task.FromResult(snapshot)
-            : Task.FromException<TokenUsageSnapshot>(new IOException("scan failed")));
+            : Task.FromException<TokenUsageSnapshot>(new IOException("scan failed")),
+            timeProvider: new FixedTimeProvider(snapshot.GeneratedAtUtc.AddMinutes(1)));
 
         await viewModel.RefreshCommand.ExecuteAsync(null);
 
@@ -79,7 +80,7 @@ public sealed class TokenUsageViewModelTests
         {
             scans++;
             return Task.FromResult(snapshot);
-        });
+        }, timeProvider: new FixedTimeProvider(snapshot.GeneratedAtUtc.AddMinutes(1)));
 
         viewModel.RestoreSnapshot(snapshot);
 
@@ -88,6 +89,35 @@ public sealed class TokenUsageViewModelTests
         Assert.AreEqual("128K", viewModel.TodayTokens);
         Assert.AreEqual(snapshot.GeneratedAtUtc, viewModel.LastAttemptUtc);
         Assert.AreEqual($"更新于 {snapshot.GeneratedAtUtc.ToLocalTime():HH:mm}", viewModel.StatusText);
+    }
+
+    [TestMethod]
+    public void RestoredCacheFromAnEarlierDateShowsMonthAndDay()
+    {
+        var snapshot = CreateSnapshot(128_392);
+        var viewModel = new TokenUsageViewModel(
+            _ => Task.FromResult(snapshot),
+            timeProvider: new FixedTimeProvider(snapshot.GeneratedAtUtc.AddDays(1)),
+            timeZone: TimeZoneInfo.Utc);
+
+        viewModel.RestoreSnapshot(snapshot);
+
+        Assert.AreEqual("更新于 8月12日", viewModel.StatusText);
+    }
+
+    [TestMethod]
+    public void RestoredCacheOlderThanSevenDaysIsExpiredAndWarning()
+    {
+        var snapshot = CreateSnapshot(128_392);
+        var viewModel = new TokenUsageViewModel(
+            _ => Task.FromResult(snapshot),
+            timeProvider: new FixedTimeProvider(snapshot.GeneratedAtUtc.AddDays(8)),
+            timeZone: TimeZoneInfo.Utc);
+
+        viewModel.RestoreSnapshot(snapshot);
+
+        Assert.AreEqual("更新于 8月12日 · 已过期", viewModel.StatusText);
+        Assert.AreEqual(StatusTone.Warning, viewModel.StatusTone);
     }
 
     [TestMethod]
@@ -433,5 +463,10 @@ public sealed class TokenUsageViewModelTests
             10,
             todayTokens > 0 ? today : null,
             todayTokens > 0 ? today : null);
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 }

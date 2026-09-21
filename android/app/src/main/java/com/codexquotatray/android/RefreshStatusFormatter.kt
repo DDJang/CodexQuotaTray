@@ -46,6 +46,8 @@ internal object RefreshStatusFormatter {
 internal fun refreshStatusErrorMarker(status: String): String? =
     listOf("刷新失败：", "同步失败：").firstOrNull { status.contains(it) }
 
+internal fun refreshStatusIsExpired(status: String): Boolean = status.contains("已过期")
+
 internal fun shortQuotaRefreshFailure(message: String?): String =
     if (message?.contains("无法连接") == true) "网络连接异常"
     else message?.trim()?.takeIf { it.isNotEmpty() } ?: "额度服务暂不可用"
@@ -54,17 +56,26 @@ internal fun shortQuotaRefreshFailure(message: String?): String =
 internal fun RefreshStatusLine(status: String) {
     val palette = LocalQuotaPalette.current
     val errorMarker = refreshStatusErrorMarker(status)
+    val expired = refreshStatusIsExpired(status)
     val errorStart = errorMarker?.let { status.indexOf(it) } ?: -1
     if (errorStart >= 0) {
         val prefix = status.substring(0, errorStart).removeSuffix(" · ")
         Row {
             if (prefix.isNotEmpty()) {
-                Text(prefix, fontSize = 14.sp, color = palette.color(palette.muted))
+                Text(
+                    prefix,
+                    fontSize = 14.sp,
+                    color = palette.color(if (expired) palette.warning else palette.muted),
+                )
                 Text(" · ", fontSize = 14.sp, color = palette.color(palette.muted))
             }
             Text(status.substring(errorStart), fontSize = 14.sp, color = palette.color(palette.error))
         }
     } else {
-        Text(status, fontSize = 14.sp, color = palette.color(palette.muted))
+        Text(
+            status,
+            fontSize = 14.sp,
+            color = palette.color(if (expired) palette.warning else palette.muted),
+        )
     }
 }

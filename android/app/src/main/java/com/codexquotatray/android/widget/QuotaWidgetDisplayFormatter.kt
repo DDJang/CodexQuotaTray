@@ -1,12 +1,16 @@
 package com.codexquotatray.android.widget
 
-import java.text.SimpleDateFormat
-import java.util.Date
+import com.codexquotatray.android.UpdatedAtFormatter
 import java.util.Locale
+import java.util.TimeZone
 
 internal object QuotaWidgetDisplayFormatter {
-    fun formatUpdatedAt(updatedAtMillis: Long): String =
-        "更新于 ${SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(updatedAtMillis))}"
+    fun formatUpdatedAt(
+        updatedAtMillis: Long,
+        nowMillis: Long = System.currentTimeMillis(),
+        locale: Locale = Locale.getDefault(),
+        timeZone: TimeZone = TimeZone.getDefault(),
+    ): String = "更新于 ${UpdatedAtFormatter.formatValue(updatedAtMillis, nowMillis, locale, timeZone)}"
 
     fun formatResetAt(resetsAtSeconds: Long?, nowMillis: Long): String {
         if (resetsAtSeconds == null) return "重置时间未知"

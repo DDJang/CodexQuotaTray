@@ -95,13 +95,11 @@ import com.codexquotatray.android.usage.isLanAttemptStale
 import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
 import com.codexquotatray.android.source.DataSourcePriority
 import com.codexquotatray.android.source.sourcePriorityChanged
-import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
-import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
@@ -935,4 +933,6 @@ private val HEATMAP_TOOLTIP_HEIGHT = 64.dp
 private val HEATMAP_TOOLTIP_CLEARANCE = 32.dp
 internal const val HEATMAP_SELECTED_SCALE = 1.5f
 
-private fun formatSyncTime(raw: String) = runCatching { SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date.from(Instant.parse(raw))) }.getOrDefault("未知")
+private fun formatSyncTime(raw: String) = runCatching {
+    UpdatedAtFormatter.formatValue(Instant.parse(raw).toEpochMilli())
+}.getOrDefault("未知")

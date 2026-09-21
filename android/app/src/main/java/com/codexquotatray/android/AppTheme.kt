@@ -98,6 +98,7 @@ data class ThemePalette(
     val secondaryButton: Int,
     val secondaryButtonText: Int,
     val progressTrack: Int,
+    val warning: Int,
     val error: Int,
 )
 
@@ -126,6 +127,7 @@ object AppTheme {
             secondaryButton = Color.rgb(229, 235, 246),
             secondaryButtonText = Color.rgb(35, 63, 111),
             progressTrack = Color.rgb(225, 232, 244),
+            warning = Color.rgb(154, 103, 0),
             error = Color.rgb(170, 30, 30),
         )
 
@@ -143,6 +145,7 @@ object AppTheme {
             secondaryButton = Color.rgb(49, 61, 84),
             secondaryButtonText = Color.rgb(215, 226, 247),
             progressTrack = Color.rgb(67, 79, 103),
+            warning = Color.rgb(255, 216, 77),
             error = Color.rgb(255, 126, 126),
         )
 
@@ -246,6 +249,7 @@ fun rememberAnimatedThemePalette(target: ThemePalette): ThemePalette = ThemePale
     secondaryButton = animateThemeColor(target.secondaryButton),
     secondaryButtonText = animateThemeColor(target.secondaryButtonText),
     progressTrack = animateThemeColor(target.progressTrack),
+    warning = animateThemeColor(target.warning),
     error = animateThemeColor(target.error),
 )
 
