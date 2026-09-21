@@ -10,6 +10,7 @@ import com.codexquotatray.android.ACTION_OPEN_FROM_WIDGET
 import com.codexquotatray.android.MainActivity
 import com.codexquotatray.android.R
 import com.codexquotatray.android.quotaProgressArgb
+import com.codexquotatray.android.UpdatedAtFormatter
 import com.codexquotatray.android.usage.TokenFormatter
 
 private val WINDOW_TITLE_UNIT_PATTERN = Regex("""\s*(天|小时|分钟)""")
@@ -78,6 +79,9 @@ internal object QuotaWidgetRenderer {
         val ringWindows = widgetRingWindows(windows)
         val outer = ringWindows.getOrNull(0)
         val inner = ringWindows.getOrNull(1)
+        val nowMillis = System.currentTimeMillis()
+        val expired = projection != null &&
+            UpdatedAtFormatter.isExpired(projection.updatedAtMillis, nowMillis)
         val plan = projection?.planType?.takeIf {
             it.isNotBlank() && !it.equals("Codex", ignoreCase = true)
         }
@@ -87,7 +91,17 @@ internal object QuotaWidgetRenderer {
         )
         views.setTextViewText(
             R.id.widget_updated,
-            projection?.let { QuotaWidgetDisplayFormatter.formatUpdatedAt(it.updatedAtMillis) } ?: "",
+            projection?.let {
+                QuotaWidgetDisplayFormatter.formatUpdatedAt(it.updatedAtMillis, nowMillis)
+            } ?: "",
+        )
+        views.setTextColor(
+            R.id.widget_updated,
+            if (expired) {
+                quotaProgressArgb(50)
+            } else {
+                context.getColor(R.color.widget_secondary_text)
+            },
         )
         views.setViewVisibility(R.id.widget_empty, if (outer == null) View.VISIBLE else View.GONE)
         views.setViewVisibility(R.id.widget_dashboard, if (outer == null) View.GONE else View.VISIBLE)

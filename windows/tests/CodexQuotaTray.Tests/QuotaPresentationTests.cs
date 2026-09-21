@@ -100,6 +100,32 @@ public sealed class QuotaPresentationTests
     }
 
     [TestMethod]
+    public void UpdatedAtUsesClockTimeOnlyForTheCurrentLocalDate()
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("UTC+8", TimeSpan.FromHours(8), "UTC+8", "UTC+8");
+        var now = new DateTimeOffset(2026, 9, 20, 16, 1, 0, TimeSpan.Zero);
+
+        Assert.AreEqual(
+            "更新于 00:00",
+            UpdatedAtFormatter.Format(
+                new DateTimeOffset(2026, 9, 20, 16, 0, 0, TimeSpan.Zero),
+                now,
+                zone));
+        Assert.AreEqual(
+            "更新于 9月20日",
+            UpdatedAtFormatter.Format(
+                new DateTimeOffset(2026, 9, 20, 15, 59, 0, TimeSpan.Zero),
+                now,
+                zone));
+        Assert.AreEqual(
+            "更新于 9月14日",
+            UpdatedAtFormatter.Format(now.AddDays(-7), now, zone));
+        Assert.AreEqual(
+            "更新于 9月14日 · 已过期",
+            UpdatedAtFormatter.Format(now.AddDays(-7).AddTicks(-1), now, zone));
+    }
+
+    [TestMethod]
     public void Projector_OnlyExposesCanonicalBucketFromMixedResponse()
     {
         var normalized = QuotaNormalizer.Normalize(new RateLimitsReadResult(

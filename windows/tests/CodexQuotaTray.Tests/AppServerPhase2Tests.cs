@@ -517,6 +517,34 @@ public sealed class AppServerPhase2Tests
     }
 
     [TestMethod]
+    public async Task QuotaRuntime_RefreshFailurePreservesExpiredCacheTimestamp()
+    {
+        var client = new ControlledClient();
+        client.Release.TrySetResult();
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var clock = new ManualTimeProvider();
+        await using var service = new QuotaRuntimeService(
+            new SingleClientFactory(client),
+            new SettingsService(new JsonFileStore(), paths),
+            new PreviewPersistence(new JsonFileStore(), paths),
+            timeProvider: clock,
+            timeZone: TimeZoneInfo.Utc);
+
+        var success = await service.GetSnapshotAsync(CancellationToken.None);
+        Assert.HasCount(1, success.Windows);
+        clock.AdvanceClock(TimeSpan.FromDays(8));
+        client.Fail = true;
+
+        var failed = await service.RefreshAsync(CancellationToken.None);
+
+        Assert.AreEqual(
+            "更新于 1月1日 · 已过期 · 刷新失败：请求超时 · 显示上次数据",
+            failed.StatusText);
+        Assert.AreEqual(StatusTone.Error, failed.StatusTone);
+    }
+
+    [TestMethod]
     public async Task QuotaRuntime_StaleStatePublishesOnceAndSuccessRestoresNormalState()
     {
         using var directory = new TemporaryDirectory();
@@ -1692,9 +1720,11 @@ public sealed class AppServerPhase2Tests
 
         public void Advance(TimeSpan amount)
         {
-            Interlocked.Add(ref utcTicks, amount.Ticks);
+            AdvanceClock(amount);
             timer?.Tick();
         }
+
+        public void AdvanceClock(TimeSpan amount) => Interlocked.Add(ref utcTicks, amount.Ticks);
 
         private sealed class ManualTimer(TimerCallback callback, object? state) : ITimer
         {

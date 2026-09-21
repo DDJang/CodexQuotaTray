@@ -210,7 +210,15 @@ class QuotaWidgetProjectionTest {
 
     @Test
     fun displayFormattingContainsUpdatedTimeAndResetInformation() {
-        assertTrue(QuotaWidgetDisplayFormatter.formatUpdatedAt(1_700_000_000_000L).startsWith("更新于 "))
+        assertEquals(
+            "更新于 11月14日",
+            QuotaWidgetDisplayFormatter.formatUpdatedAt(
+                updatedAtMillis = 1_700_000_000_000L,
+                nowMillis = 1_700_086_400_000L,
+                locale = java.util.Locale.CHINA,
+                timeZone = java.util.TimeZone.getTimeZone("UTC"),
+            ),
+        )
         assertTrue(
             QuotaWidgetDisplayFormatter.formatResetAt(
                 resetsAtSeconds = 1_700_003_600L,

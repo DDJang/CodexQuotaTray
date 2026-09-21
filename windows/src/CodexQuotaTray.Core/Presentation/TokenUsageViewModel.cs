@@ -14,6 +14,8 @@ public sealed partial class TokenUsageViewModel : ObservableObject
     private const int HeatmapWeeks = 17;
     private readonly Func<CancellationToken, Task<TokenUsageSnapshot>> scan;
     private readonly Func<Action, CancellationToken, Task> dispatch;
+    private readonly TimeProvider timeProvider;
+    private readonly TimeZoneInfo timeZone;
     private readonly SemaphoreSlim refreshGate = new(1, 1);
     private TokenUsageSnapshot? snapshot;
     private int sourceGeneration;
@@ -69,9 +71,13 @@ public sealed partial class TokenUsageViewModel : ObservableObject
 
     public TokenUsageViewModel(
         Func<CancellationToken, Task<TokenUsageSnapshot>> scan,
-        Func<Action, CancellationToken, Task>? dispatch = null)
+        Func<Action, CancellationToken, Task>? dispatch = null,
+        TimeProvider? timeProvider = null,
+        TimeZoneInfo? timeZone = null)
     {
         this.scan = scan;
+        this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.timeZone = timeZone ?? TimeZoneInfo.Local;
         this.dispatch = dispatch ?? ((action, _) =>
         {
             action();
@@ -194,7 +200,9 @@ public sealed partial class TokenUsageViewModel : ObservableObject
                                 return;
                             }
 
-                            completionStatusText = snapshot is null ? "刷新失败" : "刷新失败 · 显示上次数据";
+                            completionStatusText = snapshot is null
+                                ? "刷新失败"
+                                : $"{UpdatedAtFormatter.Format(snapshot.GeneratedAtUtc, timeProvider.GetUtcNow(), timeZone)} · 刷新失败 · 显示上次数据";
                             completionStatusTone = snapshot is null ? StatusTone.Error : StatusTone.Warning;
                             completionHasErrorWithoutData = snapshot is null;
                             hasCompletionPresentation = true;
@@ -235,6 +243,7 @@ public sealed partial class TokenUsageViewModel : ObservableObject
     internal void Apply(TokenUsageSnapshot value, DateOnly? today = null)
     {
         var applyStopwatch = Stopwatch.StartNew();
+        var now = timeProvider.GetUtcNow();
         var summary = value.Summary;
         var localToday = today ?? DateOnly.FromDateTime(DateTime.Now);
         var cells = TokenHeatmap.Build(value.Days, localToday, HeatmapWeeks);
@@ -258,8 +267,14 @@ public sealed partial class TokenUsageViewModel : ObservableObject
             || HasMetric(value, TokenUsageMetricAvailability.Lifetime) && summary.LifetimeTokens > 0;
         HasNoData = !HasData;
         HasErrorWithoutData = false;
-        StatusText = HasData ? $"更新于 {value.GeneratedAtUtc.ToLocalTime():HH:mm}" : "暂无 Token 数据";
-        StatusTone = HasData ? StatusTone.Success : StatusTone.Neutral;
+        StatusText = HasData
+            ? UpdatedAtFormatter.Format(value.GeneratedAtUtc, now, timeZone)
+            : "暂无 Token 数据";
+        StatusTone = HasData
+            ? UpdatedAtFormatter.IsExpired(value.GeneratedAtUtc, now)
+                ? StatusTone.Warning
+                : StatusTone.Success
+            : StatusTone.Neutral;
 
         OnPropertyChanged(nameof(HasLoaded));
         applyStopwatch.Stop();
