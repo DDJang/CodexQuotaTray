@@ -13,15 +13,15 @@
     "publishedAt": "2026-09-21T16:12:32Z"
   },
   "android": {
-    "version": "0.11.7",
-    "tag": "android-v0.11.7",
+    "version": "0.11.8",
+    "tag": "android-v0.11.8",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.11.7.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.7/CodexQuotaTray-Android-v0.11.7.apk",
-      "sha256": "6b17a57ff36388bb151b612b0cf1de5467884a7048b98667eaa3e0c315f9143e",
+      "name": "CodexQuotaTray-Android-v0.11.8.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.8/CodexQuotaTray-Android-v0.11.8.apk",
+      "sha256": "e83a78d333fcdf0969e525b3a26d3957cd7451369b82c4d5692a9cb13c81c057",
       "size": 3238294
     },
-    "releaseNotes": "# CodexQuotaTray Android 0.11.7\n\n## 改进\n\n- 优化 App 和小组件的最后更新时间展示：当天显示具体时分，跨日后显示月日。\n- 数据超过 7 天未更新时显示“已过期”和警告色，刷新失败时仍保留过期提示。\n",
-    "publishedAt": "2026-09-21T16:14:25Z"
+    "releaseNotes": "### 底部导航与刷新\n\n- 恢复底部标签切换指示器更克制的折射与色散效果。\n- 在保持刷新按钮外圈尺寸不变的前提下放大内部刷新图标，使其与左侧导航区域更协调。\n",
+    "publishedAt": "2026-09-22T12:54:29Z"
   }
 }
