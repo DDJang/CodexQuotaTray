@@ -6,9 +6,7 @@ on:
       - main
     paths:
       - 'android/app/build.gradle.kts'
-      - 'android/release-notes/**'
       - 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj'
-      - 'windows/release-notes/**'
       - '.github/scripts/publish-release-manifest.ps1'
       - '.github/scripts/resolve-android-release-source.ps1'
       - '.github/scripts/test-android-release-source.ps1'

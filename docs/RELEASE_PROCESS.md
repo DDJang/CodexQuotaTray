@@ -103,13 +103,13 @@ Release 标题和平台 tag 已表达产品、平台与版本，notes 正文不�
 
 ### 5. 选定平台的本地准备检查
 
-发布准备脚本只运行轻量的发布 planner、manifest writer 和 `git diff --check` 检查，不在本地重复平台 build/test。完整代码质量验证由 PR CI 负责：Windows-only 运行 Windows Full 和按发布相关路径触发的 packaging smoke，Android-only 运行 Android 测试、lint 和 Debug assemble，All 运行两者。每个正式发布 PR 还运行一次独立 `Release Tooling CI`，不再由两个平台 CI 重复执行。
+发布准备脚本在本地只运行快速合同检查：解析关键 PowerShell 脚本，复核选定平台的版本和 notes，确认所需 workflow/脚本合同文件，并执行 `git diff --check`；不在 push 前重复完整发布模拟或平台 build/test。完整代码质量验证由 PR CI 负责：Windows-only 运行 Windows Full 和按发布相关路径触发的 packaging smoke，Android-only 运行 Android 测试、lint 和 Debug assemble，All 运行两者。每个正式发布 PR 都会因目标平台版本文件变化而运行一次独立 `Release Tooling CI`，集中执行 release planner、manifest writer/publisher 和 Android release source 的完整离线回归；单独修改 release notes 不额外触发这套工具回归。
 
 ```text
 Windows/Android/All:
-  pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps1
-  pwsh -NoProfile -File .\.github\scripts\test-publish-release-manifest.ps1
-  pwsh -NoProfile -File .\.github\scripts\test-publish-release.ps1
+  parse critical PowerShell scripts
+  verify selected version and release notes
+  verify required workflow/script contracts
   git diff --check
 ```
 

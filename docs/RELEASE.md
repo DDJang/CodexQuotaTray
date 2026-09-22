@@ -82,8 +82,10 @@ PR CI 是合并前验证；Release workflow 是正式发布验证。发布流程
 
 普通平台 CI 由 PR 与 `workflow_dispatch` 触发；merge 到 `main` 不会再触发重复的普通 CI。Windows
 installer / publish / deployment 相关路径由独立的 `Windows Packaging CI` 执行 packaging smoke，普通
-Windows UI/Core PR 不再安装 Inno 或重复 publish。平台无关的发布 planner、manifest writer 和 Android
-release source 测试集中在 `Release Tooling CI`，不再由 Android 与 Windows CI 各执行一次。
+Windows UI/Core PR 不再安装 Inno 或重复 publish。本地发布准备只执行脚本解析、版本/notes、合同文件和
+`git diff --check` 等快速检查；平台无关的发布 planner、manifest writer/publisher 和 Android release
+source 完整回归集中在 `Release Tooling CI`，由平台版本文件或发布自动化改动触发，不再由本地准备、
+Android CI 与 Windows CI 重复执行；release notes 单独修改不触发该工具回归。
 
 Windows workflow 运行 `windows/scripts/verify-winui.ps1 -Mode Release`（只做 release-specific publish
 和产物检查），再生成 portable ZIP 和 Inno installer。上述 `publish-winui.ps1`、`package-winui.ps1`、
