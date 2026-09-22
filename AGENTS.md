@@ -207,6 +207,6 @@ Release workflow、Release 和 `update-manifest` manifest 节点；只有 `All` 
 - 选定平台的 PR CI 失败、取消或错误时立即停止，不得 merge；merge 后确认目标 commit 已进入
   `origin/main`，普通 `main` push 不作为额外发布门禁；
 - 不 force push、不移动或删除已有 tag、不跳过 CI、不修改测试来绕过失败；
-- 选定平台的 release notes 比较该平台上一 Release tag 到待发布 HEAD 的用户可感知变化，并在调用脚本前提交到当前 HEAD；调用脚本时工作区必须 clean；
+- 选定平台的 release notes 比较该平台上一 Release tag 到待发布 HEAD 的用户可感知变化；调用脚本时工作区只允许目标 notes 作为未提交改动，脚本会将它与版本文件合并到 release preparation commit；
 - Windows/Android 单平台只要求对应 Release workflow 和 manifest 节点成功；只有 `All` 才要求两套 Release workflow 和两个 manifest 节点都成功；
 - 若出现需要 Owner 决策的真实冲突或不可安全自动化的情况，停止并明确报告。

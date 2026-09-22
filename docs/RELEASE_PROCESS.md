@@ -33,7 +33,7 @@ post-merge resume 中校验 merged PR 的 `headRefOid` 与 `mergeCommit` 身份�
 ```
 
 `Windows` 和 `Android` 只处理选定平台；`All` 才是确实需要双平台同步准备和发布时的入口。脚本没有隐式的双平台默认值。
-Codex 在调用脚本前只为选定平台准备对应 notes，并将 notes 写入当前 branch 的提交；脚本启动时工作区必须 clean，因此不能把未提交的 notes 留在工作区等待脚本创建提交：
+Codex 在调用脚本前只为选定平台准备对应 notes。目标 notes 可以作为工作区中唯一的未提交改动，由脚本与版本文件一起写入 release preparation commit；也兼容 notes 已经提交到当前 branch 的恢复场景：
 
 - Windows：`windows/release-notes/X.Y.Z.md`
 - Android：`android/release-notes/X.Y.Z.md`
@@ -53,7 +53,7 @@ Codex 在调用脚本前只为选定平台准备对应 notes，并将 notes 写�
 
 ### 1. Preflight
 
-脚本首先严格验证 `MAJOR.MINOR.PATCH` 版本和 `Windows|Android|All` 平台，确认当前是 Git 仓库中的非 detached、非 `main` 分支，要求工作区 clean 并检查明显敏感文件，检查 `gh` 可用且已认证，确认 `origin/main` 存在并检查当前 HEAD 已包含它；如果发现当前 release preparation 已经安全地 squash/merge 到 main，则改为验证该 post-merge resume 状态。两种模式都只检查选定平台的 notes、版本文件和目标 tag 冲突。正式运行会 fetch；DryRun 只使用不会更新 refs 的检查。
+脚本首先严格验证 `MAJOR.MINOR.PATCH` 版本和 `Windows|Android|All` 平台，确认当前是 Git 仓库中的非 detached、非 `main` 分支。工作区只允许包含选定平台目标 notes 的改动；其它已跟踪、未跟踪或已暂存改动都会阻塞，并继续检查明显敏感文件。脚本还会检查 `gh` 可用且已认证，确认 `origin/main` 存在并检查当前 HEAD 已包含它；如果发现当前 release preparation 已经安全地 squash/merge 到 main，则改为验证该 post-merge resume 状态。两种模式都只检查选定平台的 notes、版本文件和目标 tag 冲突。正式运行会 fetch；DryRun 只使用不会更新 refs 的检查。
 
 ### 2. 选择上一平台 Release tag
 
@@ -69,7 +69,7 @@ All     -> 两者都选择
 
 ### 3. Release notes
 
-Codex 以选定平台的上一 tag → 当前 HEAD 为边界，筛选该平台用户可感知的变化，生成对应 Markdown，并在调用脚本前提交 notes。只保留新增、优化、修复等用户能理解的内容，不写 commit hash、作者、PR 编号、完整 changelog 或普通测试/重构细节。
+Codex 以选定平台的上一 tag → 当前 HEAD 为边界，筛选该平台用户可感知的变化，生成对应 Markdown，并在调用脚本前保存为目标 notes 文件。该文件无需预先单独提交；脚本会把未提交的目标 notes 与版本修改合并到同一个 preparation commit。只保留新增、优化、修复等用户能理解的内容，不写 commit hash、作者、PR 编号、完整 changelog 或普通测试/重构细节。
 
 Release 标题和平台 tag 已表达产品、平台与版本，notes 正文不再重复以下标题：
 
@@ -103,11 +103,12 @@ Release 标题和平台 tag 已表达产品、平台与版本，notes 正文不�
 
 ### 5. 选定平台的本地准备检查
 
-发布准备脚本只运行轻量的发布 planner、manifest writer 和 `git diff --check` 检查，不在本地重复平台 build/test。完整代码质量验证由 PR CI 负责：Windows-only 运行 Windows Full，Android-only 运行 Android 测试、lint 和 Debug assemble，All 运行两者。
+发布准备脚本只运行轻量的发布 planner、manifest writer 和 `git diff --check` 检查，不在本地重复平台 build/test。完整代码质量验证由 PR CI 负责：Windows-only 运行 Windows Full 和按发布相关路径触发的 packaging smoke，Android-only 运行 Android 测试、lint 和 Debug assemble，All 运行两者。每个正式发布 PR 还运行一次独立 `Release Tooling CI`，不再由两个平台 CI 重复执行。
 
 ```text
 Windows/Android/All:
   pwsh -NoProfile -File .\.github\scripts\test-update-release-manifest.ps1
+  pwsh -NoProfile -File .\.github\scripts\test-publish-release-manifest.ps1
   pwsh -NoProfile -File .\.github\scripts\test-publish-release.ps1
   git diff --check
 ```
@@ -123,7 +124,7 @@ Android: android\gradlew.bat -p android :app:testDebugUnitTest :app:lintDebug :a
 
 ### 6. Commit + push
 
-验证成功后检查差异和敏感文件，只 stage 选定平台的版本文件；notes 已属于 clean HEAD，不在本次脚本工作区中新增或修改。脚本使用带平台范围的 `release: prepare ...` 提交，然后只 push 当前分支到 `origin`，不 force push。
+验证成功后检查差异和敏感文件，只 stage 选定平台的版本文件和目标 notes。未提交的 notes 会与版本修改进入同一个带平台范围的 `release: prepare ...` 提交；如果 notes 已在 HEAD 中，脚本只提交仍有变化的版本文件。随后只 push 当前分支到 `origin`，不 force push。
 
 如果脚本在 release preparation commit 已经存在后重跑，只有在当前 HEAD 的提交 subject、选定平台版本文件、选定平台 notes、提交改动范围和 clean worktree 都与本次目标一致时，才会跳过 commit（不创建空 commit），push 当前分支并继续查询/复用已有 PR；状态不完整时仍会停止。
 
@@ -139,7 +140,7 @@ PR CI 是合并前验证。脚本使用 GitHub CLI 查询 PR checks 的真实状
 
 等待条件以所选平台的必需 workflow/job 集合为准，不能仅凭已经出现的检查全部通过就继续。
 每个必需 job 必须来自 `pull_request` 且明确 `SUCCESS`；缺失或运行中继续有界等待，跳过则停止。
-单平台发布不以未选平台的检查作为门禁。集合由 `scripts/publish-release.ps1` 定义，离线测试
+每次发布都必须通过公共 `Release Tooling CI`；单平台发布不以未选平台的检查作为门禁。集合由 `scripts/publish-release.ps1` 定义，离线测试
 核对它与对应 CI workflow 的名称和 job 标识保持一致。
 
 普通 CI 只由 PR 和显式 `workflow_dispatch` 触发；merge 到 `main` 不会再次触发重复的普通 CI。
@@ -167,6 +168,7 @@ All:     git push --atomic origin refs/tags/android-vX.Y.Z refs/tags/windows-vX.
 tag push 后，脚本按精确 tag、精确 SHA 和 workflow 文件查找并等待选定平台的 Release workflow。workflow 必须进入 `completed/success`；queued 或 `in_progress` 不能提前视为成功；任一失败立即停止，不自动删除 tag 或重发。
 
 每个 Release workflow 的构建、签名、资产和 GitHub Release 阶段可以并行；只有依赖 Release 完成的 `publish-manifest` job 使用共享 `update-manifest-publish` concurrency group，且 `cancel-in-progress: false`。该 job 继续通过现有 read-modify-write 流程只替换当前平台的 `update-manifest` 节点。
+Android 与 Windows 的 manifest job 共用 `.github/scripts/publish-release-manifest.ps1` 完成公开资产下载、checksum/size 校验和节点发布，平台 workflow 只传入平台、版本、tag 与 source SHA。
 
 ### 12. 验证选定平台 Release 与 update-manifest
 

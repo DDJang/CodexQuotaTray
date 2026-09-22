@@ -5,14 +5,6 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/android-ci.yml'
-      - '.github/workflows/android-release.yml'
-      - '.github/scripts/update-release-manifest.ps1'
-      - '.github/scripts/test-update-release-manifest.ps1'
-      - 'scripts/publish-release.ps1'
-      - '.github/scripts/test-publish-release.ps1'
-      - '.github/update-manifest.seed.json'
-      - '.github/scripts/resolve-android-release-source.ps1'
-      - '.github/scripts/test-android-release-source.ps1'
   workflow_dispatch:
     inputs:
       commit_sha:
@@ -100,18 +92,6 @@ jobs:
       - name: Test and assemble Debug
         working-directory: android
         run: ./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-
-      - name: Test unified update manifest writer
-        shell: pwsh
-        run: ./.github/scripts/test-update-release-manifest.ps1
-
-      - name: Test immutable Android release source resolution
-        shell: pwsh
-        run: ./.github/scripts/test-android-release-source.ps1
-
-      - name: Test platform-independent release planner
-        shell: pwsh
-        run: ./.github/scripts/test-publish-release.ps1
 
       - name: Upload manual Debug APK
         if: github.event_name == 'workflow_dispatch' && success()
