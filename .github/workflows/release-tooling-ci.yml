@@ -1,0 +1,57 @@
+name: Release Tooling CI
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'android/app/build.gradle.kts'
+      - 'android/release-notes/**'
+      - 'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj'
+      - 'windows/release-notes/**'
+      - '.github/scripts/publish-release-manifest.ps1'
+      - '.github/scripts/resolve-android-release-source.ps1'
+      - '.github/scripts/test-android-release-source.ps1'
+      - '.github/scripts/test-publish-release.ps1'
+      - '.github/scripts/test-publish-release-manifest.ps1'
+      - '.github/scripts/test-update-release-manifest.ps1'
+      - '.github/scripts/update-release-manifest.ps1'
+      - '.github/update-manifest.seed.json'
+      - '.github/workflows/android-ci.yml'
+      - '.github/workflows/android-release.yml'
+      - '.github/workflows/release-tooling-ci.yml'
+      - '.github/workflows/windows-ci.yml'
+      - '.github/workflows/windows-packaging-ci.yml'
+      - '.github/workflows/windows-release.yml'
+      - 'scripts/publish-release.ps1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-tooling-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Test unified update manifest writer
+        shell: pwsh
+        run: ./.github/scripts/test-update-release-manifest.ps1
+
+      - name: Test immutable Android release source resolution
+        shell: pwsh
+        run: ./.github/scripts/test-android-release-source.ps1
+
+      - name: Test shared release manifest publisher
+        shell: pwsh
+        run: ./.github/scripts/test-publish-release-manifest.ps1
+
+      - name: Test platform-independent release planner
+        shell: pwsh
+        run: ./.github/scripts/test-publish-release.ps1

@@ -80,12 +80,17 @@ Windows 与 Android 正式 Release 当前只支持严格的 `MAJOR.MINOR.PATCH` 
 PR CI 是合并前验证；Release workflow 是正式发布验证。发布流程不再把 merge 后的普通 main CI
 作为额外的独立发布门禁。
 
-普通 CI 由 PR 与 `workflow_dispatch` 触发；merge 到 `main` 不会再触发重复的普通 CI。
+普通平台 CI 由 PR 与 `workflow_dispatch` 触发；merge 到 `main` 不会再触发重复的普通 CI。Windows
+installer / publish / deployment 相关路径由独立的 `Windows Packaging CI` 执行 packaging smoke，普通
+Windows UI/Core PR 不再安装 Inno 或重复 publish。平台无关的发布 planner、manifest writer 和 Android
+release source 测试集中在 `Release Tooling CI`，不再由 Android 与 Windows CI 各执行一次。
 
 Windows workflow 运行 `windows/scripts/verify-winui.ps1 -Mode Release`（只做 release-specific publish
 和产物检查），再生成 portable ZIP 和 Inno installer。上述 `publish-winui.ps1`、`package-winui.ps1`、
 `package-inno.ps1` 属于正式 Release workflow 的底层 publish/package 实现，但不作为维护者日常手工
 发布入口；正式发布入口仍由统一发布状态机和 GitHub Actions 管理。PR CI 的 Full 验证负责格式检查和离线测试。
+手动触发 Windows CI 生成测试产物时，Release 验证和 ZIP/Installer 打包位于同一 job，并复用同一份
+publish 输出，避免跨 runner 重复 publish。
 Windows Release 当前保持 `PublishTrimmed=false`；Trim 尚未达到 Production 条件，原因与验证结果见
 [Windows Trim 调查记录](investigations/windows/trim-experiment.md)。
 

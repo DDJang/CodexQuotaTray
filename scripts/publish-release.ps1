@@ -354,15 +354,17 @@ function Test-ExistingReleasePreparationState {
     }
 
     $changedPaths = @(Get-CommitChangedPaths -Commit 'HEAD')
-    if ($changedPaths.Count -ne $expectedVersionPaths.Count) {
-        return $false
+    $expectedReleasePaths = @($expectedVersionPaths)
+    foreach ($notesPath in $NotesPaths) {
+        $expectedReleasePaths += Get-RepoRelativePath -Path $notesPath
     }
-    foreach ($path in $expectedVersionPaths) {
-        if ($path -notin $changedPaths) {
-            return $false
-        }
-    }
-    return $true
+    $matchesVersionOnlyCommit =
+        $changedPaths.Count -eq $expectedVersionPaths.Count -and
+        @($expectedVersionPaths | Where-Object { $_ -notin $changedPaths }).Count -eq 0
+    $matchesCombinedCommit =
+        $changedPaths.Count -eq $expectedReleasePaths.Count -and
+        @($expectedReleasePaths | Where-Object { $_ -notin $changedPaths }).Count -eq 0
+    return $matchesVersionOnlyCommit -or $matchesCombinedCommit
 }
 
 function Get-SelectedVersionPaths {
@@ -623,8 +625,12 @@ function Assert-WorkflowContracts {
     }
     if (Test-PlatformSelected -Name 'Windows') {
         $requiredPaths += '.github\workflows\windows-ci.yml'
+        $requiredPaths += '.github\workflows\windows-packaging-ci.yml'
     }
     $requiredPaths += @(
+        '.github\workflows\release-tooling-ci.yml',
+        '.github\scripts\publish-release-manifest.ps1',
+        '.github\scripts\test-publish-release-manifest.ps1',
         '.github\scripts\update-release-manifest.ps1',
         '.github\scripts\test-update-release-manifest.ps1',
         '.github\scripts\test-publish-release.ps1'
@@ -680,6 +686,9 @@ function Run-ReleasePreparationChecks {
     Write-Step 'Running lightweight release preparation checks.'
     Invoke-External -FilePath 'pwsh' -Arguments @(
         '-NoProfile', '-File', '.\.github\scripts\test-update-release-manifest.ps1'
+    )
+    Invoke-External -FilePath 'pwsh' -Arguments @(
+        '-NoProfile', '-File', '.\.github\scripts\test-publish-release-manifest.ps1'
     )
     Invoke-External -FilePath 'pwsh' -Arguments @(
         '-NoProfile', '-File', '.\.github\scripts\test-publish-release.ps1'
@@ -740,9 +749,10 @@ function Get-ReleasePrCheckStatus {
     )
     # Job names must stay aligned with the pull_request jobs in the CI workflows.
     $required = @(
+        @{ Workflow = 'Release Tooling CI'; Name = 'test' }
         if ($Platforms -contains 'Windows') {
             @{ Workflow = 'Windows CI'; Name = 'verify' }
-            @{ Workflow = 'Windows CI'; Name = 'packaging-smoke' }
+            @{ Workflow = 'Windows Packaging CI'; Name = 'packaging-smoke' }
         }
         if ($Platforms -contains 'Android') {
             @{ Workflow = 'Android CI'; Name = 'debug' }
@@ -798,7 +808,7 @@ function Wait-PrChecks {
             }
             $status = Get-ReleasePrCheckStatus -Checks $checks -Platforms $script:SelectedPlatforms
             if ($status.Ready) {
-                Write-Host "All required selected-platform PR checks passed for #$Number."
+                Write-Host "All required release PR checks passed for #$Number."
                 return
             }
             Write-Host "Waiting for PR checks. Missing: $($status.Missing -join ', '); pending: $($status.Pending -join ', ')."
@@ -1072,9 +1082,6 @@ Write-Host "HEAD: $($script:HeadSha)"
 $repoStatus = (Read-ExternalText -FilePath $script:Git -Arguments @(
     'status', '--short'
 )).Trim()
-if (-not [string]::IsNullOrWhiteSpace($repoStatus)) {
-    Add-Blocker 'Worktree is not clean. Commit or remove unrelated changes before a formal release.'
-}
 $changedPaths = @($repoStatus -split [Environment]::NewLine | ForEach-Object {
     if ($_ -match '^\S+\s+(.+)$') { $Matches[1].Trim('"') }
 } | Where-Object { $_ })
@@ -1192,6 +1199,15 @@ if (Test-PlatformSelected -Name 'Android') {
 if (Test-PlatformSelected -Name 'Windows') {
     $resumeNotesPaths += $windowsNotesPath
 }
+$allowedWorktreePaths = @($resumeNotesPaths | ForEach-Object {
+    Get-RepoRelativePath -Path $_
+})
+$unexpectedWorktreePaths = @($changedPaths | Where-Object {
+    $_ -notin $allowedWorktreePaths
+})
+if ($unexpectedWorktreePaths.Count -gt 0) {
+    Add-Blocker "Worktree contains changes outside the selected release notes: $($unexpectedWorktreePaths -join ', ')."
+}
 if ($mainCapture.ExitCode -eq 0) {
     $postMergeState = Get-PostMergeReleaseResumeState -MainCommit $script:MainSha -MainContainsHead $mainContainsHead -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -NotesPaths $resumeNotesPaths -CommitMessage $releaseSubject
     if ($postMergeState.Status -ceq 'Valid') {
@@ -1258,7 +1274,7 @@ Write-Host "Tags: $($targetTags -join ', ')"
 if ($script:PostMergeResume) {
     Write-Host "Post-merge resume will confirm the main commit, create the selected tag, and verify the Release workflow and update-manifest at $($script:MainSha); preparation and PR stages are already complete."
 } else {
-    Write-Host "Formal run will validate $script:ReleaseScope, commit only selected platform files, push, create or reuse a PR, wait for PR CI, confirm the merged main commit, push selected annotated tag(s), then verify selected Release(s) and manifest node(s)."
+    Write-Host "Formal run will validate $script:ReleaseScope, commit the selected release notes and version files, push, create or reuse a PR, wait for PR CI, confirm the merged main commit, push selected annotated tag(s), then verify selected Release(s) and manifest node(s)."
 }
 
 if ($DryRun) {
@@ -1283,9 +1299,11 @@ Write-Step 'Creating the release preparation commit.'
 $pathsToStage = @()
 if (Test-PlatformSelected -Name 'Android') {
     $pathsToStage += $androidInfo.Path
+    $pathsToStage += $androidNotesPath
 }
 if (Test-PlatformSelected -Name 'Windows') {
     $pathsToStage += $windowsInfo.Path
+    $pathsToStage += $windowsNotesPath
 }
 Invoke-External -FilePath $script:Git -Arguments (@('add', '--') + $pathsToStage)
 $staged = @(& $script:Git diff --cached --name-only | ForEach-Object {

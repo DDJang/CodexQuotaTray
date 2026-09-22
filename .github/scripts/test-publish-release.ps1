@@ -47,29 +47,30 @@ function New-TestCheck([string]$Workflow, [string]$Name, [string]$Bucket = 'pass
     [pscustomobject]@{ workflow = $Workflow; name = $Name; bucket = $Bucket; state = $State; event = $Event }
 }
 $winVerify = New-TestCheck 'Windows CI' 'verify'
-$winPackage = New-TestCheck 'Windows CI' 'packaging-smoke'
+$winPackage = New-TestCheck 'Windows Packaging CI' 'packaging-smoke'
 $androidDebug = New-TestCheck 'Android CI' 'debug'
+$releaseTooling = New-TestCheck 'Release Tooling CI' 'test'
 foreach ($case in @(
     @{ Checks = @(); Platforms = @('Windows'); Ready = $false },
     @{ Checks = @($winVerify); Platforms = @('Windows'); Ready = $false },
-    @{ Checks = @($winVerify, (New-TestCheck 'Windows CI' 'packaging-smoke' 'pending' 'IN_PROGRESS')); Platforms = @('Windows'); Ready = $false },
-    @{ Checks = @($winVerify, $winPackage); Platforms = @('Windows'); Ready = $true },
-    @{ Checks = @($androidDebug); Platforms = @('Android'); Ready = $true },
-    @{ Checks = @($winVerify, $winPackage); Platforms = @('Windows', 'Android'); Ready = $false },
-    @{ Checks = @($winVerify, $winPackage, $androidDebug); Platforms = @('Windows', 'Android'); Ready = $true },
-    @{ Checks = @((New-TestCheck 'Unrelated' 'debug')); Platforms = @('Android'); Ready = $false },
-    @{ Checks = @((New-TestCheck 'Android CI' 'debug' 'pass' 'SUCCESS' 'workflow_dispatch')); Platforms = @('Android'); Ready = $false },
-    @{ Checks = @($androidDebug, (New-TestCheck 'Windows CI' 'verify' 'fail' 'FAILURE')); Platforms = @('Android'); Ready = $true },
-    @{ Checks = @($androidDebug, (New-TestCheck 'Android CI' 'debug' 'fail' 'FAILURE' 'workflow_dispatch')); Platforms = @('Android'); Ready = $true },
-    @{ Checks = @($androidDebug, (New-TestCheck 'Android CI' 'optional' 'fail' 'FAILURE')); Platforms = @('Android'); Ready = $true },
-    @{ Checks = @((New-TestCheck 'Android CI' 'debug' 'pass' 'NEUTRAL')); Platforms = @('Android'); Ready = $false }
+    @{ Checks = @($releaseTooling, $winVerify, (New-TestCheck 'Windows Packaging CI' 'packaging-smoke' 'pending' 'IN_PROGRESS')); Platforms = @('Windows'); Ready = $false },
+    @{ Checks = @($releaseTooling, $winVerify, $winPackage); Platforms = @('Windows'); Ready = $true },
+    @{ Checks = @($releaseTooling, $androidDebug); Platforms = @('Android'); Ready = $true },
+    @{ Checks = @($releaseTooling, $winVerify, $winPackage); Platforms = @('Windows', 'Android'); Ready = $false },
+    @{ Checks = @($releaseTooling, $winVerify, $winPackage, $androidDebug); Platforms = @('Windows', 'Android'); Ready = $true },
+    @{ Checks = @($releaseTooling, (New-TestCheck 'Unrelated' 'debug')); Platforms = @('Android'); Ready = $false },
+    @{ Checks = @($releaseTooling, (New-TestCheck 'Android CI' 'debug' 'pass' 'SUCCESS' 'workflow_dispatch')); Platforms = @('Android'); Ready = $false },
+    @{ Checks = @($releaseTooling, $androidDebug, (New-TestCheck 'Windows CI' 'verify' 'fail' 'FAILURE')); Platforms = @('Android'); Ready = $true },
+    @{ Checks = @($releaseTooling, $androidDebug, (New-TestCheck 'Android CI' 'debug' 'fail' 'FAILURE' 'workflow_dispatch')); Platforms = @('Android'); Ready = $true },
+    @{ Checks = @($releaseTooling, $androidDebug, (New-TestCheck 'Android CI' 'optional' 'fail' 'FAILURE')); Platforms = @('Android'); Ready = $true },
+    @{ Checks = @($releaseTooling, (New-TestCheck 'Android CI' 'debug' 'pass' 'NEUTRAL')); Platforms = @('Android'); Ready = $false }
 )) {
     $result = Get-ReleasePrCheckStatus -Checks $case.Checks -Platforms $case.Platforms
     if ($result.Ready -ne $case.Ready) { throw "Wrong CI gate result: $($case | ConvertTo-Json -Depth 5 -Compress)" }
 }
 foreach ($bucket in @('fail', 'cancel', 'error', 'skipping')) {
     $rejected = $false
-    try { Get-ReleasePrCheckStatus -Checks @((New-TestCheck 'Android CI' 'debug' $bucket 'FAILURE')) -Platforms Android | Out-Null }
+    try { Get-ReleasePrCheckStatus -Checks @($releaseTooling, (New-TestCheck 'Android CI' 'debug' $bucket 'FAILURE')) -Platforms Android | Out-Null }
     catch { $rejected = $true }
     if (-not $rejected) { throw "CI gate accepted $bucket for a required job." }
 }
@@ -88,11 +89,12 @@ $null = New-Module -ArgumentList $checkFunction.Extent.Text, $waitFunction.Exten
     $script:Gh = 'offline-gh'
     $script:SelectedPlatforms = @('Android')
     $TimeoutMinutes = 1
-    $pass = '[{"workflow":"Android CI","name":"debug","event":"pull_request","bucket":"pass","state":"SUCCESS"}]'
+    $pass = '[{"workflow":"Release Tooling CI","name":"test","event":"pull_request","bucket":"pass","state":"SUCCESS"},{"workflow":"Android CI","name":"debug","event":"pull_request","bucket":"pass","state":"SUCCESS"}]'
     $pending = $pass.Replace('"pass"', '"pending"').Replace('SUCCESS', 'IN_PROGRESS')
-    $fail = $pass.Replace('"pass"', '"fail"').Replace('SUCCESS', 'FAILURE')
-    $manualFail = $fail.Replace('pull_request', 'workflow_dispatch')
-    $optionalFail = $fail.Replace('debug', 'optional')
+    $androidFail = '[{"workflow":"Android CI","name":"debug","event":"pull_request","bucket":"fail","state":"FAILURE"}]'
+    $fail = $pass.TrimEnd(']') + ',' + $androidFail.TrimStart('[')
+    $manualFail = $androidFail.Replace('pull_request', 'workflow_dispatch')
+    $optionalFail = $androidFail.Replace('debug', 'optional')
     foreach ($case in @(
         @{ Responses = @(@{ ExitCode = 8; Text = $pending }, @{ ExitCode = 0; Text = $pass }); Sleeps = 1; Error = $null },
         @{ Responses = @(@{ ExitCode = 0; Text = $pending }, @{ ExitCode = 0; Text = $pass }); Sleeps = 1; Error = $null },
@@ -137,7 +139,9 @@ $null = New-Module -ArgumentList $checkFunction.Extent.Text, $waitFunction.Exten
 }
 
 foreach ($workflow in @(
-    @{ Path = '.github/workflows/windows-ci.yml'; Name = 'Windows CI'; Jobs = @('verify', 'packaging-smoke') },
+    @{ Path = '.github/workflows/release-tooling-ci.yml'; Name = 'Release Tooling CI'; Jobs = @('test') },
+    @{ Path = '.github/workflows/windows-ci.yml'; Name = 'Windows CI'; Jobs = @('verify') },
+    @{ Path = '.github/workflows/windows-packaging-ci.yml'; Name = 'Windows Packaging CI'; Jobs = @('packaging-smoke') },
     @{ Path = '.github/workflows/android-ci.yml'; Name = 'Android CI'; Jobs = @('debug') }
 )) {
     $yaml = [IO.File]::ReadAllText((Join-Path $repoRoot $workflow.Path))
@@ -145,6 +149,97 @@ foreach ($workflow in @(
     foreach ($job in $workflow.Jobs) {
         Assert-Matches $yaml ('(?m)^  ' + [regex]::Escape($job) + ':\s*$') 'Required CI job drifted from the release gate.'
     }
+}
+
+$androidCi = [IO.File]::ReadAllText((Join-Path $repoRoot '.github/workflows/android-ci.yml'))
+$windowsCi = [IO.File]::ReadAllText((Join-Path $repoRoot '.github/workflows/windows-ci.yml'))
+$windowsPackagingCi = [IO.File]::ReadAllText((Join-Path $repoRoot '.github/workflows/windows-packaging-ci.yml'))
+$releaseToolingCi = [IO.File]::ReadAllText((Join-Path $repoRoot '.github/workflows/release-tooling-ci.yml'))
+$androidRelease = [IO.File]::ReadAllText((Join-Path $repoRoot '.github/workflows/android-release.yml'))
+$windowsRelease = [IO.File]::ReadAllText((Join-Path $repoRoot '.github/workflows/windows-release.yml'))
+$manifestPublisherPath = Join-Path $repoRoot '.github/scripts/publish-release-manifest.ps1'
+$manifestPublisher = [IO.File]::ReadAllText($manifestPublisherPath)
+$manifestTokens = $null
+$manifestErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile(
+    $manifestPublisherPath,
+    [ref]$manifestTokens,
+    [ref]$manifestErrors) | Out-Null
+if ($manifestErrors.Count -gt 0) {
+    throw "publish-release-manifest.ps1 has PowerShell parse errors: $($manifestErrors -join '; ')"
+}
+
+foreach ($platformCi in @($androidCi, $windowsCi)) {
+    foreach ($toolingTest in @(
+        'test-update-release-manifest.ps1',
+        'test-publish-release-manifest.ps1',
+        'test-publish-release.ps1',
+        'test-android-release-source.ps1'
+    )) {
+        if ($platformCi.Contains($toolingTest, [StringComparison]::Ordinal)) {
+            throw "Platform CI still duplicates release tooling test $toolingTest."
+        }
+    }
+}
+foreach ($toolingTest in @(
+    'test-update-release-manifest.ps1',
+    'test-publish-release-manifest.ps1',
+    'test-publish-release.ps1',
+    'test-android-release-source.ps1'
+)) {
+    Assert-Contains -Text $releaseToolingCi -Needle $toolingTest `
+        -Message "Release Tooling CI does not run $toolingTest."
+}
+foreach ($releaseTrigger in @(
+    'android/app/build.gradle.kts',
+    'android/release-notes/**',
+    'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj',
+    'windows/release-notes/**'
+)) {
+    Assert-Contains -Text $releaseToolingCi -Needle $releaseTrigger `
+        -Message "Release Tooling CI is not guaranteed to run for release path $releaseTrigger."
+}
+foreach ($releaseWorkflow in @(
+    @{ Text = $androidRelease; Platform = 'android' },
+    @{ Text = $windowsRelease; Platform = 'windows' }
+)) {
+    Assert-Contains -Text $releaseWorkflow.Text -Needle './.github/scripts/publish-release-manifest.ps1' `
+        -Message "$($releaseWorkflow.Platform) Release does not use the shared manifest publisher."
+    Assert-Contains -Text $releaseWorkflow.Text -Needle "-Platform $($releaseWorkflow.Platform)" `
+        -Message "$($releaseWorkflow.Platform) Release does not pass its platform to the shared manifest publisher."
+    if ($releaseWorkflow.Text.Contains('gh release download', [StringComparison]::Ordinal) -or
+        $releaseWorkflow.Text.Contains('update-release-manifest.ps1', [StringComparison]::Ordinal)) {
+        throw "$($releaseWorkflow.Platform) Release still embeds manifest publishing implementation."
+    }
+}
+foreach ($needle in @(
+    "[ValidateSet('android', 'windows')]",
+    "[ValidatePattern('^[0-9a-fA-F]{40}$')]",
+    '$expectedTag',
+    'gh release download',
+    'SHA256SUMS.txt',
+    'update-release-manifest.ps1',
+    'refs/heads/update-manifest'
+)) {
+    Assert-Contains -Text $manifestPublisher -Needle $needle `
+        -Message "Shared manifest publisher is missing required behavior: $needle"
+}
+Assert-Contains -Text $windowsPackagingCi -Needle "'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj'" `
+    -Message 'Windows packaging smoke must run for release version changes.'
+Assert-Contains -Text $windowsPackagingCi -Needle "'windows/installer/**'" `
+    -Message 'Windows packaging smoke must run for installer changes.'
+Assert-Contains -Text $windowsPackagingCi -Needle "'windows/assets/**'" `
+    -Message 'Windows packaging smoke must run for packaged resource changes.'
+if ($windowsPackagingCi.Contains("- 'windows/**'", [StringComparison]::Ordinal)) {
+    throw 'Windows packaging smoke must not run for every Windows source change.'
+}
+$manualBuild = $windowsCi.Substring($windowsCi.IndexOf('  test-build:', [StringComparison]::Ordinal))
+Assert-Contains -Text $manualBuild -Needle 'verify-winui.ps1 -Mode Release' `
+    -Message 'Windows manual test build must perform Release verification in the artifact job.'
+Assert-Contains -Text $manualBuild -Needle 'package-winui.ps1 -SkipPublish' `
+    -Message 'Windows manual test build must reuse Release publish output.'
+if ($manualBuild.Contains('needs: verify', [StringComparison]::Ordinal)) {
+    throw 'Windows manual test build still depends on a separate Release publish job.'
 }
 
 $platformParameter = @($ast.ParamBlock.Parameters | Where-Object {
@@ -188,6 +283,8 @@ if ($validationStart -lt 0 -or $validationEnd -le $validationStart) {
 $validation = $source.Substring($validationStart, $validationEnd - $validationStart)
 Assert-Contains -Text $validation -Needle '.\.github\scripts\test-update-release-manifest.ps1' `
     -Message 'Release preparation checks must run the manifest writer tests.'
+Assert-Contains -Text $validation -Needle '.\.github\scripts\test-publish-release-manifest.ps1' `
+    -Message 'Release preparation checks must run the shared manifest publisher tests.'
 Assert-Contains -Text $validation -Needle '.\.github\scripts\test-publish-release.ps1' `
     -Message 'Release preparation checks must run the release planner tests.'
 Assert-Contains -Text $validation -Needle "'diff', '--check'" `
@@ -270,10 +367,12 @@ if ($stageStart -lt 0 -or $stageEnd -le $stageStart) {
     throw 'Could not isolate release preparation staging for contract checks.'
 }
 $staging = $source.Substring($stageStart, $stageEnd - $stageStart)
-if ($staging.Contains('$androidNotesPath', [StringComparison]::Ordinal) -or
-    $staging.Contains('$windowsNotesPath', [StringComparison]::Ordinal)) {
-    throw 'Release preparation staging must not stage release notes.'
-}
+Assert-Contains -Text $staging -Needle '$androidNotesPath' `
+    -Message 'Android release preparation must stage its release notes with the version file.'
+Assert-Contains -Text $staging -Needle '$windowsNotesPath' `
+    -Message 'Windows release preparation must stage its release notes with the version file.'
+Assert-Contains -Text $source -Needle 'Worktree contains changes outside the selected release notes' `
+    -Message 'Release preparation must reject unrelated worktree changes while accepting selected notes.'
 $preparationPushIndex = $source.IndexOf("Invoke-External -FilePath `$script:Git -Arguments @('push', 'origin', `$script:Branch)", [StringComparison]::Ordinal)
 $headRefreshIndex = $source.LastIndexOf("`$script:HeadSha = (Read-ExternalText -FilePath `$script:Git", [StringComparison]::Ordinal)
 if ($preparationPushIndex -lt 0 -or $headRefreshIndex -lt 0 -or $headRefreshIndex -ge $preparationPushIndex) {
@@ -352,8 +451,12 @@ jobs:
       cancel-in-progress: false
 '@
     Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/workflows/windows-ci.yml' -Content 'name: Windows CI'
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/workflows/windows-packaging-ci.yml' -Content 'name: Windows Packaging CI'
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/workflows/release-tooling-ci.yml' -Content 'name: Release Tooling CI'
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/scripts/publish-release-manifest.ps1' -Content '# fixture'
     Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/scripts/update-release-manifest.ps1' -Content '# fixture'
     Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/scripts/test-update-release-manifest.ps1' -Content '# fixture'
+    Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/scripts/test-publish-release-manifest.ps1' -Content '# fixture'
     Write-ResumeTestFile -Root $resumeRepo -RelativePath '.github/scripts/test-publish-release.ps1' -Content '# fixture'
     Write-ResumeTestFile -Root $resumeRepo -RelativePath 'windows/scripts/verify-winui.ps1' -Content '# fixture'
     Write-ResumeTestFile -Root $resumeRepo -RelativePath 'scripts/publish-release.ps1' -Content ([IO.File]::ReadAllText((Join-Path $repoRoot 'scripts/publish-release.ps1')))
@@ -588,9 +691,10 @@ exit /b 99
         Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('config', 'user.email', 'release-first-run@example.invalid')
         Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('switch', '--track', '-c', 'main', 'origin/main')
         Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('switch', '-c', $firstRunBranch)
+        Write-ResumeTestFile -Root $firstRunRepo -RelativePath 'windows/src/CodexQuotaTray.App/Business.cs' -Content 'class BusinessBaseline { public const string FirstRun = "updated"; }' | Out-Null
+        Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('add', 'windows/src/CodexQuotaTray.App/Business.cs')
+        Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('commit', '-m', 'feat: update first-run release behavior')
         Write-ResumeTestFile -Root $firstRunRepo -RelativePath "windows/release-notes/$firstRunVersion.md" -Content "# Windows $firstRunVersion" | Out-Null
-        Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('add', "windows/release-notes/$firstRunVersion.md")
-        Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('commit', '-m', "docs: add Windows $firstRunVersion notes")
         $firstRunBaseSha = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('rev-parse', 'main')
         $firstRunStartSha = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('rev-parse', 'HEAD')
         $firstRunStartSubject = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('log', '-1', '--format=%s', 'HEAD')
@@ -618,7 +722,7 @@ if "%1"=="pr" if "%2"=="view" (
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="checks" (
-  echo [{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/package"}]
+  echo [{"name":"test","state":"SUCCESS","bucket":"pass","workflow":"Release Tooling CI","event":"pull_request","link":"https://example.invalid/tooling"},{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows Packaging CI","event":"pull_request","link":"https://example.invalid/package"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="merge" (
@@ -674,6 +778,18 @@ exit /b 99
         if ($firstRunHeadSubject -cne "release: prepare Windows $firstRunVersion") {
             throw 'Single-run release preparation did not leave the expected preparation commit on the release branch.'
         }
+        $firstRunPreparationText = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @(
+            'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'
+        )
+        $firstRunPreparationPaths = @($firstRunPreparationText -split [Environment]::NewLine | Where-Object { $_ })
+        foreach ($expectedPath in @(
+            'windows/release-notes/0.8.11.md',
+            'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj'
+        )) {
+            if ($expectedPath -notin $firstRunPreparationPaths) {
+                throw "Single-run release preparation commit is missing $expectedPath."
+            }
+        }
         $firstRunMainHead = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('rev-parse', 'refs/remotes/origin/main')
         $firstRunMainSubject = Invoke-ResumeTestGit -WorkingDirectory $firstRunRepo -Arguments @('log', '-1', '--format=%s', $firstRunMainHead)
         if ($firstRunMainSubject -cne "release: prepare Windows $firstRunVersion") {
@@ -720,7 +836,7 @@ if "%1"=="pr" if "%2"=="view" (
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="checks" (
-  echo [{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/package"}]
+  echo [{"name":"test","state":"SUCCESS","bucket":"pass","workflow":"Release Tooling CI","event":"pull_request","link":"https://example.invalid/tooling"},{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows Packaging CI","event":"pull_request","link":"https://example.invalid/package"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="merge" (
@@ -783,7 +899,7 @@ if "%1"=="pr" if "%2"=="checks" (
   if errorlevel 1 exit /b 91
   git push origin HEAD:$headDriftBranch >nul 2>nul
   if errorlevel 1 exit /b 92
-  echo [{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/package"}]
+  echo [{"name":"test","state":"SUCCESS","bucket":"pass","workflow":"Release Tooling CI","event":"pull_request","link":"https://example.invalid/tooling"},{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows Packaging CI","event":"pull_request","link":"https://example.invalid/package"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="merge" (
@@ -800,7 +916,7 @@ exit /b 99
     $headDriftExitCode = $LASTEXITCODE
     $headDriftText = ($headDriftOutput -join [Environment]::NewLine)
     if ($headDriftExitCode -eq 0 -or
-        $headDriftText -notmatch 'All required selected-platform PR checks passed for #45' -or
+        $headDriftText -notmatch 'All required release PR checks passed for #45' -or
         $headDriftText -notmatch 'headRefOid .* does not match release branch HEAD') {
         throw "Release PR head-drift regression did not fail closed after successful CI. Output: $headDriftText"
     }
@@ -835,7 +951,7 @@ if "%1"=="pr" if "%2"=="view" (
 )
 if "%1"=="pr" if "%2"=="checks" (
   git -C "$resumeRepo" push origin refs/heads/main:refs/heads/main >nul 2>nul
-  echo [{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/package"}]
+  echo [{"name":"test","state":"SUCCESS","bucket":"pass","workflow":"Release Tooling CI","event":"pull_request","link":"https://example.invalid/tooling"},{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows Packaging CI","event":"pull_request","link":"https://example.invalid/package"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="merge" (
@@ -906,7 +1022,7 @@ if "%1"=="pr" if "%2"=="checks" (
   if errorlevel 1 exit /b 93
   git switch $baseRefDriftBranch >nul 2>nul
   if errorlevel 1 exit /b 94
-  echo [{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/package"}]
+  echo [{"name":"test","state":"SUCCESS","bucket":"pass","workflow":"Release Tooling CI","event":"pull_request","link":"https://example.invalid/tooling"},{"name":"verify","state":"SUCCESS","bucket":"pass","workflow":"Windows CI","event":"pull_request","link":"https://example.invalid/check"},{"name":"packaging-smoke","state":"SUCCESS","bucket":"pass","workflow":"Windows Packaging CI","event":"pull_request","link":"https://example.invalid/package"}]
   exit /b 0
 )
 if "%1"=="pr" if "%2"=="merge" (
@@ -923,7 +1039,7 @@ exit /b 99
     $baseRefDriftExitCode = $LASTEXITCODE
     $baseRefDriftText = ($baseRefDriftOutput -join [Environment]::NewLine)
     if ($baseRefDriftExitCode -eq 0 -or
-        $baseRefDriftText -notmatch 'All required selected-platform PR checks passed for #46' -or
+        $baseRefDriftText -notmatch 'All required release PR checks passed for #46' -or
         $baseRefDriftText -notmatch 'baseRefOid changed after PR checks') {
         throw "Release PR refreshed-base drift regression did not fail closed after main advanced. Output: $baseRefDriftText"
     }
