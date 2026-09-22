@@ -192,12 +192,18 @@ foreach ($toolingTest in @(
 }
 foreach ($releaseTrigger in @(
     'android/app/build.gradle.kts',
-    'android/release-notes/**',
-    'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj',
-    'windows/release-notes/**'
+    'windows/src/CodexQuotaTray.App/CodexQuotaTray.App.csproj'
 )) {
     Assert-Contains -Text $releaseToolingCi -Needle $releaseTrigger `
         -Message "Release Tooling CI is not guaranteed to run for release path $releaseTrigger."
+}
+foreach ($notesOnlyTrigger in @(
+    'android/release-notes/**',
+    'windows/release-notes/**'
+)) {
+    if ($releaseToolingCi.Contains($notesOnlyTrigger, [StringComparison]::Ordinal)) {
+        throw "Release Tooling CI still runs for notes-only path $notesOnlyTrigger."
+    }
 }
 foreach ($releaseWorkflow in @(
     @{ Text = $androidRelease; Platform = 'android' },
@@ -281,12 +287,32 @@ if ($validationStart -lt 0 -or $validationEnd -le $validationStart) {
     throw 'Could not isolate Run-ReleasePreparationChecks for contract checks.'
 }
 $validation = $source.Substring($validationStart, $validationEnd - $validationStart)
-Assert-Contains -Text $validation -Needle '.\.github\scripts\test-update-release-manifest.ps1' `
-    -Message 'Release preparation checks must run the manifest writer tests.'
-Assert-Contains -Text $validation -Needle '.\.github\scripts\test-publish-release-manifest.ps1' `
-    -Message 'Release preparation checks must run the shared manifest publisher tests.'
-Assert-Contains -Text $validation -Needle '.\.github\scripts\test-publish-release.ps1' `
-    -Message 'Release preparation checks must run the release planner tests.'
+Assert-Contains -Text $source -Needle '[System.Management.Automation.Language.Parser]::ParseFile(' `
+    -Message 'Release preparation quick checks must parse critical PowerShell scripts.'
+foreach ($quickContract in @(
+    'scripts\publish-release.ps1',
+    '.github\scripts\publish-release-manifest.ps1',
+    '.github\scripts\update-release-manifest.ps1',
+    '.github\scripts\resolve-android-release-source.ps1',
+    'Read-Notes -Path $notesPath',
+    'Read-AndroidVersionInfo',
+    'Read-WindowsVersionInfo'
+)) {
+    Assert-Contains -Text $validation -Needle $quickContract `
+        -Message "Release preparation quick checks are missing $quickContract."
+}
+Assert-Contains -Text $source -Needle 'Assert-WorkflowContracts' `
+    -Message 'Release preparation must retain required workflow and script contract checks.'
+foreach ($fullRegression in @(
+    'test-update-release-manifest.ps1',
+    'test-publish-release-manifest.ps1',
+    'test-publish-release.ps1',
+    'test-android-release-source.ps1'
+)) {
+    if ($validation.Contains($fullRegression, [StringComparison]::Ordinal)) {
+        throw "Local release preparation still duplicates full CI regression $fullRegression."
+    }
+}
 Assert-Contains -Text $validation -Needle "'diff', '--check'" `
     -Message 'Release preparation checks must run git diff --check.'
 if ($validation.Contains('gradlew', [StringComparison]::Ordinal) -or

@@ -682,17 +682,52 @@ function Update-VersionFiles {
     }
 }
 
+function Assert-PowerShellScriptSyntax {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $fullPath = Join-Path $script:RepoRoot $Path
+    $tokens = $null
+    $parseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile(
+        $fullPath,
+        [ref]$tokens,
+        [ref]$parseErrors) | Out-Null
+    if ($parseErrors.Count -gt 0) {
+        throw "$Path has PowerShell parse errors: $($parseErrors -join '; ')"
+    }
+}
+
 function Run-ReleasePreparationChecks {
-    Write-Step 'Running lightweight release preparation checks.'
-    Invoke-External -FilePath 'pwsh' -Arguments @(
-        '-NoProfile', '-File', '.\.github\scripts\test-update-release-manifest.ps1'
+    param(
+        [Parameter(Mandatory = $true)][string[]]$NotesPaths,
+        [AllowNull()]$VersionCode
     )
-    Invoke-External -FilePath 'pwsh' -Arguments @(
-        '-NoProfile', '-File', '.\.github\scripts\test-publish-release-manifest.ps1'
+    Write-Step 'Running quick local release contract checks.'
+    $scriptsToParse = @(
+        'scripts\publish-release.ps1',
+        '.github\scripts\publish-release-manifest.ps1',
+        '.github\scripts\update-release-manifest.ps1'
     )
-    Invoke-External -FilePath 'pwsh' -Arguments @(
-        '-NoProfile', '-File', '.\.github\scripts\test-publish-release.ps1'
-    )
+    if (Test-PlatformSelected -Name 'Android') {
+        $scriptsToParse += '.github\scripts\resolve-android-release-source.ps1'
+    }
+    foreach ($path in $scriptsToParse) {
+        Assert-PowerShellScriptSyntax -Path $path
+    }
+    foreach ($notesPath in $NotesPaths) {
+        Read-Notes -Path $notesPath | Out-Null
+    }
+    if (Test-PlatformSelected -Name 'Android') {
+        $preparedAndroid = Read-AndroidVersionInfo
+        if ($preparedAndroid.Version -cne $Version -or $preparedAndroid.VersionCode -ne $VersionCode) {
+            throw "Prepared Android version does not match $Version (versionCode $VersionCode)."
+        }
+    }
+    if (Test-PlatformSelected -Name 'Windows') {
+        $preparedWindows = Read-WindowsVersionInfo
+        if ($preparedWindows.Version -cne $Version) {
+            throw "Prepared Windows version does not match $Version."
+        }
+    }
     Invoke-External -FilePath $script:Git -Arguments @('diff', '--check')
 }
 
@@ -1293,7 +1328,9 @@ if ($script:Blockers.Count -gt 0) {
 
 if (-not $script:PostMergeResume) {
 Update-VersionFiles -AndroidInfo $androidInfo -WindowsInfo $windowsInfo -VersionCode $plannedCode
-Run-ReleasePreparationChecks
+Run-ReleasePreparationChecks `
+    -NotesPaths $resumeNotesPaths `
+    -VersionCode $plannedCode
 
 Write-Step 'Creating the release preparation commit.'
 $pathsToStage = @()
