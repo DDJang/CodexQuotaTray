@@ -539,7 +539,7 @@ public sealed class AppServerPhase2Tests
         var failed = await service.RefreshAsync(CancellationToken.None);
 
         Assert.AreEqual(
-            "更新于 1月1日 · 已过期 · 刷新失败：请求超时 · 显示上次数据",
+            "更新于 1月1日 00:00 · 已过期 · 刷新失败：请求超时 · 显示上次数据",
             failed.StatusText);
         Assert.AreEqual(StatusTone.Error, failed.StatusTone);
     }

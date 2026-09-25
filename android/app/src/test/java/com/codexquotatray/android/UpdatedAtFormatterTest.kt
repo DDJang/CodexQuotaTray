@@ -23,9 +23,9 @@ class UpdatedAtFormatterTest {
     }
 
     @Test
-    fun earlierLocalDateUsesMonthAndDayWithoutClockTime() {
+    fun earlierLocalDateUsesMonthDayAndClockTime() {
         assertEquals(
-            "9月20日",
+            "9月20日 23:59",
             UpdatedAtFormatter.formatValue(
                 updatedAtMillis = Instant.parse("2026-09-20T15:59:00Z").toEpochMilli(),
                 nowMillis = Instant.parse("2026-09-20T16:01:00Z").toEpochMilli(),
@@ -41,11 +41,11 @@ class UpdatedAtFormatterTest {
         val sevenDays = 7L * 24L * 60L * 60L * 1_000L
 
         assertEquals(
-            "9月1日",
+            "9月1日 08:00",
             UpdatedAtFormatter.formatValue(updatedAt, updatedAt + sevenDays, Locale.CHINA, shanghai),
         )
         assertEquals(
-            "9月1日 · 已过期",
+            "9月1日 08:00 · 已过期",
             UpdatedAtFormatter.formatValue(updatedAt, updatedAt + sevenDays + 1L, Locale.CHINA, shanghai),
         )
     }
