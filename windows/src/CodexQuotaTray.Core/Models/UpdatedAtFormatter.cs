@@ -13,7 +13,7 @@ public static class UpdatedAtFormatter
         var nowLocal = TimeZoneInfo.ConvertTime(nowUtc, timeZone);
         var value = updatedAtLocal.Date == nowLocal.Date
             ? $"更新于 {updatedAtLocal:HH:mm}"
-            : $"更新于 {updatedAtLocal:M月d日}";
+            : $"更新于 {updatedAtLocal:M月d日 HH:mm}";
         return IsExpired(updatedAtUtc, nowUtc) ? $"{value} · 已过期" : value;
     }
 

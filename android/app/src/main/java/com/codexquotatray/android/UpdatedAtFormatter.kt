@@ -20,7 +20,7 @@ internal object UpdatedAtFormatter {
         val isToday = updatedAt.get(Calendar.ERA) == now.get(Calendar.ERA) &&
             updatedAt.get(Calendar.YEAR) == now.get(Calendar.YEAR) &&
             updatedAt.get(Calendar.DAY_OF_YEAR) == now.get(Calendar.DAY_OF_YEAR)
-        val value = SimpleDateFormat(if (isToday) "HH:mm" else "M月d日", locale).apply {
+        val value = SimpleDateFormat(if (isToday) "HH:mm" else "M月d日 HH:mm", locale).apply {
             this.timeZone = timeZone
         }.format(Date(updatedAtMillis))
         return if (isExpired(updatedAtMillis, nowMillis)) "$value · 已过期" else value

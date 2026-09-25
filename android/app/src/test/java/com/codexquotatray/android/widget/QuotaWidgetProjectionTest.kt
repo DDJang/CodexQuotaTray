@@ -211,7 +211,7 @@ class QuotaWidgetProjectionTest {
     @Test
     fun displayFormattingContainsUpdatedTimeAndResetInformation() {
         assertEquals(
-            "更新于 11月14日",
+            "更新于 11月14日 22:13",
             QuotaWidgetDisplayFormatter.formatUpdatedAt(
                 updatedAtMillis = 1_700_000_000_000L,
                 nowMillis = 1_700_086_400_000L,

@@ -86,7 +86,7 @@ public sealed class TokenUsageViewModelTests
         await viewModel.RefreshCommand.ExecuteAsync(null);
 
         Assert.AreEqual(
-            "更新于 8月12日 · 已过期 · 刷新失败 · 显示上次数据",
+            "更新于 8月12日 11:24 · 已过期 · 刷新失败 · 显示上次数据",
             viewModel.StatusText);
         Assert.AreEqual(StatusTone.Warning, viewModel.StatusTone);
     }
@@ -112,7 +112,7 @@ public sealed class TokenUsageViewModelTests
     }
 
     [TestMethod]
-    public void RestoredCacheFromAnEarlierDateShowsMonthAndDay()
+    public void RestoredCacheFromAnEarlierDateShowsMonthDayAndClockTime()
     {
         var snapshot = CreateSnapshot(128_392);
         var viewModel = new TokenUsageViewModel(
@@ -122,7 +122,7 @@ public sealed class TokenUsageViewModelTests
 
         viewModel.RestoreSnapshot(snapshot);
 
-        Assert.AreEqual("更新于 8月12日", viewModel.StatusText);
+        Assert.AreEqual("更新于 8月12日 11:24", viewModel.StatusText);
     }
 
     [TestMethod]
@@ -136,7 +136,7 @@ public sealed class TokenUsageViewModelTests
 
         viewModel.RestoreSnapshot(snapshot);
 
-        Assert.AreEqual("更新于 8月12日 · 已过期", viewModel.StatusText);
+        Assert.AreEqual("更新于 8月12日 11:24 · 已过期", viewModel.StatusText);
         Assert.AreEqual(StatusTone.Warning, viewModel.StatusTone);
     }
 
