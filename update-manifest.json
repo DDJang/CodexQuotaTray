@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.11.7",
-    "tag": "windows-v0.11.7",
+    "version": "0.11.9",
+    "tag": "windows-v0.11.9",
     "installer": {
-      "name": "CodexQuotaTray-0.11.7-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.7/CodexQuotaTray-0.11.7-setup.exe",
-      "sha256": "5607a83e62b2e2385062a8bc92f0e17ab1222c474a59e5c88f3d314c91377bdc",
-      "size": 48571193
+      "name": "CodexQuotaTray-0.11.9-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.9/CodexQuotaTray-0.11.9-setup.exe",
+      "sha256": "64759873999e1f20d83c0cd73e2b463cfd954c8ebb87a5cbddb11430be7a5059",
+      "size": 48559957
     },
-    "releaseNotes": "# CodexQuotaTray Windows 0.11.7\r\n\r\n## 改进\r\n\r\n- 优化最后更新时间展示：当天显示具体时分，跨日后显示月日。\r\n- 数据超过 7 天未更新时显示“已过期”，刷新失败时仍保留上次更新时间和过期状态。\r\n",
-    "publishedAt": "2026-09-21T16:12:32Z"
+    "releaseNotes": "### 修复\r\n\r\n- 修复额度与 Token 最后更新时间跨天后只显示日期、缺少具体时分的问题。\r\n",
+    "publishedAt": "2026-09-25T16:31:38Z"
   },
   "android": {
     "version": "0.11.8",
