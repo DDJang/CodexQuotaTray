@@ -17,9 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.ui.res.stringResource
 import androidx.compose.animation.animateColorAsState
@@ -371,7 +369,7 @@ internal fun QuotaPage(
         busy = controller.busy,
         onLogin = controller::openLogin,
         onPairing = onPairing,
-        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxSize(),
     )
 }
 
@@ -400,7 +398,6 @@ internal fun QuotaPageContent(
                 loginEnabled = !busy,
             )
         }
-        Spacer(Modifier.height(96.dp))
     }
 }
 

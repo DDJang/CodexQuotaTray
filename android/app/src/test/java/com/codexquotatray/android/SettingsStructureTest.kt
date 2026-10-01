@@ -412,7 +412,7 @@ class SettingsStructureTest {
     @Test
     fun glassRefreshActionUsesPolishedSizesAndKeepsBottomGeometry() {
         val components = sourceFile("GlassComponents.kt")
-        val main = sourceFile("MainActivity.kt")
+        val main = sourceFile("DashboardScaffold.kt")
         val settings = sourceFile("SettingsActivity.kt")
         val codexUi = sourceFile("CodexUi.kt")
         val about = sourceFile("AboutActivity.kt")
@@ -448,7 +448,7 @@ class SettingsStructureTest {
     fun liquidIconButtonsUseUpstreamPipelineAndFixtureCoversTopologyCases() {
         val component = sourceFile("LiquidIconButton.kt")
         val components = sourceFile("GlassComponents.kt")
-        val main = sourceFile("MainActivity.kt")
+        val main = sourceFile("DashboardScaffold.kt")
         val settings = sourceFile("SettingsActivity.kt")
         val codexUi = sourceFile("CodexUi.kt")
         val fixture = debugSourceFile("debug/LiquidIconButtonFixtureActivity.kt")
@@ -540,23 +540,56 @@ class SettingsStructureTest {
 
     @Test
     fun mainPageUsesTheBaselineAnimatedContentInsideTheStaticChromeBackdrop() {
-        val source = sourceFile("MainActivity.kt")
+        val source = sourceFile("DashboardScaffold.kt")
         val chrome = source.substringAfter("val chromeBackdrop = rememberLayerBackdrop")
-            .substringBefore("Box(Modifier.align(Alignment.TopEnd)")
-        val staticSource = chrome.substringBefore("Column(")
-        val dynamicPage = chrome.substringAfter("Column(")
+            .substringBefore("SettingsGradientBlurHeader(")
+        val staticSource = chrome.substringBefore("AnimatedContent(")
+        val dynamicPage = chrome.substringAfter("AnimatedContent(")
 
         assertTrue(staticSource.contains(".layerBackdrop(chromeBackdrop)"))
         assertTrue(staticSource.contains(".background(palette.color(palette.background))"))
         assertFalse(staticSource.contains("AnimatedContent("))
-        assertTrue(dynamicPage.contains("AnimatedContent("))
         assertTrue(dynamicPage.contains("fadeIn(animationSpec = tween(200))"))
         assertTrue(dynamicPage.contains("initialOffsetX = { width -> direction * width / 20 }"))
         assertTrue(dynamicPage.contains("fadeOut(animationSpec = tween(160))"))
         assertTrue(dynamicPage.contains("targetOffsetX = { width -> -direction * width / 28 }"))
         assertFalse(source.contains("MainPageSwitcher("))
-        assertTrue(source.contains("if (targetIndex == selectedIndex) return"))
+        assertTrue(sourceFile("MainActivity.kt").contains("if (targetIndex == selectedIndex) return"))
         assertTrue(source.contains("backdrop = chromeBackdrop"))
+        assertTrue(sourceFile("MainActivity.kt").contains("DashboardScaffold("))
+    }
+
+    @Test
+    fun dashboardScrollKeepsChromeOutsideTheViewportAndHasOneScrollOwnerPerPage() {
+        val source = sourceFile("DashboardScaffold.kt")
+        assertOrdered(
+            source,
+            ".layerBackdrop(chromeBackdrop)",
+            "AnimatedContent(",
+            "SettingsGradientBlurHeader(",
+            "text = if (selectedIndex == 0)",
+            "LiquidMainDock(",
+            "modalContent(chromeBackdrop)",
+        )
+        assertTrue(source.contains("derivedStateOf { activeScrollState.value > 0 }"))
+        assertTrue(source.contains("quotaScrollState = rememberScrollState()"))
+        assertTrue(source.contains("tokenScrollState = rememberScrollState()"))
+        assertTrue(source.contains(".onSizeChanged { dockHeight = with(density) { it.height.toDp() } }"))
+        val viewport = source.substringAfter("private fun DashboardScrollContent(")
+        assertOrdered(
+            viewport,
+            ".fillMaxSize()",
+            ".dampedVerticalOverscroll",
+            ".verticalScroll(scrollState, overscrollEffect = null)",
+            ".statusBarsPadding()",
+            ".padding(top = headerHeight, bottom = dockHeight + 12.dp)",
+        )
+        assertFalse(viewport.contains("enabled ="))
+        listOf("QuotaPageView.kt", "TokenUsagePageView.kt").forEach { file ->
+            val page = sourceFile(file)
+            assertFalse(page.contains("verticalScroll"))
+            assertFalse(page.contains("Spacer(Modifier.height(96.dp))"))
+        }
     }
 
     @Test
@@ -1220,7 +1253,7 @@ class SettingsStructureTest {
 
     @Test
     fun dashboardUsesPageTitlesAndHierarchicalSummaryContent() {
-        val main = sourceFile("MainActivity.kt")
+        val main = sourceFile("DashboardScaffold.kt")
         assertTrue(main.contains("text = if (selectedIndex == 0) \"额度\" else \"统计\""))
         assertFalse(main.contains("Text(\"CodexQuota\""))
 
@@ -1377,20 +1410,27 @@ class SettingsStructureTest {
         listOf(
             "Quota Page Fixture",
             "Token Usage Page Fixture",
+            "Dashboard Scroll Fixture",
             "DEBUG_QUOTA_PAGE_FIXTURE_ACTIVITY",
             "DEBUG_TOKEN_USAGE_PAGE_FIXTURE_ACTIVITY",
+            "DEBUG_DASHBOARD_SCROLL_FIXTURE_ACTIVITY",
             "openDebugQuotaPageFixture",
             "openDebugTokenUsagePageFixture",
+            "openDebugDashboardScrollFixture",
         ).forEach { marker -> assertTrue(settings.contains(marker)) }
         assertTrue(developerOptions.contains("Quota Page Fixture"))
         assertTrue(developerOptions.contains("Token Usage Page Fixture"))
+        assertTrue(developerOptions.contains("Dashboard Scroll Fixture"))
 
         val manifest = debugManifestSource()
         listOf(
             ".debug.QuotaPageFixtureActivity",
             ".debug.TokenUsagePageFixtureActivity",
+            ".debug.DashboardScrollFixtureActivity",
         ).forEach { activity ->
-            val entry = manifest.substringAfter(activity).substringBefore("</activity>")
+            // Self-closing entries must not include attributes or filters from the next Activity.
+            val entry = manifest.substringAfter(activity).substringBefore("<activity")
+                .substringBefore("</application>")
             assertTrue(entry.contains("android:configChanges=\"uiMode\""))
             assertTrue(entry.contains("android:exported=\"false\""))
             assertTrue(entry.contains("android:screenOrientation=\"portrait\""))
@@ -1433,6 +1473,23 @@ class SettingsStructureTest {
         assertFalse(token.contains("TokenUsageCache"))
         assertFalse(token.contains("TokenUsageSyncCoordinator"))
         assertFalse(token.contains("WorkManager"))
+
+        val scroll = debugSourceFile("debug/DashboardScrollFixtureActivity.kt")
+        listOf(
+            "DashboardScaffold(",
+            "QuotaPageContent(",
+            "TokenUsagePageContent(",
+            "长内容",
+            "短内容",
+            "availableCount = 4L",
+            "windows.take(1)",
+            "key(longContent)",
+            "localActionCount++",
+        ).forEach { marker -> assertTrue(scroll.contains(marker)) }
+        listOf(
+            "QuotaPageController", "TokenUsagePageController", "OAuthStore",
+            "TokenSyncStore", "CodexQuotaRepository", "WorkManager", "SecondaryScreenScaffold",
+        ).forEach { marker -> assertFalse(scroll.contains(marker)) }
     }
 
     @Test

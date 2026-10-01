@@ -69,6 +69,12 @@ Debug 使用 `com.codexquotatray.android.debug` 和名称 **CodexQuotaTray Dev**
 日常开发不得索取、读取或使用 Release JKS、密码、alias 或本地 release signing 配置。正式
 Android APK 只由 GitHub Actions Secrets 签名，统一流程见 [RELEASE.md](../docs/RELEASE.md)。
 
+Debug 的 **设置 → 开发者选项 → Dashboard Scroll Fixture** 复用首页的滚动容器、标题和底栏，
+提供长内容（双额度窗口与四张重置卡、完整统计）和短内容（单额度窗口、统计无来源提示）。
+选择场景后点“开始预览”，用底栏切换额度/统计，右上角可重新选择场景；切换长短内容会重置
+滚动位置。用于检查顶部渐变模糊、底部内容避让和边缘阻尼回弹；不足一屏时仅有拉动回弹，
+没有额外滚动距离。数据与操作均在内存中模拟，不调用账户或 LAN 服务。
+
 ## 验证边界
 
 单元测试覆盖解析、状态、缓存、调度、配对和 LAN 错误路径。ADB 安装、系统通知、网络切换、

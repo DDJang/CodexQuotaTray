@@ -9,38 +9,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.drawscope.ContentDrawScope
-import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
 import com.codexquotatray.android.update.UpdateInstaller
 import com.codexquotatray.android.update.UpdateBrowser
@@ -48,8 +20,6 @@ import com.codexquotatray.android.update.UpdateDownloadCancelledException
 import com.codexquotatray.android.update.UpdateDownloadProgress
 import com.codexquotatray.android.update.UpdateRelease
 import com.codexquotatray.android.widget.QuotaWidgetBridge
-import com.kyant.backdrop.backdrops.layerBackdrop
-import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import java.util.concurrent.Executors
 
 internal const val ACTION_OPEN_FROM_WIDGET = "com.codexquotatray.android.action.OPEN_FROM_WIDGET"
@@ -111,106 +81,34 @@ class MainActivity : ComponentActivity() {
             systemThemeVersion
             val palette = rememberAnimatedThemePalette(AppTheme.palette(this, themeMode))
             CodexQuotaTheme(palette) {
-                val sceneLayer = rememberGraphicsLayer()
-                val drawSceneLayer: ContentDrawScope.() -> Unit = remember(sceneLayer) {
-                    { drawLayer(sceneLayer) }
-                }
-                val chromeBackdrop = rememberLayerBackdrop(onDraw = drawSceneLayer)
-                Box(Modifier.fillMaxSize()) {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .layerBackdrop(chromeBackdrop)
-                            .drawWithContent {
-                                val content = this
-                                sceneLayer.record {
-                                    content.drawContent()
-                                }
-                                drawLayer(sceneLayer)
-                            },
-                    ) {
-                        Box(
-                            Modifier
-                                .fillMaxSize()
-                                .background(palette.color(palette.background)),
-                        )
-                        Column(
-                            Modifier
-                                .fillMaxSize()
-                                .statusBarsPadding(),
-                        ) {
-                            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 72.dp, top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = if (selectedIndex == 0) "额度" else "统计",
-                                    color = palette.color(palette.title),
-                                    fontSize = 28.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                            }
-                            Box(Modifier.weight(1f)) {
-                                AnimatedContent(
-                                    targetState = selectedIndex,
-                                    modifier = Modifier.fillMaxSize(),
-                                    transitionSpec = {
-                                        val direction = if (targetState > initialState) 1 else -1
-                                        (
-                                            fadeIn(animationSpec = tween(200)) +
-                                                slideInHorizontally(
-                                                    animationSpec = tween(200),
-                                                    initialOffsetX = { width -> direction * width / 20 },
-                                                )
-                                            ) togetherWith (
-                                            fadeOut(animationSpec = tween(160)) +
-                                                slideOutHorizontally(
-                                                    animationSpec = tween(160),
-                                                    targetOffsetX = { width -> -direction * width / 28 },
-                                                )
-                                            )
-                                    },
-                                    label = "main-page-transition",
-                                ) { pageIndex ->
-                                    if (pageIndex == 0) {
-                                        QuotaPage(quota, ::scanTokenPairing)
-                                    } else {
-                                        TokenUsagePage(usage, ::scanTokenPairing, quota::openLogin)
-                                    }
-                                }
-                            }
+                DashboardScaffold(
+                    selectedIndex = selectedIndex,
+                    onSelected = ::selectTab,
+                    onSettings = ::openSettings,
+                    actionEnabled = if (selectedIndex == 0) quota.canRefresh else usage.canSync,
+                    actionBusy = if (selectedIndex == 0) quota.busy else usage.syncing,
+                    onAction = { if (selectedIndex == 0) quota.refresh() else usage.requestSync() },
+                    modalContent = { chromeBackdrop ->
+                        updatePrompt?.let { release ->
+                            UpdateAvailableDialog(
+                                backdrop = chromeBackdrop,
+                                release = release,
+                                currentVersion = BuildConfig.VERSION_NAME,
+                                downloading = updateDownloading,
+                                progress = updateProgress,
+                                downloadError = updateDownloadError,
+                                onLater = { updateDownloadError = null; updatePrompt = null },
+                                onDownload = ::downloadAutomaticUpdate,
+                                onCancel = { (application as CodexQuotaApplication).updateDownloadManager.cancel() },
+                                onBrowserDownload = ::browserDownloadAutomaticUpdate,
+                            )
                         }
-                    }
-                    Box(Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 8.dp, end = 20.dp)) {
-                        LiquidIconButton(
-                            iconRes = R.drawable.ic_settings,
-                            description = "设置",
-                            backdrop = chromeBackdrop,
-                            buttonSize = 48.dp,
-                            iconSize = 24.dp,
-                            onClick = ::openSettings,
-                        )
-                    }
-                    LiquidMainDock(
-                        selectedIndex = selectedIndex,
-                        onSelected = ::selectTab,
-                        backdrop = chromeBackdrop,
-                        actionEnabled = if (selectedIndex == 0) quota.canRefresh else usage.canSync,
-                        actionBusy = if (selectedIndex == 0) quota.busy else usage.syncing,
-                        actionDescription = if (selectedIndex == 0) "刷新额度" else "同步统计",
-                        onAction = { if (selectedIndex == 0) quota.refresh() else usage.requestSync() },
-                        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(horizontal = 18.dp, vertical = 12.dp).fillMaxWidth(),
-                    )
-                    updatePrompt?.let { release ->
-                        UpdateAvailableDialog(
-                            backdrop = chromeBackdrop,
-                            release = release,
-                            currentVersion = BuildConfig.VERSION_NAME,
-                            downloading = updateDownloading,
-                            progress = updateProgress,
-                            downloadError = updateDownloadError,
-                            onLater = { updateDownloadError = null; updatePrompt = null },
-                            onDownload = ::downloadAutomaticUpdate,
-                            onCancel = { (application as CodexQuotaApplication).updateDownloadManager.cancel() },
-                            onBrowserDownload = ::browserDownloadAutomaticUpdate,
-                        )
+                    },
+                ) { pageIndex ->
+                    if (pageIndex == 0) {
+                        QuotaPage(quota, ::scanTokenPairing)
+                    } else {
+                        TokenUsagePage(usage, ::scanTokenPairing, quota::openLogin)
                     }
                 }
             }

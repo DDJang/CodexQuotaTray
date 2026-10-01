@@ -22,14 +22,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -337,7 +335,7 @@ internal fun TokenUsagePage(
         snapshot = controller.snapshot,
         onPairing = onPairing,
         onLoginOpenAi = onLoginOpenAi,
-        modifier = modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        modifier = modifier.fillMaxSize(),
     )
 }
 
@@ -359,7 +357,6 @@ internal fun TokenUsagePageContent(
                 onPairWindows = onPairing,
             )
         } else snapshot?.let { TokenUsageContent(it) }
-        Spacer(Modifier.height(96.dp))
     }
 }
 
