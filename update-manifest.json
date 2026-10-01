@@ -13,15 +13,15 @@
     "publishedAt": "2026-09-25T16:31:38Z"
   },
   "android": {
-    "version": "0.11.9",
-    "tag": "android-v0.11.9",
+    "version": "0.11.10",
+    "tag": "android-v0.11.10",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.11.9.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.9/CodexQuotaTray-Android-v0.11.9.apk",
-      "sha256": "4b1a9d45a1f8c6e7dc281ff9c26bb3d8f452d1daf2b602a8fdb79fc945f04bcf",
-      "size": 3238294
+      "name": "CodexQuotaTray-Android-v0.11.10.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.10/CodexQuotaTray-Android-v0.11.10.apk",
+      "sha256": "71d53fbba8a06189403da40b1d28a818500f119595d355b110c2775a46ce70c5",
+      "size": 3238290
     },
-    "releaseNotes": "### 修复\n\n- 修复额度页、Token 页和桌面小组件的最后更新时间跨天后只显示日期、缺少具体时分的问题。\n",
-    "publishedAt": "2026-09-25T16:33:31Z"
+    "releaseNotes": "### 首页滚动与布局\n\n- 优化额度页和统计页的滚动体验，内容经过顶部标题区域时以渐变模糊过渡，避免卡片突然截断。\n- 统一页面边缘的阻尼回弹；内容不足一屏时也可轻微拉动，松手后回到原位。\n- 根据底部导航栏和系统安全区保留空间，确保最后一条内容可以完整滚动到按钮上方。\n- 切换额度页和统计页时，保留各自的滚动位置。\n",
+    "publishedAt": "2026-10-01T13:35:36Z"
   }
 }
