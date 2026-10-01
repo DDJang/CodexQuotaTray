@@ -90,6 +90,8 @@ private enum class SettingsDestination(val title: String) {
     UPDATE("更新"),
 }
 
+private const val DEBUG_DASHBOARD_SCROLL_FIXTURE_ACTIVITY =
+    "com.codexquotatray.android.debug.DashboardScrollFixtureActivity"
 private const val DEBUG_QUOTA_RING_FIXTURE_ACTIVITY =
     "com.codexquotatray.android.debug.QuotaRingFixtureActivity"
 private const val DEBUG_QUOTA_WIDGET_FIXTURE_ACTIVITY =
@@ -471,8 +473,20 @@ class SettingsActivity : ComponentActivity() {
                         trailing = "Debug",
                         onClick = ::openDebugTokenUsagePageFixture,
                     )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        title = "Dashboard Scroll Fixture",
+                        trailing = "Debug",
+                        onClick = ::openDebugDashboardScrollFixture,
+                    )
                 }
             }
+        }
+    }
+
+    private fun openDebugDashboardScrollFixture() {
+        if (BuildConfig.DEBUG) {
+            startActivity(Intent().setClassName(this, DEBUG_DASHBOARD_SCROLL_FIXTURE_ACTIVITY))
         }
     }
 
