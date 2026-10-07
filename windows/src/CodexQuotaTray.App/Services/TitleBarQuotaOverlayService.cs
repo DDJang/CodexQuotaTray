@@ -13,6 +13,9 @@ namespace CodexQuotaTray.App.Services;
 internal sealed class TitleBarQuotaOverlayService : IDisposable
 {
     private readonly Func<Action, bool> enqueue;
+    private readonly Func<Task> refresh;
+    private readonly TitleBarOverlayRefreshGate refreshGate = new();
+    private Point? pressedAt;
     private readonly NativeMethods.WindowProcedure windowProcedure;
     private readonly TitleBarOverlayNative.WinEventCallback eventCallback;
     private readonly string className = $"CodexQuotaTray.TitleBarOverlay.{Guid.NewGuid():N}";
@@ -30,6 +33,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private uint dpi = 96;
     private TitleBarQuotaPresentation? presentation;
     private AppUiState? lastSnapshot;
+    private bool showRemainingPercent = true;
     private string renderedText = string.Empty;
     private Rectangle placement;
     private TitleBarOverlayFrame? renderedFrame;
@@ -39,9 +43,10 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private uint fontDpi;
     private string status = "disabled";
 
-    internal TitleBarQuotaOverlayService(Func<Action, bool> enqueue)
+    internal TitleBarQuotaOverlayService(Func<Action, bool> enqueue, Func<Task> refresh)
     {
         this.enqueue = enqueue;
+        this.refresh = refresh;
         windowProcedure = WindowProc;
         eventCallback = OnWindowEvent;
     }
@@ -56,7 +61,8 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         }
 
         lastSnapshot = state;
-        presentation = TitleBarQuotaOverlay.Project(state, settings.ShowRemainingPercent);
+        showRemainingPercent = settings.ShowRemainingPercent;
+        UpdatePresentation();
         SetEnabled(settings.TitleBarQuotaOverlayEnabled);
         UpdateSafely();
     }
@@ -67,8 +73,18 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         {
             return;
         }
-        presentation = TitleBarQuotaOverlay.Project(lastSnapshot, showRemainingPercent);
+        this.showRemainingPercent = showRemainingPercent;
+        UpdatePresentation();
         UpdateSafely();
+    }
+
+    private void UpdatePresentation()
+    {
+        if (lastSnapshot is not null)
+        {
+            presentation = TitleBarQuotaOverlay.Project(
+                lastSnapshot with { IsRefreshing = lastSnapshot.IsRefreshing || refreshGate.IsInFlight }, showRemainingPercent);
+        }
     }
 
     internal void SetEnabled(bool value)
@@ -106,6 +122,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
             WindowProcedure = windowProcedure,
             Instance = instance,
             ClassName = className,
+            Cursor = TitleBarOverlayNative.LoadCursor(IntPtr.Zero, new IntPtr(32649)),
         };
         if (NativeMethods.RegisterClassEx(ref definition) == 0)
         {
@@ -139,11 +156,10 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         renderedFrame = null;
         window = NativeMethods.CreateWindowEx(
             TitleBarOverlayNative.WsExLayered | NativeMethods.WsExToolWindow
-                | NativeMethods.WsExNoActivate | NativeMethods.WsExTransparent,
+                | NativeMethods.WsExNoActivate,
             className, "CodexQuotaTray quota", NativeMethods.WsPopup,
             0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
-        if (window == IntPtr.Zero
-            || !TitleBarOverlayNative.SetLayeredWindowAttributes(window, TitleBarOverlayNative.TransparentColor, 255, 1))
+        if (window == IntPtr.Zero)
         {
             throw LastError();
         }
@@ -437,6 +453,34 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
 
     private IntPtr WindowProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
     {
+        if (message == 0x0201)
+        {
+            pressedAt = new Point((short)(lParam.ToInt64() & 0xffff), (short)((lParam.ToInt64() >> 16) & 0xffff));
+            _ = TitleBarOverlayNative.SetCapture(hwnd);
+            return IntPtr.Zero;
+        }
+        if (message == 0x0202)
+        {
+            var down = pressedAt;
+            pressedAt = null;
+            if (TitleBarOverlayNative.GetCapture() == hwnd) { _ = TitleBarOverlayNative.ReleaseCapture(); }
+            var up = new Point((short)(lParam.ToInt64() & 0xffff), (short)((lParam.ToInt64() >> 16) & 0xffff));
+            if (down is { } origin && TitleBarOverlayInteraction.IsClick(origin, up, placement.Size, dpi))
+            {
+                QueueManualRefresh();
+            }
+            return IntPtr.Zero;
+        }
+        if (message == 0x0200 && pressedAt is { } start)
+        {
+            var current = new Point((short)(lParam.ToInt64() & 0xffff), (short)((lParam.ToInt64() >> 16) & 0xffff));
+            if (!TitleBarOverlayInteraction.IsClick(start, current, placement.Size, dpi))
+            {
+                pressedAt = null;
+                if (TitleBarOverlayNative.GetCapture() == hwnd) { _ = TitleBarOverlayNative.ReleaseCapture(); }
+            }
+        }
+        if (message == 0x0215) { pressedAt = null; }
         if (message == 0x0082 && hwnd == window)
         {
             // Destroying an owner can destroy its owned popup. Keep the event hooks
@@ -457,6 +501,43 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         return NativeMethods.DefWindowProc(hwnd, message, wParam, lParam);
     }
 
+    private void QueueManualRefresh()
+    {
+        if (disposed || !enabled || failed || lastSnapshot?.IsRefreshing == true || !refreshGate.TryBegin()) { return; }
+        if (!enqueue(() =>
+        {
+            if (disposed || !enabled || failed) { refreshGate.Complete(); return; }
+            UpdatePresentation();
+            UpdateSafely();
+            _ = RefreshFromClickAsync();
+        })) { refreshGate.Complete(); }
+    }
+
+    private async Task RefreshFromClickAsync()
+    {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        try
+        {
+            await refresh();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            System.Diagnostics.Debug.WriteLine($"Title-bar manual refresh failed: {error.GetType().Name}");
+        }
+        finally
+        {
+            await RefreshPresentationPolicy.WaitForMinimumAsync(started).ConfigureAwait(false);
+            if (!enqueue(() =>
+            {
+                refreshGate.Complete();
+                if (disposed) { return; }
+                UpdatePresentation();
+                UpdateSafely();
+            })) { refreshGate.Complete(); }
+        }
+    }
+
     private void Paint(IntPtr hwnd)
     {
         var destination = TitleBarOverlayNative.BeginPaint(hwnd, out var paint);
@@ -468,14 +549,22 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
             }
 
             var dc = TitleBarOverlayNative.CreateCompatibleDC(destination);
-            var bitmap = TitleBarOverlayNative.CreateCompatibleBitmap(destination, placement.Width, placement.Height);
+            var info = new TitleBarOverlayNative.BitmapInfo
+            {
+                Size = 40,
+                Width = placement.Width,
+                Height = -placement.Height,
+                Planes = 1,
+                BitCount = 32,
+            };
+            var bitmap = TitleBarOverlayNative.CreateDIBSection(destination, ref info, 0, out var pixels, IntPtr.Zero, 0);
             var font = GetFont();
-            var clear = TitleBarOverlayNative.CreateSolidBrush(TitleBarOverlayNative.TransparentColor);
+            var clear = TitleBarOverlayNative.CreateSolidBrush(0);
             var oldBitmap = IntPtr.Zero;
             var oldFont = IntPtr.Zero;
             try
             {
-                if (dc == IntPtr.Zero || bitmap == IntPtr.Zero || font == IntPtr.Zero || clear == IntPtr.Zero)
+                if (dc == IntPtr.Zero || bitmap == IntPtr.Zero || pixels == IntPtr.Zero || font == IntPtr.Zero || clear == IntPtr.Zero)
                 {
                     return;
                 }
@@ -484,16 +573,28 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
                 oldFont = TitleBarOverlayNative.SelectObject(dc, font);
                 var rect = new NativeMethods.NativeRect { Right = placement.Width, Bottom = placement.Height };
                 _ = TitleBarOverlayNative.FillRect(dc, ref rect, clear);
-                // TRANSPARENT (1), not OPAQUE (2): only glyphs enter the color-key
-                // surface. Match the native menu's neutral gray, without a capsule.
+                // Render an antialiased white mask, then supply premultiplied alpha
+                // so spaces in the text target receive clicks without a visible box.
                 _ = TitleBarOverlayNative.SetBkMode(dc, 1);
-                _ = TitleBarOverlayNative.SetTextColor(dc, 0x00908F8E);
+                _ = TitleBarOverlayNative.SetTextColor(dc, 0x00FFFFFF);
                 var padding = (int)Math.Ceiling(12 * dpi / 96d);
                 rect.Left = padding;
                 rect.Right -= padding;
                 // SINGLELINE | VCENTER | END_ELLIPSIS | NOPREFIX.
                 _ = TitleBarOverlayNative.DrawText(dc, renderedText, renderedText.Length, ref rect, 0x00008824);
-                _ = TitleBarOverlayNative.BitBlt(destination, 0, 0, placement.Width, placement.Height, dc, 0, 0, 0x00CC0020);
+                _ = TitleBarOverlayNative.GdiFlush();
+                var mask = new byte[checked(placement.Width * placement.Height * 4)];
+                Marshal.Copy(pixels, mask, 0, mask.Length);
+                TitleBarOverlayInteraction.ComposeTextPixels(mask);
+                Marshal.Copy(mask, 0, pixels, mask.Length);
+                var position = new NativeMethods.NativePoint { X = placement.X, Y = placement.Y };
+                var size = new TitleBarOverlayNative.NativeSize { Width = placement.Width, Height = placement.Height };
+                var source = new NativeMethods.NativePoint();
+                var blend = new TitleBarOverlayNative.BlendFunction { ConstantAlpha = 255, AlphaFormat = 1 };
+                if (!TitleBarOverlayNative.UpdateLayeredWindow(hwnd, IntPtr.Zero, ref position, ref size, dc, ref source, 0, ref blend, 2))
+                {
+                    status = $"redraw unavailable (Win32 {Marshal.GetLastWin32Error()})";
+                }
             }
             finally
             {
@@ -514,6 +615,8 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
 
     private void Hide(string reason, bool detach = true)
     {
+        pressedAt = null;
+        if (window != IntPtr.Zero && TitleBarOverlayNative.GetCapture() == window) { _ = TitleBarOverlayNative.ReleaseCapture(); }
         if (detach) { SetTarget(IntPtr.Zero); }
         if (TitleBarOverlayNative.IsWindowVisible(window)) { _ = NativeMethods.ShowWindow(window, NativeMethods.SwHide); }
         if (detach && window != IntPtr.Zero)

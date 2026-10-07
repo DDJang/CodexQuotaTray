@@ -23,8 +23,8 @@ public static class TitleBarQuotaOverlay
 
     public static TitleBarQuotaPresentation Project(AppUiState state, bool showRemainingPercent = true)
     {
-        var status = state.Windows.Count == 0 ? state.StatusText
-            : state.IsRefreshing ? "刷新中"
+        var status = state.IsRefreshing ? "刷新中…"
+            : state.Windows.Count == 0 ? state.StatusText
             : state.StatusTone == StatusTone.Error ? FailureLabel(state.StatusText)
             : state.Windows.Any(window => window.IsStale) || state.StatusText.Contains("已过期", StringComparison.Ordinal)
                 ? "已过期"

@@ -33,6 +33,8 @@ WinUI Views / Services / Interop / Themes
   启用时进行一次有界发现，随后由窗口事件跟随后台宿主；隐藏、最小化与 cloak 时保留目标等待恢复，
   宿主销毁后可有界重新发现并重建覆盖窗。文本测量与字体按 DPI 缓存，位置变化不主动重绘，
   仅文本、DPI 或绘图尺寸变化时使绘图失效。不启用 CDP、不创建网络轮询或第二份持久化缓存。
+  额度文字使用 premultiplied alpha 绘制，文字区域接收单击并复用主面板手动刷新命令；
+  不激活窗口，拖动或移出后松开不触发刷新，刷新中合并重复点击。
   实现取舍与宿主兼容限制见[标题栏覆盖窗调查](investigations/windows/chatgpt-titlebar-quota-overlay.md)。
 - `Core/TokenUsage` 使用有界 UTF-8 缓冲流式扫描 session 文件中的 Token 计数事件，复用 SQLite 中的
   文件安全偏移增量读取追加内容；累计值按 session high-water、fork replay baseline 计算新增 delta，

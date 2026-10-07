@@ -88,7 +88,11 @@ public partial class App : Application
         currentInstance.Activated += OnInstanceActivated;
         applicationIdentity = identity;
         uiDispatcher = DispatcherQueue.GetForCurrentThread();
-        titleBarQuotaOverlay = new TitleBarQuotaOverlayService(action => uiDispatcher?.TryEnqueue(() => action()) == true);
+        titleBarQuotaOverlay = new TitleBarQuotaOverlayService(
+            action => uiDispatcher?.TryEnqueue(() => action()) == true,
+            () => viewModelReference?.RefreshCommand.CanExecute(null) == true
+                ? viewModelReference.RefreshCommand.ExecuteAsync(null)
+                : Task.CompletedTask);
         var paths = CreateDataPaths(identity);
         crashSessionLog = new CrashSessionLog(paths.Root);
         previousCrashInfo = crashSessionLog.StartSession();

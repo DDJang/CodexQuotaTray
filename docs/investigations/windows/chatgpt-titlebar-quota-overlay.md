@@ -188,9 +188,9 @@ GitHub 已有直接对应标题栏目标的实现。最适合 CodexQuotaTray 的
 - 在“设置 → 外观”增加开关，旧设置缺失或 malformed 时默认关闭；保存到各自身份的数据目录。
 - Runtime 推送的同一快照生成 full/compact 文本，按显示方式明确“剩余”或“已用”，最多显示两窗口并
   标记其他窗口数量；可靠性不足显示“—”，失败保留旧值并标记上次数据，来源切换沿用 Runtime 清空。
-- App 管理自有 Win32 layered tool window，使用 GDI 缓冲绘制普通灰色文字，背景使用 color key 透明。
-  `WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW` 实现透明边角、
-  点击穿透与不激活；自有覆盖窗通过 owner 关系保持在宿主上方，不使用全局 topmost。
+- App 管理自有 Win32 layered tool window，使用 GDI 字形 mask 与 premultiplied alpha 绘制普通灰色文字。
+  `WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW` 保持视觉透明与不激活，文字区域接收单击；
+  自有覆盖窗通过 owner 关系保持在宿主上方，不使用全局 topmost。
 - foreground 与目标 geometry/show/hide/minimize/destroy/cloak 事件触发合并定位；后台宿主持续显示，
   无宿主时只等待事件。启用与宿主销毁时有界发现已有窗口，位置事件不触发额度请求，无定时进程扫描。窄窗隐藏后仍保留 geometry
   监听，放大时重新显示。关闭开关或退出时释放 hooks、HWND、window class；每次测量/绘制释放 GDI handles。
@@ -317,3 +317,28 @@ Dev 的 Working Set 高约 21.955 MiB，而 Private Bytes 低约 131.401 MiB，�
 GUI 资源也存在历史差异：Production 本轮 GDI 计数约 7011–7023、USER 约 2390–2396；
 Dev 约 GDI 136–157、USER 116–133。它们仅说明资源存量不同，未调查成因，未触碰正式版。
 本轮结论限于静态后台驻留，未测量持续拖动/跨 DPI/后台刷新峰值、长期泄漏、子进程或 DWM/GPU。
+
+### 点击额度文字手动刷新（后续交互增强）
+
+在上述性能采样和初始实现提交之后，用户要求单击额度文字刷新，并显示“刷新中…”和最小
+提示时间。覆盖窗的点击回调复用 `MainViewModel.RefreshCommand`，仍通过 Runtime 的 Manual
+读取与同一状态提交路径，不创建新 provider 或缓存。标题栏显示本地请求等待状态与 Runtime
+刷新状态；同主面板的最小提示时长内保持刷新提示，请求或提示未完成时忽略重复点击，
+成功与失败均遵守最小时间，不因重复点击重置计时。
+
+初始 color-key 绘图的空隙会穿透鼠标，删除 `WS_EX_TRANSPARENT` 仍不能让整段文字可靠可点。
+因此改为白色 GDI 字形 mask → 灰色 premultiplied BGRA → `UpdateLayeredWindow`；空隙 alpha
+为 1，文字按字形覆盖率设置 alpha，保留无可见背景/边框的样式并使整个文字矩形可点。
+窗口继续使用 NOACTIVATE 与 MA_NOACTIVATE，鼠标为手型；按下/松开须在区域内且无明显
+移动，拖动、移出或失去 capture 会取消刷新意图。区域之外的标题栏保持宿主原生交互。
+
+绘制缓存和仅位置移动策略不变，新增的 alpha 转换仅发生在真正重绘时，无持续动画或输入
+轮询。上面的性能数字对应点击增强前的实现，不能直接当作此次绘制改造后的实测值。
+最终 `Full` 通过，构建零警告、零错误，581 项离线测试全部通过；新增回归覆盖透明空隙、
+字形 premultiplication、拖动/移出取消、并发点击 gate 和无额度时的刷新标签优先级。
+用户在 Dev 上试用后反馈“没问题了”，当前点击体验已获用户确认；未进行自动化真实账户
+smoke 或精确的 GUI 时长测量，不把用户反馈扩展为未覆盖场景的自动验证结论。
+
+重启 Dev 后只读检查确认覆盖窗 visible 且 owner 匹配；使用物理坐标的 `WindowFromPoint`
+检查文字中心和透明边距，两者均命中覆盖窗，确认空隙并未继续穿透到宿主。该检查没有
+发送鼠标消息或触发真实账户读取，不替代实际点击、最小时间和焦点行为的 GUI 验证。

@@ -137,7 +137,7 @@ public sealed class TitleBarQuotaOverlayTests
         var before = TitleBarQuotaOverlay.Project(State(QuotaWindowView.Demo("窗口", 19, "稍后", "12:00")));
         var after = TitleBarQuotaOverlay.Project(State() with { IsRefreshing = true, StatusText = "正在连接" });
         StringAssert.Contains(before.Text, "19%");
-        Assert.AreEqual("正在连接", after.Text);
+        Assert.AreEqual("刷新中…", after.Text);
         Assert.IsFalse(after.Text.Contains("19%", StringComparison.Ordinal));
     }
 

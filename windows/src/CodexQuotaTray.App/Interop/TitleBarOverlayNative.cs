@@ -5,6 +5,57 @@ namespace CodexQuotaTray.App.Interop;
 
 internal static class TitleBarOverlayNative
 {
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct BitmapInfo
+    {
+        internal uint Size;
+        internal int Width;
+        internal int Height;
+        internal ushort Planes;
+        internal ushort BitCount;
+        internal uint Compression;
+        internal uint SizeImage;
+        internal int XPelsPerMeter;
+        internal int YPelsPerMeter;
+        internal uint ClrUsed;
+        internal uint ClrImportant;
+        internal uint Colors;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    internal struct BlendFunction
+    {
+        internal byte Operation;
+        internal byte Flags;
+        internal byte ConstantAlpha;
+        internal byte AlphaFormat;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UpdateLayeredWindow(IntPtr hwnd, IntPtr destinationDc, ref NativeMethods.NativePoint position,
+        ref NativeSize size, IntPtr sourceDc, ref NativeMethods.NativePoint sourcePoint, uint colorKey, ref BlendFunction blend, uint flags);
+
+    [DllImport("gdi32.dll", SetLastError = true)]
+    internal static extern IntPtr CreateDIBSection(IntPtr dc, ref BitmapInfo info, uint usage, out IntPtr pixels, IntPtr section, uint offset);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GdiFlush();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern IntPtr LoadCursor(IntPtr instance, IntPtr name);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr SetCapture(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr GetCapture();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool ReleaseCapture();
+
     internal static void AttachOwner(IntPtr overlay, IntPtr owner)
     {
         if (GetWindow(overlay, 4) == owner)
@@ -42,7 +93,6 @@ internal static class TitleBarOverlayNative
     internal const uint Cloaked = 0x8017;
     internal const uint Uncloaked = 0x8018;
     internal const uint WsExLayered = 0x00080000;
-    internal const uint TransparentColor = 0x00010101;
 
     internal delegate void WinEventCallback(IntPtr hook, uint eventType, IntPtr hwnd, int objectId, int childId, uint threadId, uint time);
 
@@ -127,10 +177,6 @@ internal static class TitleBarOverlayNative
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint colorKey, byte alpha, uint flags);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool InvalidateRect(IntPtr hwnd, IntPtr rect, [MarshalAs(UnmanagedType.Bool)] bool erase);
 
     [DllImport("user32.dll")]
@@ -154,9 +200,6 @@ internal static class TitleBarOverlayNative
 
     [DllImport("gdi32.dll")]
     internal static extern IntPtr CreateCompatibleDC(IntPtr dc);
-
-    [DllImport("gdi32.dll")]
-    internal static extern IntPtr CreateCompatibleBitmap(IntPtr dc, int width, int height);
 
     [DllImport("gdi32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -185,7 +228,4 @@ internal static class TitleBarOverlayNative
     [DllImport("gdi32.dll")]
     internal static extern uint SetTextColor(IntPtr dc, uint color);
 
-    [DllImport("gdi32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool BitBlt(IntPtr destination, int x, int y, int width, int height, IntPtr source, int sourceX, int sourceY, uint operation);
 }

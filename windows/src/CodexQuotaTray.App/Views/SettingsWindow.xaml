@@ -607,7 +607,7 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
                                 <TextBlock Text="在 ChatGPT 标题栏显示额度" Style="{StaticResource SettingsLabelStyle}" />
-                                <TextBlock Text="ChatGPT 未最小化时持续显示当前来源的 Codex 额度，跟随显示方式；不会自动匹配 ChatGPT 登录账户。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
+                                <TextBlock Text="ChatGPT 未最小化时持续显示 Codex 额度，跟随显示方式；点击文字可刷新，不会自动匹配 ChatGPT 登录账户。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
                             </StackPanel>
                             <ToggleSwitch Grid.Column="1" AutomationProperties.Name="在 ChatGPT 标题栏显示额度" IsOn="{Binding TitleBarQuotaOverlayEnabled, Mode=TwoWay}" Style="{StaticResource SettingsToggleSwitchStyle}" />
                         </Grid>
