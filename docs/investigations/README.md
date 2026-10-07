@@ -30,7 +30,7 @@ or `archive` directories.
 
 | Area | Investigation | Status | Outcome | Resolved by | Last verified |
 | --- | --- | --- | --- | --- | --- |
-| Windows | [ChatGPT title-bar quota overlay](windows/chatgpt-titlebar-quota-overlay.md) | Active | Background overlay and redraw caching implemented; owner/Z-order and background visibility verified; paired idle CPU/memory sampling recorded; broader interaction/long-run checks pending | — | 2026-10-07 |
+| Windows | [ChatGPT title-bar quota overlay](windows/chatgpt-titlebar-quota-overlay.md) | Resolved | Background overlay and redraw caching implemented; owner/Z-order, background visibility and paired idle performance verified; broader interaction/long-run limits documented | `4bda220` | 2026-10-07 |
 | Windows | [LAN intermittent TCP connect timeout](windows/lan-intermittent-tcp-connect-timeout.md) | Active | Diagnostic baseline correlated; separate periodic-monitor exception defect reproduced and fixed locally; original timeout still lacks packet evidence | — | 2026-09-20 |
 | Windows | [Panel wheel scrolling at 1080p](windows/panel-wheel-scroll-1080p.md) | Resolved | Conditional scrolling based on real content overflow | `61eaf12` | 2026-09-06 |
 | Windows | [.NET trimming experiment](windows/trim-experiment.md) | Closed / Not ready | `PublishTrimmed` remains disabled; trimmed Preview failed functional smoke | `99294ab` | 2026-08-31 |
