@@ -48,7 +48,8 @@ public sealed record AppSettings(
     bool TokenRefreshOnPanelOpen = true,
     bool PersistTokenUsageCache = true,
     QuotaDataSource QuotaDataSource = QuotaDataSource.CodexCli,
-    TokenUsageDataSource TokenUsageDataSource = TokenUsageDataSource.Local)
+    TokenUsageDataSource TokenUsageDataSource = TokenUsageDataSource.Local,
+    bool TitleBarQuotaOverlayEnabled = false)
 {
     [JsonIgnore]
     public NotificationSettings EffectiveNotifications => Notifications ?? new();

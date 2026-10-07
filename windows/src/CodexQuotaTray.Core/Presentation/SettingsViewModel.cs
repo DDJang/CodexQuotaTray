@@ -83,6 +83,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showRemainingPercent;
+    [ObservableProperty] private bool titleBarQuotaOverlayEnabled;
     [ObservableProperty] private bool persistQuotaCache;
     [ObservableProperty] private bool persistTokenUsageCache;
     [ObservableProperty] private bool refreshOnPanelOpen;
@@ -249,6 +250,10 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     public event EventHandler<ThemeMode>? ThemeSaved;
 
+    public event EventHandler<bool>? TitleBarQuotaOverlaySaved;
+
+    public event EventHandler<bool>? PercentageDisplayModeSaved;
+
     public event EventHandler? TokenSyncChanged;
 
     public event EventHandler<DataSourcesChangedEventArgs>? DataSourcesChanged;
@@ -412,7 +417,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     public IReadOnlyList<PercentageDisplayModeOption> PercentageDisplayModes { get; } =
     [
         new(true, "剩余百分比"),
-        new(false, "使用百分比"),
+        new(false, "已用"),
     ];
 
     public PercentageDisplayModeOption SelectedPercentageDisplayMode
@@ -978,6 +983,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             {
                 ThemeSaved?.Invoke(this, settings.ThemeMode);
             }
+            if (previous.TitleBarQuotaOverlayEnabled != settings.TitleBarQuotaOverlayEnabled)
+            {
+                TitleBarQuotaOverlaySaved?.Invoke(this, settings.TitleBarQuotaOverlayEnabled);
+            }
+            if (previous.ShowRemainingPercent != settings.ShowRemainingPercent)
+            {
+                PercentageDisplayModeSaved?.Invoke(this, settings.ShowRemainingPercent);
+            }
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
@@ -999,6 +1012,14 @@ public sealed partial class SettingsViewModel : ObservableObject
             if (previous.ThemeMode != settings.ThemeMode)
             {
                 ThemeSaved?.Invoke(this, previous.ThemeMode);
+            }
+            if (previous.TitleBarQuotaOverlayEnabled != settings.TitleBarQuotaOverlayEnabled)
+            {
+                TitleBarQuotaOverlaySaved?.Invoke(this, runtime.Settings.TitleBarQuotaOverlayEnabled);
+            }
+            if (previous.ShowRemainingPercent != settings.ShowRemainingPercent)
+            {
+                PercentageDisplayModeSaved?.Invoke(this, runtime.Settings.ShowRemainingPercent);
             }
         }
         finally
@@ -1031,7 +1052,8 @@ public sealed partial class SettingsViewModel : ObservableObject
         TokenRefreshOnPanelOpen: TokenRefreshOnPanelOpen,
         PersistTokenUsageCache: PersistTokenUsageCache,
         QuotaDataSource: runtime.Settings.QuotaDataSource,
-        TokenUsageDataSource: runtime.Settings.TokenUsageDataSource));
+        TokenUsageDataSource: runtime.Settings.TokenUsageDataSource,
+        TitleBarQuotaOverlayEnabled: TitleBarQuotaOverlayEnabled));
 
     private AppSettings Normalize(AppSettings value) => SettingsService.Normalize(value) with
     {
@@ -1045,6 +1067,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             StartWithWindows = CanConfigureStartup && value.StartWithWindows;
             ShowRemainingPercent = value.ShowRemainingPercent;
+            TitleBarQuotaOverlayEnabled = value.TitleBarQuotaOverlayEnabled;
             PersistQuotaCache = value.PersistQuotaCache;
             PersistTokenUsageCache = value.PersistTokenUsageCache;
             RefreshOnPanelOpen = value.RefreshOnPanelOpen;
@@ -1076,6 +1099,8 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     partial void OnStartWithWindowsChanged(bool value) => QueueSettingsApply();
+
+    partial void OnTitleBarQuotaOverlayEnabledChanged(bool value) => QueueSettingsApply();
 
     partial void OnShowRemainingPercentChanged(bool value)
     {

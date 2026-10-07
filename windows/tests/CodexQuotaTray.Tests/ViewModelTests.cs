@@ -750,6 +750,36 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public void TitleBarOverlaySettingAppliesImmediatelyAndSurvivesOtherSettingsChanges()
+    {
+        var runtime = new StubRuntimeControl();
+        var viewModel = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        bool? saved = null;
+        viewModel.TitleBarQuotaOverlaySaved += (_, enabled) => saved = enabled;
+
+        Assert.IsFalse(viewModel.TitleBarQuotaOverlayEnabled);
+        viewModel.TitleBarQuotaOverlayEnabled = true;
+        Assert.AreEqual(true, saved);
+        Assert.IsTrue(runtime.Settings.TitleBarQuotaOverlayEnabled);
+        viewModel.ShowRemainingPercent = false;
+        Assert.IsTrue(runtime.Settings.TitleBarQuotaOverlayEnabled);
+        var reloaded = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        Assert.IsTrue(reloaded.TitleBarQuotaOverlayEnabled);
+        reloaded.TitleBarQuotaOverlayEnabled = false;
+        Assert.IsFalse(runtime.Settings.TitleBarQuotaOverlayEnabled);
+    }
+
+    [TestMethod]
+    public void FailedTitleBarSettingSaveRestoresDisabledState()
+    {
+        var runtime = new StubRuntimeControl(rejectSettings: true);
+        var viewModel = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        viewModel.TitleBarQuotaOverlayEnabled = true;
+        Assert.IsFalse(runtime.Settings.TitleBarQuotaOverlayEnabled);
+        Assert.IsFalse(viewModel.TitleBarQuotaOverlayEnabled);
+    }
+
+    [TestMethod]
     public void PercentageDisplaySelectionMapsToExistingBooleanSetting()
     {
         var viewModel = new SettingsViewModel(
@@ -758,11 +788,27 @@ public sealed class ViewModelTests
             new StubSettingsPageActions());
 
         Assert.AreEqual("剩余百分比", viewModel.SelectedPercentageDisplayMode.DisplayName);
+        bool? savedMode = null;
+        viewModel.PercentageDisplayModeSaved += (_, mode) => savedMode = mode;
 
         viewModel.SelectedPercentageDisplayMode = viewModel.PercentageDisplayModes[1];
 
         Assert.IsFalse(viewModel.ShowRemainingPercent);
-        Assert.AreEqual("使用百分比", viewModel.SelectedPercentageDisplayMode.DisplayName);
+        Assert.AreEqual("已用", viewModel.SelectedPercentageDisplayMode.DisplayName);
+        Assert.AreEqual(false, savedMode);
+    }
+
+    [TestMethod]
+    public void FailedPercentageModeSaveKeepsThePersistedModeForOverlay()
+    {
+        var runtime = new StubRuntimeControl(rejectSettings: true);
+        var viewModel = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        bool? savedMode = null;
+        viewModel.PercentageDisplayModeSaved += (_, mode) => savedMode = mode;
+        viewModel.SelectedPercentageDisplayMode = viewModel.PercentageDisplayModes[1];
+        Assert.IsTrue(viewModel.ShowRemainingPercent);
+        Assert.IsTrue(runtime.Settings.ShowRemainingPercent);
+        Assert.AreEqual(true, savedMode);
     }
 
     [TestMethod]

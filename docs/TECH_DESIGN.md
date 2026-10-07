@@ -26,6 +26,14 @@ WinUI Views / Services / Interop / Themes
 - `Core/Persistence` 保存设置、最小归一化额度缓存、按日聚合 Token 统计缓存和提醒状态；Local Token
   的 SQLite 增量账本由 `Core/TokenUsage` 管理，并存放在同一身份隔离数据目录。
 - `Core/Presentation` 是 UI 的唯一产品状态入口；UI 不解析 RPC。
+- `TitleBarQuotaOverlay` 从已有 `AppUiState` 生成紧凑剩余额度文本与纯几何布局；App 的
+  `TitleBarQuotaOverlayService` 复用 Runtime 的 `StateChanged`，管理自有 Win32 layered tool window。
+  OUTOFCONTEXT WinEvent hooks 在 UI 消息线程注册、合并更新、关闭时释放；只附着到身份与
+  主窗口形态均匹配的宿主，通过自有覆盖窗的 owner 关系保持在宿主上方，并保留其他应用的正常遮挡。
+  启用时进行一次有界发现，随后由窗口事件跟随后台宿主；隐藏、最小化与 cloak 时保留目标等待恢复，
+  宿主销毁后可有界重新发现并重建覆盖窗。文本测量与字体按 DPI 缓存，位置变化不主动重绘，
+  仅文本、DPI 或绘图尺寸变化时使绘图失效。不启用 CDP、不创建网络轮询或第二份持久化缓存。
+  实现取舍与宿主兼容限制见[标题栏覆盖窗调查](investigations/windows/chatgpt-titlebar-quota-overlay.md)。
 - `Core/TokenUsage` 使用有界 UTF-8 缓冲流式扫描 session 文件中的 Token 计数事件，复用 SQLite 中的
   文件安全偏移增量读取追加内容；累计值按 session high-water、fork replay baseline 计算新增 delta，
   写入持久账本后由 SQL 生成每日聚合。主面板与 LAN 服务共享同一个扫描 single-flight，不进入额度协议层。

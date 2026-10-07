@@ -23,6 +23,7 @@ public partial class App : Application
     private readonly TokenUsageRefreshSchedule tokenUsageRefreshSchedule = new();
     private MainWindow? mainWindow;
     private TrayIconService? trayIcon;
+    private TitleBarQuotaOverlayService? titleBarQuotaOverlay;
     private AppInstance? currentInstance;
     private DispatcherQueue? uiDispatcher;
     private IAsyncDisposable? providerLifetime;
@@ -87,6 +88,7 @@ public partial class App : Application
         currentInstance.Activated += OnInstanceActivated;
         applicationIdentity = identity;
         uiDispatcher = DispatcherQueue.GetForCurrentThread();
+        titleBarQuotaOverlay = new TitleBarQuotaOverlayService(action => uiDispatcher?.TryEnqueue(() => action()) == true);
         var paths = CreateDataPaths(identity);
         crashSessionLog = new CrashSessionLog(paths.Root);
         previousCrashInfo = crashSessionLog.StartSession();
@@ -149,11 +151,17 @@ public partial class App : Application
 
             liveRuntime.StateChanged += (_, state) =>
             {
+                var snapshotSettings = liveRuntime.Settings;
                 _ = uiDispatcher.TryEnqueue(() =>
                 {
+                    if (Volatile.Read(ref exitStarted) != 0)
+                    {
+                        return;
+                    }
                     viewModelReference?.ApplySnapshot(state);
                     mainWindow?.ApplyTheme(liveRuntime.Settings.ThemeMode);
                     trayIcon?.UpdateTooltip(TrayTooltipFormatter.Create(state));
+                    titleBarQuotaOverlay?.ApplySnapshot(state, snapshotSettings);
                 });
             };
             tokenUsageSync = new TokenUsageSyncController(
@@ -252,7 +260,8 @@ public partial class App : Application
             diagnostics.CreateDiagnosticText(),
             lanDiagnosticBuffer.CreateDiagnosticText(),
             appNotifications?.CreateDiagnosticText() ?? "Windows notifications: unavailable (demo)",
-            trayIcon?.CreateDiagnosticText() ?? "托盘注册状态: NotStarted")));
+            trayIcon?.CreateDiagnosticText() ?? "托盘注册状态: NotStarted",
+            titleBarQuotaOverlay?.CreateDiagnosticText() ?? "Title-bar quota overlay: stopped")));
         settingsPageActions = new DelegateSettingsPageActions(
             cancellationToken => viewModel.RefreshCommand.ExecuteAsync(cancellationToken),
             () => viewModel.OpenUsageCommand.Execute(null),
@@ -521,6 +530,14 @@ public partial class App : Application
                 windowsUpdateService,
                 accountService);
             settingsViewModel.ThemeSaved += OnSettingsThemeSaved;
+            settingsViewModel.TitleBarQuotaOverlaySaved += (_, enabled) =>
+            {
+                _ = uiDispatcher?.TryEnqueue(() => titleBarQuotaOverlay?.SetEnabled(enabled));
+            };
+            settingsViewModel.PercentageDisplayModeSaved += (_, showRemainingPercent) =>
+            {
+                _ = uiDispatcher?.TryEnqueue(() => titleBarQuotaOverlay?.SetPercentageDisplayMode(showRemainingPercent));
+            };
             settingsViewModel.DataSourcesChanged += OnSettingsDataSourcesChanged;
             Func<CancellationToken, Task>? debugTestNotification = null;
 #if CODEXQUOTATRAY_DEV
@@ -616,7 +633,7 @@ public partial class App : Application
         return null;
     }
 
-    private static async Task InitializeStateAsync(
+    private async Task InitializeStateAsync(
         IUiStateProvider provider,
         MainViewModel viewModel,
         DispatcherQueue dispatcher,
@@ -629,7 +646,11 @@ public partial class App : Application
             var snapshot = await provider.GetSnapshotAsync(cancellationToken).ConfigureAwait(false);
             if (!stateEventsAuthoritative)
             {
-                await EnqueueAsync(dispatcher, () => viewModel.ApplySnapshot(snapshot), cancellationToken).ConfigureAwait(false);
+                await EnqueueAsync(dispatcher, () =>
+                {
+                    viewModel.ApplySnapshot(snapshot);
+                    titleBarQuotaOverlay?.ApplySnapshot(snapshot, runtime?.Settings ?? AppSettings.Defaults);
+                }, cancellationToken).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -915,6 +936,8 @@ public partial class App : Application
     private async Task CompleteExitAsync()
     {
         lifetime.Cancel();
+        titleBarQuotaOverlay?.Dispose();
+        titleBarQuotaOverlay = null;
         mainWindow?.PrepareForExit();
         settingsWindow?.PrepareForExit();
         TraceExitTiming("UI windows hidden");

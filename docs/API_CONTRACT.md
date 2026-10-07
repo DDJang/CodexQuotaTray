@@ -125,6 +125,10 @@ Account 日桶没有分类字段时 input/cached/output/reasoning 保持 null，
 
 ## 额度规范化与持久化
 
+Windows 本地设置新增 boolean `titleBarQuotaOverlayEnabled`，复用当前身份的 settings 文件与
+现有原子保存路径；缺失或类型非法使用 `AppSettings.Defaults` 的值。此项只控制 Windows
+展示，默认与用户行为见 [PRD](PRD.md#windows-客户端)，不改变额度、缓存或 LAN wire schema。
+
 共同规范化规则：
 
 - 动态保留全部窗口，不按槽位猜周期；

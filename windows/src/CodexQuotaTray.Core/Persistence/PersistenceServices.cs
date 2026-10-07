@@ -74,7 +74,8 @@ public sealed class SettingsService(JsonFileStore store, PreviewDataPaths paths)
             TokenRefreshOnPanelOpen: Boolean(root, "tokenRefreshOnPanelOpen", defaults.TokenRefreshOnPanelOpen),
             PersistTokenUsageCache: Boolean(root, "persistTokenUsageCache", defaults.PersistTokenUsageCache),
             QuotaDataSource: EnumValue(root, "quotaDataSource", defaults.QuotaDataSource),
-            TokenUsageDataSource: EnumValue(root, "tokenUsageDataSource", defaults.TokenUsageDataSource));
+            TokenUsageDataSource: EnumValue(root, "tokenUsageDataSource", defaults.TokenUsageDataSource),
+            TitleBarQuotaOverlayEnabled: Boolean(root, "titleBarQuotaOverlayEnabled", defaults.TitleBarQuotaOverlayEnabled));
     }
 
     private static NotificationSettings ParseNotifications(JsonElement value) => new(

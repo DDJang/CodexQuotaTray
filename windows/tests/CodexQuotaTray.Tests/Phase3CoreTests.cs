@@ -1302,6 +1302,21 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public async Task TitleBarOverlayMigratesMissingOrMalformedFlagAndRoundTripsEnabledState()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var service = new SettingsService(new JsonFileStore(), paths);
+        foreach (var json in new[] { "{}", "{\"titleBarQuotaOverlayEnabled\":\"true\"}" })
+        {
+            await File.WriteAllTextAsync(paths.Settings, json);
+            Assert.IsFalse((await service.LoadAsync(CancellationToken.None)).TitleBarQuotaOverlayEnabled);
+        }
+        await service.SaveAsync(AppSettings.Defaults with { TitleBarQuotaOverlayEnabled = true }, CancellationToken.None);
+        Assert.IsTrue((await service.LoadAsync(CancellationToken.None)).TitleBarQuotaOverlayEnabled);
+    }
+
+    [TestMethod]
     public async Task SettingsUsesDarkForFirstInstallAndPreservesLegacyThemeFallback()
     {
         using var directory = new TemporaryDirectory();

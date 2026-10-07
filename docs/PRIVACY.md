@@ -19,6 +19,11 @@ CLI 管理；应用不读取 CLI token 文件。OAuth 来源使用设备码登�
 Production、Dev 和 Preview 使用相互隔离的数据目录，保存各自设置、按来源隔离的最小额度缓存、
 提醒去重状态、Local Token SQLite 账本、可选按日聚合 Token 统计缓存和可选 LAN pairing。
 
+启用标题栏额度显示后，应用通过有界窗口发现和 Win32 事件读取宿主候选与目标主窗口的 HWND/PID、进程路径、
+package family、窗口类/标题、可见性、DPI 和几何，用于宿主识别与定位；不读取宿主 UI 树、
+网页 DOM、会话正文或认证。上述窗口元数据只在内存使用，不持久化或导出；诊断仅含覆盖窗
+状态与可选 Win32 错误码。额度复用现有来源，宿主窗口不成为新的额度或账户来源。
+
 账户页只展示由当前 provider 返回的最小账户字段（如计划或邮箱）；这些字段不写入日志、诊断、
 额度缓存或 Token 统计缓存。OAuth profile/usage 只解析 profile、按日桶和 summary 数字，缺失字段
 保持不可用，不以业务零值补齐；reset credit 始终只读，从不发起兑换或消耗请求。

@@ -103,7 +103,7 @@
                                 <FontIcon Glyph="&#xE713;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="常规" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="启动、显示方式与额度和统计缓存" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="启动与额度、统计缓存" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             </Grid>
@@ -147,7 +147,7 @@
                                 <FontIcon Glyph="&#xE790;" FontSize="18" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 <StackPanel Grid.Column="1" Style="{StaticResource SettingsRowTextStyle}">
                                     <TextBlock Text="个性化" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="应用主题" Style="{StaticResource SettingsDescriptionStyle}" />
+                                    <TextBlock Text="主题、额度显示与标题栏" Style="{StaticResource SettingsDescriptionStyle}" />
                                 </StackPanel>
                                 <FontIcon Grid.Column="2" Glyph="&#xE76C;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             </Grid>
@@ -325,32 +325,7 @@
                                     Style="{StaticResource SettingsToggleSwitchStyle}" />
                             </Grid>
                         </Border>
-                        <TextBlock Text="显示与缓存" Style="{StaticResource SettingsSectionHeaderStyle}" />
-                        <Border Style="{StaticResource SettingsItemCardStyle}">
-                            <Grid Style="{StaticResource SettingsRowStyle}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
-                                    <TextBlock Text="显示方式" Style="{StaticResource SettingsLabelStyle}" />
-                                    <TextBlock Text="选择额度面板显示剩余百分比或使用百分比。" Style="{StaticResource SettingsDescriptionStyle}" />
-                                </StackPanel>
-                                <ComboBox
-                                    Grid.Column="1"
-                                    Width="176"
-                                    ItemsSource="{Binding PercentageDisplayModes}"
-                                    SelectedItem="{Binding SelectedPercentageDisplayMode, Mode=TwoWay}"
-                                    HorizontalAlignment="Right"
-                                    VerticalAlignment="Center">
-                                    <ComboBox.ItemTemplate>
-                                        <DataTemplate>
-                                            <TextBlock Text="{Binding DisplayName}" />
-                                        </DataTemplate>
-                                    </ComboBox.ItemTemplate>
-                                </ComboBox>
-                            </Grid>
-                        </Border>
+                        <TextBlock Text="缓存" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Border Style="{StaticResource SettingsItemCardStyle}">
                             <Grid Style="{StaticResource SettingsRowStyle}">
                                 <Grid.ColumnDefinitions>
@@ -600,6 +575,44 @@
                             </ComboBox>
                         </Grid>
                     </Border>
+                    <TextBlock Text="额度显示" Style="{StaticResource SettingsSectionHeaderStyle}" />
+                    <Border Style="{StaticResource SettingsItemCardStyle}">
+                        <Grid Style="{StaticResource SettingsRowStyle}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                <TextBlock Text="显示方式" Style="{StaticResource SettingsLabelStyle}" />
+                                <TextBlock Text="选择额度面板和 ChatGPT 标题栏显示剩余百分比或已用百分比。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ComboBox
+                                Grid.Column="1"
+                                Width="176"
+                                ItemsSource="{Binding PercentageDisplayModes}"
+                                SelectedItem="{Binding SelectedPercentageDisplayMode, Mode=TwoWay}"
+                                HorizontalAlignment="Right"
+                                VerticalAlignment="Center">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding DisplayName}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                        </Grid>
+                    </Border>
+                    <TextBlock Text="ChatGPT 标题栏" Style="{StaticResource SettingsSectionHeaderStyle}" />
+                    <Border Style="{StaticResource SettingsItemCardStyle}">
+                        <Grid Style="{StaticResource SettingsRowStyle}">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                <TextBlock Text="在 ChatGPT 标题栏显示额度" Style="{StaticResource SettingsLabelStyle}" />
+                                <TextBlock Text="ChatGPT 未最小化时持续显示当前来源的 Codex 额度，跟随显示方式；不会自动匹配 ChatGPT 登录账户。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" AutomationProperties.Name="在 ChatGPT 标题栏显示额度" IsOn="{Binding TitleBarQuotaOverlayEnabled, Mode=TwoWay}" Style="{StaticResource SettingsToggleSwitchStyle}" />
+                        </Grid>
+                    </Border>
+
                     </StackPanel>
 
                     <StackPanel x:Name="AlertSettingsPanel" Spacing="8" Visibility="Collapsed">
