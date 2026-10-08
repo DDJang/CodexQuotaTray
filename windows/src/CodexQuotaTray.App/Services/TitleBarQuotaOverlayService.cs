@@ -22,6 +22,13 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private readonly List<IntPtr> hooks = [];
     private readonly IntPtr instance = NativeMethods.GetModuleHandle(null);
     private IntPtr window;
+    private IntPtr tooltip;
+    private IntPtr tooltipTextBuffer;
+    private IntPtr tooltipFont;
+    private uint tooltipDpi;
+    private string tooltipText = string.Empty;
+    private bool countdownTimerRunning;
+    private static readonly UIntPtr CountdownTimerId = new(1);
     private IntPtr target;
     private uint targetProcessId;
     private bool registered;
@@ -32,12 +39,14 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private bool discoveryPending;
     private uint dpi = 96;
     private TitleBarQuotaPresentation? presentation;
+    private DateTimeOffset presentationTime;
     private AppUiState? lastSnapshot;
     private bool showRemainingPercent = true;
     private string renderedText = string.Empty;
     private Rectangle placement;
     private TitleBarOverlayFrame? renderedFrame;
     private (string Text, uint Dpi, int Width)? fullMeasurement;
+    private (string Text, uint Dpi, int Width)? percentageMeasurement;
     private (string Text, uint Dpi, int Width)? compactMeasurement;
     private IntPtr fontHandle;
     private uint fontDpi;
@@ -82,8 +91,10 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     {
         if (lastSnapshot is not null)
         {
+            var now = DateTimeOffset.UtcNow;
             presentation = TitleBarQuotaOverlay.Project(
-                lastSnapshot with { IsRefreshing = lastSnapshot.IsRefreshing || refreshGate.IsInFlight }, showRemainingPercent);
+                lastSnapshot with { IsRefreshing = lastSnapshot.IsRefreshing || refreshGate.IsInFlight }, showRemainingPercent, now);
+            presentationTime = now;
         }
     }
 
@@ -163,6 +174,84 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         {
             throw LastError();
         }
+        CreateTooltip();
+    }
+
+    private void CreateTooltip()
+    {
+        DestroyTooltip();
+        var controls = new TitleBarOverlayNative.CommonControls
+        {
+            Size = (uint)Marshal.SizeOf<TitleBarOverlayNative.CommonControls>(),
+            Classes = 0x000000FF,
+        };
+        if (!TitleBarOverlayNative.InitCommonControlsEx(ref controls)) { throw LastError(); }
+        tooltip = NativeMethods.CreateWindowEx(NativeMethods.WsExNoActivate | NativeMethods.WsExToolWindow,
+            "tooltips_class32", string.Empty, NativeMethods.WsPopup | 3, 0, 0, 0, 0, window, IntPtr.Zero, instance, IntPtr.Zero);
+        if (tooltip == IntPtr.Zero) { throw LastError(); }
+        tooltipTextBuffer = Marshal.StringToHGlobalUni(string.Empty);
+        var info = TooltipInfo();
+        if (TitleBarOverlayNative.SendTooltipMessage(tooltip, TitleBarOverlayNative.TooltipAddTool, UIntPtr.Zero, ref info) == IntPtr.Zero)
+        {
+            throw new Win32Exception("Cannot register title-bar tooltip.");
+        }
+    }
+
+    private TitleBarOverlayNative.TooltipInfo TooltipInfo() => new()
+    {
+        Size = (uint)Marshal.SizeOf<TitleBarOverlayNative.TooltipInfo>(),
+        Flags = 0x11, // IDISHWND | SUBCLASS: follows the entire clickable HWND.
+        Window = window,
+        Id = new UIntPtr(unchecked((ulong)window.ToInt64())),
+        Text = tooltipTextBuffer,
+    };
+
+    private void UpdateTooltip(string text)
+    {
+        if (tooltip == IntPtr.Zero) { return; }
+        if (tooltipDpi != dpi)
+        {
+            // A native tooltip's default font can stay at system DPI. Use a dedicated
+            // font so moving the host between monitors does not leave it tiny.
+            var nextFont = TitleBarOverlayNative.CreateFont(-(int)Math.Ceiling(14 * dpi / 96d),
+                0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 4, 0, "Segoe UI");
+            if (nextFont == IntPtr.Zero) { throw LastError(); }
+            _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipPop, UIntPtr.Zero, IntPtr.Zero);
+            _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.SetFont,
+                new UIntPtr(unchecked((ulong)nextFont.ToInt64())), IntPtr.Zero);
+            if (tooltipFont != IntPtr.Zero) { _ = TitleBarOverlayNative.DeleteObject(tooltipFont); }
+            tooltipFont = nextFont;
+            tooltipDpi = dpi;
+            var horizontal = (int)Math.Ceiling(8 * dpi / 96d);
+            var vertical = (int)Math.Ceiling(6 * dpi / 96d);
+            var margins = new NativeMethods.NativeRect { Left = horizontal, Right = horizontal, Top = vertical, Bottom = vertical };
+            _ = TitleBarOverlayNative.SendTooltipMargins(tooltip, TitleBarOverlayNative.TooltipSetMargin, UIntPtr.Zero, ref margins);
+            _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipMaxWidth, UIntPtr.Zero,
+                new IntPtr((int)Math.Ceiling(600 * dpi / 96d)));
+        }
+        if (text == tooltipText) { return; }
+        var previous = tooltipTextBuffer;
+        tooltipTextBuffer = Marshal.StringToHGlobalUni(text);
+        var info = TooltipInfo();
+        _ = TitleBarOverlayNative.SendTooltipMessage(tooltip, TitleBarOverlayNative.TooltipUpdateText, UIntPtr.Zero, ref info);
+        if (previous != IntPtr.Zero) { Marshal.FreeHGlobal(previous); }
+        tooltipText = text;
+    }
+
+    private void DestroyTooltip()
+    {
+        if (tooltip != IntPtr.Zero && TitleBarOverlayNative.IsWindow(tooltip)) { _ = NativeMethods.DestroyWindow(tooltip); }
+        tooltip = IntPtr.Zero;
+        if (tooltipFont != IntPtr.Zero) { _ = TitleBarOverlayNative.DeleteObject(tooltipFont); tooltipFont = IntPtr.Zero; }
+        tooltipDpi = 0;
+        if (tooltipTextBuffer != IntPtr.Zero) { Marshal.FreeHGlobal(tooltipTextBuffer); tooltipTextBuffer = IntPtr.Zero; }
+        tooltipText = string.Empty;
+    }
+
+    private void StopCountdownTimer()
+    {
+        if (countdownTimerRunning && window != IntPtr.Zero) { _ = TitleBarOverlayNative.KillTimer(window, CountdownTimerId); }
+        countdownTimerRunning = false;
     }
 
     private void OnWindowEvent(IntPtr hook, uint eventType, IntPtr hwnd, int objectId, int childId, uint threadId, uint time)
@@ -225,7 +314,13 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         {
             // Host destruction can race geometry/ownership reads. Keep discovery
             // hooks alive; the next eligible show/foreground event can reattach.
-            if (!TitleBarOverlayNative.IsWindow(window)) { window = IntPtr.Zero; renderedFrame = null; }
+            if (!TitleBarOverlayNative.IsWindow(window))
+            {
+                StopCountdownTimer();
+                DestroyTooltip();
+                window = IntPtr.Zero;
+                renderedFrame = null;
+            }
             Hide("host lifecycle changed");
         }
         catch (Win32Exception error)
@@ -251,6 +346,11 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         {
             Hide("host hidden, minimized or cloaked", detach: false);
             return;
+        }
+        // Recompute from absolute timestamps, including immediately after restoring a hidden host.
+        if (lastSnapshot is not null && TitleBarQuotaOverlay.NeedsCountdownUpdate(lastSnapshot.Windows, presentationTime, DateTimeOffset.UtcNow))
+        {
+            UpdatePresentation();
         }
         if (TitleBarOverlayNative.GetDwmRect(target, 9, out var bounds, Marshal.SizeOf<NativeMethods.NativeRect>()) != 0
             && !NativeMethods.GetWindowRect(target, out bounds))
@@ -291,8 +391,14 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         }
         var text = presentation.Text;
         var fullWidth = MeasureCached(text, ref fullMeasurement);
-        var maxWidth = (int)Math.Ceiling(480 * dpi / 96d);
+        var maxWidth = (int)Math.Ceiling(640 * dpi / 96d);
         var next = fullWidth <= maxWidth ? TitleBarQuotaOverlay.Place(host, workArea, captionButtons, dpi, fullWidth) : null;
+        if (next is null)
+        {
+            text = presentation.PercentageText;
+            var percentageWidth = MeasureCached(text, ref percentageMeasurement);
+            next = percentageWidth <= maxWidth ? TitleBarQuotaOverlay.Place(host, workArea, captionButtons, dpi, percentageWidth) : null;
+        }
         if (next is null)
         {
             text = presentation.CompactText;
@@ -328,6 +434,16 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         }
         if (repaint) { _ = TitleBarOverlayNative.InvalidateRect(window, IntPtr.Zero, false); }
         renderedFrame = frame;
+        UpdateTooltip(presentation.TooltipText);
+        if (lastSnapshot?.Windows.Any(item => item.ResetAtUtc > DateTimeOffset.UtcNow) == true)
+        {
+            if (!countdownTimerRunning)
+            {
+                if (TitleBarOverlayNative.SetTimer(window, CountdownTimerId, 60_000, IntPtr.Zero) == UIntPtr.Zero) { throw LastError(); }
+                countdownTimerRunning = true;
+            }
+        }
+        else { StopCountdownTimer(); }
         status = "visible";
     }
 
@@ -453,8 +569,14 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
 
     private IntPtr WindowProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
     {
+        if (message == TitleBarOverlayNative.TimerMessage && wParam == CountdownTimerId)
+        {
+            if (countdownTimerRunning) { UpdateSafely(); }
+            return IntPtr.Zero;
+        }
         if (message == 0x0201)
         {
+            if (tooltip != IntPtr.Zero) { _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipPop, UIntPtr.Zero, IntPtr.Zero); }
             pressedAt = new Point((short)(lParam.ToInt64() & 0xffff), (short)((lParam.ToInt64() >> 16) & 0xffff));
             _ = TitleBarOverlayNative.SetCapture(hwnd);
             return IntPtr.Zero;
@@ -485,6 +607,8 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         {
             // Destroying an owner can destroy its owned popup. Keep the event hooks
             // and class alive so a later eligible host gets a fresh companion HWND.
+            StopCountdownTimer();
+            DestroyTooltip();
             window = IntPtr.Zero;
             renderedFrame = null;
             SetTarget(IntPtr.Zero);
@@ -615,6 +739,8 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
 
     private void Hide(string reason, bool detach = true)
     {
+        StopCountdownTimer();
+        if (tooltip != IntPtr.Zero) { _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipPop, UIntPtr.Zero, IntPtr.Zero); }
         pressedAt = null;
         if (window != IntPtr.Zero && TitleBarOverlayNative.GetCapture() == window) { _ = TitleBarOverlayNative.ReleaseCapture(); }
         if (detach) { SetTarget(IntPtr.Zero); }
@@ -635,6 +761,8 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
 
     private void StopNative()
     {
+        StopCountdownTimer();
+        DestroyTooltip();
         SetTarget(IntPtr.Zero);
         foreach (var hook in hooks) { _ = TitleBarOverlayNative.UnhookWinEvent(hook); }
         hooks.Clear();
@@ -650,6 +778,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         }
         if (fontHandle != IntPtr.Zero) { _ = TitleBarOverlayNative.DeleteObject(fontHandle); fontHandle = IntPtr.Zero; }
         fullMeasurement = null;
+        percentageMeasurement = null;
         compactMeasurement = null;
         renderedFrame = null;
     }

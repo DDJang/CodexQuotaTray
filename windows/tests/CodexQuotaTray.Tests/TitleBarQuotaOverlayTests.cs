@@ -47,15 +47,15 @@ public sealed class TitleBarQuotaOverlayTests
         };
         var presentation = TitleBarQuotaOverlay.Project(State(window), showRemainingPercent);
 
-        Assert.AreEqual($"{label} 5 小时 {expected}%", presentation.Text);
+        Assert.AreEqual($"{label} 5 小时 {expected}%（重置未知）", presentation.Text);
     }
 
     [TestMethod]
     public void FiftyPercentStillChangesTheLabelWithoutNewQuotaData()
     {
         var state = State(QuotaWindowView.Demo("窗口", 50, "稍后", "12:00"));
-        Assert.AreEqual("剩余 窗口 50%", TitleBarQuotaOverlay.Project(state, true).Text);
-        Assert.AreEqual("已用 窗口 50%", TitleBarQuotaOverlay.Project(state, false).Text);
+        Assert.AreEqual("剩余 窗口 50%（重置未知）", TitleBarQuotaOverlay.Project(state, true).Text);
+        Assert.AreEqual("已用 窗口 50%（重置未知）", TitleBarQuotaOverlay.Project(state, false).Text);
     }
 
     [TestMethod]
@@ -72,7 +72,7 @@ public sealed class TitleBarQuotaOverlayTests
         var presentation = TitleBarQuotaOverlay.Project(State(windows), showRemainingPercent);
 
         StringAssert.Contains(presentation.Text, $"{label} 自定义窗口 —");
-        StringAssert.Contains(presentation.Text, $"2 小时 {expected}% · +1");
+        StringAssert.Contains(presentation.Text, $"2 小时 {expected}%（重置未知） · +1");
         StringAssert.Contains(presentation.CompactText, "自定义窗口 — · +2");
         Assert.IsFalse(presentation.Text.Contains("0%", StringComparison.Ordinal));
         Assert.AreEqual(QuotaTone.Unavailable, presentation.Tone);
@@ -139,6 +139,73 @@ public sealed class TitleBarQuotaOverlayTests
         StringAssert.Contains(before.Text, "19%");
         Assert.AreEqual("刷新中…", after.Text);
         Assert.IsFalse(after.Text.Contains("19%", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [DataRow(1, "1分后")]
+    [DataRow(59, "1分后")]
+    [DataRow(1080, "18分后")]
+    [DataRow(3540, "59分后")]
+    [DataRow(3541, "1时后")]
+    [DataRow(3600, "1时后")]
+    [DataRow(8280, "2时18分后")]
+    [DataRow(86340, "23时59分后")]
+    [DataRow(86400, "1天后")]
+    [DataRow(532800, "6天4时后")]
+    public void CountdownUsesMinutesHoursAndDaysWithoutPrematureZero(int seconds, string expected)
+    {
+        var now = DateTimeOffset.Parse("2026-10-08T10:00:00Z");
+        Assert.AreEqual(expected, TitleBarQuotaOverlay.ResetCountdown(now.AddSeconds(seconds), now));
+    }
+
+    [TestMethod]
+    [DataRow(true, "剩余", 13, 84)]
+    [DataRow(false, "已用", 87, 16)]
+    public void CountdownStaysWithEachWindowAndNarrowLayoutsKeepPercentages(bool remaining, string label, int first, int second)
+    {
+        var now = DateTimeOffset.Parse("2026-10-08T10:00:00Z");
+        var windows = new[]
+        {
+            QuotaWindowView.Demo("5小时额度", 13, "过时的相对时间", "未知") with { ResetAtUtc = now.AddMinutes(138) },
+            QuotaWindowView.Demo("7天额度", 84, "过时的相对时间", "未知") with { ResetAtUtc = now.AddDays(6).AddHours(4) },
+            QuotaWindowView.Demo("自定义额度", 72, "未知", "未知") with { ResetAtUtc = now.AddMinutes(18) },
+        };
+        var result = TitleBarQuotaOverlay.Project(State(windows), remaining, now);
+        Assert.AreEqual($"{label} 5小时 {first}%（2时18分后） · 7天 {second}%（6天4时后） · +1", result.Text);
+        Assert.AreEqual($"{label} 5小时 {first}% · 7天 {second}% · +1", result.PercentageText);
+        Assert.AreEqual($"{label} 5小时 {first}% · +2", result.CompactText);
+        StringAssert.Contains(result.TooltipText, "自定义：");
+        StringAssert.Contains(result.TooltipText, "18分后");
+        StringAssert.Contains(result.TooltipText, windows[0].ResetAtUtc!.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz", System.Globalization.CultureInfo.InvariantCulture));
+        Assert.IsFalse(result.TooltipText.Contains("过时的相对时间", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ClockAdvancesCountdownAndExpiryKeepsTheLastPercentageEvenOnFailure()
+    {
+        var now = DateTimeOffset.Parse("2026-10-08T10:00:00Z");
+        var state = State(QuotaWindowView.Demo("窗口", 13, "旧文本", "未知") with { ResetAtUtc = now.AddMinutes(2) });
+        StringAssert.Contains(TitleBarQuotaOverlay.Project(state, now: now).Text, "13%（2分后）");
+        StringAssert.Contains(TitleBarQuotaOverlay.Project(state, now: now.AddMinutes(1)).Text, "13%（1分后）");
+        var failed = state with { StatusText = "网络失败", StatusTone = StatusTone.Error };
+        StringAssert.Contains(TitleBarQuotaOverlay.Project(failed, now: now.AddMinutes(2)).Text, "13%（待更新）");
+        StringAssert.Contains(TitleBarQuotaOverlay.Project(failed, now: now.AddDays(1)).Text, "13%（待更新）");
+        StringAssert.Contains(TitleBarQuotaOverlay.Project(state with { IsRefreshing = true }, now: now.AddMinutes(2)).Text, "刷新中…");
+        Assert.AreEqual("重置未知", TitleBarQuotaOverlay.ResetCountdown(null, now));
+        // Different timestamp offsets still identify the same instant.
+        Assert.AreEqual("待更新", TitleBarQuotaOverlay.ResetCountdown(now.ToOffset(TimeSpan.FromHours(8)), now));
+    }
+
+    [TestMethod]
+    public void DeadlineInsideTheSameMinuteUpdatesBeforeTheLastTimerStops()
+    {
+        var now = DateTimeOffset.Parse("2026-10-08T10:00:10Z");
+        var windows = new[] { QuotaWindowView.Demo("窗口", 13, "未知", "未知") with { ResetAtUtc = now.AddSeconds(20) } };
+        Assert.IsFalse(TitleBarQuotaOverlay.NeedsCountdownUpdate(windows, now, now.AddSeconds(19)));
+        Assert.IsTrue(TitleBarQuotaOverlay.NeedsCountdownUpdate(windows, now, now.AddSeconds(20)));
+        Assert.IsTrue(TitleBarQuotaOverlay.NeedsCountdownUpdate(windows, now, now.AddMinutes(1)));
+        Assert.IsFalse(TitleBarQuotaOverlay.NeedsCountdownUpdate(windows, now.AddSeconds(20), now.AddSeconds(25)));
+        Assert.IsTrue(TitleBarQuotaOverlay.NeedsCountdownUpdate(windows, now, now.AddMinutes(-1)));
     }
 
     [TestMethod]

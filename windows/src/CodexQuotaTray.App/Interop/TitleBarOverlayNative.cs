@@ -5,6 +5,55 @@ namespace CodexQuotaTray.App.Interop;
 
 internal static class TitleBarOverlayNative
 {
+    internal const uint TimerMessage = 0x0113;
+    internal const uint TooltipAddTool = 0x0432;
+    internal const uint TooltipUpdateText = 0x0439;
+    internal const uint TooltipPop = 0x041C;
+    internal const uint TooltipMaxWidth = 0x0418;
+    internal const uint TooltipSetMargin = 0x041A;
+    internal const uint SetFont = 0x0030;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct CommonControls
+    {
+        internal uint Size;
+        internal uint Classes;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct TooltipInfo
+    {
+        // TOOLINFO V2 omits lpReserved, so both legacy and v6 common controls accept cbSize.
+        internal uint Size;
+        internal uint Flags;
+        internal IntPtr Window;
+        internal UIntPtr Id;
+        internal NativeMethods.NativeRect Rect;
+        internal IntPtr Instance;
+        internal IntPtr Text;
+        internal IntPtr Parameter;
+    }
+
+    [DllImport("comctl32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool InitCommonControlsEx(ref CommonControls controls);
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    internal static extern IntPtr SendTooltipMessage(IntPtr hwnd, uint message, UIntPtr wParam, ref TooltipInfo info);
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    internal static extern IntPtr SendMessage(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    internal static extern IntPtr SendTooltipMargins(IntPtr hwnd, uint message, UIntPtr wParam, ref NativeMethods.NativeRect margins);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern UIntPtr SetTimer(IntPtr hwnd, UIntPtr id, uint milliseconds, IntPtr callback);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool KillTimer(IntPtr hwnd, UIntPtr id);
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct BitmapInfo
     {

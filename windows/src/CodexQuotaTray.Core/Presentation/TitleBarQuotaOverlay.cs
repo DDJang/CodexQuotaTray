@@ -1,9 +1,10 @@
 using System.Drawing;
+using System.Globalization;
 using CodexQuotaTray.Core.Models;
 
 namespace CodexQuotaTray.Core.Presentation;
 
-public sealed record TitleBarQuotaPresentation(string Text, string CompactText, QuotaTone Tone);
+public sealed record TitleBarQuotaPresentation(string Text, string PercentageText, string CompactText, string TooltipText, QuotaTone Tone);
 
 public sealed record TitleBarOverlayFrame(IntPtr Host, string Text, Rectangle Bounds, uint Dpi)
 {
@@ -21,7 +22,7 @@ public static class TitleBarQuotaOverlay
     public const int HeightDips = 24;
     public const int TopInsetDips = 6;
 
-    public static TitleBarQuotaPresentation Project(AppUiState state, bool showRemainingPercent = true)
+    public static TitleBarQuotaPresentation Project(AppUiState state, bool showRemainingPercent = true, DateTimeOffset? now = null)
     {
         var status = state.IsRefreshing ? "刷新中…"
             : state.Windows.Count == 0 ? state.StatusText
@@ -32,7 +33,9 @@ public static class TitleBarQuotaOverlay
             : string.Empty;
         var prefix = string.IsNullOrWhiteSpace(status) ? string.Empty : $"{status} · ";
 
-        var full = FormatWindows(state.Windows, 2, showRemainingPercent);
+        var currentTime = now ?? DateTimeOffset.UtcNow;
+        var full = FormatWindows(state.Windows, 2, showRemainingPercent, currentTime);
+        var percentages = FormatWindows(state.Windows, 2, showRemainingPercent);
         var compact = FormatWindows(state.Windows, 1, showRemainingPercent);
         var label = showRemainingPercent ? "剩余" : "已用";
         var reliable = state.Windows.Where(IsReliable).ToArray();
@@ -45,7 +48,13 @@ public static class TitleBarQuotaOverlay
                 : QuotaTonePolicy.For(reliable.Min(window => 100 - window.UsedPercent), false, true);
         return new(
             full.Length == 0 ? status : $"{prefix}{label} {full}",
+            percentages.Length == 0 ? status : $"{prefix}{label} {percentages}",
             compact.Length == 0 ? status : $"{prefix}{label} {compact}",
+            string.Join("\n", state.Windows.Select(window =>
+                $"{WindowName(window)}：{label} {Percentage(window, showRemainingPercent)} · 重置：{ResetCountdown(window.ResetAtUtc, currentTime)}\n"
+                + (window.ResetAtUtc is { } reset
+                    ? $"重置时间：{reset.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture)}"
+                    : "重置时间未知"))) + "\n点击刷新额度",
             tone);
     }
 
@@ -59,16 +68,35 @@ public static class TitleBarQuotaOverlay
     private static bool IsReliable(QuotaWindowView window) =>
         window.IsAvailable && window.IsPercentageReliable && window.UsedPercent is >= 0 and <= 100;
 
-    private static string FormatWindows(IReadOnlyList<QuotaWindowView> windows, int count, bool showRemainingPercent)
+    public static bool NeedsCountdownUpdate(IReadOnlyList<QuotaWindowView> windows, DateTimeOffset projectedAt, DateTimeOffset now) =>
+        projectedAt.UtcTicks / TimeSpan.TicksPerMinute != now.UtcTicks / TimeSpan.TicksPerMinute
+        || windows.Any(window => window.ResetAtUtc > projectedAt && window.ResetAtUtc <= now);
+
+    public static string ResetCountdown(DateTimeOffset? resetAt, DateTimeOffset now)
+    {
+        if (resetAt is not { } reset) { return "重置未知"; }
+        if (reset <= now) { return "待更新"; }
+        var minutes = (long)Math.Ceiling((reset - now).TotalMinutes);
+        if (minutes < 60) { return $"{minutes}分后"; }
+        if (minutes < 1440)
+        {
+            return minutes % 60 == 0 ? $"{minutes / 60}时后" : $"{minutes / 60}时{minutes % 60}分后";
+        }
+        return minutes / 60 % 24 == 0 ? $"{minutes / 1440}天后" : $"{minutes / 1440}天{minutes / 60 % 24}时后";
+    }
+
+    private static string WindowName(QuotaWindowView window) => window.Name.Replace("额度", string.Empty, StringComparison.Ordinal).Trim();
+
+    // UsedPercent retains canonical usage even when the main panel's display mode changes.
+    private static string Percentage(QuotaWindowView window, bool showRemainingPercent) => IsReliable(window)
+        ? $"{(showRemainingPercent ? 100 - window.UsedPercent : window.UsedPercent)}%" : "—";
+
+    private static string FormatWindows(IReadOnlyList<QuotaWindowView> windows, int count, bool showRemainingPercent, DateTimeOffset? now = null)
     {
         var text = string.Join(" · ", windows.Take(count).Select(window =>
         {
-            // The main panel's percentage mode also affects RemainingPercent in its
-            // current projection. UsedPercent retains the actual normalized usage.
-            var percentage = IsReliable(window)
-                ? $"{(showRemainingPercent ? 100 - window.UsedPercent : window.UsedPercent)}%" : "—";
-            var name = window.Name.Replace("额度", string.Empty, StringComparison.Ordinal).Trim();
-            return $"{name} {percentage}";
+            var countdown = now is { } currentTime ? $"（{ResetCountdown(window.ResetAtUtc, currentTime)}）" : string.Empty;
+            return $"{WindowName(window)} {Percentage(window, showRemainingPercent)}{countdown}";
         }));
         return windows.Count > count ? $"{text} · +{windows.Count - count}" : text;
     }
