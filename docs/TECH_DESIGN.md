@@ -42,6 +42,10 @@ WinUI Views / Services / Interop / Themes
   仅文本、DPI 或绘图尺寸变化时使绘图失效。不启用 CDP、不创建网络轮询或第二份持久化缓存。
   额度文字使用 premultiplied alpha 绘制，文字区域接收单击并复用主面板手动刷新命令；
   不激活窗口，拖动或移出后松开不触发刷新，刷新中合并重复点击。
+  倒计时直接使用已有窗口的 `ResetAtUtc`，不使用快照中的相对时间字符串；自有 HWND 仅在宿主可显示且
+  有未来重置时间时启动一分钟计时器，隐藏、销毁或关闭功能时停止，恢复后重新投影。计时器只更新
+  文本，不触发网络刷新；纯百分比与单窗口文本依次作为空间不足时的回退。自有原生 tooltip 显示所有
+  窗口的完整本地重置时间，随覆盖窗释放，不要求创建完整 WinUI 面板。
   实现取舍与宿主兼容限制见[标题栏覆盖窗调查](investigations/windows/chatgpt-titlebar-quota-overlay.md)。
 - `Core/TokenUsage` 使用有界 UTF-8 缓冲流式扫描 session 文件中的 Token 计数事件，复用 SQLite 中的
   文件安全偏移增量读取追加内容；累计值按 session high-water、fork replay baseline 计算新增 delta，

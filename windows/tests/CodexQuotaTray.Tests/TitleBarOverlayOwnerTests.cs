@@ -13,6 +13,55 @@ public sealed class TitleBarOverlayOwnerTests
     private static extern bool EnumWindows(EnumWindowCallback callback, IntPtr parameter);
 
     [TestMethod]
+    public void HiddenTooltipAcceptsUnicodeUpdatesAndIsDestroyedWithItsOwner()
+    {
+        var controls = new TitleBarOverlayNative.CommonControls
+        {
+            Size = (uint)Marshal.SizeOf<TitleBarOverlayNative.CommonControls>(),
+            Classes = 0xFF,
+        };
+        Assert.IsTrue(TitleBarOverlayNative.InitCommonControlsEx(ref controls));
+        var overlay = CreateHiddenWindow();
+        var tooltip = NativeMethods.CreateWindowEx(NativeMethods.WsExNoActivate | NativeMethods.WsExToolWindow,
+            "tooltips_class32", string.Empty, NativeMethods.WsPopup | 3, 0, 0, 0, 0,
+            overlay, IntPtr.Zero, NativeMethods.GetModuleHandle(null), IntPtr.Zero);
+        var initial = Marshal.StringToHGlobalUni("初始重置时间");
+        var updated = Marshal.StringToHGlobalUni("窗口：剩余 13% · 重置：2时18分后\n重置时间：2026-10-08 12:18:00 +08:00");
+        var result = Marshal.AllocHGlobal(2048);
+        var ownerDestroyed = false;
+        try
+        {
+            Assert.AreNotEqual(IntPtr.Zero, tooltip);
+            var info = new TitleBarOverlayNative.TooltipInfo
+            {
+                Size = (uint)Marshal.SizeOf<TitleBarOverlayNative.TooltipInfo>(),
+                Flags = 0x11,
+                Window = overlay,
+                Id = new UIntPtr(unchecked((ulong)overlay.ToInt64())),
+                Text = initial,
+            };
+            Assert.AreNotEqual(IntPtr.Zero, TitleBarOverlayNative.SendTooltipMessage(tooltip,
+                TitleBarOverlayNative.TooltipAddTool, UIntPtr.Zero, ref info));
+            info.Text = updated;
+            _ = TitleBarOverlayNative.SendTooltipMessage(tooltip, TitleBarOverlayNative.TooltipUpdateText, UIntPtr.Zero, ref info);
+            info.Text = result;
+            // TTM_GETTEXTW validates the actual registered Unicode text and native struct layout.
+            _ = TitleBarOverlayNative.SendTooltipMessage(tooltip, 0x0438, new UIntPtr(1024), ref info);
+            Assert.AreEqual(Marshal.PtrToStringUni(updated), Marshal.PtrToStringUni(result));
+            Assert.IsFalse(TitleBarOverlayNative.IsWindowVisible(overlay));
+            Assert.IsFalse(TitleBarOverlayNative.IsWindowVisible(tooltip));
+            Assert.IsTrue(NativeMethods.DestroyWindow(overlay));
+            ownerDestroyed = true;
+            Assert.IsFalse(TitleBarOverlayNative.IsWindow(tooltip));
+        }
+        finally
+        {
+            if (!ownerDestroyed) { _ = NativeMethods.DestroyWindow(overlay); }
+            foreach (var buffer in new[] { initial, updated, result }) { Marshal.FreeHGlobal(buffer); }
+        }
+    }
+
+    [TestMethod]
     public void HiddenOwnedOverlayIsAboveHostAndCanReattachAfterOwnerDestruction()
     {
         // These anonymous HWNDs are never shown, activated, or connected to a real
