@@ -3,7 +3,8 @@
 - Area: Windows
 - Baseline: `987c34d` (`codex/windows-chatgpt-quota-research`)
 - Working branch: `codex/windows-lightweight-mode`
-- Status: Active; local implementation, awaiting an authorized implementation commit
+- Status: Resolved
+- Resolved by: `0c8ed14`
 - Last verified: 2026-10-08
 
 ## Current decision
@@ -110,7 +111,7 @@ Dev startup work and establishes no idle CPU benefit. The retained Dev CLI chain
 138.6 MiB working set / 84.8 MiB private bytes; main-process figures are not the whole app-server footprint.
 
 The comparison uses different builds/settings/cache histories. It is an observed baseline, not proof that
-the final feature alone produces the entire difference. The final working tree remains uncommitted on
+the final feature alone produces the entire difference. Implementation is committed as `0c8ed14` on
 `codex/windows-lightweight-mode`, based on `987c34d`.
 
 ### Requested lightweight / ordinary / running Production comparison
