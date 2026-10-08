@@ -104,8 +104,8 @@ internal sealed partial class LightweightPanelWindow : Window, IDisposable
     private void Position(Rectangle? anchor)
     {
         var scale = WindowPlacementService.GetRasterizationScale(hwnd);
-        PanelRoot.Measure(new Windows.Foundation.Size(300, double.PositiveInfinity));
-        var size = new SizeInt32(PopupPlacement.DipsToPixels(300, scale),
+        PanelRoot.Measure(new Windows.Foundation.Size(PanelRoot.Width, double.PositiveInfinity));
+        var size = new SizeInt32(PopupPlacement.DipsToPixels(PanelRoot.Width, scale),
             PopupPlacement.DipsToPixels(Math.Max(1, Math.Ceiling(PanelRoot.DesiredSize.Height)), scale));
         if (AppWindow.ClientSize.Width != size.Width || AppWindow.ClientSize.Height != size.Height)
         {
