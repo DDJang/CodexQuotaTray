@@ -31,7 +31,7 @@ or `archive` directories.
 | Area | Investigation | Status | Outcome | Resolved by | Last verified |
 | --- | --- | --- | --- | --- | --- |
 | Windows | [Lightweight mode](windows/lightweight-mode.md) | Resolved | Two independent interfaces implemented; heatmap/Dev tray repaired, startup settings ordering and compact switch liveness fixed; memory and long-run limits documented | `0c8ed14`, `19a9909` | 2026-10-08 |
-| Windows | [ChatGPT title-bar quota overlay](windows/chatgpt-titlebar-quota-overlay.md) | Active | Original overlay implemented by `4bda220`; countdown deadline scheduling follow-up fixed locally, real hidden Win32 Timer regression and Full 617 passed; awaiting follow-up commit | — | 2026-10-08 |
+| Windows | [ChatGPT title-bar quota overlay](windows/chatgpt-titlebar-quota-overlay.md) | Resolved | Original overlay implemented; countdown timer aligned to minute/reset deadlines, real hidden Win32 Timer regression and Full 617 passed; broader interaction/long-run limits documented | `4bda220`, `1fe5181` | 2026-10-08 |
 | Windows | [LAN intermittent TCP connect timeout](windows/lan-intermittent-tcp-connect-timeout.md) | Active | Diagnostic baseline correlated; separate periodic-monitor exception defect reproduced and fixed locally; original timeout still lacks packet evidence | — | 2026-09-20 |
 | Windows | [Panel wheel scrolling at 1080p](windows/panel-wheel-scroll-1080p.md) | Resolved | Conditional scrolling based on real content overflow | `61eaf12` | 2026-09-06 |
 | Windows | [.NET trimming experiment](windows/trim-experiment.md) | Closed / Not ready | `PublishTrimmed` remains disabled; trimmed Preview failed functional smoke | `99294ab` | 2026-08-31 |
