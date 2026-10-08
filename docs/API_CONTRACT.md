@@ -125,6 +125,18 @@ Account 日桶没有分类字段时 input/cached/output/reasoning 保持 null，
 
 ## 额度规范化与持久化
 
+Windows 本地设置新增 boolean `titleBarQuotaOverlayEnabled`，复用当前身份的 settings 文件与
+现有原子保存路径；缺失或类型非法使用 `AppSettings.Defaults` 的值。此项只控制 Windows
+展示，默认与用户行为见 [PRD](PRD.md#windows-客户端)，不改变额度、缓存或 LAN wire schema。
+
+Windows 同一 settings 文件保存 boolean `lightweightModeEnabled`，缺失或类型非法使用
+`AppSettings.Defaults` 的值。其有效标题栏显示为此字段与 `titleBarQuotaOverlayEnabled` 的逻辑 OR；
+有效值是派生状态，不序列化，不覆盖用户原有标题栏偏好，也不改变刷新、来源、提醒或 LAN 合同。
+
+Windows boolean `showErrorDialogs` 默认 `true`，缺失或类型非法仍使用默认值。
+它控制应用的异常退出提示弹窗；设为 `false` 不停止错误日志记录，也不确认或删除待提示的异常退出记录。
+重新开启后，尚未确认的记录可在下次打开完整面板时提示。该设置不改变协议或通知合同。
+
 共同规范化规则：
 
 - 动态保留全部窗口，不按槽位猜周期；

@@ -1302,6 +1302,68 @@ public sealed class Phase3CoreTests
     }
 
     [TestMethod]
+    public async Task TitleBarOverlayMigratesMissingOrMalformedFlagAndRoundTripsEnabledState()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var service = new SettingsService(new JsonFileStore(), paths);
+        foreach (var json in new[] { "{}", "{\"titleBarQuotaOverlayEnabled\":\"true\"}" })
+        {
+            await File.WriteAllTextAsync(paths.Settings, json);
+            Assert.IsFalse((await service.LoadAsync(CancellationToken.None)).TitleBarQuotaOverlayEnabled);
+        }
+        await service.SaveAsync(AppSettings.Defaults with { TitleBarQuotaOverlayEnabled = true }, CancellationToken.None);
+        Assert.IsTrue((await service.LoadAsync(CancellationToken.None)).TitleBarQuotaOverlayEnabled);
+    }
+
+    [TestMethod]
+    public async Task LightweightModeDefaultsSafelyAndPreservesIndependentBackgroundSettings()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var service = new SettingsService(new JsonFileStore(), paths);
+        foreach (var json in new[] { "{}", "{\"lightweightModeEnabled\":\"true\"}", "{\"lightweightModeEnabled\":1}", "{\"lightweightModeEnabled\":null}" })
+        {
+            await File.WriteAllTextAsync(paths.Settings, json);
+            Assert.IsFalse((await service.LoadAsync(CancellationToken.None)).LightweightModeEnabled);
+        }
+        var settings = AppSettings.Defaults with
+        {
+            LightweightModeEnabled = true,
+            TitleBarQuotaOverlayEnabled = false,
+            TokenRefreshMode = RefreshMode.Every5Minutes,
+            PhoneTokenSyncEnabled = true,
+        };
+        await service.SaveAsync(settings, CancellationToken.None);
+        var restored = await service.LoadAsync(CancellationToken.None);
+        Assert.AreEqual(settings, restored);
+        Assert.IsTrue(restored.EffectiveTitleBarQuotaOverlayEnabled);
+        Assert.IsFalse((restored with { LightweightModeEnabled = false }).EffectiveTitleBarQuotaOverlayEnabled);
+    }
+
+    [TestMethod]
+    public async Task ErrorDialogSettingDefaultsEnabledAndPersistsOptOutAcrossOtherSaves()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var service = new SettingsService(new JsonFileStore(), paths);
+        Assert.IsTrue((await service.LoadAsync(CancellationToken.None)).ShowErrorDialogs);
+        foreach (var json in new[] { "{}", "{\"showErrorDialogs\":\"false\"}", "{\"showErrorDialogs\":0}", "{\"showErrorDialogs\":null}" })
+        {
+            await File.WriteAllTextAsync(paths.Settings, json);
+            Assert.IsTrue((await service.LoadAsync(CancellationToken.None)).ShowErrorDialogs);
+        }
+        var settings = AppSettings.Defaults with { ShowErrorDialogs = false, LightweightModeEnabled = true };
+        await service.SaveAsync(settings, CancellationToken.None);
+        var restored = await service.LoadAsync(CancellationToken.None);
+        Assert.AreEqual(settings, restored);
+        await service.SaveAsync(restored with { PhoneTokenSyncEnabled = true }, CancellationToken.None);
+        Assert.IsFalse((await service.LoadAsync(CancellationToken.None)).ShowErrorDialogs);
+        await service.ResetAsync(CancellationToken.None);
+        Assert.IsTrue((await service.LoadAsync(CancellationToken.None)).ShowErrorDialogs);
+    }
+
+    [TestMethod]
     public async Task SettingsUsesDarkForFirstInstallAndPreservesLegacyThemeFallback()
     {
         using var directory = new TemporaryDirectory();

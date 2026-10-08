@@ -1,0 +1,14 @@
+<Window
+    x:Class="CodexQuotaTray.App.Views.LightweightPanelWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid x:Name="PanelRoot" Width="300" Background="Transparent">
+        <Border x:Name="FallbackSurface" Background="{ThemeResource MenuFallbackSurfaceBrush}" Visibility="Collapsed" />
+        <StackPanel Padding="16" Spacing="10">
+            <TextBlock Text="轻量模式" FontSize="18" FontWeight="SemiBold" Foreground="{ThemeResource PrimaryTextBrush}" />
+            <TextBlock Text="在 ChatGPT 标题栏查看额度。关闭后恢复完整面板。" TextWrapping="Wrap" Foreground="{ThemeResource SecondaryTextBrush}" />
+            <ToggleSwitch x:Name="ModeSwitch" AutomationProperties.Name="轻量模式" IsOn="True" Toggled="OnModeToggled" />
+            <TextBlock x:Name="ErrorText" TextWrapping="Wrap" Foreground="{ThemeResource SecondaryTextBrush}" Visibility="Collapsed" />
+        </StackPanel>
+    </Grid>
+</Window>

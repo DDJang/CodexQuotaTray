@@ -16,6 +16,8 @@ namespace CodexQuotaTray.App.Services;
 internal sealed class TrayIconService : IDisposable
 {
     private const uint TrayId = 0x51435452;
+    // Version 4 callback IDs are 16-bit when using HWND/uID identification.
+    private uint ShellIconId => identity.UsesPersistentGuid ? TrayId : TrayId & 0xffff;
     internal static readonly TimeSpan BalloonShowAcknowledgementTimeout = TimeSpan.FromSeconds(2);
     internal static readonly TimeSpan BalloonCallbackDrainTimeout = BalloonShowAcknowledgementTimeout;
     private static readonly Dictionary<IntPtr, TrayIconService> Instances = [];
@@ -306,9 +308,8 @@ internal sealed class TrayIconService : IDisposable
     {
         error = 0;
         var data = CreateData();
-        // Clear only this identity's stale entry before reusing its stable GUID.
-        // Production, Development, and Preview have different GUIDs, so no identity can
-        // delete another identity's notification icon.
+        // Clear only our own shell identity. Production/Preview use their stable GUIDs;
+        // Dev uses this instance's message-only HWND plus uID, independent of binary path.
         _ = NativeMethods.ShellNotifyIcon(NativeMethods.NimDelete, ref data);
         if (!NativeMethods.ShellNotifyIcon(NativeMethods.NimAdd, ref data))
         {
@@ -347,8 +348,8 @@ internal sealed class TrayIconService : IDisposable
                 {
                     Size = (uint)Marshal.SizeOf<NativeMethods.NotifyIconIdentifier>(),
                     Window = callbackWindow,
-                    Id = TrayId,
-                    GuidItem = identity.Guid,
+                    Id = ShellIconId,
+                    GuidItem = identity.ShellGuid,
                 };
                 var result = NativeMethods.ShellNotifyIconGetRect(ref identifier, out var rect);
                 lastExplorerResult = result;
@@ -432,11 +433,11 @@ internal sealed class TrayIconService : IDisposable
     {
         Size = (uint)Marshal.SizeOf<NativeMethods.NotifyIconData>(),
         Window = callbackWindow,
-        Id = TrayId,
+        Id = ShellIconId,
         Flags = NativeMethods.NifMessage
             | NativeMethods.NifIcon
             | NativeMethods.NifTip
-            | NativeMethods.NifGuid
+            | (identity.UsesPersistentGuid ? NativeMethods.NifGuid : 0)
             | NativeMethods.NifShowTip,
         CallbackMessage = NativeMethods.TrayCallbackMessage,
         Icon = icon,
@@ -444,7 +445,7 @@ internal sealed class TrayIconService : IDisposable
         Tip = identity.Tooltip,
         Info = string.Empty,
         InfoTitle = string.Empty,
-        GuidItem = identity.Guid,
+        GuidItem = identity.ShellGuid,
     };
 
     private void HandleMessage(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
@@ -694,6 +695,7 @@ internal sealed class TrayIconService : IDisposable
         Environment.NewLine,
         $"托盘身份: {identity.Name}",
         $"托盘 GUID: {identity.Guid:D}",
+        $"托盘标识方式: {(identity.UsesPersistentGuid ? "GUID" : "HWND + uID (Dev)")}",
         $"托盘提示: {identity.Tooltip}",
         $"托盘图标路径: {trayIconPath ?? "none"}",
         $"托盘图标存在: {FormatOptionalBoolean(trayIconExists)}",

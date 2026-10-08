@@ -201,6 +201,10 @@ public sealed class PrivacyAndThemeTests
         StringAssert.Contains(quotaProgress, "VisualStateManager.VisualStateGroups");
         StringAssert.Contains(quotaProgressCode, "ThemeBrushResolver.TryResolve(this, ThemeResourceKeyPolicy.Quota(Tone))");
         StringAssert.Contains(tokenUsage, "ThemeAwareHeatmapCell");
+        // Records in the Core assembly must use compiled template bindings; reflection
+        // binding left every real cell at Bucket 0 despite a populated heatmap model.
+        StringAssert.Contains(tokenUsage, "Bucket=\"{x:Bind Bucket, Mode=OneTime}\"");
+        StringAssert.Contains(tokenUsage, "AutomationProperties.Name=\"{x:Bind AutomationText, Mode=OneTime}\"");
         StringAssert.Contains(tokenUsageCode, "TokenUsageRoot.ActualThemeChanged");
         StringAssert.Contains(tokenUsageCode, "internal void RefreshTheme(bool isHighContrast)");
         StringAssert.Contains(tokenUsageCode, "cell.RefreshTheme(isHighContrast);");
@@ -245,7 +249,7 @@ public sealed class PrivacyAndThemeTests
         Assert.IsFalse(tokenUsage.Contains("UISettings.ColorValuesChanged", StringComparison.Ordinal));
         Assert.IsFalse(tray.Contains("AccessibilitySettings.HighContrastChanged", StringComparison.Ordinal));
         Assert.IsFalse(tray.Contains("UISettings.ColorValuesChanged", StringComparison.Ordinal));
-        StringAssert.Contains(app, "mainWindow.RefreshSystemTheme");
+        StringAssert.Contains(app, "mainWindow?.RefreshSystemTheme();");
         StringAssert.Contains(mainWindow, "internal void RefreshSystemTheme()");
         StringAssert.Contains(mainWindow, "quotaView.RefreshTheme();");
         StringAssert.Contains(mainWindow, "tokenUsageView?.RefreshTheme(accessibilitySettings.HighContrast);");

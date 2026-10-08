@@ -31,7 +31,7 @@ Debug 默认启动 **CodexQuotaTray Dev**。静态 Demo 可追加 `--demo`，真
 | `--demo` | 静态、不持久化 | Preview | 禁止 |
 | `--isolated-preview-data` | Live Preview | Preview | 禁止 |
 
-Production、Dev、Preview 使用独立单实例 key、托盘 GUID、数据目录和 LAN listener identity，
+Production、Dev、Preview 使用独立单实例 key、托盘标识、数据目录和 LAN listener identity，
 可以并存。具体身份来源见 [技术设计](../docs/TECH_DESIGN.md)。
 
 ## 验证

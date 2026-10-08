@@ -750,6 +750,122 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public void TitleBarOverlaySettingAppliesImmediatelyAndSurvivesOtherSettingsChanges()
+    {
+        var runtime = new StubRuntimeControl();
+        var viewModel = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        bool? saved = null;
+        viewModel.TitleBarQuotaOverlaySaved += (_, enabled) => saved = enabled;
+
+        Assert.IsFalse(viewModel.TitleBarQuotaOverlayEnabled);
+        viewModel.TitleBarQuotaOverlayEnabled = true;
+        Assert.AreEqual(true, saved);
+        Assert.IsTrue(runtime.Settings.TitleBarQuotaOverlayEnabled);
+        viewModel.ShowRemainingPercent = false;
+        Assert.IsTrue(runtime.Settings.TitleBarQuotaOverlayEnabled);
+        var reloaded = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        Assert.IsTrue(reloaded.TitleBarQuotaOverlayEnabled);
+        reloaded.TitleBarQuotaOverlayEnabled = false;
+        Assert.IsFalse(runtime.Settings.TitleBarQuotaOverlayEnabled);
+    }
+
+    [TestMethod]
+    public void FailedTitleBarSettingSaveRestoresDisabledState()
+    {
+        var runtime = new StubRuntimeControl(rejectSettings: true);
+        var viewModel = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        viewModel.TitleBarQuotaOverlayEnabled = true;
+        Assert.IsFalse(runtime.Settings.TitleBarQuotaOverlayEnabled);
+        Assert.IsFalse(viewModel.TitleBarQuotaOverlayEnabled);
+    }
+
+    [TestMethod]
+    public void LightweightModeUsesTheOverlayWithoutOverwritingTheOrdinaryModePreference()
+    {
+        var runtime = new StubRuntimeControl();
+        var original = runtime.Settings;
+        var viewModel = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        bool? modeSaved = null;
+        bool? overlaySaved = null;
+        viewModel.LightweightModeSaved += (_, enabled) => modeSaved = enabled;
+        viewModel.TitleBarQuotaOverlaySaved += (_, enabled) => overlaySaved = enabled;
+        viewModel.LightweightModeEnabled = true;
+        Assert.AreEqual(true, modeSaved);
+        Assert.AreEqual(true, overlaySaved);
+        Assert.IsTrue(viewModel.EffectiveTitleBarQuotaOverlayEnabled);
+        Assert.IsFalse(viewModel.CanEditTitleBarQuotaOverlay);
+        Assert.IsFalse(runtime.Settings.TitleBarQuotaOverlayEnabled);
+        Assert.AreEqual(original with { LightweightModeEnabled = true }, runtime.Settings);
+        viewModel.EffectiveTitleBarQuotaOverlayEnabled = false;
+        Assert.IsTrue(viewModel.EffectiveTitleBarQuotaOverlayEnabled);
+        viewModel.LightweightModeEnabled = false;
+        Assert.AreEqual(false, modeSaved);
+        Assert.AreEqual(false, overlaySaved);
+        Assert.AreEqual(original, runtime.Settings);
+        viewModel.TitleBarQuotaOverlayEnabled = true;
+        viewModel.LightweightModeEnabled = true;
+        viewModel.LightweightModeEnabled = false;
+        Assert.IsTrue(runtime.Settings.TitleBarQuotaOverlayEnabled);
+    }
+
+    [TestMethod]
+    public void FailedLightweightModeSaveRestoresTheActualModeAndOverlay()
+    {
+        var runtime = new StubRuntimeControl(rejectSettings: true);
+        var viewModel = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        bool? saved = null;
+        viewModel.LightweightModeSaved += (_, enabled) => saved = enabled;
+        viewModel.LightweightModeEnabled = true;
+        Assert.AreEqual(false, saved);
+        Assert.IsFalse(viewModel.LightweightModeEnabled);
+        Assert.IsFalse(viewModel.EffectiveTitleBarQuotaOverlayEnabled);
+        Assert.IsFalse(runtime.Settings.LightweightModeEnabled);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ErrorDialogToggleAutoSavesAndRollsBackWhenPersistenceFails(bool rejectSettings)
+    {
+        var original = AppSettings.Defaults with { PhoneTokenSyncEnabled = true };
+        var runtime = new StubRuntimeControl(original, rejectSettings);
+        var viewModel = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        Assert.IsTrue(viewModel.ShowErrorDialogs);
+        viewModel.ShowErrorDialogs = false;
+        Assert.AreEqual(rejectSettings, viewModel.ShowErrorDialogs);
+        Assert.AreEqual(original with { ShowErrorDialogs = rejectSettings }, runtime.Settings);
+        if (!rejectSettings)
+        {
+            viewModel.LightweightModeEnabled = true;
+            Assert.IsFalse(runtime.Settings.ShowErrorDialogs, "Another settings save must preserve the popup opt-out.");
+            viewModel.ShowErrorDialogs = true;
+            Assert.IsTrue(runtime.Settings.ShowErrorDialogs);
+        }
+        else { Assert.IsTrue(viewModel.StatusText.Contains("失败", StringComparison.Ordinal)); }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CompactPanelDisablePersistsBeforeReportingModeAndPreservesOtherSettings(bool rejectSettings)
+    {
+        var original = AppSettings.Defaults with { LightweightModeEnabled = true, PhoneTokenSyncEnabled = true };
+        var runtime = new StubRuntimeControl(original, rejectSettings);
+        var viewModel = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        bool? saved = null;
+        viewModel.LightweightModeSaved += (_, enabled) =>
+        {
+            Assert.AreEqual(runtime.Settings.LightweightModeEnabled, enabled);
+            saved = enabled;
+        };
+        await viewModel.DisableLightweightModeAsync();
+        Assert.AreEqual(rejectSettings, saved);
+        Assert.AreEqual(rejectSettings, viewModel.LightweightModeEnabled);
+        Assert.AreEqual(original with { LightweightModeEnabled = rejectSettings }, runtime.Settings);
+        if (rejectSettings) { Assert.IsTrue(viewModel.StatusText.Contains("失败", StringComparison.Ordinal)); }
+    }
+
+    [TestMethod]
     public void PercentageDisplaySelectionMapsToExistingBooleanSetting()
     {
         var viewModel = new SettingsViewModel(
@@ -758,11 +874,27 @@ public sealed class ViewModelTests
             new StubSettingsPageActions());
 
         Assert.AreEqual("剩余百分比", viewModel.SelectedPercentageDisplayMode.DisplayName);
+        bool? savedMode = null;
+        viewModel.PercentageDisplayModeSaved += (_, mode) => savedMode = mode;
 
         viewModel.SelectedPercentageDisplayMode = viewModel.PercentageDisplayModes[1];
 
         Assert.IsFalse(viewModel.ShowRemainingPercent);
-        Assert.AreEqual("使用百分比", viewModel.SelectedPercentageDisplayMode.DisplayName);
+        Assert.AreEqual("已用", viewModel.SelectedPercentageDisplayMode.DisplayName);
+        Assert.AreEqual(false, savedMode);
+    }
+
+    [TestMethod]
+    public void FailedPercentageModeSaveKeepsThePersistedModeForOverlay()
+    {
+        var runtime = new StubRuntimeControl(rejectSettings: true);
+        var viewModel = new SettingsViewModel(runtime, new StubSettingsPlatformActions(), new StubSettingsPageActions());
+        bool? savedMode = null;
+        viewModel.PercentageDisplayModeSaved += (_, mode) => savedMode = mode;
+        viewModel.SelectedPercentageDisplayMode = viewModel.PercentageDisplayModes[1];
+        Assert.IsTrue(viewModel.ShowRemainingPercent);
+        Assert.IsTrue(runtime.Settings.ShowRemainingPercent);
+        Assert.AreEqual(true, savedMode);
     }
 
     [TestMethod]

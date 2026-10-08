@@ -58,6 +58,7 @@
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\WindowsUpdateInstaller.cs" Link="Services\WindowsUpdateInstaller.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\WindowsUpdateService.cs" Link="Services\WindowsUpdateService.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Interop\NativeMethods.cs" Link="Interop\NativeMethods.cs" />
+    <Compile Include="..\..\src\CodexQuotaTray.App\Interop\TitleBarOverlayNative.cs" Link="Interop\TitleBarOverlayNative.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Interop\DnsSdServicePublisher.cs" Link="Interop\DnsSdServicePublisher.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\LanDiagnosticBuffer.cs" Link="Services\LanDiagnosticBuffer.cs" />
     <Compile Include="..\..\src\CodexQuotaTray.App\Services\LanDiagnosticsFormatter.cs" Link="Services\LanDiagnosticsFormatter.cs" />
