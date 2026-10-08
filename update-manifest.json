@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.11.9",
-    "tag": "windows-v0.11.9",
+    "version": "0.11.10",
+    "tag": "windows-v0.11.10",
     "installer": {
-      "name": "CodexQuotaTray-0.11.9-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.9/CodexQuotaTray-0.11.9-setup.exe",
-      "sha256": "64759873999e1f20d83c0cd73e2b463cfd954c8ebb87a5cbddb11430be7a5059",
-      "size": 48559957
+      "name": "CodexQuotaTray-0.11.10-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.10/CodexQuotaTray-0.11.10-setup.exe",
+      "sha256": "914e2c653c103c63200cbb57a346798326f1c3d723c64bff8c031f1d532a9e40",
+      "size": 48580132
     },
-    "releaseNotes": "### 修复\r\n\r\n- 修复额度与 Token 最后更新时间跨天后只显示日期、缺少具体时分的问题。\r\n",
-    "publishedAt": "2026-09-25T16:31:38Z"
+    "releaseNotes": "### 标题栏额度\r\n\r\n- 支持在 ChatGPT / Codex 桌面应用标题栏查看 Codex 额度，点击额度文字即可刷新。\r\n- 显示各额度窗口的重置倒计时，悬停可查看完整重置日期与时间；适配不同 DPI 缩放和较窄的窗口。\r\n- 倒计时对齐分钟边界与重置时刻，到期后显示“待更新”，保留最后有效额度。\r\n\r\n### 轻量模式\r\n\r\n- 新增轻量模式，轻量启动时不加载完整面板；通过托盘小面板关闭轻量模式即可恢复额度与统计界面。\r\n- 自动刷新、提醒、缓存、自动更新和已开启的手机同步继续运行。\r\n- 修复启动时轻量模式状态可能被旧设置覆盖，以及设置保存结束后小面板开关仍不可用的问题。\r\n\r\n### 修复与错误提示\r\n\r\n- 修复统计热力图有数据却只显示灰色格子的问题。\r\n- 高级设置新增“显示错误弹窗”开关；关闭异常退出提示后，错误日志仍会保存。\r\n- 修复开发版在不同工作目录间切换后托盘图标丢失的问题。\r\n",
+    "publishedAt": "2026-10-08T09:06:59Z"
   },
   "android": {
     "version": "0.11.10",
