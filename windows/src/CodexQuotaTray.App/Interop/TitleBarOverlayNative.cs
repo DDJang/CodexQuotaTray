@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text;
+using CodexQuotaTray.Core.Presentation;
 
 namespace CodexQuotaTray.App.Interop;
 
@@ -49,6 +50,9 @@ internal static class TitleBarOverlayNative
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern UIntPtr SetTimer(IntPtr hwnd, UIntPtr id, uint milliseconds, IntPtr callback);
+
+    internal static UIntPtr SetCountdownTimer(IntPtr hwnd, UIntPtr id, DateTimeOffset dueAt, DateTimeOffset now) =>
+        SetTimer(hwnd, id, TitleBarQuotaOverlay.CountdownTimerDelayMilliseconds(dueAt, now), IntPtr.Zero);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

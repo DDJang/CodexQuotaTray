@@ -28,6 +28,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private uint tooltipDpi;
     private string tooltipText = string.Empty;
     private bool countdownTimerRunning;
+    private DateTimeOffset? countdownTimerDueAt;
     private static readonly UIntPtr CountdownTimerId = new(1);
     private IntPtr target;
     private uint targetProcessId;
@@ -87,11 +88,11 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         UpdateSafely();
     }
 
-    private void UpdatePresentation()
+    private void UpdatePresentation(DateTimeOffset? projectedAt = null)
     {
         if (lastSnapshot is not null)
         {
-            var now = DateTimeOffset.UtcNow;
+            var now = projectedAt ?? DateTimeOffset.UtcNow;
             presentation = TitleBarQuotaOverlay.Project(
                 lastSnapshot with { IsRefreshing = lastSnapshot.IsRefreshing || refreshGate.IsInFlight }, showRemainingPercent, now);
             presentationTime = now;
@@ -252,6 +253,20 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     {
         if (countdownTimerRunning && window != IntPtr.Zero) { _ = TitleBarOverlayNative.KillTimer(window, CountdownTimerId); }
         countdownTimerRunning = false;
+        countdownTimerDueAt = null;
+    }
+
+    private void UpdateCountdownTimer(DateTimeOffset projectedAt)
+    {
+        var dueAt = lastSnapshot is { } snapshot
+            ? TitleBarQuotaOverlay.NextCountdownUpdateAt(snapshot.Windows, projectedAt)
+            : null;
+        if (dueAt is null) { StopCountdownTimer(); return; }
+        // Repeated host/geometry events must not restart the same absolute deadline.
+        if (countdownTimerRunning && countdownTimerDueAt == dueAt) { return; }
+        if (TitleBarOverlayNative.SetCountdownTimer(window, CountdownTimerId, dueAt.Value, DateTimeOffset.UtcNow) == UIntPtr.Zero) { throw LastError(); }
+        countdownTimerDueAt = dueAt;
+        countdownTimerRunning = true;
     }
 
     private void OnWindowEvent(IntPtr hook, uint eventType, IntPtr hwnd, int objectId, int childId, uint threadId, uint time)
@@ -348,9 +363,10 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
             return;
         }
         // Recompute from absolute timestamps, including immediately after restoring a hidden host.
-        if (lastSnapshot is not null && TitleBarQuotaOverlay.NeedsCountdownUpdate(lastSnapshot.Windows, presentationTime, DateTimeOffset.UtcNow))
+        var now = DateTimeOffset.UtcNow;
+        if (lastSnapshot is not null && TitleBarQuotaOverlay.NeedsCountdownUpdate(lastSnapshot.Windows, presentationTime, now))
         {
-            UpdatePresentation();
+            UpdatePresentation(now);
         }
         if (TitleBarOverlayNative.GetDwmRect(target, 9, out var bounds, Marshal.SizeOf<NativeMethods.NativeRect>()) != 0
             && !NativeMethods.GetWindowRect(target, out bounds))
@@ -435,15 +451,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         if (repaint) { _ = TitleBarOverlayNative.InvalidateRect(window, IntPtr.Zero, false); }
         renderedFrame = frame;
         UpdateTooltip(presentation.TooltipText);
-        if (lastSnapshot?.Windows.Any(item => item.ResetAtUtc > DateTimeOffset.UtcNow) == true)
-        {
-            if (!countdownTimerRunning)
-            {
-                if (TitleBarOverlayNative.SetTimer(window, CountdownTimerId, 60_000, IntPtr.Zero) == UIntPtr.Zero) { throw LastError(); }
-                countdownTimerRunning = true;
-            }
-        }
-        else { StopCountdownTimer(); }
+        UpdateCountdownTimer(now);
         status = "visible";
     }
 
@@ -571,7 +579,11 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     {
         if (message == TitleBarOverlayNative.TimerMessage && wParam == CountdownTimerId)
         {
-            if (countdownTimerRunning) { UpdateSafely(); }
+            if (countdownTimerRunning)
+            {
+                StopCountdownTimer();
+                UpdateSafely();
+            }
             return IntPtr.Zero;
         }
         if (message == 0x0201)

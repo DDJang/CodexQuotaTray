@@ -3,7 +3,7 @@
 - 范围：Windows；用户截图中 ChatGPT 应用 Codex 页面顶部、菜单与窗口按钮之间的空白区域。
 - 本地基线：`ab84949e0f79268f53ee8050cfbf19f107a24fd4`。
 - 调研分支：`codex/windows-chatgpt-quota-research`。
-- 验证日期：2026-10-07（Asia/Shanghai）。
+- 验证日期：2026-10-08（Asia/Shanghai）。
 - 生命周期状态与实现 commit 以[调查索引](../README.md)为准；已实现原生覆盖窗并完成
   本机 owner/Z-order、后台可见性及静态性能验证，更广泛的交互与长期验证限制见下文。
 - 调研结论基于下列固定 commit 的公开源码，没有安装或运行这些第三方项目。
@@ -342,3 +342,24 @@ smoke 或精确的 GUI 时长测量，不把用户反馈扩展为未覆盖场景
 重启 Dev 后只读检查确认覆盖窗 visible 且 owner 匹配；使用物理坐标的 `WindowFromPoint`
 检查文字中心和透明边距，两者均命中覆盖窗，确认空隙并未继续穿透到宿主。该检查没有
 发送鼠标消息或触发真实账户读取，不替代实际点击、最小时间和焦点行为的 GUI 验证。
+
+### 倒计时重置截止时刻调度修复
+
+在 `5624c50` 的固定 60 秒 Win32 Timer 中，如果重置发生在第一次触发之前，且没有其他窗口或数据
+事件唤醒投影，“待更新”会延迟到后续触发。原 `DeadlineInsideTheSameMinuteUpdatesBeforeTheLastTimerStops`
+只验证到期判断，不验证唤醒时间；本次通过代码确认此缺口，没有把它描述为真实账户现场复现。
+
+修复维护同一个 HWND/Timer ID：下一次截止时刻取自然分钟边界与最近未来重置时间的较早者。
+重复位置事件不会重设同一绝对截止时刻；触发后停止计时器并重新安排下一次，没有未来重置时停止。
+投影和下一次截止计算使用同一时刻，绘制耗时跨越截止时则尽快补醒；毫秒延迟向上取整，遵循 Win32
+最小 10 ms 间隔。该机制只更新界面，不改变额度读取、刷新或通知调度，不增加线程或网络轮询。
+
+九项新增回归覆盖分钟边界、分钟内重置、多窗口最近截止、重复事件不推迟、过期/缺失时间停止、
+UTC offset、跨天、日期边界及延迟舍入。原生回归调用与生产相同的 `SetCountdownTimer` 适配入口，在
+匿名隐藏 HWND 上把同一 ID 的分钟计时器重设为 200 ms，实际读取提前到达的 `WM_TIMER` 消息。
+这些匿名窗口不连接真实宿主或账户；它们验证 Win32 触发链，不能证明真实宿主 UI 线程在任意负载下
+都无调度延迟。最终 `Full` 通过：617 项离线测试，构建零警告、零错误。
+
+机制依据：[SetTimer](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-settimer) 的
+相对间隔与同 ID 重设行为；[KillTimer](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-killtimer)
+不会移除已排队消息，停止状态因此仍需在回调入口检查。

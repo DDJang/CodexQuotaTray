@@ -1,5 +1,8 @@
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using CodexQuotaTray.App.Interop;
+using CodexQuotaTray.Core.Models;
+using CodexQuotaTray.Core.Presentation;
 
 namespace CodexQuotaTray.Tests;
 
@@ -11,6 +14,60 @@ public sealed class TitleBarOverlayOwnerTests
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool EnumWindows(EnumWindowCallback callback, IntPtr parameter);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct TimerMessage
+    {
+        public IntPtr Window;
+        public uint Message;
+        public UIntPtr WParam;
+        public IntPtr LParam;
+        public uint Time;
+        public NativeMethods.NativePoint Point;
+        public uint Private;
+    }
+
+    [DllImport("user32.dll", EntryPoint = "PeekMessageW")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PeekMessage(out TimerMessage message, IntPtr hwnd, uint minimum, uint maximum, uint remove);
+
+    [TestMethod]
+    public void HiddenCountdownTimerReusesItsIdAndFiresAtAnEarlierReset()
+    {
+        var hwnd = CreateHiddenWindow();
+        var timerId = new UIntPtr(1);
+        var now = DateTimeOffset.Parse("2026-10-08T10:00:00Z");
+        var window = QuotaWindowView.Demo("匿名窗口", 13, "未知", "未知") with { ResetAtUtc = now.AddMinutes(2) };
+        try
+        {
+            var due = TitleBarQuotaOverlay.NextCountdownUpdateAt([window], now)!.Value;
+            Assert.AreNotEqual(UIntPtr.Zero, TitleBarOverlayNative.SetCountdownTimer(hwnd, timerId, due, now));
+            window = window with { ResetAtUtc = now.AddMilliseconds(200) };
+            due = TitleBarQuotaOverlay.NextCountdownUpdateAt([window], now)!.Value;
+            Assert.AreEqual(200u, TitleBarQuotaOverlay.CountdownTimerDelayMilliseconds(due, now));
+            Assert.AreNotEqual(UIntPtr.Zero, TitleBarOverlayNative.SetCountdownTimer(hwnd, timerId, due, now));
+            var elapsed = Stopwatch.StartNew();
+            var received = false;
+            while (elapsed.Elapsed < TimeSpan.FromSeconds(2))
+            {
+                if (PeekMessage(out var message, hwnd, TitleBarOverlayNative.TimerMessage, TitleBarOverlayNative.TimerMessage, 1))
+                {
+                    Assert.AreEqual(hwnd, message.Window);
+                    Assert.AreEqual(timerId, message.WParam);
+                    received = true;
+                    break;
+                }
+                Thread.Sleep(5);
+            }
+            Assert.IsTrue(received, "The rearmed 200 ms reset timer must fire without waiting for the original minute timer.");
+            Assert.IsFalse(TitleBarOverlayNative.IsWindowVisible(hwnd));
+        }
+        finally
+        {
+            _ = TitleBarOverlayNative.KillTimer(hwnd, timerId);
+            _ = NativeMethods.DestroyWindow(hwnd);
+        }
+    }
 
     [TestMethod]
     public void HiddenTooltipAcceptsUnicodeUpdatesAndIsDestroyedWithItsOwner()

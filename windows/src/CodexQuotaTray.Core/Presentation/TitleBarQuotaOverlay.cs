@@ -72,6 +72,22 @@ public static class TitleBarQuotaOverlay
         projectedAt.UtcTicks / TimeSpan.TicksPerMinute != now.UtcTicks / TimeSpan.TicksPerMinute
         || windows.Any(window => window.ResetAtUtc > projectedAt && window.ResetAtUtc <= now);
 
+    public static DateTimeOffset? NextCountdownUpdateAt(IReadOnlyList<QuotaWindowView> windows, DateTimeOffset now)
+    {
+        DateTimeOffset? nearestReset = null;
+        foreach (var window in windows)
+        {
+            if (window.ResetAtUtc is { } reset && reset > now
+                && (nearestReset is null || reset < nearestReset)) { nearestReset = reset; }
+        }
+        if (nearestReset is null) { return null; }
+        var nextMinuteTicks = (now.UtcTicks / TimeSpan.TicksPerMinute + 1) * TimeSpan.TicksPerMinute;
+        return new DateTimeOffset(Math.Min(nextMinuteTicks, nearestReset.Value.UtcTicks), TimeSpan.Zero);
+    }
+
+    public static uint CountdownTimerDelayMilliseconds(DateTimeOffset dueAt, DateTimeOffset now) =>
+        (uint)Math.Clamp(Math.Ceiling((dueAt - now).TotalMilliseconds), 10d, 60_000d);
+
     public static string ResetCountdown(DateTimeOffset? resetAt, DateTimeOffset now)
     {
         if (resetAt is not { } reset) { return "重置未知"; }

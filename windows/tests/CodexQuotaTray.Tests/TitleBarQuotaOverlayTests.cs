@@ -209,6 +209,56 @@ public sealed class TitleBarQuotaOverlayTests
     }
 
     [TestMethod]
+    [DataRow("2026-10-08T10:00:00Z", 20_000, 20_000u)]
+    [DataRow("2026-10-08T10:00:37.125Z", 120_000, 22_875u)]
+    [DataRow("2026-10-08T10:01:00Z", 120_000, 60_000u)]
+    [DataRow("2026-10-08T23:59:59.999Z", 120_000, 10u)]
+    [DataRow("2026-10-08T18:00:37.125+08:00", 120_000, 22_875u)]
+    public void CountdownWakeupUsesTheEarlierMinuteBoundaryOrReset(string timestamp, int resetAfterMilliseconds, uint expectedDelay)
+    {
+        var now = DateTimeOffset.Parse(timestamp);
+        var windows = new[] { QuotaWindowView.Demo("窗口", 13, "未知", "未知") with { ResetAtUtc = now.AddMilliseconds(resetAfterMilliseconds) } };
+        var due = TitleBarQuotaOverlay.NextCountdownUpdateAt(windows, now);
+        Assert.IsNotNull(due);
+        Assert.AreEqual(expectedDelay, TitleBarQuotaOverlay.CountdownTimerDelayMilliseconds(due.Value, now));
+    }
+
+    [TestMethod]
+    public void NewEarlierResetChangesTheWakeupButGeometryUpdatesDoNotPostponeIt()
+    {
+        var now = DateTimeOffset.Parse("2026-10-08T10:00:00Z");
+        var first = QuotaWindowView.Demo("窗口一", 13, "未知", "未知") with { ResetAtUtc = now.AddMinutes(2) };
+        var second = QuotaWindowView.Demo("窗口二", 84, "未知", "未知") with { ResetAtUtc = now.AddSeconds(20) };
+        Assert.AreEqual(now.AddMinutes(1), TitleBarQuotaOverlay.NextCountdownUpdateAt([first], now));
+        Assert.AreEqual(now.AddSeconds(20), TitleBarQuotaOverlay.NextCountdownUpdateAt([first, second], now));
+        Assert.AreEqual(now.AddSeconds(20), TitleBarQuotaOverlay.NextCountdownUpdateAt([first, second], now.AddSeconds(10)));
+        Assert.AreEqual(now.AddMinutes(1), TitleBarQuotaOverlay.NextCountdownUpdateAt([first, second], now.AddSeconds(20)));
+        Assert.IsNull(TitleBarQuotaOverlay.NextCountdownUpdateAt([first, second], now.AddMinutes(2)));
+    }
+
+    [TestMethod]
+    public void MissingOrPassedResetsDoNotWakeTheTimerAndDateRangeEndDoesNotOverflow()
+    {
+        var now = DateTimeOffset.Parse("2026-10-08T10:00:00Z");
+        var unknown = QuotaWindowView.Demo("未知窗口", 13, "未知", "未知");
+        var past = unknown with { ResetAtUtc = now.AddSeconds(-1) };
+        Assert.IsNull(TitleBarQuotaOverlay.NextCountdownUpdateAt([], now));
+        Assert.IsNull(TitleBarQuotaOverlay.NextCountdownUpdateAt([unknown, past], now));
+        var limit = DateTimeOffset.MaxValue;
+        var future = unknown with { ResetAtUtc = limit };
+        Assert.AreEqual(limit, TitleBarQuotaOverlay.NextCountdownUpdateAt([future], limit.AddTicks(-1)));
+    }
+
+    [TestMethod]
+    public void TimerDelayRoundsUpAndHandlesPaintingLatencyOrClockChanges()
+    {
+        var now = DateTimeOffset.Parse("2026-10-08T10:00:00Z");
+        Assert.AreEqual(11u, TitleBarQuotaOverlay.CountdownTimerDelayMilliseconds(now.AddTicks(100_001), now));
+        Assert.AreEqual(10u, TitleBarQuotaOverlay.CountdownTimerDelayMilliseconds(now.AddMilliseconds(20), now.AddMilliseconds(25)));
+        Assert.AreEqual(60_000u, TitleBarQuotaOverlay.CountdownTimerDelayMilliseconds(now.AddDays(1), now));
+    }
+
+    [TestMethod]
     public void HostIdentityRejectsLookalikesAndNonMainSurfaces()
     {
         bool Match(string name = "ChatGPT", string family = TitleBarQuotaOverlay.HostPackageFamily,
