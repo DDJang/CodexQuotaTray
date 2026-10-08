@@ -4,7 +4,7 @@
 - Baseline: `987c34d` (`codex/windows-chatgpt-quota-research`)
 - Working branch: `codex/windows-lightweight-mode`
 - Status: Resolved
-- Resolved by: `0c8ed14`
+- Resolved by: `0c8ed14`; review follow-up `19a9909`
 - Last verified: 2026-10-08
 
 ## Current decision
@@ -171,6 +171,8 @@ Lightweight mode returned the same valid rectangles with its own new callback HW
 registered concurrently with the running Production instance. Dev's pre-test mode was restored afterwards.
 
 ### Review follow-up: startup save ordering and compact switch state
+
+Implemented by `19a9909`.
 
 Review identified a possible stale settings read: construction injected the loaded startup snapshot, but runtime
 initialization read the file again without sharing a lock with settings saves. The follow-up reuses the injected
