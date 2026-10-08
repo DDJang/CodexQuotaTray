@@ -31,7 +31,10 @@ WinUI Views / Services / Interop / Themes
   轻量模式的托盘打开入口使用独立 `LightweightPanelWindow`，不创建完整主窗口；小面板只能关闭模式，
   经同一设置保存路径成功后恢复完整面板，开启仍由设置执行。两套界面只隐藏/显示，完整窗口
   创建后保留到退出，不卸载、重挂载或反复销毁；Token 读取、提交、缓存和投影均保持原路径。
-  设置模型在进程内只创建一次，两套界面共用同一模型和运行时。取舍与测量见
+  设置模型在进程内只创建一次，两套界面共用同一模型和运行时；小面板监听模式/忙碌属性变化，
+  在 UI 线程恢复开关状态，退出时解除订阅。Runtime 初始化复用注入的设置快照；未注入时的
+  初始读取与保存/发布由同一局部锁保护，锁不跨越缓存恢复或网络连接，避免旧读取覆盖新保存。
+  取舍与测量见
   [轻量模式记录](investigations/windows/lightweight-mode.md)。
 - `TitleBarQuotaOverlay` 从已有 `AppUiState` 生成紧凑剩余额度文本与纯几何布局；App 的
   `TitleBarQuotaOverlayService` 复用 Runtime 的 `StateChanged`，管理自有 Win32 layered tool window。

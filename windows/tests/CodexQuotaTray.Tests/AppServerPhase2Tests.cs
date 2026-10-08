@@ -38,6 +38,114 @@ public sealed class AppServerPhase2Tests
     private static readonly long TestFutureResetAt = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds();
 
     [TestMethod]
+    public async Task QuotaRuntime_InitializationCannotPublishAnOldReadAfterSettingsSave()
+    {
+        using var directory = new TemporaryDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        var settingsService = new SettingsService(store, paths);
+        var oldSettings = AppSettings.Defaults with { LightweightModeEnabled = true, PhoneTokenSyncEnabled = true };
+        await settingsService.SaveAsync(oldSettings, timeout.Token);
+        var client = new ControlledClient();
+        client.Release.TrySetResult();
+        await using var service = new QuotaRuntimeService(new SingleClientFactory(client), settingsService,
+            new PreviewPersistence(store, paths));
+        var oldReadCaptured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.BeforeSettingsLoadedCommitAsync = async cancellationToken =>
+        {
+            oldReadCaptured.TrySetResult();
+            await releaseRead.Task.WaitAsync(cancellationToken);
+        };
+        var saveStarted = false;
+        service.SettingsSaveStarted += () => saveStarted = true;
+        var initialization = service.GetSnapshotAsync(timeout.Token).AsTask();
+        try
+        {
+            await oldReadCaptured.Task.WaitAsync(timeout.Token);
+            var latest = oldSettings with { LightweightModeEnabled = false, TokenRefreshMode = RefreshMode.Every30Minutes };
+            var save = service.ApplySettingsAsync(latest, timeout.Token);
+            Assert.IsFalse(saveStarted, "Saving must wait until the captured initialization read is published.");
+            releaseRead.TrySetResult();
+            await Task.WhenAll(initialization, save).WaitAsync(timeout.Token);
+            Assert.IsTrue(saveStarted);
+            Assert.AreEqual(latest, service.Settings);
+            Assert.AreEqual(latest, await settingsService.LoadAsync(timeout.Token));
+        }
+        finally { releaseRead.TrySetResult(); }
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_CancelledSaveWaitingForInitializationDoesNotChangeSettings()
+    {
+        using var directory = new TemporaryDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        using var saveCancellation = new CancellationTokenSource();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        var settingsService = new SettingsService(store, paths);
+        var original = AppSettings.Defaults with { LightweightModeEnabled = true };
+        await settingsService.SaveAsync(original, timeout.Token);
+        var client = new ControlledClient();
+        client.Release.TrySetResult();
+        await using var service = new QuotaRuntimeService(new SingleClientFactory(client), settingsService,
+            new PreviewPersistence(store, paths));
+        var captured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.BeforeSettingsLoadedCommitAsync = async cancellationToken =>
+        {
+            captured.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+        };
+        var initialization = service.GetSnapshotAsync(timeout.Token).AsTask();
+        try
+        {
+            await captured.Task.WaitAsync(timeout.Token);
+            var save = service.ApplySettingsAsync(original with { LightweightModeEnabled = false }, saveCancellation.Token);
+            saveCancellation.Cancel();
+            await Assert.ThrowsAsync<OperationCanceledException>(() => save);
+            release.TrySetResult();
+            await initialization.WaitAsync(timeout.Token);
+            Assert.AreEqual(original, service.Settings);
+            Assert.AreEqual(original, await settingsService.LoadAsync(timeout.Token));
+        }
+        finally { release.TrySetResult(); }
+    }
+
+    [TestMethod]
+    public async Task QuotaRuntime_InjectedSettingsAreNotReloadedAndSaveDoesNotWaitForStartupNetwork()
+    {
+        using var directory = new TemporaryDirectory();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        var settingsService = new SettingsService(store, paths);
+        var initial = AppSettings.Defaults with { LightweightModeEnabled = true, PhoneTokenSyncEnabled = true };
+        await settingsService.SaveAsync(initial, timeout.Token);
+        var client = new ControlledClient { BlockConnect = true };
+        client.Release.TrySetResult();
+        await using var service = new QuotaRuntimeService(new SingleClientFactory(client), settingsService,
+            new PreviewPersistence(store, paths), initialSettings: initial);
+        service.BeforeSettingsLoadedCommitAsync = _ => throw new InvalidOperationException("Startup settings were loaded twice.");
+        var initialization = service.GetSnapshotAsync(timeout.Token).AsTask();
+        try
+        {
+            await client.ConnectStarted.Task.WaitAsync(timeout.Token);
+            Assert.IsFalse(initialization.IsCompleted);
+            var latest = initial with { LightweightModeEnabled = false };
+            await service.ApplySettingsAsync(latest, timeout.Token).WaitAsync(timeout.Token);
+            Assert.AreEqual(latest, service.Settings);
+            Assert.AreEqual(latest, await settingsService.LoadAsync(timeout.Token));
+            Assert.IsFalse(initialization.IsCompleted, "The network barrier is still held while saving has completed.");
+            client.ConnectRelease.TrySetResult();
+            await initialization.WaitAsync(timeout.Token);
+            Assert.AreEqual(latest, service.Settings);
+        }
+        finally { client.ConnectRelease.TrySetResult(); }
+    }
+
+    [TestMethod]
     public void NpmShimUsesOneCmdPayloadAndPrecedesPackagedAliases()
     {
         var path = Path.Combine("C:\\Users\\Example User", "AppData", "Roaming", "npm", "codex.cmd");

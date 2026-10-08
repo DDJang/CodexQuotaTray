@@ -169,3 +169,24 @@ Full passed 590 offline tests, zero build warnings/errors. Read-only Explorer ve
 returned `S_OK`, Dev rectangle `1524,1032,1556,1080`; Production remained registered at `1556,1032,1588,1080`.
 Lightweight mode returned the same valid rectangles with its own new callback HWND. Both modes therefore
 registered concurrently with the running Production instance. Dev's pre-test mode was restored afterwards.
+
+### Review follow-up: startup save ordering and compact switch state
+
+Review identified a possible stale settings read: construction injected the loaded startup snapshot, but runtime
+initialization read the file again without sharing a lock with settings saves. The follow-up reuses the injected
+snapshot; if none was supplied, the first read/publish and save/publish operations share a settings semaphore.
+Successful early saves also mark the settings as loaded. The semaphore only covers local settings I/O and state
+publication, not cache restoration or network initialization. Waiting saves respect cancellation; disposal waits
+for an active local save to release the semaphore before disposing it.
+
+Three controlled offline regressions cover a paused old settings read competing with a save, cancellation of a
+save waiting on that read, and saving while injected-snapshot startup is paused inside network connection.
+The test barriers do not use sleeps or real accounts. These are deterministic ordering checks; the original
+review finding was static, not a reported production reproduction.
+
+The compact panel subscribes to shared settings PropertyChanged notifications for IsBusy and mode. It updates
+controls on the UI dispatcher, automatically re-enables the switch when saving ends, and unsubscribes on disposal.
+A busy notification only changes enabled state, preserving a pending off position until the save completes.
+The two-window architecture and notification-click routing are unchanged; the latter remains a separate product
+decision. Long-running resource behavior is outside this targeted repair.
+Final Full after this follow-up passed 593 offline tests, with zero build warnings/errors.

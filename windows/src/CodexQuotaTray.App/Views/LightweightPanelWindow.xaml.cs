@@ -1,4 +1,5 @@
 using System.Drawing;
+using System.ComponentModel;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core.Persistence;
@@ -44,6 +45,7 @@ internal sealed partial class LightweightPanelWindow : Window, IDisposable
         Activated += OnActivated;
         PanelRoot.ActualThemeChanged += OnThemeChanged;
         PanelRoot.SizeChanged += OnSizeChanged;
+        model.PropertyChanged += OnModelPropertyChanged;
     }
 
     internal void ShowPanel(Rectangle? anchor, ThemeMode mode)
@@ -131,6 +133,23 @@ internal sealed partial class LightweightPanelWindow : Window, IDisposable
         updatingSwitch = false;
     }
 
+    private void OnModelPropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is not (null or "" or nameof(SettingsViewModel.IsBusy)
+            or nameof(SettingsViewModel.LightweightModeEnabled))) { return; }
+        if (disposed) { return; }
+        if (DispatcherQueue.HasThreadAccess) { RefreshModelState(args.PropertyName); }
+        else { _ = DispatcherQueue.TryEnqueue(() => RefreshModelState(args.PropertyName)); }
+    }
+
+    private void RefreshModelState(string? propertyName)
+    {
+        if (disposed) { return; }
+        // A busy notification must not undo the switch's pending off position.
+        if (propertyName == nameof(SettingsViewModel.IsBusy)) { ModeSwitch.IsEnabled = !saving && !model.IsBusy; }
+        else { SyncSwitch(); }
+    }
+
     private async void OnModeToggled(object sender, RoutedEventArgs args)
     {
         if (updatingSwitch || model is null || ModeSwitch.IsOn || saving || disposed) { return; }
@@ -164,6 +183,7 @@ internal sealed partial class LightweightPanelWindow : Window, IDisposable
     {
         if (disposed) { return; }
         disposed = true;
+        model.PropertyChanged -= OnModelPropertyChanged;
         AppWindow.Closing -= OnClosing;
         Activated -= OnActivated;
         PanelRoot.ActualThemeChanged -= OnThemeChanged;

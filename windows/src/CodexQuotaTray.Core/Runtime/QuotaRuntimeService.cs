@@ -51,6 +51,7 @@ public sealed class QuotaRuntimeService :
     private readonly RefreshCoordinator coordinator = new();
     private readonly CancellationTokenSource lifetime = new();
     private readonly SemaphoreSlim initializationGate = new(1, 1);
+    private readonly SemaphoreSlim settingsGate = new(1, 1);
     private readonly SemaphoreSlim clientLifecycleGate = new(1, 1);
     private readonly SemaphoreSlim generationCommitGate = new(1, 1);
     private readonly Channel<SnapshotWork> snapshotQueue = Channel.CreateUnbounded<SnapshotWork>(
@@ -87,6 +88,7 @@ public sealed class QuotaRuntimeService :
     private CodexClientErrorKind? lastError;
     private DateTimeOffset? lastAttemptUtc;
     private bool initialized;
+    private bool settingsLoaded;
     private bool disposed;
     private long lastAppliedClientGeneration;
     private long lastAppliedIngressSequence;
@@ -134,6 +136,7 @@ public sealed class QuotaRuntimeService :
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.timeZone = timeZone ?? TimeZoneInfo.Local;
         Settings = SettingsService.Normalize(initialSettings ?? AppSettings.Defaults);
+        settingsLoaded = initialSettings is not null;
         projector = new QuotaViewProjector(this.timeProvider, this.timeZone);
     }
 
@@ -145,6 +148,10 @@ public sealed class QuotaRuntimeService :
     // applied the result and settled the current refresh, before any handoff
     // is started by the worker loop.
     internal event Action<bool, RefreshReason?>? RefreshSettled;
+
+    // Test-only barriers for the settings read/publish and save ordering, with no live I/O fixtures.
+    internal Func<CancellationToken, Task>? BeforeSettingsLoadedCommitAsync { get; set; }
+    internal event Action? SettingsSaveStarted;
 
     public AppSettings Settings { get; private set; } = AppSettings.Defaults;
 
@@ -349,16 +356,27 @@ public sealed class QuotaRuntimeService :
 
     public async Task ApplySettingsAsync(AppSettings settings, CancellationToken cancellationToken)
     {
+        ObjectDisposedException.ThrowIf(disposed, this);
         settings = SettingsService.Normalize(settings);
-        var previous = Settings;
-        var sourceChanged = previous.QuotaDataSource != settings.QuotaDataSource;
-        await settingsService.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
-        Settings = settings with { Notifications = settings.EffectiveNotifications };
+        AppSettings previous;
+        bool sourceChanged;
+        await settingsGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            ObjectDisposedException.ThrowIf(disposed, this);
+            previous = Settings;
+            sourceChanged = previous.QuotaDataSource != settings.QuotaDataSource;
+            SettingsSaveStarted?.Invoke();
+            await settingsService.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
+            Settings = settings with { Notifications = settings.EffectiveNotifications };
+            settingsLoaded = true;
+            coordinator.SetMode(Settings.RefreshMode);
+        }
+        finally { settingsGate.Release(); }
         if (previous.TokenRefreshMode != Settings.TokenRefreshMode)
         {
             TokenRefreshScheduleChanged?.Invoke(this, EventArgs.Empty);
         }
-        coordinator.SetMode(Settings.RefreshMode);
         if (previous.PersistQuotaCache && !Settings.PersistQuotaCache)
         {
             await persistence.ClearQuotaCacheAsync(previous.QuotaDataSource).ConfigureAwait(false);
@@ -426,13 +444,28 @@ public sealed class QuotaRuntimeService :
                 return;
             }
 
-            var previousTokenRefreshMode = Settings.TokenRefreshMode;
-            Settings = await settingsService.LoadAsync(cancellationToken).ConfigureAwait(false);
-            if (previousTokenRefreshMode != Settings.TokenRefreshMode)
+            var tokenRefreshModeChanged = false;
+            await settingsGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                if (!settingsLoaded)
+                {
+                    var loaded = await settingsService.LoadAsync(cancellationToken).ConfigureAwait(false);
+                    if (BeforeSettingsLoadedCommitAsync is { } beforeCommit)
+                    {
+                        await beforeCommit(cancellationToken).ConfigureAwait(false);
+                    }
+                    tokenRefreshModeChanged = Settings.TokenRefreshMode != loaded.TokenRefreshMode;
+                    Settings = loaded;
+                    settingsLoaded = true;
+                }
+                coordinator.SetMode(Settings.RefreshMode);
+            }
+            finally { settingsGate.Release(); }
+            if (tokenRefreshModeChanged)
             {
                 TokenRefreshScheduleChanged?.Invoke(this, EventArgs.Empty);
             }
-            coordinator.SetMode(Settings.RefreshMode);
             alertState = await persistence.LoadAlertStateAsync(cancellationToken).ConfigureAwait(false);
             await RestoreCacheAsync(cancellationToken).ConfigureAwait(false);
             alertEvaluationTask = AlertEvaluationLoopAsync(lifetime.Token);
@@ -1716,6 +1749,10 @@ public sealed class QuotaRuntimeService :
 
         detached?.NotificationLifetime?.Dispose();
         initializationGate.Dispose();
+        // Let an in-flight local save release the semaphore before disposing it.
+        await settingsGate.WaitAsync().ConfigureAwait(false);
+        settingsGate.Release();
+        settingsGate.Dispose();
         clientLifecycleGate.Dispose();
         generationCommitGate.Dispose();
         lifetime.Dispose();
