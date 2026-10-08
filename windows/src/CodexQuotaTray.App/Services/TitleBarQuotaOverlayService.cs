@@ -24,6 +24,8 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private IntPtr window;
     private IntPtr tooltip;
     private IntPtr tooltipTextBuffer;
+    private IntPtr tooltipFont;
+    private uint tooltipDpi;
     private string tooltipText = string.Empty;
     private bool countdownTimerRunning;
     private static readonly UIntPtr CountdownTimerId = new(1);
@@ -207,8 +209,26 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private void UpdateTooltip(string text)
     {
         if (tooltip == IntPtr.Zero) { return; }
-        _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipMaxWidth, UIntPtr.Zero,
-            new IntPtr((int)Math.Ceiling(600 * dpi / 96d)));
+        if (tooltipDpi != dpi)
+        {
+            // A native tooltip's default font can stay at system DPI. Use a dedicated
+            // font so moving the host between monitors does not leave it tiny.
+            var nextFont = TitleBarOverlayNative.CreateFont(-(int)Math.Ceiling(14 * dpi / 96d),
+                0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 4, 0, "Segoe UI");
+            if (nextFont == IntPtr.Zero) { throw LastError(); }
+            _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipPop, UIntPtr.Zero, IntPtr.Zero);
+            _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.SetFont,
+                new UIntPtr(unchecked((ulong)nextFont.ToInt64())), IntPtr.Zero);
+            if (tooltipFont != IntPtr.Zero) { _ = TitleBarOverlayNative.DeleteObject(tooltipFont); }
+            tooltipFont = nextFont;
+            tooltipDpi = dpi;
+            var horizontal = (int)Math.Ceiling(8 * dpi / 96d);
+            var vertical = (int)Math.Ceiling(6 * dpi / 96d);
+            var margins = new NativeMethods.NativeRect { Left = horizontal, Right = horizontal, Top = vertical, Bottom = vertical };
+            _ = TitleBarOverlayNative.SendTooltipMargins(tooltip, TitleBarOverlayNative.TooltipSetMargin, UIntPtr.Zero, ref margins);
+            _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipMaxWidth, UIntPtr.Zero,
+                new IntPtr((int)Math.Ceiling(600 * dpi / 96d)));
+        }
         if (text == tooltipText) { return; }
         var previous = tooltipTextBuffer;
         tooltipTextBuffer = Marshal.StringToHGlobalUni(text);
@@ -222,6 +242,8 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     {
         if (tooltip != IntPtr.Zero && TitleBarOverlayNative.IsWindow(tooltip)) { _ = NativeMethods.DestroyWindow(tooltip); }
         tooltip = IntPtr.Zero;
+        if (tooltipFont != IntPtr.Zero) { _ = TitleBarOverlayNative.DeleteObject(tooltipFont); tooltipFont = IntPtr.Zero; }
+        tooltipDpi = 0;
         if (tooltipTextBuffer != IntPtr.Zero) { Marshal.FreeHGlobal(tooltipTextBuffer); tooltipTextBuffer = IntPtr.Zero; }
         tooltipText = string.Empty;
     }

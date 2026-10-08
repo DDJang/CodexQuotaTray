@@ -10,6 +10,8 @@ internal static class TitleBarOverlayNative
     internal const uint TooltipUpdateText = 0x0439;
     internal const uint TooltipPop = 0x041C;
     internal const uint TooltipMaxWidth = 0x0418;
+    internal const uint TooltipSetMargin = 0x041A;
+    internal const uint SetFont = 0x0030;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct CommonControls
@@ -41,6 +43,9 @@ internal static class TitleBarOverlayNative
 
     [DllImport("user32.dll", EntryPoint = "SendMessageW")]
     internal static extern IntPtr SendMessage(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    internal static extern IntPtr SendTooltipMargins(IntPtr hwnd, uint message, UIntPtr wParam, ref NativeMethods.NativeRect margins);
 
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern UIntPtr SetTimer(IntPtr hwnd, UIntPtr id, uint milliseconds, IntPtr callback);
