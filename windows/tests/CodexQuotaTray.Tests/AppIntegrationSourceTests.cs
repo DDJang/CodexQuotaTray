@@ -349,9 +349,14 @@ public sealed class AppIntegrationSourceTests
 
         Assert.IsFalse(source.Contains("mainWindow.Activate()", StringComparison.Ordinal));
         Assert.IsFalse(source.Contains("mainWindow?.Activate()", StringComparison.Ordinal));
-        Assert.IsFalse(source.Contains("mainWindow.HidePanel()", StringComparison.Ordinal));
-        StringAssert.Contains(source, "else if (startupLaunch)");
-        StringAssert.Contains(source, "mainWindow?.ShowPanel()");
+        var launchStart = source.IndexOf("protected override async void OnLaunched(", StringComparison.Ordinal);
+        var launchEnd = source.IndexOf("private MainViewModel? viewModelReference;", launchStart, StringComparison.Ordinal);
+        var launch = source[launchStart..launchEnd];
+        Assert.IsFalse(launch.Contains("mainWindow.HidePanel()", StringComparison.Ordinal));
+        Assert.IsFalse(launch.Contains("new MainWindow(", StringComparison.Ordinal));
+        StringAssert.Contains(launch, "if (!lightweightModeEnabled) { _ = EnsureMainWindow(); }");
+        StringAssert.Contains(launch, "else if (startupLaunch)");
+        StringAssert.Contains(launch, "ShowPanel();");
     }
 
     [TestMethod]
@@ -370,7 +375,7 @@ public sealed class AppIntegrationSourceTests
         var shutdown = method.IndexOf("ActivationContains(args, \"--shutdown-existing\")", StringComparison.Ordinal);
         var exit = method.IndexOf("ExitApplication();", shutdown, StringComparison.Ordinal);
         var returnAfterExit = method.IndexOf("return;", exit, StringComparison.Ordinal);
-        var show = method.IndexOf("mainWindow?.ShowPanel();", StringComparison.Ordinal);
+        var show = method.IndexOf("ShowPanel();", StringComparison.Ordinal);
 
         Assert.IsTrue(shutdown >= 0);
         Assert.IsTrue(exit > shutdown);

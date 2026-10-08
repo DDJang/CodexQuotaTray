@@ -609,7 +609,19 @@
                                 <TextBlock Text="在 ChatGPT 标题栏显示额度" Style="{StaticResource SettingsLabelStyle}" />
                                 <TextBlock Text="ChatGPT 未最小化时持续显示 Codex 额度，跟随显示方式；点击文字可刷新，不会自动匹配 ChatGPT 登录账户。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
                             </StackPanel>
-                            <ToggleSwitch Grid.Column="1" AutomationProperties.Name="在 ChatGPT 标题栏显示额度" IsOn="{Binding TitleBarQuotaOverlayEnabled, Mode=TwoWay}" Style="{StaticResource SettingsToggleSwitchStyle}" />
+                            <ToggleSwitch Grid.Column="1" AutomationProperties.Name="在 ChatGPT 标题栏显示额度" IsOn="{Binding EffectiveTitleBarQuotaOverlayEnabled, Mode=TwoWay}" IsEnabled="{Binding CanEditTitleBarQuotaOverlay}" Style="{StaticResource SettingsToggleSwitchStyle}" />
+                        </Grid>
+                    </Border>
+
+                    <TextBlock Text="轻量模式" Style="{StaticResource SettingsSectionHeaderStyle}" />
+                    <Border Style="{StaticResource SettingsItemCardStyle}">
+                        <Grid Style="{StaticResource SettingsRowStyle}">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                <TextBlock Text="启用轻量模式" Style="{StaticResource SettingsLabelStyle}" />
+                                <TextBlock Text="日常在 ChatGPT 标题栏查看和刷新额度。点击托盘打开独立小面板，关闭轻量模式即可恢复完整面板。轻量启动不加载完整窗口；打开过的完整窗口会保留。自动刷新、提醒、缓存、托盘、更新和手机同步照常运行。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <ToggleSwitch Grid.Column="1" AutomationProperties.Name="启用轻量模式" IsOn="{Binding LightweightModeEnabled, Mode=TwoWay}" Style="{StaticResource SettingsToggleSwitchStyle}" />
                         </Grid>
                     </Border>
 
@@ -872,6 +884,17 @@
                     </StackPanel>
 
                     <StackPanel x:Name="AdvancedSettingsPanel" Spacing="8" Visibility="Collapsed">
+                        <TextBlock Text="错误提示" Style="{StaticResource SettingsSectionHeaderStyle}" />
+                        <Border Style="{StaticResource SettingsItemCardStyle}">
+                            <Grid Style="{StaticResource SettingsRowStyle}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Style="{StaticResource SettingsRowTextStyle}">
+                                    <TextBlock Text="显示错误弹窗" Style="{StaticResource SettingsLabelStyle}" />
+                                    <TextBlock Text="异常退出后，打开完整面板时显示提醒。关闭后仍保存错误日志，可在数据目录查看。" Style="{StaticResource SettingsDescriptionStyle}" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" AutomationProperties.Name="显示错误弹窗" IsOn="{Binding ShowErrorDialogs, Mode=TwoWay}" Style="{StaticResource SettingsToggleSwitchStyle}" />
+                            </Grid>
+                        </Border>
                         <TextBlock Text="数据与维护" Style="{StaticResource SettingsSectionHeaderStyle}" />
                         <Grid
                             x:Name="AdvancedActionsGrid"

@@ -13,6 +13,28 @@ namespace CodexQuotaTray.Tests;
 [TestClass]
 public sealed class AppServerPhase2Tests
 {
+    [TestMethod]
+    public async Task QuotaRuntime_StartupSettingsAreAvailableBeforeNetworkAndCanBeDisabledImmediately()
+    {
+        using var directory = new TemporaryDirectory();
+        var paths = new PreviewDataPaths(directory.Path);
+        var store = new JsonFileStore();
+        var settingsService = new SettingsService(store, paths);
+        var initial = AppSettings.Defaults with { LightweightModeEnabled = true, PhoneTokenSyncEnabled = true };
+        await settingsService.SaveAsync(initial, CancellationToken.None);
+        var client = new ControlledClient();
+        await using var service = new QuotaRuntimeService(new SingleClientFactory(client), settingsService,
+            new PreviewPersistence(store, paths), initialSettings: await settingsService.LoadAsync(CancellationToken.None));
+        Assert.IsTrue(service.Settings.LightweightModeEnabled);
+        Assert.IsTrue(service.Settings.PhoneTokenSyncEnabled);
+        Assert.AreEqual(0, client.ReadCount);
+        await service.ApplySettingsAsync(service.Settings with { LightweightModeEnabled = false }, CancellationToken.None);
+        Assert.IsFalse(service.Settings.LightweightModeEnabled);
+        Assert.IsFalse((await settingsService.LoadAsync(CancellationToken.None)).LightweightModeEnabled);
+        Assert.IsTrue(service.Settings.PhoneTokenSyncEnabled);
+        Assert.AreEqual(0, client.ReadCount, "A mode switch must not wait for a network read.");
+    }
+
     private static readonly long TestFutureResetAt = DateTimeOffset.UtcNow.AddDays(30).ToUnixTimeSeconds();
 
     [TestMethod]

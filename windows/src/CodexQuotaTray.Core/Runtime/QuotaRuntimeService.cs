@@ -123,7 +123,8 @@ public sealed class QuotaRuntimeService :
         IQuotaNotificationSink? notificationSink = null,
         TimeProvider? timeProvider = null,
         TimeZoneInfo? timeZone = null,
-        Func<QuotaDataSource, ICodexAppServerClientFactory>? clientFactoryResolver = null)
+        Func<QuotaDataSource, ICodexAppServerClientFactory>? clientFactoryResolver = null,
+        AppSettings? initialSettings = null)
     {
         this.clientFactory = clientFactory;
         this.clientFactoryResolver = clientFactoryResolver ?? (_ => clientFactory);
@@ -132,6 +133,7 @@ public sealed class QuotaRuntimeService :
         this.notificationSink = notificationSink ?? new NullQuotaNotificationSink();
         this.timeProvider = timeProvider ?? TimeProvider.System;
         this.timeZone = timeZone ?? TimeZoneInfo.Local;
+        Settings = SettingsService.Normalize(initialSettings ?? AppSettings.Defaults);
         projector = new QuotaViewProjector(this.timeProvider, this.timeZone);
     }
 

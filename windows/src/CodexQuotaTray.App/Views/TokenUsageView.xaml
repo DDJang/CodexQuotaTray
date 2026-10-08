@@ -86,8 +86,8 @@
                                     x:Name="HeatmapCell"
                                     Width="17"
                                     Height="17"
-                                    Bucket="{Binding Bucket}"
-                                    AutomationProperties.Name="{Binding AutomationText}" />
+                                    Bucket="{x:Bind Bucket, Mode=OneTime}"
+                                    AutomationProperties.Name="{x:Bind AutomationText, Mode=OneTime}" />
                             </DataTemplate>
                         </ItemsRepeater.ItemTemplate>
                     </ItemsRepeater>

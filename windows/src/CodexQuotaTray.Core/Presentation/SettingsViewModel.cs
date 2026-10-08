@@ -83,7 +83,14 @@ public sealed partial class SettingsViewModel : ObservableObject
 
     [ObservableProperty] private bool startWithWindows;
     [ObservableProperty] private bool showRemainingPercent;
-    [ObservableProperty] private bool titleBarQuotaOverlayEnabled;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EffectiveTitleBarQuotaOverlayEnabled))]
+    private bool titleBarQuotaOverlayEnabled;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(EffectiveTitleBarQuotaOverlayEnabled))]
+    [NotifyPropertyChangedFor(nameof(CanEditTitleBarQuotaOverlay))]
+    private bool lightweightModeEnabled;
+    [ObservableProperty] private bool showErrorDialogs;
     [ObservableProperty] private bool persistQuotaCache;
     [ObservableProperty] private bool persistTokenUsageCache;
     [ObservableProperty] private bool refreshOnPanelOpen;
@@ -251,6 +258,19 @@ public sealed partial class SettingsViewModel : ObservableObject
     public event EventHandler<ThemeMode>? ThemeSaved;
 
     public event EventHandler<bool>? TitleBarQuotaOverlaySaved;
+
+    public event EventHandler<bool>? LightweightModeSaved;
+
+    public bool CanEditTitleBarQuotaOverlay => !LightweightModeEnabled;
+
+    public bool EffectiveTitleBarQuotaOverlayEnabled
+    {
+        get => LightweightModeEnabled || TitleBarQuotaOverlayEnabled;
+        set
+        {
+            if (!LightweightModeEnabled) { TitleBarQuotaOverlayEnabled = value; }
+        }
+    }
 
     public event EventHandler<bool>? PercentageDisplayModeSaved;
 
@@ -908,6 +928,18 @@ public sealed partial class SettingsViewModel : ObservableObject
     private Task ApplyCurrentSettingsAsync(CancellationToken cancellationToken) =>
         ApplySettingsAsync(ToSettings(), cancellationToken);
 
+    // The compact tray panel can only leave lightweight mode. Enabling stays in Settings.
+    public async Task DisableLightweightModeAsync(CancellationToken cancellationToken = default)
+    {
+        await applyGate.WaitAsync(cancellationToken);
+        try
+        {
+            await ApplySettingsCoreAsync(ToSettings() with { LightweightModeEnabled = false }, cancellationToken);
+            Load(runtime.Settings);
+        }
+        finally { applyGate.Release(); }
+    }
+
     private void QueueSettingsApply()
     {
         if (suppressSettingsApply)
@@ -983,9 +1015,13 @@ public sealed partial class SettingsViewModel : ObservableObject
             {
                 ThemeSaved?.Invoke(this, settings.ThemeMode);
             }
-            if (previous.TitleBarQuotaOverlayEnabled != settings.TitleBarQuotaOverlayEnabled)
+            if (previous.LightweightModeEnabled != settings.LightweightModeEnabled)
             {
-                TitleBarQuotaOverlaySaved?.Invoke(this, settings.TitleBarQuotaOverlayEnabled);
+                LightweightModeSaved?.Invoke(this, settings.LightweightModeEnabled);
+            }
+            if (previous.EffectiveTitleBarQuotaOverlayEnabled != settings.EffectiveTitleBarQuotaOverlayEnabled)
+            {
+                TitleBarQuotaOverlaySaved?.Invoke(this, settings.EffectiveTitleBarQuotaOverlayEnabled);
             }
             if (previous.ShowRemainingPercent != settings.ShowRemainingPercent)
             {
@@ -1013,9 +1049,13 @@ public sealed partial class SettingsViewModel : ObservableObject
             {
                 ThemeSaved?.Invoke(this, previous.ThemeMode);
             }
-            if (previous.TitleBarQuotaOverlayEnabled != settings.TitleBarQuotaOverlayEnabled)
+            if (previous.LightweightModeEnabled != settings.LightweightModeEnabled)
             {
-                TitleBarQuotaOverlaySaved?.Invoke(this, runtime.Settings.TitleBarQuotaOverlayEnabled);
+                LightweightModeSaved?.Invoke(this, runtime.Settings.LightweightModeEnabled);
+            }
+            if (previous.EffectiveTitleBarQuotaOverlayEnabled != settings.EffectiveTitleBarQuotaOverlayEnabled)
+            {
+                TitleBarQuotaOverlaySaved?.Invoke(this, runtime.Settings.EffectiveTitleBarQuotaOverlayEnabled);
             }
             if (previous.ShowRemainingPercent != settings.ShowRemainingPercent)
             {
@@ -1053,7 +1093,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         PersistTokenUsageCache: PersistTokenUsageCache,
         QuotaDataSource: runtime.Settings.QuotaDataSource,
         TokenUsageDataSource: runtime.Settings.TokenUsageDataSource,
-        TitleBarQuotaOverlayEnabled: TitleBarQuotaOverlayEnabled));
+        TitleBarQuotaOverlayEnabled: TitleBarQuotaOverlayEnabled,
+        LightweightModeEnabled: LightweightModeEnabled,
+        ShowErrorDialogs: ShowErrorDialogs));
 
     private AppSettings Normalize(AppSettings value) => SettingsService.Normalize(value) with
     {
@@ -1068,6 +1110,8 @@ public sealed partial class SettingsViewModel : ObservableObject
             StartWithWindows = CanConfigureStartup && value.StartWithWindows;
             ShowRemainingPercent = value.ShowRemainingPercent;
             TitleBarQuotaOverlayEnabled = value.TitleBarQuotaOverlayEnabled;
+            LightweightModeEnabled = value.LightweightModeEnabled;
+            ShowErrorDialogs = value.ShowErrorDialogs;
             PersistQuotaCache = value.PersistQuotaCache;
             PersistTokenUsageCache = value.PersistTokenUsageCache;
             RefreshOnPanelOpen = value.RefreshOnPanelOpen;
@@ -1101,6 +1145,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     partial void OnStartWithWindowsChanged(bool value) => QueueSettingsApply();
 
     partial void OnTitleBarQuotaOverlayEnabledChanged(bool value) => QueueSettingsApply();
+
+    partial void OnLightweightModeEnabledChanged(bool value) => QueueSettingsApply();
+
+    partial void OnShowErrorDialogsChanged(bool value) => QueueSettingsApply();
 
     partial void OnShowRemainingPercentChanged(bool value)
     {

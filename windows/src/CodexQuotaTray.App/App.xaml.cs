@@ -22,6 +22,14 @@ public partial class App : Application
     private readonly CancellationTokenSource lifetime = new();
     private readonly TokenUsageRefreshSchedule tokenUsageRefreshSchedule = new();
     private MainWindow? mainWindow;
+    private LightweightPanelWindow? lightweightPanel;
+    private Window? backgroundWindow;
+    private SettingsViewModel? settingsViewModel;
+    private bool lightweightModeEnabled;
+    private bool panelRequested;
+    private bool trayAvailable = true;
+    private bool panelReady;
+    private bool showingCrashInfo;
     private TrayIconService? trayIcon;
     private TitleBarQuotaOverlayService? titleBarQuotaOverlay;
     private AppInstance? currentInstance;
@@ -142,7 +150,8 @@ public partial class App : Application
                 notificationSink,
                 clientFactoryResolver: source => source == QuotaDataSource.OAuth
                     ? liveAccountService.OAuthFactory
-                    : cliFactory);
+                    : cliFactory,
+                initialSettings: await tokenUsageSettingsTask);
             runtime = new TokenUsageCacheRuntimeControl(liveRuntime, tokenUsageCacheSettingsStateTask);
             stateProvider = liveRuntime;
             diagnostics = liveRuntime;
@@ -221,22 +230,18 @@ public partial class App : Application
             (action, cancellationToken) => EnqueueAsync(presentationDispatcher, action, cancellationToken));
         var tokenUsageViewModelLocal = tokenUsageViewModel;
         viewModelReference = viewModel;
-        mainWindow = new MainWindow(viewModel, tokenUsageViewModelLocal, identity.DisplayName);
         viewModel.LoginRequested += (_, _) =>
         {
             ShowSettings();
             settingsWindow?.ShowAccountPage();
         };
-        mainWindow.Activated += (_, activation) =>
-        {
-            if (activation.WindowActivationState != WindowActivationState.Deactivated
-                && windowsUpdateService is not null
-                && initializationTask is not null)
-            {
-                _ = StartWindowsUpdateCheckAfterInitializationAsync(windowsUpdateService, lifetime.Token);
-            }
-        };
-        mainWindow.ApplyTheme(runtime?.Settings.ThemeMode ?? ThemeMode.System);
+        var initialSettings = tokenUsageSettingsTask is null
+            ? runtime.Settings
+            : await tokenUsageSettingsTask;
+        lightweightModeEnabled = initialSettings.LightweightModeEnabled;
+        // Lightweight startup has its own UI; the original full window is created only when needed.
+        if (lightweightModeEnabled) { backgroundWindow = new Window { Title = identity.DisplayName }; }
+        if (!lightweightModeEnabled) { _ = EnsureMainWindow(); }
         // Start the data task before optional shell integration so a tray initialization
         // failure can never strand the model in its initial connecting state.
         initializationTask = InitializeStateAsync(
@@ -265,7 +270,8 @@ public partial class App : Application
             lanDiagnosticBuffer.CreateDiagnosticText(),
             appNotifications?.CreateDiagnosticText() ?? "Windows notifications: unavailable (demo)",
             trayIcon?.CreateDiagnosticText() ?? "托盘注册状态: NotStarted",
-            titleBarQuotaOverlay?.CreateDiagnosticText() ?? "Title-bar quota overlay: stopped")));
+            titleBarQuotaOverlay?.CreateDiagnosticText() ?? "Title-bar quota overlay: stopped",
+            $"Lightweight UI: enabled={lightweightModeEnabled} fullCreated={mainWindow is not null} compactCreated={lightweightPanel is not null}")));
         settingsPageActions = new DelegateSettingsPageActions(
             cancellationToken => viewModel.RefreshCommand.ExecuteAsync(cancellationToken),
             () => viewModel.OpenUsageCommand.Execute(null),
@@ -273,11 +279,11 @@ public partial class App : Application
             clipboard.TryCopy);
         trayIcon = new TrayIconService(
             uiDispatcher,
-            mainWindow.TogglePanel,
-            mainWindow.ShowPanel,
+            TogglePanel,
+            ShowPanel,
             ShowSettings,
             () => RequestRuntimeRefresh(RefreshReason.Resume),
-            mainWindow.RefreshSystemTheme,
+            () => { mainWindow?.RefreshSystemTheme(); lightweightPanel?.RefreshTheme(); },
             () => crashSessionLog?.MarkExpectedTermination(),
             ExitApplication,
             () => runtime?.Settings.ThemeMode ?? CodexQuotaTray.Core.Persistence.ThemeMode.System,
@@ -288,11 +294,11 @@ public partial class App : Application
             {
                 if (state == CodexQuotaTray.Core.Models.TrayRegistrationState.Registered)
                 {
-                    mainWindow?.SetTrayAvailable(true);
+                    SetTrayAvailable(true);
                 }
                 else if (state == CodexQuotaTray.Core.Models.TrayRegistrationState.Failed)
                 {
-                    mainWindow?.SetTrayAvailable(false);
+                    SetTrayAvailable(false);
                 }
             });
         };
@@ -303,52 +309,12 @@ public partial class App : Application
         catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
             System.Diagnostics.Debug.WriteLine($"Tray initialization failed: {error.GetType().Name}");
-            mainWindow.SetTrayAvailable(false);
+            SetTrayAvailable(false);
         }
         if (pendingNotificationSink is not null)
         {
             pendingNotificationSink.Tray = trayIcon;
         }
-        mainWindow.TrayRectangleProvider = trayIcon.TryGetIconRect;
-        mainWindow.PanelShown += (_, _) =>
-        {
-            if (runtime is not null)
-            {
-                _ = runtime.RequestAsync(RefreshReason.CardOpened, lifetime.Token);
-            }
-
-            _ = RefreshTokenUsageOnPanelShownAsync(tokenUsageViewModelLocal);
-        };
-        if (previousCrashInfo is { } crashInfo)
-        {
-            EventHandler? showCrashInfo = null;
-            var showingCrashInfo = false;
-            showCrashInfo = async (_, _) =>
-            {
-                if (mainWindow is null || showingCrashInfo)
-                {
-                    return;
-                }
-
-                showingCrashInfo = true;
-                try
-                {
-                    if (await mainWindow.ShowPreviousCrashNoticeAsync(crashInfo))
-                    {
-                        _ = crashSessionLog?.AcknowledgePreviousCrash(crashInfo);
-                        mainWindow.PanelShown -= showCrashInfo;
-                        previousCrashInfo = null;
-                    }
-                }
-                finally
-                {
-                    showingCrashInfo = false;
-                }
-            };
-            mainWindow.PanelShown += showCrashInfo;
-        }
-        mainWindow.ExitRequested += (_, _) => ExitApplication();
-
         hostEvents = new HostEventService(
             () => RequestRuntimeRefresh(RefreshReason.NetworkRestored),
             reason => tokenUsageSync?.OnNetworkChanged(reason));
@@ -360,13 +326,19 @@ public partial class App : Application
             _ = StartWindowsUpdateCheckAfterInitializationAsync(windowsUpdateService, lifetime.Token);
         }
 
+        panelReady = true;
+        if (panelRequested)
+        {
+            panelRequested = false;
+            ShowPanel();
+        }
         if (showDemo)
         {
             _ = uiDispatcher.TryEnqueue(() =>
             {
                 if (Volatile.Read(ref exitStarted) == 0)
                 {
-                    mainWindow?.ShowPanel();
+                    ShowPanel();
                 }
             });
         }
@@ -378,9 +350,9 @@ public partial class App : Application
         {
             _ = uiDispatcher.TryEnqueue(() =>
             {
-                if (Volatile.Read(ref exitStarted) == 0)
+                if (Volatile.Read(ref exitStarted) == 0 && !lightweightModeEnabled)
                 {
-                    mainWindow?.ShowPanel();
+                    ShowPanel();
                 }
             });
         }
@@ -390,6 +362,96 @@ public partial class App : Application
     private MainViewModel? viewModelReference;
     private ISettingsPlatformActions? settingsActions;
     private TrayNotificationSink? pendingNotificationSink;
+
+    private MainWindow EnsureMainWindow()
+    {
+        if (mainWindow is not null) { return mainWindow; }
+        var window = new MainWindow(
+            viewModelReference!, tokenUsageViewModel!, applicationIdentity!.DisplayName);
+        mainWindow = window;
+        window.TrayRectangleProvider = () => trayIcon?.TryGetIconRect();
+        window.ApplyTheme(runtime?.Settings.ThemeMode ?? ThemeMode.System);
+        window.Activated += OnMainWindowActivated;
+        window.PanelShown += OnPanelShown;
+        window.ExitRequested += (_, _) => ExitApplication();
+        window.SetTrayAvailable(trayAvailable);
+        return window;
+    }
+
+    private void ShowPanel()
+    {
+        if (Volatile.Read(ref exitStarted) != 0) { return; }
+        if (!panelReady)
+        {
+            panelRequested = true;
+            return;
+        }
+        if (lightweightModeEnabled && trayAvailable)
+        {
+            var settings = EnsureSettingsViewModel();
+            if (settings is null) { return; }
+            lightweightPanel ??= new LightweightPanelWindow(settings,
+                applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName);
+            lightweightPanel.ShowPanel(trayIcon?.TryGetIconRect(), runtime!.Settings.ThemeMode);
+            return;
+        }
+        EnsureMainWindow().ShowPanel();
+    }
+
+    private void OnMainWindowActivated(object sender, WindowActivatedEventArgs activation)
+    {
+        if (activation.WindowActivationState != WindowActivationState.Deactivated
+            && windowsUpdateService is not null && initializationTask is not null)
+        {
+            _ = StartWindowsUpdateCheckAfterInitializationAsync(windowsUpdateService, lifetime.Token);
+        }
+    }
+
+    private void TogglePanel()
+    {
+        if (lightweightModeEnabled && lightweightPanel?.IsVisible == true) { lightweightPanel.HidePanel(); }
+        else if (mainWindow?.IsDesiredVisible == true) { mainWindow.HidePanel(); }
+        else { ShowPanel(); }
+    }
+
+    private void SetTrayAvailable(bool available)
+    {
+        trayAvailable = available;
+        if (!available) { lightweightPanel?.HidePanel(); EnsureMainWindow().SetTrayAvailable(false); }
+        else { mainWindow?.SetTrayAvailable(true); }
+    }
+
+    private async void OnPanelShown(object? sender, EventArgs args)
+    {
+        if (runtime is not null) { _ = runtime.RequestAsync(RefreshReason.CardOpened, lifetime.Token); }
+        if (tokenUsageViewModel is not null) { _ = RefreshTokenUsageOnPanelShownAsync(tokenUsageViewModel); }
+        if (runtime?.Settings.ShowErrorDialogs != false
+            && sender is MainWindow window && previousCrashInfo is { } info && !showingCrashInfo)
+        {
+            showingCrashInfo = true;
+            try
+            {
+                if (await window.ShowPreviousCrashNoticeAsync(info))
+                {
+                    _ = crashSessionLog?.AcknowledgePreviousCrash(info);
+                    previousCrashInfo = null;
+                }
+            }
+            finally { showingCrashInfo = false; }
+        }
+    }
+
+    private void SetLightweightMode(bool enabled)
+    {
+        var wasEnabled = lightweightModeEnabled;
+        lightweightModeEnabled = enabled;
+        if (enabled) { mainWindow?.HidePanel(); }
+        else
+        {
+            lightweightPanel?.HidePanel();
+            if (wasEnabled && Volatile.Read(ref exitStarted) == 0) { ShowPanel(); }
+        }
+    }
 
     private void OnWindowsUpdateAvailable(object? sender, WindowsUpdateRelease release)
     {
@@ -474,13 +536,13 @@ public partial class App : Application
         }
 
         if (Volatile.Read(ref exitStarted) == 0
-            && runtime is { Settings.SilentStartup: false })
+            && runtime is { Settings.SilentStartup: false } && !lightweightModeEnabled)
         {
             _ = uiDispatcher?.TryEnqueue(() =>
             {
                 if (Volatile.Read(ref exitStarted) == 0)
                 {
-                    mainWindow?.ShowPanel();
+                    ShowPanel();
                 }
             });
         }
@@ -525,30 +587,16 @@ public partial class App : Application
             return;
         }
 
+        lightweightPanel?.HidePanel();
+        _ = EnsureSettingsViewModel();
         if (settingsWindow is null)
         {
-            var settingsViewModel = new SettingsViewModel(
-                runtime,
-                settingsActions,
-                settingsPageActions,
-                windowsUpdateService,
-                accountService);
-            settingsViewModel.ThemeSaved += OnSettingsThemeSaved;
-            settingsViewModel.TitleBarQuotaOverlaySaved += (_, enabled) =>
-            {
-                _ = uiDispatcher?.TryEnqueue(() => titleBarQuotaOverlay?.SetEnabled(enabled));
-            };
-            settingsViewModel.PercentageDisplayModeSaved += (_, showRemainingPercent) =>
-            {
-                _ = uiDispatcher?.TryEnqueue(() => titleBarQuotaOverlay?.SetPercentageDisplayMode(showRemainingPercent));
-            };
-            settingsViewModel.DataSourcesChanged += OnSettingsDataSourcesChanged;
             Func<CancellationToken, Task>? debugTestNotification = null;
 #if CODEXQUOTATRAY_DEV
             debugTestNotification = pendingNotificationSink is null ? null : SendDebugTestNotificationAsync;
 #endif
             settingsWindow = new SettingsWindow(
-                settingsViewModel,
+                settingsViewModel!,
                 applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName,
                 debugTestNotification);
         }
@@ -559,6 +607,35 @@ public partial class App : Application
         {
             _ = StartWindowsUpdateCheckAfterInitializationAsync(windowsUpdateService, lifetime.Token);
         }
+    }
+
+    private SettingsViewModel? EnsureSettingsViewModel()
+    {
+        if (runtime is null || settingsActions is null || settingsPageActions is null) { return null; }
+        if (settingsViewModel is null)
+        {
+            settingsViewModel = new SettingsViewModel(
+                runtime,
+                settingsActions,
+                settingsPageActions,
+                windowsUpdateService,
+                accountService);
+            settingsViewModel.ThemeSaved += OnSettingsThemeSaved;
+            settingsViewModel.LightweightModeSaved += (_, enabled) =>
+            {
+                _ = uiDispatcher?.TryEnqueue(() => SetLightweightMode(enabled));
+            };
+            settingsViewModel.TitleBarQuotaOverlaySaved += (_, enabled) =>
+            {
+                _ = uiDispatcher?.TryEnqueue(() => titleBarQuotaOverlay?.SetEnabled(enabled));
+            };
+            settingsViewModel.PercentageDisplayModeSaved += (_, showRemainingPercent) =>
+            {
+                _ = uiDispatcher?.TryEnqueue(() => titleBarQuotaOverlay?.SetPercentageDisplayMode(showRemainingPercent));
+            };
+            settingsViewModel.DataSourcesChanged += OnSettingsDataSourcesChanged;
+        }
+        return settingsViewModel;
     }
 
     private void OnSettingsDataSourcesChanged(object? sender, DataSourcesChangedEventArgs args)
@@ -583,6 +660,7 @@ public partial class App : Application
         {
             mainWindow?.ApplyTheme(mode);
             settingsWindow?.ApplyTheme(mode);
+            lightweightPanel?.ApplyTheme(mode);
         });
     }
 
@@ -706,7 +784,7 @@ public partial class App : Application
         {
             if (Volatile.Read(ref exitStarted) == 0)
             {
-                mainWindow?.ShowPanel();
+                ShowPanel();
             }
         });
     }
@@ -722,7 +800,7 @@ public partial class App : Application
         {
             if (Volatile.Read(ref exitStarted) == 0)
             {
-                mainWindow?.ShowPanel();
+                ShowPanel();
             }
         });
     }
@@ -1016,6 +1094,10 @@ public partial class App : Application
 
         mainWindow?.Close();
         settingsWindow?.Close();
+        lightweightPanel?.Dispose();
+        lightweightPanel = null;
+        backgroundWindow?.Close();
+        backgroundWindow = null;
         TraceExitTiming("window close");
         settingsWindow = null;
         currentInstance = null;

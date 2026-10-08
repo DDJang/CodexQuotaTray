@@ -2,6 +2,12 @@ namespace CodexQuotaTray.App.Services;
 
 internal readonly record struct TrayIconIdentity(string Name, Guid Guid, string Tooltip)
 {
+    // Explorer permanently associates a GUID with the unsigned executable's path.
+    // Dev binaries move between checkouts; use HWND/uID without changing declared GUIDs.
+    internal bool UsesPersistentGuid => Guid != Development.Guid;
+
+    internal Guid ShellGuid => UsesPersistentGuid ? Guid : System.Guid.Empty;
+
     internal static TrayIconIdentity Production { get; } = new(
         "Production",
         new Guid("8F4F2C19-0C4C-4E1B-8F5C-50D0F1A4A77D"),

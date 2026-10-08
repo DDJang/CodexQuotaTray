@@ -26,6 +26,13 @@ WinUI Views / Services / Interop / Themes
 - `Core/Persistence` 保存设置、最小归一化额度缓存、按日聚合 Token 统计缓存和提醒状态；Local Token
   的 SQLite 增量账本由 `Core/TokenUsage` 管理，并存放在同一身份隔离数据目录。
 - `Core/Presentation` 是 UI 的唯一产品状态入口；UI 不解析 RPC。
+- 轻量模式保留一个无内容的隐藏 WinUI lifetime window，完整窗口由 `App` 按需创建。
+  普通模式保留原 `MainWindow` / `SettingsWindow` 的窗口和视图生命周期。
+  轻量模式的托盘打开入口使用独立 `LightweightPanelWindow`，不创建完整主窗口；小面板只能关闭模式，
+  经同一设置保存路径成功后恢复完整面板，开启仍由设置执行。两套界面只隐藏/显示，完整窗口
+  创建后保留到退出，不卸载、重挂载或反复销毁；Token 读取、提交、缓存和投影均保持原路径。
+  设置模型在进程内只创建一次，两套界面共用同一模型和运行时。取舍与测量见
+  [轻量模式记录](investigations/windows/lightweight-mode.md)。
 - `TitleBarQuotaOverlay` 从已有 `AppUiState` 生成紧凑剩余额度文本与纯几何布局；App 的
   `TitleBarQuotaOverlayService` 复用 Runtime 的 `StateChanged`，管理自有 Win32 layered tool window。
   OUTOFCONTEXT WinEvent hooks 在 UI 消息线程注册、合并更新、关闭时释放；只附着到身份与
@@ -111,6 +118,10 @@ Android 只在 offline 类错误时发现相同 `deviceId`，401 不触发发现
 `TokenUsageServiceIdentity`；Android 见 `app/build.gradle.kts`。
 
 - Windows Production、Dev、Preview 使用独立单实例、托盘、数据目录、启动项能力和 LAN identity。
+  Production/Preview 托盘沿用固定 GUID；Dev 使用自身 message-only HWND + 16-bit uID，避免
+  Explorer 将未签名 Dev GUID 绑定旧程序路径后阻止工作树版本注册。GUID 常量保持不变；所有
+  添加、修改、删除、版本设置和 GetRect 查询使用一致标识，不修改 Explorer 注册表。
+  调查及实测见[轻量模式记录](investigations/windows/lightweight-mode.md)。
 - Release 默认 Production；Debug 默认 Dev；Demo 与 isolated preview 使用 Preview。
 - Android Release 与 Debug 使用不同 application ID，因此凭据、配对和缓存自然隔离。
 - 一个身份不得删除、覆盖或关闭另一个身份的状态。

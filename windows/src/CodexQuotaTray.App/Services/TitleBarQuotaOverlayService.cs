@@ -63,7 +63,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         lastSnapshot = state;
         showRemainingPercent = settings.ShowRemainingPercent;
         UpdatePresentation();
-        SetEnabled(settings.TitleBarQuotaOverlayEnabled);
+        SetEnabled(settings.EffectiveTitleBarQuotaOverlayEnabled);
         UpdateSafely();
     }
 
