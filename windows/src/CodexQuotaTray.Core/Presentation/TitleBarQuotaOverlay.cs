@@ -22,7 +22,7 @@ public static class TitleBarQuotaOverlay
     public const int HeightDips = 24;
     public const int TopInsetDips = 6;
 
-    public static TitleBarQuotaPresentation Project(AppUiState state, bool showRemainingPercent = true, DateTimeOffset? now = null)
+    public static TitleBarQuotaPresentation Project(AppUiState state, bool showRemainingPercent = true, DateTimeOffset? now = null, TimeZoneInfo? timeZone = null)
     {
         var status = state.IsRefreshing ? "刷新中…"
             : state.Windows.Count == 0 ? state.StatusText
@@ -50,13 +50,74 @@ public static class TitleBarQuotaOverlay
             full.Length == 0 ? status : $"{prefix}{label} {full}",
             percentages.Length == 0 ? status : $"{prefix}{label} {percentages}",
             compact.Length == 0 ? status : $"{prefix}{label} {compact}",
-            string.Join("\n", state.Windows.Select(window =>
-                $"{WindowName(window)}：{label} {Percentage(window, showRemainingPercent)} · 重置：{ResetCountdown(window.ResetAtUtc, currentTime)}\n"
-                + (window.ResetAtUtc is { } reset
-                    ? $"重置时间：{reset.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture)}"
-                    : "重置时间未知"))) + "\n点击刷新额度",
+            FormatTooltip(state, showRemainingPercent, currentTime, timeZone ?? TimeZoneInfo.Local, status),
             tone);
     }
+
+    private static string FormatTooltip(AppUiState state, bool remaining, DateTimeOffset now, TimeZoneInfo timeZone, string status)
+    {
+        var lines = new List<string>();
+        if (status.Length > 0) { lines.Add(status); }
+        foreach (var window in state.Windows)
+        {
+            var reset = DisplayCountdown(window.ResetAtUtc, now).Replace("时", "小时", StringComparison.Ordinal);
+            var absolute = window.ResetAtUtc is { } at ? $"（{LocalTime(at, timeZone)}）" : string.Empty;
+            lines.Add($"{WindowName(window)}：{(remaining ? "剩余" : "已用")} {Percentage(window, remaining)} · 重置：{reset}{absolute}");
+        }
+        if (lines.Count > 0) { lines.Add(string.Empty); }
+        var credits = state.ResetCredits;
+        if (credits.Kind == ResetCreditKind.Unavailable || credits.AvailableCount is null or < 0)
+        {
+            lines.Add("重置卡信息未提供");
+        }
+        else
+        {
+            var count = credits.AvailableCount.Value;
+            lines.Add($"重置卡：{count} 张");
+            var available = AvailableCredits(credits).ToArray();
+            var shown = Math.Min(5, available.Length);
+            for (var index = 0; index < shown; index++)
+            {
+                var expiry = available[index].ExpiresAtUtc;
+                var detail = expiry is { } at
+                    ? $"{LocalTime(at, timeZone)} 到期 · {CreditRemaining(at, now)}"
+                    : "到期时间未知";
+                lines.Add($"第{index + 1}张：{detail}");
+            }
+            if (available.Length > shown) { lines.Add($"…另有{available.Length - shown}张未显示"); }
+            if (count > available.Length)
+            {
+                lines.Add(available.Length == 0 ? "到期信息未提供" : $"其余{count - available.Length}张的到期信息未提供");
+            }
+        }
+        lines.Add(string.Empty);
+        lines.Add("点击ChatGPT标题栏刷新");
+        return string.Join("\n", lines);
+    }
+
+    private static string LocalTime(DateTimeOffset at, TimeZoneInfo timeZone) =>
+        TimeZoneInfo.ConvertTime(at, timeZone).ToString("M月d日 HH:mm", CultureInfo.InvariantCulture);
+
+    private static IEnumerable<ResetCreditView> AvailableCredits(ResetCreditViewState? state) =>
+        state is { Kind: not ResetCreditKind.Unavailable, AvailableCount: > 0, Credits: { } credits }
+            ? credits.Where(credit => string.Equals(credit.Status?.Trim(), "available", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(credit => credit.ExpiresAtUtc ?? DateTimeOffset.MaxValue).Take(state.AvailableCount.Value)
+            : [];
+
+    private static string CreditRemaining(DateTimeOffset expiry, DateTimeOffset now)
+    {
+        if (expiry <= now) { return "已到期"; }
+        var minutes = DisplayMinutes(expiry, now);
+        return minutes >= 1440 ? $"剩余{minutes / 1440}天{minutes / 60 % 24}小时"
+            : minutes >= 60 ? $"剩余{minutes / 60}小时{minutes % 60}分" : $"剩余{minutes}分";
+    }
+
+    // Quantize both timestamps, so scheduled ticks and snapshots agree within a minute.
+    private static long DisplayMinutes(DateTimeOffset at, DateTimeOffset now) =>
+        Math.Max(1, at.UtcTicks / TimeSpan.TicksPerMinute - now.UtcTicks / TimeSpan.TicksPerMinute);
+
+    private static string DisplayCountdown(DateTimeOffset? resetAt, DateTimeOffset now) =>
+        resetAt is { } reset && reset > now ? FormatCountdown(DisplayMinutes(reset, now)) : ResetCountdown(resetAt, now);
 
     private static string FailureLabel(string status) => status.Contains("未登录", StringComparison.Ordinal)
         || status.Contains("登录已失效", StringComparison.Ordinal) ? "未登录 · 上次数据"
@@ -68,17 +129,23 @@ public static class TitleBarQuotaOverlay
     private static bool IsReliable(QuotaWindowView window) =>
         window.IsAvailable && window.IsPercentageReliable && window.UsedPercent is >= 0 and <= 100;
 
-    public static bool NeedsCountdownUpdate(IReadOnlyList<QuotaWindowView> windows, DateTimeOffset projectedAt, DateTimeOffset now) =>
+    public static bool NeedsCountdownUpdate(IReadOnlyList<QuotaWindowView> windows, DateTimeOffset projectedAt, DateTimeOffset now, ResetCreditViewState? resetCredits = null) =>
         projectedAt.UtcTicks / TimeSpan.TicksPerMinute != now.UtcTicks / TimeSpan.TicksPerMinute
-        || windows.Any(window => window.ResetAtUtc > projectedAt && window.ResetAtUtc <= now);
+        || windows.Any(window => window.ResetAtUtc > projectedAt && window.ResetAtUtc <= now)
+        || AvailableCredits(resetCredits).Take(5).Any(credit => credit.ExpiresAtUtc > projectedAt && credit.ExpiresAtUtc <= now);
 
-    public static DateTimeOffset? NextCountdownUpdateAt(IReadOnlyList<QuotaWindowView> windows, DateTimeOffset now)
+    public static DateTimeOffset? NextCountdownUpdateAt(IReadOnlyList<QuotaWindowView> windows, DateTimeOffset now, ResetCreditViewState? resetCredits = null)
     {
         DateTimeOffset? nearestReset = null;
         foreach (var window in windows)
         {
             if (window.ResetAtUtc is { } reset && reset > now
                 && (nearestReset is null || reset < nearestReset)) { nearestReset = reset; }
+        }
+        foreach (var credit in AvailableCredits(resetCredits).Take(5))
+        {
+            if (credit.ExpiresAtUtc is { } expiry && expiry > now
+                && (nearestReset is null || expiry < nearestReset)) { nearestReset = expiry; }
         }
         if (nearestReset is null) { return null; }
         var nextMinuteTicks = (now.UtcTicks / TimeSpan.TicksPerMinute + 1) * TimeSpan.TicksPerMinute;
@@ -92,7 +159,11 @@ public static class TitleBarQuotaOverlay
     {
         if (resetAt is not { } reset) { return "重置未知"; }
         if (reset <= now) { return "待更新"; }
-        var minutes = (long)Math.Ceiling((reset - now).TotalMinutes);
+        return FormatCountdown((long)Math.Ceiling((reset - now).TotalMinutes));
+    }
+
+    private static string FormatCountdown(long minutes)
+    {
         if (minutes < 60) { return $"{minutes}分后"; }
         if (minutes < 1440)
         {
@@ -111,7 +182,7 @@ public static class TitleBarQuotaOverlay
     {
         var text = string.Join(" · ", windows.Take(count).Select(window =>
         {
-            var countdown = now is { } currentTime ? $"（{ResetCountdown(window.ResetAtUtc, currentTime)}）" : string.Empty;
+            var countdown = now is { } currentTime ? $"（{DisplayCountdown(window.ResetAtUtc, currentTime)}）" : string.Empty;
             return $"{WindowName(window)} {Percentage(window, showRemainingPercent)}{countdown}";
         }));
         return windows.Count > count ? $"{text} · +{windows.Count - count}" : text;

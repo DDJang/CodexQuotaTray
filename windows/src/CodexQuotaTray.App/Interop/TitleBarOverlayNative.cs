@@ -6,6 +6,170 @@ namespace CodexQuotaTray.App.Interop;
 
 internal static class TitleBarOverlayNative
 {
+    internal delegate IntPtr SubclassProcedure(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data);
+
+    [DllImport("comctl32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetWindowSubclass(IntPtr hwnd, SubclassProcedure procedure, UIntPtr id, UIntPtr data);
+
+    [DllImport("comctl32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool RemoveWindowSubclass(IntPtr hwnd, SubclassProcedure procedure, UIntPtr id);
+
+    [DllImport("comctl32.dll")]
+    internal static extern IntPtr DefSubclassProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam);
+
+    [DllImport("gdi32.dll")]
+    internal static extern IntPtr CreateRoundRectRgn(int left, int top, int right, int bottom, int ellipseWidth, int ellipseHeight);
+
+    [DllImport("user32.dll")]
+    internal static extern int SetWindowRgn(IntPtr hwnd, IntPtr region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
+
+    [DllImport("user32.dll")]
+    internal static extern uint GetSysColor(int index);
+
+    [DllImport("gdi32.dll")]
+    internal static extern IntPtr CreateCompatibleBitmap(IntPtr dc, int width, int height);
+
+    [DllImport("gdi32.dll")]
+    internal static extern IntPtr CreatePen(int style, int width, uint color);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool RoundRect(IntPtr dc, int left, int top, int right, int bottom, int ellipseWidth, int ellipseHeight);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool BitBlt(IntPtr destination, int x, int y, int width, int height, IntPtr source, int sourceX, int sourceY, uint operation);
+
+    /// <summary>Keep native hover/layout behavior, but paint a rounded, buffered surface.</summary>
+    internal sealed class TooltipSurface : IDisposable
+    {
+        private readonly IntPtr window;
+        private readonly SubclassProcedure procedure;
+        private static readonly UIntPtr SubclassId = new(1);
+        private (int Width, int Height, uint Dpi)? regionSize;
+        private string text = string.Empty;
+        private uint dpi = 96;
+        private IntPtr font;
+        private bool disposed;
+
+        internal TooltipSurface(IntPtr window)
+        {
+            this.window = window;
+            procedure = WindowProc;
+            if (!SetWindowSubclass(window, procedure, SubclassId, UIntPtr.Zero))
+            {
+                throw new System.ComponentModel.Win32Exception("Cannot attach tooltip surface.");
+            }
+            // The custom buffered border replaces the native rectangular frame.
+            var style = NativeMethods.GetWindowLongPtr(window, NativeMethods.GwlStyle).ToInt64();
+            _ = NativeMethods.SetWindowLongPtr(window, NativeMethods.GwlStyle, new IntPtr(style & ~0x00C00000L));
+            _ = NativeMethods.SetWindowPos(window, IntPtr.Zero, 0, 0, 0, 0,
+                NativeMethods.SwpNoActivate | NativeMethods.SwpNoZOrder | 0x0023);
+        }
+
+        internal void Update(string value, uint newDpi, IntPtr newFont)
+        {
+            if (disposed || (text == value && dpi == newDpi && font == newFont)) { return; }
+            text = value;
+            dpi = newDpi;
+            font = newFont;
+            UpdateRegion();
+            _ = InvalidateRect(window, IntPtr.Zero, false);
+        }
+
+        private int Pixels(int dips) => (int)Math.Ceiling(dips * dpi / 96d);
+
+        private void UpdateRegion()
+        {
+            if (!NativeMethods.GetWindowRect(window, out var rect)) { return; }
+            var size = (Width: rect.Right - rect.Left, Height: rect.Bottom - rect.Top, Dpi: dpi);
+            if (size.Width <= 0 || size.Height <= 0 || regionSize == size) { return; }
+            var region = CreateRoundRectRgn(0, 0, size.Width + 1, size.Height + 1, Pixels(16), Pixels(16));
+            if (region == IntPtr.Zero) { return; }
+            // SetWindowRgn sends position messages synchronously; cache before calling.
+            regionSize = size;
+            if (SetWindowRgn(window, region, true) == 0)
+            {
+                regionSize = null;
+                _ = DeleteObject(region);
+            }
+            // On success Windows owns and releases the region.
+        }
+
+        private IntPtr WindowProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam, UIntPtr id, UIntPtr data)
+        {
+            if (message == 0x0082)
+            {
+                Dispose();
+                return DefSubclassProc(hwnd, message, wParam, lParam);
+            }
+            if (font != IntPtr.Zero && text.Length > 0)
+            {
+                if (message is 0x0014 or 0x0085) { return new IntPtr(1); }
+                if (message == 0x000F) { Paint(); return IntPtr.Zero; }
+            }
+            var result = DefSubclassProc(hwnd, message, wParam, lParam);
+            if (message == 0x0047) { UpdateRegion(); }
+            return result;
+        }
+
+        private void Paint()
+        {
+            var destination = BeginPaint(window, out var paint);
+            var dc = IntPtr.Zero;
+            var bitmap = IntPtr.Zero;
+            var brush = IntPtr.Zero;
+            var pen = IntPtr.Zero;
+            var previousBitmap = IntPtr.Zero;
+            var previousBrush = IntPtr.Zero;
+            var previousPen = IntPtr.Zero;
+            var previousFont = IntPtr.Zero;
+            try
+            {
+                if (destination == IntPtr.Zero || !NativeMethods.GetClientRect(window, out var rect) || rect.Right <= 0 || rect.Bottom <= 0) { return; }
+                dc = CreateCompatibleDC(destination);
+                bitmap = CreateCompatibleBitmap(destination, rect.Right, rect.Bottom);
+                brush = CreateSolidBrush(GetSysColor(24)); // COLOR_INFOBK
+                pen = CreatePen(0, Math.Max(1, Pixels(1)), GetSysColor(16)); // COLOR_BTNSHADOW
+                if (dc == IntPtr.Zero || bitmap == IntPtr.Zero || brush == IntPtr.Zero || pen == IntPtr.Zero) { return; }
+                previousBitmap = SelectObject(dc, bitmap);
+                previousBrush = SelectObject(dc, brush);
+                previousPen = SelectObject(dc, pen);
+                previousFont = SelectObject(dc, font);
+                _ = FillRect(dc, ref rect, brush);
+                _ = RoundRect(dc, 0, 0, rect.Right, rect.Bottom, Pixels(16), Pixels(16));
+                rect.Left = Pixels(8);
+                rect.Top = Pixels(6);
+                rect.Right -= Pixels(8);
+                rect.Bottom -= Pixels(6);
+                _ = SetBkMode(dc, 1);
+                _ = SetTextColor(dc, GetSysColor(23)); // COLOR_INFOTEXT
+                _ = DrawText(dc, text, text.Length, ref rect, 0x0810); // WORDBREAK | NOPREFIX
+                _ = NativeMethods.GetClientRect(window, out rect);
+                _ = BitBlt(destination, 0, 0, rect.Right, rect.Bottom, dc, 0, 0, 0x00CC0020);
+            }
+            finally
+            {
+                if (previousFont != IntPtr.Zero) { _ = SelectObject(dc, previousFont); }
+                if (previousPen != IntPtr.Zero) { _ = SelectObject(dc, previousPen); }
+                if (previousBrush != IntPtr.Zero) { _ = SelectObject(dc, previousBrush); }
+                if (previousBitmap != IntPtr.Zero) { _ = SelectObject(dc, previousBitmap); }
+                foreach (var resource in new[] { pen, brush, bitmap }) { if (resource != IntPtr.Zero) { _ = DeleteObject(resource); } }
+                if (dc != IntPtr.Zero) { _ = DeleteDC(dc); }
+                _ = EndPaint(window, ref paint);
+            }
+        }
+
+        public void Dispose()
+        {
+            if (disposed) { return; }
+            disposed = true;
+            if (IsWindow(window)) { _ = RemoveWindowSubclass(window, procedure, SubclassId); }
+        }
+    }
+
     internal const uint TimerMessage = 0x0113;
     internal const uint TooltipAddTool = 0x0432;
     internal const uint TooltipUpdateText = 0x0439;

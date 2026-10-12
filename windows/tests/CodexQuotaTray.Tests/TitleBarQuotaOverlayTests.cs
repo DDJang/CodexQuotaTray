@@ -176,7 +176,7 @@ public sealed class TitleBarQuotaOverlayTests
         Assert.AreEqual($"{label} 5小时 {first}% · +2", result.CompactText);
         StringAssert.Contains(result.TooltipText, "自定义：");
         StringAssert.Contains(result.TooltipText, "18分后");
-        StringAssert.Contains(result.TooltipText, windows[0].ResetAtUtc!.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz", System.Globalization.CultureInfo.InvariantCulture));
+        StringAssert.Contains(result.TooltipText, windows[0].ResetAtUtc!.Value.ToLocalTime().ToString("M月d日 HH:mm", System.Globalization.CultureInfo.InvariantCulture));
         Assert.IsFalse(result.TooltipText.Contains("过时的相对时间", StringComparison.Ordinal));
     }
 
@@ -195,6 +195,110 @@ public sealed class TitleBarQuotaOverlayTests
         // Different timestamp offsets still identify the same instant.
         Assert.AreEqual("待更新", TitleBarQuotaOverlay.ResetCountdown(now.ToOffset(TimeSpan.FromHours(8)), now));
     }
+
+    [TestMethod]
+    public void TooltipCombinesRelativeAndLocalResetTimeOnOneLineWithoutTechnicalZoneText()
+    {
+        var now = DateTimeOffset.Parse("2026-10-12T04:28:00Z");
+        var zone = TimeZoneInfo.CreateCustomTimeZone("test-local", TimeSpan.FromHours(8), "test", "test");
+        var window = QuotaWindowView.Demo("5 小时额度", 100, "旧时间", "旧时间") with { ResetAtUtc = now.AddMinutes(291).AddSeconds(43) };
+        var result = TitleBarQuotaOverlay.Project(State(window), now: now, timeZone: zone);
+        StringAssert.StartsWith(result.TooltipText, "5 小时：剩余 100% · 重置：4小时51分后（10月12日 17:19）\n");
+        StringAssert.EndsWith(result.TooltipText, "点击ChatGPT标题栏刷新");
+        Assert.IsFalse(result.TooltipText.Contains("2026", StringComparison.Ordinal));
+        Assert.IsFalse(result.TooltipText.Contains("+08", StringComparison.Ordinal));
+        Assert.IsFalse(result.TooltipText.Contains("UTC", StringComparison.Ordinal));
+        Assert.IsFalse(result.TooltipText.Contains("重置时间：", StringComparison.Ordinal));
+        Assert.IsFalse(result.TooltipText.Contains("旧时间", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void SnapshotUpdatesWithinAMinuteDoNotJitterCountdownTextButDeadlineStillChangesIt()
+    {
+        var now = DateTimeOffset.Parse("2026-10-12T04:28:00Z");
+        var window = QuotaWindowView.Demo("窗口", 13, "旧时间", "未知") with { ResetAtUtc = now.AddMinutes(2).AddSeconds(20) };
+        var state = State(window);
+        var first = TitleBarQuotaOverlay.Project(state, now: now);
+        Assert.AreEqual(first, TitleBarQuotaOverlay.Project(state, now: now.AddSeconds(59)));
+        StringAssert.Contains(first.Text, "2分后");
+        StringAssert.Contains(TitleBarQuotaOverlay.Project(state, now: now.AddMinutes(1)).Text, "1分后");
+        StringAssert.Contains(TitleBarQuotaOverlay.Project(state, now: now.AddMinutes(2).AddSeconds(19)).Text, "1分后");
+        StringAssert.Contains(TitleBarQuotaOverlay.Project(state, now: now.AddMinutes(2).AddSeconds(20)).Text, "待更新");
+    }
+
+    [TestMethod]
+    public void TooltipListsFiveSoonestAvailableCardsAndKeepsTheAuthoritativeCount()
+    {
+        var now = DateTimeOffset.Parse("2026-10-12T04:28:00Z");
+        var cards = Enumerable.Range(1, 7).Reverse().Select(day => Card(now.AddDays(day))).ToList();
+        cards.Add(Card(now) with { Status = "used" });
+        cards.Add(Card(now) with { Status = null });
+        var state = State() with { ResetCredits = new(ResetCreditKind.CompleteDetails, 7, Credits: cards) };
+        var text = TitleBarQuotaOverlay.Project(state, now: now, timeZone: TimeZoneInfo.Utc).TooltipText;
+        StringAssert.Contains(text, "重置卡：7 张");
+        for (var index = 1; index <= 5; index++)
+        {
+            StringAssert.Contains(text, $"第{index}张：10月{12 + index}日 04:28 到期 · 剩余{index}天0小时");
+        }
+        StringAssert.Contains(text, "…另有2张未显示");
+        Assert.IsFalse(text.Contains("第6张", StringComparison.Ordinal));
+        Assert.IsFalse(text.Contains("10月18日", StringComparison.Ordinal));
+        Assert.IsFalse(text.Contains("匿名卡ID", StringComparison.Ordinal));
+        Assert.IsFalse(text.Contains("其余", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void MissingCardDetailsAndUnknownExpiryAreNotInventedOrCountedAsZero()
+    {
+        var now = DateTimeOffset.Parse("2026-10-12T04:28:00Z");
+        var cards = new[] { Card(null), Card(now.AddMinutes(-1)), Card(now.AddHours(2)) };
+        var state = State() with { ResetCredits = new(ResetCreditKind.PartialDetails, 7, Credits: cards) };
+        var text = TitleBarQuotaOverlay.Project(state, now: now, timeZone: TimeZoneInfo.Utc).TooltipText;
+        StringAssert.Contains(text, "重置卡：7 张");
+        StringAssert.Contains(text, "第1张：10月12日 04:27 到期 · 已到期");
+        StringAssert.Contains(text, "第2张：10月12日 06:28 到期 · 剩余2小时0分");
+        StringAssert.Contains(text, "第3张：到期时间未知");
+        StringAssert.Contains(text, "其余4张的到期信息未提供");
+        var unavailable = TitleBarQuotaOverlay.Project(state with { ResetCredits = new(ResetCreditKind.Unavailable, Credits: cards) }, now: now).TooltipText;
+        StringAssert.Contains(unavailable, "重置卡信息未提供");
+        Assert.IsFalse(unavailable.Contains("0 张", StringComparison.Ordinal));
+        Assert.IsFalse(unavailable.Contains("第1张", StringComparison.Ordinal));
+        var countOnly = TitleBarQuotaOverlay.Project(state with { ResetCredits = new(ResetCreditKind.CountOnly, 2) }, now: now).TooltipText;
+        StringAssert.Contains(countOnly, "重置卡：2 张\n到期信息未提供");
+        var empty = TitleBarQuotaOverlay.Project(state with { ResetCredits = new(ResetCreditKind.Empty, 0, Credits: cards) }, now: now).TooltipText;
+        StringAssert.Contains(empty, "重置卡：0 张");
+        Assert.IsFalse(empty.Contains("第1张", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ExtraUnreportedDetailsNeverOverrideServerCountAndPartialOverflowStaysExplicit()
+    {
+        var now = DateTimeOffset.Parse("2026-10-12T04:28:00Z");
+        var cards = Enumerable.Range(1, 8).Select(day => Card(now.AddDays(day))).ToArray();
+        var state = State() with { ResetCredits = new(ResetCreditKind.PartialDetails, 10, Credits: cards) };
+        var text = TitleBarQuotaOverlay.Project(state, now: now).TooltipText;
+        StringAssert.Contains(text, "重置卡：10 张");
+        StringAssert.Contains(text, "…另有3张未显示");
+        StringAssert.Contains(text, "其余2张的到期信息未提供");
+        var overreported = TitleBarQuotaOverlay.Project(state with { ResetCredits = new(ResetCreditKind.PartialDetails, 2, Credits: cards) }, now: now).TooltipText;
+        StringAssert.Contains(overreported, "重置卡：2 张");
+        Assert.IsFalse(overreported.Contains("第3张", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void CardsKeepMinuteAndExpiryUpdatesAliveWhenQuotaResetTimesAreUnknown()
+    {
+        var now = DateTimeOffset.Parse("2026-10-12T04:28:10Z");
+        var cards = new ResetCreditViewState(ResetCreditKind.CompleteDetails, 1, Credits: [Card(now.AddSeconds(20))]);
+        Assert.AreEqual(now.AddSeconds(20), TitleBarQuotaOverlay.NextCountdownUpdateAt([], now, cards));
+        Assert.IsTrue(TitleBarQuotaOverlay.NeedsCountdownUpdate([], now, now.AddSeconds(20), cards));
+        Assert.IsNull(TitleBarQuotaOverlay.NextCountdownUpdateAt([], now.AddSeconds(20), cards));
+        Assert.IsNull(TitleBarQuotaOverlay.NextCountdownUpdateAt([], now, cards with { AvailableCount = 0 }));
+        var later = cards with { Credits = [Card(now.AddHours(2))] };
+        Assert.AreEqual(now.AddSeconds(50), TitleBarQuotaOverlay.NextCountdownUpdateAt([], now, later));
+    }
+
+    private static ResetCreditView Card(DateTimeOffset? expiry) => new("匿名卡ID", null, "available", null, expiry, null, null);
 
     [TestMethod]
     public void DeadlineInsideTheSameMinuteUpdatesBeforeTheLastTimerStops()

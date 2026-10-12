@@ -15,6 +15,57 @@ public sealed class TitleBarOverlayOwnerTests
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool EnumWindows(EnumWindowCallback callback, IntPtr parameter);
 
+    [DllImport("user32.dll")]
+    private static extern int GetWindowRgn(IntPtr window, IntPtr region);
+
+    [DllImport("gdi32.dll")]
+    private static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PtInRegion(IntPtr region, int x, int y);
+
+    [TestMethod]
+    [DataRow(96u)]
+    [DataRow(192u)]
+    public void RoundedTooltipClipsCornersRecalculatesAfterResizeAndSuppressesErase(uint dpi)
+    {
+        var controls = new TitleBarOverlayNative.CommonControls { Size = (uint)Marshal.SizeOf<TitleBarOverlayNative.CommonControls>(), Classes = 0xFF };
+        Assert.IsTrue(TitleBarOverlayNative.InitCommonControlsEx(ref controls));
+        var owner = CreateHiddenWindow();
+        var tooltip = NativeMethods.CreateWindowEx(NativeMethods.WsExNoActivate | NativeMethods.WsExToolWindow,
+            "tooltips_class32", string.Empty, NativeMethods.WsPopup | 0x33, 0, 0, 0, 0,
+            owner, IntPtr.Zero, NativeMethods.GetModuleHandle(null), IntPtr.Zero);
+        var font = TitleBarOverlayNative.CreateFont(-(int)(14 * dpi / 96), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 4, 0, "Segoe UI");
+        var region = CreateRectRgn(0, 0, 0, 0);
+        try
+        {
+            Assert.AreNotEqual(IntPtr.Zero, tooltip);
+            using var surface = new TitleBarOverlayNative.TooltipSurface(tooltip);
+            surface.Update("窗口：剩余 13% · 重置：2小时后\n点击ChatGPT标题栏刷新", dpi, font);
+            Assert.IsTrue(NativeMethods.SetWindowPos(tooltip, IntPtr.Zero, 0, 0, 300, 180, NativeMethods.SwpNoActivate | NativeMethods.SwpNoZOrder));
+            Assert.AreNotEqual(0, GetWindowRgn(tooltip, region));
+            Assert.IsFalse(PtInRegion(region, 0, 0));
+            Assert.IsTrue(PtInRegion(region, 150, 90));
+            Assert.AreEqual(new IntPtr(1), TitleBarOverlayNative.SendMessage(tooltip, 0x0014, UIntPtr.Zero, IntPtr.Zero));
+            Assert.IsTrue(NativeMethods.SetWindowPos(tooltip, IntPtr.Zero, 0, 0, 400, 240, NativeMethods.SwpNoActivate | NativeMethods.SwpNoZOrder));
+            Assert.AreNotEqual(0, GetWindowRgn(tooltip, region));
+            Assert.IsTrue(PtInRegion(region, 350, 200));
+            Assert.IsFalse(PtInRegion(region, 0, 0));
+            // Exercise a full buffered paint without showing or activating any HWND.
+            _ = TitleBarOverlayNative.InvalidateRect(tooltip, IntPtr.Zero, false);
+            _ = TitleBarOverlayNative.SendMessage(tooltip, 0x000F, UIntPtr.Zero, IntPtr.Zero);
+            Assert.IsFalse(TitleBarOverlayNative.IsWindowVisible(tooltip));
+            Assert.IsFalse(TitleBarOverlayNative.IsWindowVisible(owner));
+        }
+        finally
+        {
+            _ = NativeMethods.DestroyWindow(owner);
+            _ = TitleBarOverlayNative.DeleteObject(font);
+            _ = TitleBarOverlayNative.DeleteObject(region);
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct TimerMessage
     {
