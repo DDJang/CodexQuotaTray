@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.11.11",
-    "tag": "windows-v0.11.11",
+    "version": "0.11.12",
+    "tag": "windows-v0.11.12",
     "installer": {
-      "name": "CodexQuotaTray-0.11.11-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.11/CodexQuotaTray-0.11.11-setup.exe",
-      "sha256": "0044ab2106f20657e95ffc2f3454eecbbb6fe45c582d87c9e5d7e31a2a7e49bd",
-      "size": 48594274
+      "name": "CodexQuotaTray-0.11.12-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.12/CodexQuotaTray-0.11.12-setup.exe",
+      "sha256": "a9f1ab5dcaa7823db4c14b76ae479221b58829e520752a894c38838229a20146",
+      "size": 48588669
     },
-    "releaseNotes": "### 轻量面板布局\r\n\r\n- 将轻量模式开关移至面板右上角，与标题对齐，操作更直观。\r\n- 缩小轻量面板宽度，减少顶部留白和内容间距，让整体布局更紧凑。\r\n",
-    "publishedAt": "2026-10-08T15:15:41Z"
+    "releaseNotes": "### 标题栏悬停详情\r\n\r\n- 将倒计时与重置时间合并到同一行，使用与主面板一致的本地日期和时间，不再显示年份、秒和时区偏移。\r\n- 增加可用重置卡张数、每张卡的到期时间和剩余时间，按最近到期排序，最多展示 5 张；缺失详情明确提示。\r\n- 为悬停提示增加圆角，并明确提示“点击ChatGPT标题栏刷新”。\r\n\r\n### 显示稳定性\r\n\r\n- 减少倒计时更新时的文字闪烁，同一分钟内保持显示稳定，到期后仍及时更新。\r\n",
+    "publishedAt": "2026-10-12T05:29:39Z"
   },
   "android": {
     "version": "0.11.10",
