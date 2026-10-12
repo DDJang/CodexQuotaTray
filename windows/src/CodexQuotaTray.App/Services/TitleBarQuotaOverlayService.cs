@@ -23,6 +23,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private readonly IntPtr instance = NativeMethods.GetModuleHandle(null);
     private IntPtr window;
     private IntPtr tooltip;
+    private TitleBarOverlayNative.TooltipSurface? tooltipSurface;
     private IntPtr tooltipTextBuffer;
     private IntPtr tooltipFont;
     private uint tooltipDpi;
@@ -188,8 +189,9 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         };
         if (!TitleBarOverlayNative.InitCommonControlsEx(ref controls)) { throw LastError(); }
         tooltip = NativeMethods.CreateWindowEx(NativeMethods.WsExNoActivate | NativeMethods.WsExToolWindow,
-            "tooltips_class32", string.Empty, NativeMethods.WsPopup | 3, 0, 0, 0, 0, window, IntPtr.Zero, instance, IntPtr.Zero);
+            "tooltips_class32", string.Empty, NativeMethods.WsPopup | 0x33, 0, 0, 0, 0, window, IntPtr.Zero, instance, IntPtr.Zero);
         if (tooltip == IntPtr.Zero) { throw LastError(); }
+        tooltipSurface = new TitleBarOverlayNative.TooltipSurface(tooltip);
         tooltipTextBuffer = Marshal.StringToHGlobalUni(string.Empty);
         var info = TooltipInfo();
         if (TitleBarOverlayNative.SendTooltipMessage(tooltip, TitleBarOverlayNative.TooltipAddTool, UIntPtr.Zero, ref info) == IntPtr.Zero)
@@ -218,6 +220,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
                 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 4, 0, "Segoe UI");
             if (nextFont == IntPtr.Zero) { throw LastError(); }
             _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipPop, UIntPtr.Zero, IntPtr.Zero);
+            tooltipSurface?.Update(text, dpi, nextFont);
             _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.SetFont,
                 new UIntPtr(unchecked((ulong)nextFont.ToInt64())), IntPtr.Zero);
             if (tooltipFont != IntPtr.Zero) { _ = TitleBarOverlayNative.DeleteObject(tooltipFont); }
@@ -231,6 +234,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
                 new IntPtr((int)Math.Ceiling(600 * dpi / 96d)));
         }
         if (text == tooltipText) { return; }
+        tooltipSurface?.Update(text, dpi, tooltipFont);
         var previous = tooltipTextBuffer;
         tooltipTextBuffer = Marshal.StringToHGlobalUni(text);
         var info = TooltipInfo();
@@ -241,6 +245,8 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
 
     private void DestroyTooltip()
     {
+        tooltipSurface?.Dispose();
+        tooltipSurface = null;
         if (tooltip != IntPtr.Zero && TitleBarOverlayNative.IsWindow(tooltip)) { _ = NativeMethods.DestroyWindow(tooltip); }
         tooltip = IntPtr.Zero;
         if (tooltipFont != IntPtr.Zero) { _ = TitleBarOverlayNative.DeleteObject(tooltipFont); tooltipFont = IntPtr.Zero; }
@@ -259,7 +265,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private void UpdateCountdownTimer(DateTimeOffset projectedAt)
     {
         var dueAt = lastSnapshot is { } snapshot
-            ? TitleBarQuotaOverlay.NextCountdownUpdateAt(snapshot.Windows, projectedAt)
+            ? TitleBarQuotaOverlay.NextCountdownUpdateAt(snapshot.Windows, projectedAt, snapshot.ResetCredits)
             : null;
         if (dueAt is null) { StopCountdownTimer(); return; }
         // Repeated host/geometry events must not restart the same absolute deadline.
@@ -364,7 +370,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         }
         // Recompute from absolute timestamps, including immediately after restoring a hidden host.
         var now = DateTimeOffset.UtcNow;
-        if (lastSnapshot is not null && TitleBarQuotaOverlay.NeedsCountdownUpdate(lastSnapshot.Windows, presentationTime, now))
+        if (lastSnapshot is not null && TitleBarQuotaOverlay.NeedsCountdownUpdate(lastSnapshot.Windows, presentationTime, now, lastSnapshot.ResetCredits))
         {
             UpdatePresentation(now);
         }
@@ -435,6 +441,9 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         var ownerChanged = TitleBarOverlayNative.GetWindow(window, 4) != target;
         var showing = !TitleBarOverlayNative.IsWindowVisible(window);
         TitleBarOverlayNative.AttachOwner(window, target);
+        // UpdateLayeredWindow commits the new pixels, size and position together.
+        // Resizing first would temporarily expose the old raster or an empty frame.
+        if (repaint) { Render(hwnd: window); }
         if (ownerChanged || showing || frame != renderedFrame)
         {
             var zOrder = ownerChanged || showing
@@ -443,12 +452,11 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
             // NOOWNERZORDER prevents showing a background companion from raising
             // its host. Geometry-only changes preserve the existing stacking order.
             if (!NativeMethods.SetWindowPos(window, zOrder.After, rectangle.X, rectangle.Y, rectangle.Width, rectangle.Height,
-                NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow | 0x0200 | zOrder.Flags))
+                NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow | 0x0200 | zOrder.Flags | (repaint ? 0x0003u : 0u)))
             {
                 throw LastError();
             }
         }
-        if (repaint) { _ = TitleBarOverlayNative.InvalidateRect(window, IntPtr.Zero, false); }
         renderedFrame = frame;
         UpdateTooltip(presentation.TooltipText);
         UpdateCountdownTimer(now);
@@ -628,7 +636,9 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         }
         if (message == 0x000F)
         {
-            Paint(hwnd);
+            // Layered pixels are retained by Windows; only validate the paint region.
+            _ = TitleBarOverlayNative.BeginPaint(hwnd, out var paint);
+            _ = TitleBarOverlayNative.EndPaint(hwnd, ref paint);
             return IntPtr.Zero;
         }
 
@@ -674,14 +684,14 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         }
     }
 
-    private void Paint(IntPtr hwnd)
+    private void Render(IntPtr hwnd)
     {
-        var destination = TitleBarOverlayNative.BeginPaint(hwnd, out var paint);
+        var destination = TitleBarOverlayNative.GetDC(hwnd);
         try
         {
             if (destination == IntPtr.Zero || placement.Width <= 0 || placement.Height <= 0)
             {
-                return;
+                throw LastError();
             }
 
             var dc = TitleBarOverlayNative.CreateCompatibleDC(destination);
@@ -702,7 +712,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
             {
                 if (dc == IntPtr.Zero || bitmap == IntPtr.Zero || pixels == IntPtr.Zero || font == IntPtr.Zero || clear == IntPtr.Zero)
                 {
-                    return;
+                    throw LastError();
                 }
 
                 oldBitmap = TitleBarOverlayNative.SelectObject(dc, bitmap);
@@ -729,7 +739,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
                 var blend = new TitleBarOverlayNative.BlendFunction { ConstantAlpha = 255, AlphaFormat = 1 };
                 if (!TitleBarOverlayNative.UpdateLayeredWindow(hwnd, IntPtr.Zero, ref position, ref size, dc, ref source, 0, ref blend, 2))
                 {
-                    status = $"redraw unavailable (Win32 {Marshal.GetLastWin32Error()})";
+                    throw LastError();
                 }
             }
             finally
@@ -745,7 +755,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         }
         finally
         {
-            _ = TitleBarOverlayNative.EndPaint(hwnd, ref paint);
+            if (destination != IntPtr.Zero) { _ = TitleBarOverlayNative.ReleaseDC(hwnd, destination); }
         }
     }
 
