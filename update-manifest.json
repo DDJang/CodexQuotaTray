@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
   "windows": {
-    "version": "0.11.12",
-    "tag": "windows-v0.11.12",
+    "version": "0.11.13",
+    "tag": "windows-v0.11.13",
     "installer": {
-      "name": "CodexQuotaTray-0.11.12-setup.exe",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.12/CodexQuotaTray-0.11.12-setup.exe",
-      "sha256": "a9f1ab5dcaa7823db4c14b76ae479221b58829e520752a894c38838229a20146",
-      "size": 48588669
+      "name": "CodexQuotaTray-0.11.13-setup.exe",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/windows-v0.11.13/CodexQuotaTray-0.11.13-setup.exe",
+      "sha256": "cceb506595fa07d691adac562bf6c5a7d01a07ac89e67b13cba3c96535b007df",
+      "size": 48600184
     },
-    "releaseNotes": "### 标题栏悬停详情\r\n\r\n- 将倒计时与重置时间合并到同一行，使用与主面板一致的本地日期和时间，不再显示年份、秒和时区偏移。\r\n- 增加可用重置卡张数、每张卡的到期时间和剩余时间，按最近到期排序，最多展示 5 张；缺失详情明确提示。\r\n- 为悬停提示增加圆角，并明确提示“点击ChatGPT标题栏刷新”。\r\n\r\n### 显示稳定性\r\n\r\n- 减少倒计时更新时的文字闪烁，同一分钟内保持显示稳定，到期后仍及时更新。\r\n",
-    "publishedAt": "2026-10-12T05:29:39Z"
+    "releaseNotes": "### 标题栏悬停详情\r\n\r\n- 调整详情提示框的位置，避免手形鼠标遮挡首行文字，并适配屏幕边缘与不同缩放比例。\r\n- 点击标题栏刷新后暂时收起详情，刷新完成后再恢复悬停，避免“刷新中…”详情反复出现造成闪烁。\r\n\r\n### 轻量模式面板\r\n\r\n- 与完整面板统一交互：单击托盘图标打开，再次单击关闭；失去焦点时保持显示。\r\n- 复用完整面板的背景配色和圆角，减少快速开关时的黑色背景闪烁。\r\n",
+    "publishedAt": "2026-10-15T10:57:49Z"
   },
   "android": {
     "version": "0.11.10",
