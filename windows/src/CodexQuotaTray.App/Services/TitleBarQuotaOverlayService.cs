@@ -15,6 +15,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private readonly Func<Action, bool> enqueue;
     private readonly Func<Task> refresh;
     private readonly TitleBarOverlayRefreshGate refreshGate = new();
+    private readonly TitleBarOverlayRevealGate revealGate = new();
     private Point? pressedAt;
     private readonly NativeMethods.WindowProcedure windowProcedure;
     private readonly TitleBarOverlayNative.WinEventCallback eventCallback;
@@ -32,6 +33,9 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private bool countdownTimerRunning;
     private DateTimeOffset? countdownTimerDueAt;
     private static readonly UIntPtr CountdownTimerId = new(1);
+    private static readonly UIntPtr RevealTimerId = new(2);
+    private long? revealTimerDueAt;
+    private bool overlayCloaked;
     private IntPtr target;
     private uint targetProcessId;
     private bool registered;
@@ -168,6 +172,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private void CreateOverlayWindow()
     {
         renderedFrame = null;
+        overlayCloaked = false;
         window = NativeMethods.CreateWindowEx(
             TitleBarOverlayNative.WsExLayered | NativeMethods.WsExToolWindow
                 | NativeMethods.WsExNoActivate,
@@ -177,6 +182,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         {
             throw LastError();
         }
+        SetOverlayCloaked(true);
         CreateTooltip();
     }
 
@@ -291,6 +297,31 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         countdownTimerRunning = true;
     }
 
+    private void StopRevealTimer()
+    {
+        if (revealTimerDueAt is not null && window != IntPtr.Zero) { _ = TitleBarOverlayNative.KillTimer(window, RevealTimerId); }
+        revealTimerDueAt = null;
+    }
+
+    private void ArmRevealTimer(long now)
+    {
+        var dueAt = revealGate.NextCheckAtMilliseconds;
+        if (dueAt is null || dueAt == revealTimerDueAt) { return; }
+        var delay = (uint)Math.Clamp(dueAt.Value - now, 1, TitleBarOverlayRevealGate.MaximumSettleMilliseconds);
+        if (TitleBarOverlayNative.SetTimer(window, RevealTimerId, delay, IntPtr.Zero) == UIntPtr.Zero) { throw LastError(); }
+        revealTimerDueAt = dueAt;
+    }
+
+    private void SetOverlayCloaked(bool value)
+    {
+        if (window == IntPtr.Zero || overlayCloaked == value) { return; }
+        var enabledValue = value ? 1 : 0;
+        if (NativeMethods.DwmSetWindowAttribute(window, NativeMethods.DwmwaCloak, ref enabledValue, sizeof(int)) == 0)
+        {
+            overlayCloaked = value;
+        }
+    }
+
     private void OnWindowEvent(IntPtr hook, uint eventType, IntPtr hwnd, int objectId, int childId, uint threadId, uint time)
     {
         if (disposed || !enabled || failed || hwnd == IntPtr.Zero
@@ -314,6 +345,21 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         if (eventType == TitleBarOverlayNative.Destroy)
         {
             SetTarget(IntPtr.Zero);
+        }
+        else if (eventType is TitleBarOverlayNative.MinimizeStart or TitleBarOverlayNative.Hide or TitleBarOverlayNative.Cloaked)
+        {
+            // Cloaking also prevents Windows from automatically revealing an owned
+            // popup before the owner's restore animation has finished.
+            Hide("host transition started", detach: false);
+        }
+        else if (eventType is TitleBarOverlayNative.MinimizeEnd or TitleBarOverlayNative.Show or TitleBarOverlayNative.Uncloaked)
+        {
+            revealGate.BeginRestore(Environment.TickCount64);
+            Hide("waiting for host restore", detach: false, preserveRevealGate: true);
+        }
+        else if (eventType == TitleBarOverlayNative.LocationChange)
+        {
+            revealGate.GeometryChanged(Environment.TickCount64);
         }
         QueueUpdate(eventType == TitleBarOverlayNative.Destroy);
     }
@@ -354,6 +400,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
             if (!TitleBarOverlayNative.IsWindow(window))
             {
                 StopCountdownTimer();
+                StopRevealTimer();
                 DestroyTooltip();
                 window = IntPtr.Zero;
                 renderedFrame = null;
@@ -427,6 +474,14 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         {
             CreateOverlayWindow();
         }
+        var tick = Environment.TickCount64;
+        if (!revealGate.CanReveal(host, tick))
+        {
+            Hide("waiting for host restore", detach: false, preserveRevealGate: true);
+            ArmRevealTimer(tick);
+            return;
+        }
+        StopRevealTimer();
         var text = presentation.Text;
         var fullWidth = MeasureCached(text, ref fullMeasurement);
         var maxWidth = (int)Math.Ceiling(640 * dpi / 96d);
@@ -473,6 +528,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
                 throw LastError();
             }
         }
+        SetOverlayCloaked(false);
         renderedFrame = frame;
         UpdateTooltip(presentation.TooltipText);
         UpdateCountdownTimer(now);
@@ -481,6 +537,12 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
 
     private void SetTarget(IntPtr value)
     {
+        if (target != value)
+        {
+            revealGate.Reset();
+            StopRevealTimer();
+            SetOverlayCloaked(true);
+        }
         target = value;
         _ = TitleBarOverlayNative.GetWindowThreadProcessId(value, out targetProcessId);
     }
@@ -601,6 +663,15 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
 
     private IntPtr WindowProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
     {
+        if (message == TitleBarOverlayNative.TimerMessage && wParam == RevealTimerId)
+        {
+            if (revealTimerDueAt is not null)
+            {
+                StopRevealTimer();
+                UpdateSafely();
+            }
+            return IntPtr.Zero;
+        }
         if (message == TitleBarOverlayNative.NotifyMessage && lParam != IntPtr.Zero)
         {
             var notification = Marshal.PtrToStructure<TitleBarOverlayNative.NotificationHeader>(lParam);
@@ -662,6 +733,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
             // Destroying an owner can destroy its owned popup. Keep the event hooks
             // and class alive so a later eligible host gets a fresh companion HWND.
             StopCountdownTimer();
+            StopRevealTimer();
             DestroyTooltip();
             window = IntPtr.Zero;
             renderedFrame = null;
@@ -799,9 +871,15 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         }
     }
 
-    private void Hide(string reason, bool detach = true)
+    private void Hide(string reason, bool detach = true, bool preserveRevealGate = false)
     {
         StopCountdownTimer();
+        if (!preserveRevealGate)
+        {
+            revealGate.Reset();
+            StopRevealTimer();
+        }
+        SetOverlayCloaked(true);
         if (tooltip != IntPtr.Zero) { _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipPop, UIntPtr.Zero, IntPtr.Zero); }
         pressedAt = null;
         if (window != IntPtr.Zero && TitleBarOverlayNative.GetCapture() == window) { _ = TitleBarOverlayNative.ReleaseCapture(); }
@@ -824,6 +902,8 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private void StopNative()
     {
         StopCountdownTimer();
+        StopRevealTimer();
+        revealGate.Reset();
         DestroyTooltip();
         SetTarget(IntPtr.Zero);
         foreach (var hook in hooks) { _ = TitleBarOverlayNative.UnhookWinEvent(hook); }
