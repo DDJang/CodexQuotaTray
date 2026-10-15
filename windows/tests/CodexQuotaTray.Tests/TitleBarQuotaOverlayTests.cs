@@ -90,6 +90,24 @@ public sealed class TitleBarQuotaOverlayTests
     }
 
     [TestMethod]
+    public void TooltipStaysUnavailableDuringRefreshAndRestoresFinalOrFailedDetails()
+    {
+        var state = State(QuotaWindowView.Demo("5 小时", 12, "稍后", "12:00"));
+        var refreshing = TitleBarQuotaOverlay.Project(state with { IsRefreshing = true });
+        StringAssert.Contains(refreshing.Text, "刷新中");
+        Assert.AreEqual(string.Empty, refreshing.TooltipText);
+
+        var completed = TitleBarQuotaOverlay.Project(state);
+        StringAssert.Contains(completed.TooltipText, "剩余 12%");
+        Assert.IsFalse(completed.TooltipText.Contains("刷新中", StringComparison.Ordinal));
+
+        var failed = TitleBarQuotaOverlay.Project(state with { StatusTone = StatusTone.Error, StatusText = "刷新失败：连接已断开" });
+        StringAssert.Contains(failed.TooltipText, "离线 · 上次数据");
+        StringAssert.Contains(failed.TooltipText, "剩余 12%");
+        Assert.AreEqual(string.Empty, TitleBarQuotaOverlay.Project(State() with { IsRefreshing = true }).TooltipText);
+    }
+
+    [TestMethod]
     public void RefreshFailureKeepsLastValueAndLabelsItBeforeQuotaText()
     {
         var state = State(QuotaWindowView.Demo("窗口", 19, "稍后", "12:00")) with

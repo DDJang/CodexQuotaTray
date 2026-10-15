@@ -56,6 +56,8 @@ public static class TitleBarQuotaOverlay
 
     private static string FormatTooltip(AppUiState state, bool remaining, DateTimeOffset now, TimeZoneInfo timeZone, string status)
     {
+        // Keep transient refresh progress in the title bar, not in a resizing tooltip.
+        if (state.IsRefreshing) { return string.Empty; }
         var lines = new List<string>();
         if (status.Length > 0) { lines.Add(status); }
         foreach (var window in state.Windows)
