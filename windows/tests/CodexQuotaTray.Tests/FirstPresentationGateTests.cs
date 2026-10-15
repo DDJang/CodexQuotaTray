@@ -81,6 +81,42 @@ public sealed class FirstPresentationGateTests
     }
 
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task RapidHideAndShowDuringFirstRenderHonorsLatestVisibility(bool finalVisible)
+    {
+        var gate = new FirstPresentationGate();
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var visible = true;
+        var events = new List<string>();
+        var presentation = gate.PresentAsync(
+            value => { events.Add(value ? "cloak" : "uncloak"); return true; },
+            () => events.Add("present"),
+            _ => ready.Task,
+            () => visible,
+            () => events.Add("hide"),
+            () => events.Add("revealed"),
+            TimeSpan.FromSeconds(1),
+            CancellationToken.None);
+
+        for (var click = 0; click < 20; click++)
+        {
+            visible = !visible;
+            if (visible)
+            {
+                Assert.AreEqual(FirstPresentationOutcome.Coalesced, await PresentAsync(gate, events));
+            }
+        }
+        visible = finalVisible;
+        ready.SetResult();
+        await presentation;
+
+        CollectionAssert.AreEqual(finalVisible
+            ? new[] { "cloak", "present", "uncloak", "revealed" }
+            : new[] { "cloak", "present", "hide", "uncloak" }, events);
+    }
+
+    [TestMethod]
     public async Task ReadinessFailureAlwaysUncloaks()
     {
         var gate = new FirstPresentationGate();

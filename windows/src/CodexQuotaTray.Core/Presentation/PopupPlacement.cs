@@ -43,6 +43,17 @@ public static class PopupPlacement
             ClampOrigin(workArea.Right - popup.Width - margin, workArea.Left, workArea.Right, popup.Width, margin),
             ClampOrigin(workArea.Bottom - popup.Height - margin, workArea.Top, workArea.Bottom, popup.Height, margin));
 
+    public static Point PlaceTooltip(Point cursor, Rectangle workArea, Size popup, double scale)
+    {
+        var margin = DipsToPixels(8, scale);
+        // Leave room for the hand cursor below its hotspot, not just the hotspot itself.
+        var belowCursor = cursor.Y + DipsToPixels(32, scale);
+        var y = belowCursor + popup.Height <= workArea.Bottom - margin
+            ? belowCursor
+            : cursor.Y - margin - popup.Height;
+        return ClampToWorkArea(new Point(cursor.X + DipsToPixels(12, scale), y), workArea, popup, margin);
+    }
+
     public static Point ClampToWorkArea(Point location, Rectangle workArea, Size popup, int margin)
     {
         return new Point(

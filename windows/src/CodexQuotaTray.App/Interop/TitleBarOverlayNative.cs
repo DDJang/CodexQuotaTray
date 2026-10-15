@@ -172,6 +172,17 @@ internal static class TitleBarOverlayNative
 
     internal const uint TimerMessage = 0x0113;
     internal const uint TooltipAddTool = 0x0432;
+    internal const uint TooltipActivate = 0x0401;
+    internal const uint NotifyMessage = 0x004E;
+    internal const uint TooltipShowNotification = unchecked((uint)-521);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NotificationHeader
+    {
+        internal IntPtr Window;
+        internal UIntPtr Id;
+        internal uint Code;
+    }
     internal const uint TooltipUpdateText = 0x0439;
     internal const uint TooltipPop = 0x041C;
     internal const uint TooltipMaxWidth = 0x0418;

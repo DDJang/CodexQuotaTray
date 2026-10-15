@@ -28,6 +28,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private IntPtr tooltipFont;
     private uint tooltipDpi;
     private string tooltipText = string.Empty;
+    private bool? tooltipActive;
     private bool countdownTimerRunning;
     private DateTimeOffset? countdownTimerDueAt;
     private static readonly UIntPtr CountdownTimerId = new(1);
@@ -212,6 +213,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private void UpdateTooltip(string text)
     {
         if (tooltip == IntPtr.Zero) { return; }
+        if (text.Length == 0) { SetTooltipActive(false); }
         if (tooltipDpi != dpi)
         {
             // A native tooltip's default font can stay at system DPI. Use a dedicated
@@ -233,14 +235,27 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
             _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipMaxWidth, UIntPtr.Zero,
                 new IntPtr((int)Math.Ceiling(600 * dpi / 96d)));
         }
-        if (text == tooltipText) { return; }
-        tooltipSurface?.Update(text, dpi, tooltipFont);
-        var previous = tooltipTextBuffer;
-        tooltipTextBuffer = Marshal.StringToHGlobalUni(text);
-        var info = TooltipInfo();
-        _ = TitleBarOverlayNative.SendTooltipMessage(tooltip, TitleBarOverlayNative.TooltipUpdateText, UIntPtr.Zero, ref info);
-        if (previous != IntPtr.Zero) { Marshal.FreeHGlobal(previous); }
-        tooltipText = text;
+        if (text != tooltipText)
+        {
+            tooltipSurface?.Update(text, dpi, tooltipFont);
+            var previous = tooltipTextBuffer;
+            tooltipTextBuffer = Marshal.StringToHGlobalUni(text);
+            var info = TooltipInfo();
+            _ = TitleBarOverlayNative.SendTooltipMessage(tooltip, TitleBarOverlayNative.TooltipUpdateText, UIntPtr.Zero, ref info);
+            if (previous != IntPtr.Zero) { Marshal.FreeHGlobal(previous); }
+            tooltipText = text;
+        }
+        // Install the final details before hover is allowed to show them again.
+        SetTooltipActive(text.Length > 0);
+    }
+
+    private void SetTooltipActive(bool active)
+    {
+        if (tooltip == IntPtr.Zero || tooltipActive == active) { return; }
+        tooltipActive = active;
+        _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipActivate,
+            active ? new UIntPtr(1) : UIntPtr.Zero, IntPtr.Zero);
+        if (!active) { _ = TitleBarOverlayNative.SendMessage(tooltip, TitleBarOverlayNative.TooltipPop, UIntPtr.Zero, IntPtr.Zero); }
     }
 
     private void DestroyTooltip()
@@ -249,6 +264,7 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
         tooltipSurface = null;
         if (tooltip != IntPtr.Zero && TitleBarOverlayNative.IsWindow(tooltip)) { _ = NativeMethods.DestroyWindow(tooltip); }
         tooltip = IntPtr.Zero;
+        tooltipActive = null;
         if (tooltipFont != IntPtr.Zero) { _ = TitleBarOverlayNative.DeleteObject(tooltipFont); tooltipFont = IntPtr.Zero; }
         tooltipDpi = 0;
         if (tooltipTextBuffer != IntPtr.Zero) { Marshal.FreeHGlobal(tooltipTextBuffer); tooltipTextBuffer = IntPtr.Zero; }
@@ -585,6 +601,24 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
 
     private IntPtr WindowProc(IntPtr hwnd, uint message, UIntPtr wParam, IntPtr lParam)
     {
+        if (message == TitleBarOverlayNative.NotifyMessage && lParam != IntPtr.Zero)
+        {
+            var notification = Marshal.PtrToStructure<TitleBarOverlayNative.NotificationHeader>(lParam);
+            if (notification.Window == tooltip && notification.Code == TitleBarOverlayNative.TooltipShowNotification
+                && NativeMethods.GetWindowRect(tooltip, out var bounds) && NativeMethods.GetCursorPos(out var cursor))
+            {
+                var point = new Point(cursor.X, cursor.Y);
+                var workArea = WindowPlacementService.GetWorkArea(new Rectangle(point, new Size(1, 1)));
+                var location = PopupPlacement.PlaceTooltip(point, workArea,
+                    new Size(bounds.Right - bounds.Left, bounds.Bottom - bounds.Top), dpi / 96d);
+                if (NativeMethods.SetWindowPos(tooltip, IntPtr.Zero, location.X, location.Y, 0, 0,
+                    NativeMethods.SwpNoSize | NativeMethods.SwpNoZOrder | NativeMethods.SwpNoActivate))
+                {
+                    // TTN_SHOW requires TRUE to retain our position instead of the default.
+                    return new IntPtr(1);
+                }
+            }
+        }
         if (message == TitleBarOverlayNative.TimerMessage && wParam == CountdownTimerId)
         {
             if (countdownTimerRunning)
@@ -650,13 +684,19 @@ internal sealed class TitleBarQuotaOverlayService : IDisposable
     private void QueueManualRefresh()
     {
         if (disposed || !enabled || failed || lastSnapshot?.IsRefreshing == true || !refreshGate.TryBegin()) { return; }
+        // Pop alone does not stop the native hover timer from showing the tooltip again.
+        SetTooltipActive(false);
         if (!enqueue(() =>
         {
             if (disposed || !enabled || failed) { refreshGate.Complete(); return; }
             UpdatePresentation();
             UpdateSafely();
             _ = RefreshFromClickAsync();
-        })) { refreshGate.Complete(); }
+        }))
+        {
+            refreshGate.Complete();
+            SetTooltipActive(tooltipText.Length > 0);
+        }
     }
 
     private async Task RefreshFromClickAsync()

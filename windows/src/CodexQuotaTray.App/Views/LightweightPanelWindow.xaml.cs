@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.ComponentModel;
+using System.Diagnostics;
 using CodexQuotaTray.App.Interop;
 using CodexQuotaTray.App.Services;
 using CodexQuotaTray.Core.Persistence;
@@ -7,6 +8,7 @@ using CodexQuotaTray.Core.Presentation;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Windows.Graphics;
 using WinRT.Interop;
 using BackdropKind = CodexQuotaTray.Core.Models.BackdropKind;
@@ -18,13 +20,16 @@ internal sealed partial class LightweightPanelWindow : Window, IDisposable
 {
     private readonly SettingsViewModel model;
     private readonly BackdropService backdrop = new();
+    private readonly WindowVisibilityController visibility = new();
+    private readonly FirstPresentationGate firstPresentation = new();
+    private readonly CancellationTokenSource presentationLifetime = new();
     private readonly IntPtr hwnd;
     private bool updatingSwitch;
     private bool saving;
     private bool disposed;
     private Rectangle? panelAnchor;
     private bool positionQueued;
-    internal bool IsVisible { get; private set; }
+    internal bool IsVisible => visibility.DesiredVisible;
 
     internal LightweightPanelWindow(SettingsViewModel model, string displayName)
     {
@@ -41,6 +46,9 @@ internal sealed partial class LightweightPanelWindow : Window, IDisposable
         presenter.IsMaximizable = false;
         presenter.IsMinimizable = false;
         presenter.SetBorderAndTitleBar(true, false);
+        var cornerPreference = NativeMethods.DwmWindowCornerPreferenceRound;
+        _ = NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DwmwaWindowCornerPreference,
+            ref cornerPreference, sizeof(int));
         AppWindow.Closing += OnClosing;
         Activated += OnActivated;
         PanelRoot.ActualThemeChanged += OnThemeChanged;
@@ -54,21 +62,82 @@ internal sealed partial class LightweightPanelWindow : Window, IDisposable
         SyncSwitch();
         ErrorText.Visibility = Visibility.Collapsed;
         panelAnchor = anchor;
-        IsVisible = true;
+        visibility.Show();
         ApplyTheme(mode);
         Position(anchor);
-        AppWindow.Show();
-        Activate();
-        _ = NativeMethods.SetForegroundWindow(hwnd);
-        _ = DispatcherQueue.TryEnqueue(() => { if (IsVisible) { Position(anchor); _ = ModeSwitch.Focus(FocusState.Programmatic); } });
+        _ = PresentPanelAsync();
     }
 
     internal void HidePanel()
     {
-        IsVisible = false;
+        visibility.Hide();
         AppWindow.Hide();
-        backdrop.Dispose();
-        SystemBackdrop = null;
+        // Keep the composition target alive: rebuilding acrylic on every tray click
+        // briefly exposes the unpainted HWND when the panel is reopened quickly.
+    }
+
+    private async Task PresentPanelAsync()
+    {
+        try
+        {
+            var outcome = await firstPresentation.PresentAsync(
+                SetPresentationCloaked,
+                () => { AppWindow.Show(); Activate(); },
+                WaitForPanelReadyAsync,
+                () => IsVisible && !disposed,
+                () => { if (!disposed) { AppWindow.Hide(); } },
+                () =>
+                {
+                    if (!IsVisible || disposed) { return; }
+                    // Honor the latest anchor after any coalesced first-render clicks.
+                    Position(panelAnchor);
+                    _ = NativeMethods.SetForegroundWindow(hwnd);
+                    _ = ModeSwitch.Focus(FocusState.Programmatic);
+                },
+                TimeSpan.FromSeconds(1),
+                presentationLifetime.Token);
+            if (outcome == FirstPresentationOutcome.Coalesced && IsVisible && !disposed)
+            {
+                // A hide may have paused rendering. Resume the still-cloaked HWND
+                // so the original readiness wait can finish without a timeout.
+                AppWindow.Show();
+                Activate();
+            }
+        }
+        catch (Exception error) when (error is not OutOfMemoryException and not StackOverflowException)
+        {
+            Debug.WriteLine($"Lightweight panel presentation failed: {error.GetType().Name}");
+        }
+    }
+
+    private bool SetPresentationCloaked(bool value)
+    {
+        if (disposed) { return false; }
+        var enabled = value ? 1 : 0;
+        return NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DwmwaCloak, ref enabled, sizeof(int)) == 0;
+    }
+
+    private async Task WaitForPanelReadyAsync(CancellationToken cancellationToken)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler<object> rendering = (_, _) =>
+        {
+            if (PanelRoot.IsLoaded && PanelRoot.ActualWidth > 0 && PanelRoot.ActualHeight > 0)
+            {
+                completion.TrySetResult();
+            }
+        };
+        CompositionTarget.Rendering += rendering;
+        using var registration = cancellationToken.Register(() => completion.TrySetCanceled(cancellationToken));
+        try
+        {
+            await completion.Task;
+            cancellationToken.ThrowIfCancellationRequested();
+            _ = NativeMethods.DwmFlush();
+            Position(panelAnchor);
+            _ = NativeMethods.DwmFlush();
+        }
+        finally { CompositionTarget.Rendering -= rendering; }
     }
 
     internal void ApplyTheme(ThemeMode mode)
@@ -169,7 +238,9 @@ internal sealed partial class LightweightPanelWindow : Window, IDisposable
 
     private void OnActivated(object sender, WindowActivatedEventArgs args)
     {
-        if (args.WindowActivationState == WindowActivationState.Deactivated && IsVisible) { HidePanel(); }
+        // Match the full panel: deactivation must not consume the tray click's
+        // visible state, otherwise that click hides and immediately reopens it.
+        if (args.WindowActivationState != WindowActivationState.Deactivated && IsVisible) { RefreshTheme(); }
     }
 
     private void OnClosing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -183,6 +254,8 @@ internal sealed partial class LightweightPanelWindow : Window, IDisposable
     {
         if (disposed) { return; }
         disposed = true;
+        visibility.Hide();
+        presentationLifetime.Cancel();
         model.PropertyChanged -= OnModelPropertyChanged;
         AppWindow.Closing -= OnClosing;
         Activated -= OnActivated;
@@ -190,5 +263,6 @@ internal sealed partial class LightweightPanelWindow : Window, IDisposable
         PanelRoot.SizeChanged -= OnSizeChanged;
         backdrop.Dispose();
         Close();
+        presentationLifetime.Dispose();
     }
 }
