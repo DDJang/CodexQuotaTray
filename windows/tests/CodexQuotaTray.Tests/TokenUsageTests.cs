@@ -5,6 +5,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using CodexQuotaTray.Core.Auth;
 using CodexQuotaTray.Core.TokenUsage;
 using CodexQuotaTray.Core.Persistence;
 using Microsoft.Data.Sqlite;
@@ -1079,6 +1080,60 @@ public sealed class TokenUsageTests
         Assert.IsNotNull(emptyRoundTrip?.ResetCredits);
         Assert.IsNotNull(emptyRoundTrip!.ResetCredits!.Credits);
         Assert.HasCount(0, emptyRoundTrip.ResetCredits.Credits!);
+    }
+
+    [TestMethod]
+    public void RemoteQuotaPublishesOnlyAvailableCreditExpiries()
+    {
+        var available = new QuotaLanResetCredit(
+            "fixture-id", "five_hour", " AVAILABLE ", 1_899_000_000, 1_900_000_000, "Fixture", "Example");
+        var quota = new QuotaLanSnapshot(
+            1, DateTimeOffset.UnixEpoch, null, "zero_windows", [],
+            new QuotaLanResetCredits(3,
+            [
+                available,
+                available with { Status = "used" },
+                available with { ExpiresAt = long.MaxValue },
+            ]));
+
+        var credits = RemoteSyncSnapshot.Capture(quota, null).Quota!.ResetCredits!;
+
+        Assert.AreEqual(3L, credits.AvailableCount);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                new QuotaLanResetCredit(null, null, "available", null, 1_900_000_000, null, null),
+                new QuotaLanResetCredit(null, null, "available", null, null, null, null),
+            },
+            credits.Credits!.ToArray());
+        Assert.IsNull(RemoteSyncSnapshot.ProjectQuota(
+            quota with { ResetCredits = new QuotaLanResetCredits(3) })!.ResetCredits!.Credits);
+        Assert.HasCount(0, RemoteSyncSnapshot.ProjectQuota(
+            quota with { ResetCredits = new QuotaLanResetCredits(3, []) })!.ResetCredits!.Credits!);
+    }
+
+    [TestMethod]
+    public async Task RemoteSyncUploadTimePersistsAndLegacyConfigurationHasNoUploadTime()
+    {
+        using var corpus = new TokenCorpus();
+        var path = Path.Combine(corpus.Root, "remote-sync.bin");
+        const string endpoint = "https://sync.example.invalid/";
+        var key = new string('a', 64);
+        var legacy = JsonSerializer.SerializeToUtf8Bytes(new { Endpoint = endpoint, UploadKey = key, Enabled = true });
+        await File.WriteAllBytesAsync(path, CurrentUserDpapi.Protect(legacy));
+        var store = new RemoteSyncConfigurationStore(path);
+
+        var (configuration, legacyTime) = await store.LoadAsync(CancellationToken.None);
+        Assert.AreEqual(endpoint, configuration?.Origin.AbsoluteUri);
+        Assert.IsNull(legacyTime);
+
+        var uploadedAt = new DateTimeOffset(2026, 11, 22, 8, 30, 0, TimeSpan.Zero);
+        await store.SaveAsync(new RemoteSyncConfiguration(endpoint, key, enabled: false), uploadedAt, CancellationToken.None);
+        var (reloaded, restoredTime) = await new RemoteSyncConfigurationStore(path).LoadAsync(CancellationToken.None);
+
+        Assert.IsNotNull(reloaded);
+        Assert.IsFalse(reloaded.Enabled);
+        Assert.AreEqual(uploadedAt, restoredTime);
     }
 
     private static async Task<long> LifetimeTokensAsync(HttpClient client, string path = "/v1/token-usage")

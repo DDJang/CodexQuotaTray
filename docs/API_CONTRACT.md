@@ -253,6 +253,19 @@ Android 校验 scheme、deviceId、RFC1918 IPv4、端口和 secret，不接受�
 redirect 或其他 scheme。DNS-SD 服务类型为 `_codexquota._tcp`，metadata 只含 deviceId、名称和
 端口。仅 offline 类连接失败可发现并重试相同 deviceId；401 必须要求重新配对。
 
+## 自托管远程同步 schemaVersion 1
+
+- `GET /v1/remote/windows` 和 `GET /v1/remote/ecs` 接受手机读取 Bearer；没有有效快照时返回 404。
+- `PUT /v1/remote/windows` 接受 Windows 上传 Bearer 和同结构 JSON，成功返回 204。
+  ECS 本机采集直接提交到服务内部存储。无效 Bearer 返回 401，服务器响应使用 `Cache-Control: no-store`。
+- 请求与响应上限均为 256 KiB。密钥为两个独立的随机 64 位十六进制字符串。
+- 响应结构为 `{schemaVersion: 1, quota, tokenUsage}`。两个数据字段沿用本合同的 LAN 只读投影。
+  远程重置卡保留 `availableCount`，可选明细只包含可用卡的 `status` 和 `expiresAt`。
+  缺少明细的旧快照仍可读取，没有可用数据时对应字段可以为空。两项分别按各自
+  `generatedAtUtc` 更新，空值、反序上传和相同时间的重复上传不覆盖已有结果。
+- 快照以采集时间起保留 7 天。超过期限的字段不会响应给手机，服务定期清理。
+- Android 和 Windows 客户端使用系统信任的 HTTPS，不跟随重定向。LAN 配对密钥与远程凭据独立。
+
 ## 变更控制
 
 协议升级必须同时更新 schema baseline、DTO、规范化、匿名 fixture、本合同和完整离线测试。

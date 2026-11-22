@@ -71,3 +71,15 @@ UTC 和单调时间，以及随机进程会话、listener 与 connection 标识�
 系统浏览器只用于 OAuth 设备授权，应用不嵌入 WebView 或检查浏览器内容。来源切换会清理旧来源
 的内存投影，且不复用另一来源缓存。详细字段合同见
 [API_CONTRACT](API_CONTRACT.md)。
+
+## 自托管远程同步
+
+- Windows 主动启用后，通过 HTTPS 上传脱敏额度与聚合 Token 快照。Android 使用只读密钥获取数据。
+  Windows 上传密钥受 DPAPI 保护，Android 读取密钥受 Keystore 保护。
+- 用户部署的 ECS 服务可读取并持久化这些快照。快照包含额度窗口、可用重置卡数量和到期明细、
+  聚合 Token 统计及采集时间。重置卡明细只保留可用状态和到期时间。快照不含 OpenAI 凭据、账户标识、
+  会话正文或原始 JSONL。停止上传后，已保存的快照按
+  [远程快照合同](API_CONTRACT.md#自托管远程同步-schemaversion-1)过期。
+- ECS 本机采集使用该机器现有的 Codex CLI 认证，由 CLI 管理凭据。只有本机最小 Token 账本保留扫描
+  所需的会话标识及文件位置。Android 将选作数据来源的快照缓存在应用私有存储中，按连接与设备
+  验证归属。远程设备详情的预览结果只保存在内存中。

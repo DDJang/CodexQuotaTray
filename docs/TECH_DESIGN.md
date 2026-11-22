@@ -85,13 +85,25 @@ TokenSyncStore ───────────┴─ TokenUsageSourceRouter �
   先写 cache，再写成功时间与最新地址。
 - Compose 页面只消费 domain state；前台通过 refresh event 接收后台成功结果。
 
-Token WorkManager 在 OAuth 或 Windows pairing 任一存在时排程，并复用 quota 的 source-aware 网络约束：
+Token WorkManager 与额度刷新复用 source-aware 网络约束：
 仅 OAuth 要求 validated Internet，仅 Windows 要求 Wi-Fi LAN，两者并存时允许 Wi-Fi/cellular 且不硬要求
-Internet，以保留 LAN-only Wi-Fi fallback。
+Internet，以保留 LAN-only Wi-Fi fallback。远程同步要求有效的连接配置和 validated Internet。
 
 额度与 Token Router 都按各自设置串行尝试 OpenAI/Windows；缺少 OAuth 或 pairing 的 provider 视为
 unavailable。Windows provider 仍复用已保存地址、必要时 DNS-SD 与 pairing invalidation，LAN 请求绑定
 实际 Wi-Fi network。OpenAI Token profile 与 Windows Account/Local 永不合并。
+
+## 自托管远程同步
+
+- Windows 的远程 publisher 独立于 LAN listener，使用 Runtime 的最后成功额度投影和现有 Token
+  来源解析器。上传开关保存在各 WinUI 构建身份的加密连接配置内。连接状态由实际发布结果驱动。
+- ECS 服务保存两台机器各自的最近额度和 Token 快照。启用本机采集后，ECS 使用现有 JSONL
+  App Server 客户端、额度规范化与 Token scanner。单次采集失败时保留该项上一份快照。
+- Android 设备详情与主数据来源共用 HTTPS 读取和解析。选作主数据来源时，前台和 WorkManager
+  复用各自的提交路径，只读取选定设备。主面板和 Widget 的远程缓存绑定连接与设备，独立于
+  OpenAI 和 Windows LAN 缓存。设置页的设备详情是独立预览。
+- 端点与保留规则见 [API_CONTRACT](API_CONTRACT.md#自托管远程同步-schemaversion-1)，
+  配置见[服务部署说明](../relay/README.md)。
 
 ## LAN 服务
 

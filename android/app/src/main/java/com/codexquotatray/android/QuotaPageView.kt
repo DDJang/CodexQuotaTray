@@ -55,6 +55,7 @@ import com.codexquotatray.android.refresh.AutomaticRefreshChannel
 import com.codexquotatray.android.refresh.AutomaticRefreshReason
 import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
 import com.codexquotatray.android.source.DataSourcePriority
+import com.codexquotatray.android.usage.RemoteSyncStore
 import com.codexquotatray.android.source.sourcePriorityChanged
 import com.codexquotatray.android.ui.QuotaCardModel
 import com.codexquotatray.android.ui.ResetCreditDetailState
@@ -116,6 +117,7 @@ internal class QuotaPageController(private val host: MainActivity) {
     private val snapshotStore by lazy { QuotaSnapshotStore(host) }
     private val pairingStore by lazy { TokenSyncStore(host) }
     private val sourcePriorityStore by lazy { AndroidDataSourcePriorityStore(host) }
+    private val remoteSyncStore by lazy { RemoteSyncStore(host) }
     var model by mutableStateOf(unauthenticatedQuotaUiModel())
         private set
     var busy by mutableStateOf(false)
@@ -123,6 +125,7 @@ internal class QuotaPageController(private val host: MainActivity) {
     private var lastSuccessful: QuotaUiModel? = null
     private var lastQuotaSourceAvailable: Boolean? = null
     private var lastWindowsDeviceIdentity: String? = null
+    private var lastRemoteIdentity: String? = null
     private var lastObservedPriority: DataSourcePriority? = null
     private var registered = false
     private var initialized = false
@@ -141,37 +144,22 @@ internal class QuotaPageController(private val host: MainActivity) {
         initialized = true
         lastQuotaSourceAvailable = hasQuotaSource()
         lastWindowsDeviceIdentity = currentWindowsDeviceIdentity()
+        lastRemoteIdentity = currentRemoteIdentity()
         lastObservedPriority = currentQuotaPriority()
         QuotaRefreshScheduler.schedule(host)
         if (lastQuotaSourceAvailable == true) {
             lastSuccessful = loadLatestModel(lastWindowsDeviceIdentity)
             model = lastSuccessful ?: quotaLoadingUiModel(null)
-        } else model = unauthenticatedQuotaUiModel()
+        } else model = missingSourceModel()
     }
 
     fun onVisible() {
         visible = true
-        val sourceAvailable = hasQuotaSource()
-        val windowsDeviceIdentity = currentWindowsDeviceIdentity()
-        val priorityChanged = observeQuotaPriority()
-        val sourceChanged = lastQuotaSourceAvailable != sourceAvailable
-        val pairingChanged = lastWindowsDeviceIdentity != windowsDeviceIdentity
-        if (sourceChanged || pairingChanged) {
-            lastQuotaSourceAvailable = sourceAvailable
-            lastWindowsDeviceIdentity = windowsDeviceIdentity
-            if (!sourceAvailable) {
-                lastSuccessful = null
-                snapshotStore.clear()
-                com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
-                if (!busy) model = unauthenticatedQuotaUiModel()
-                return
-            }
-            lastSuccessful = loadLatestModel(windowsDeviceIdentity)
-            if (!busy || pairingChanged) model = lastSuccessful ?: quotaLoadingUiModel(null)
-            QuotaRefreshScheduler.schedule(host)
+        val changed = reconcileSources()
+        if (!busy && lastQuotaSourceAvailable == true) {
+            renderLatestSnapshot()
+            if (changed) requestRefresh(AutomaticRefreshReason.SOURCE_CHANGED)
         }
-        if (sourceAvailable && priorityChanged) requestRefresh(AutomaticRefreshReason.SOURCE_CHANGED)
-        if (sourceAvailable && !busy) renderLatestSnapshot()
     }
 
     fun onHidden() {
@@ -192,28 +180,38 @@ internal class QuotaPageController(private val host: MainActivity) {
     }
 
     fun onForeground(reason: AutomaticRefreshReason) {
+        val changed = reconcileSources()
+        if (lastQuotaSourceAvailable != true || busy) return
+        renderLatestSnapshot()
+        requestRefresh(if (changed) AutomaticRefreshReason.SOURCE_CHANGED else reason)
+    }
+
+    private fun reconcileSources(): Boolean {
         val sourceAvailable = hasQuotaSource()
         val windowsDeviceIdentity = currentWindowsDeviceIdentity()
+        val remoteIdentity = currentRemoteIdentity()
+        val remoteChanged = lastRemoteIdentity != remoteIdentity
         val priorityChanged = observeQuotaPriority()
         val sourceChanged = lastQuotaSourceAvailable != sourceAvailable
         val pairingChanged = lastWindowsDeviceIdentity != windowsDeviceIdentity
-        if (sourceChanged || pairingChanged) {
+        if (sourceChanged || pairingChanged || priorityChanged || remoteChanged) {
             lastQuotaSourceAvailable = sourceAvailable
             lastWindowsDeviceIdentity = windowsDeviceIdentity
+            lastRemoteIdentity = remoteIdentity
             if (!sourceAvailable) {
                 lastSuccessful = null
-                snapshotStore.clear()
+                if (currentQuotaPriority().remoteMachine == null) snapshotStore.clear()
                 com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(host)
-                if (!busy) model = unauthenticatedQuotaUiModel()
+                if (!busy || priorityChanged || remoteChanged) model = missingSourceModel()
             } else {
                 lastSuccessful = loadLatestModel(windowsDeviceIdentity)
-                if (!busy || pairingChanged) model = lastSuccessful ?: quotaLoadingUiModel(null)
+                if (!busy || pairingChanged || priorityChanged || remoteChanged) {
+                    model = lastSuccessful ?: quotaLoadingUiModel(null)
+                }
                 QuotaRefreshScheduler.schedule(host)
             }
         }
-        if (!sourceAvailable || busy) return
-        renderLatestSnapshot()
-        requestRefresh(if (priorityChanged) AutomaticRefreshReason.SOURCE_CHANGED else reason)
+        return priorityChanged || remoteChanged
     }
 
     fun onNetworkRestored() {
@@ -249,6 +247,8 @@ internal class QuotaPageController(private val host: MainActivity) {
         busy = true
         val previous = lastSuccessful
         val requestWindowsDeviceIdentity = currentWindowsDeviceIdentity()
+        val requestPriority = currentQuotaPriority()
+        val requestRemoteIdentity = currentRemoteIdentity()
         model = quotaLoadingUiModel(previous)
         worker.execute {
             val result = try {
@@ -266,6 +266,13 @@ internal class QuotaPageController(private val host: MainActivity) {
                 main.postDelayed({
                     if (!lifecycle.isCurrent(requestGeneration)) return@postDelayed
                     busy = false
+                    if ((requestPriority.remoteMachine != null || currentQuotaPriority().remoteMachine != null) &&
+                        (requestPriority != currentQuotaPriority() || requestRemoteIdentity != currentRemoteIdentity())
+                    ) {
+                        reconcileSources()
+                        if (visible) requestRefresh(AutomaticRefreshReason.SOURCE_CHANGED)
+                        return@postDelayed
+                    }
                     val currentWindowsDeviceIdentity = currentWindowsDeviceIdentity()
                     val directResultIsUsable = result.getOrNull()?.let {
                         it.source == QuotaSource.DIRECT && it.quotaState != "unavailable"
@@ -326,14 +333,23 @@ internal class QuotaPageController(private val host: MainActivity) {
         }
     }
 
-    private fun hasQuotaSource(): Boolean = quotaSourceAvailable(
-        oauthAvailable = OAuthStore(host).hasCredentials(),
-        windowsPairingAvailable = pairingStore.load() != null,
-    )
+    private fun hasQuotaSource(): Boolean =
+        if (currentQuotaPriority().remoteMachine != null) currentRemoteIdentity() != null else quotaSourceAvailable(
+            oauthAvailable = OAuthStore(host).hasCredentials(),
+            windowsPairingAvailable = pairingStore.load() != null,
+        )
+
+    private fun missingSourceModel() = if (currentQuotaPriority().remoteMachine != null) {
+        quotaErrorUiModel("请先配置远程同步的服务器连接", null)
+    } else unauthenticatedQuotaUiModel()
+
+    private fun currentRemoteIdentity(): String? =
+        currentQuotaPriority().remoteMachine?.let { remoteSyncStore.load().cacheIdentity(it) }
 
     fun openLogin() = host.startActivityForResult(Intent(host, LoginActivity::class.java), LOGIN_REQUEST_CODE)
 
-    private fun currentWindowsDeviceIdentity(): String? = pairingStore.load()?.cacheIdentity()
+    private fun currentWindowsDeviceIdentity(): String? =
+        if (currentQuotaPriority().remoteMachine == null) pairingStore.load()?.cacheIdentity() else null
 
     private fun currentQuotaPriority(): DataSourcePriority = sourcePriorityStore.load().quota
 
@@ -344,7 +360,7 @@ internal class QuotaPageController(private val host: MainActivity) {
         return changed
     }
 
-    private fun loadLatestModel(windowsDeviceIdentity: String? = currentWindowsDeviceIdentity()) = snapshotStore.load(windowsDeviceIdentity)
+    private fun loadLatestModel(windowsDeviceIdentity: String? = currentWindowsDeviceIdentity()) = snapshotStore.loadForCurrentSource(windowsDeviceIdentity)
         ?.takeIf { it.quotaState != "unavailable" }
         ?.toQuotaUiModel()
         ?.takeIf { it.status == QuotaUiStatus.LOADED }
@@ -412,7 +428,11 @@ private fun quotaStatusLine(model: QuotaUiModel, locale: Locale): String {
         QuotaUiStatus.LOADING -> RefreshStatusFormatter.refreshing(model.updatedAtMillis != null)
         QuotaUiStatus.UNAUTHENTICATED -> RefreshStatusFormatter.quotaNoSource()
         QuotaUiStatus.LOADED -> RefreshStatusFormatter.loaded(
-            source = if (model.source == QuotaSource.WINDOWS) "Windows" else "OpenAI",
+            source = when (model.source) {
+                QuotaSource.WINDOWS -> "Windows"
+                QuotaSource.REMOTE -> "远程同步"
+                else -> "OpenAI"
+            },
             updatedAt = updatedAt,
         )
         QuotaUiStatus.ERROR -> RefreshStatusFormatter.failure(

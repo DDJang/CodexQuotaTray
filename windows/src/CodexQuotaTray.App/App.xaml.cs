@@ -40,11 +40,13 @@ public partial class App : Application
     private Task<TokenUsageCacheSettingsState>? tokenUsageCacheSettingsStateTask;
     private Task? tokenUsageInitializationTask;
     private Task? tokenUsageRefreshTask;
+    private Task? remoteSyncTask;
     private IQuotaRuntimeControl? runtime;
     private SettingsWindow? settingsWindow;
     private ISettingsPageActions? settingsPageActions;
     private HostEventService? hostEvents;
     private TokenUsageSyncController? tokenUsageSync;
+    private RemoteSyncPublisher? remoteSyncPublisher;
     private LanDiagnosticBuffer? lanDiagnostics;
     private WindowsAccountService? accountService;
     private TokenUsageSourceResolver? tokenUsageSourceResolver;
@@ -186,6 +188,10 @@ public partial class App : Application
                 identity.TokenSyncDnsSdInstancePrefix,
                 lanDiagnosticBuffer.Record,
                 () => lanDiagnosticBuffer.Snapshot);
+            remoteSyncPublisher = new RemoteSyncPublisher(
+                new RemoteSyncConfigurationStore(Path.Combine(paths.Root, "remote-sync.bin")),
+                liveRuntime.GetLastSuccessfulLanQuotaSnapshot,
+                tokenUsageSourceResolver.ReadAsync);
             if (launchProfile.TrayIdentity == TrayIdentityMode.Production
                 && SemanticVersion.TryParse(ProductVersion.Current, out var currentVersion))
             {
@@ -262,6 +268,10 @@ public partial class App : Application
         if (tokenUsageSync is not null)
         {
             _ = StartTokenUsageSyncAfterInitializationAsync(tokenUsageSync, lifetime.Token);
+        }
+        if (remoteSyncPublisher is not null)
+        {
+            remoteSyncTask = remoteSyncPublisher.RunAsync(lifetime.Token);
         }
 
         var clipboard = new DiagnosticsClipboardService(new DelegateDiagnosticTextProvider(() => string.Join(
@@ -598,7 +608,8 @@ public partial class App : Application
             settingsWindow = new SettingsWindow(
                 settingsViewModel!,
                 applicationIdentity?.DisplayName ?? AppIdentity.Production.DisplayName,
-                debugTestNotification);
+                debugTestNotification,
+                remoteSyncPublisher);
         }
 
         settingsWindow.ApplyTheme(runtime.Settings.ThemeMode);
@@ -1047,6 +1058,11 @@ public partial class App : Application
         {
             await tokenUsageRefreshTask;
             tokenUsageRefreshTask = null;
+        }
+        if (remoteSyncTask is not null)
+        {
+            await remoteSyncTask;
+            remoteSyncTask = null;
         }
 
         if (providerLifetime is not null)

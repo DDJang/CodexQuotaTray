@@ -9,7 +9,8 @@ import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import com.codexquotatray.android.AppLogStore
-import com.codexquotatray.android.auth.OAuthStore
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
+import com.codexquotatray.android.source.sourceAvailability
 import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
 import com.codexquotatray.android.refresh.AutomaticRefreshChannel
 import com.codexquotatray.android.refresh.BackgroundRefreshRetryPolicy
@@ -37,18 +38,17 @@ class TokenUsageRefreshWorker(
     override fun doWork(): Result {
         AppLogStore.record(applicationContext, "Token 后台任务已启动")
         val settings = TokenUsageRefreshSettingsStore(applicationContext).load()
-        val hasOAuth = OAuthStore(applicationContext).load() != null
-        val hasWindowsPairing = TokenSyncStore(applicationContext).load() != null
+        val source = sourceAvailability(applicationContext, AndroidDataSourcePriorityStore(applicationContext).load().token)
         AndroidWorkerNetworkDiagnostics.record(
             applicationContext,
             "Token",
-            TokenUsageRefreshScheduler.networkRequirement(hasOAuth, hasWindowsPairing),
+            TokenUsageRefreshScheduler.networkRequirement(source.internet, source.windowsLan),
         )
         if (!settings.backgroundSyncEnabled) {
             AppLogStore.record(applicationContext, "Token 后台任务已跳过：后台同步已关闭")
             return Result.success()
         }
-        if (!hasOAuth && !hasWindowsPairing) {
+        if (!source.available) {
             AppLogStore.record(applicationContext, "Token 后台任务已跳过：缺少可用数据源", "WARN")
             return Result.success()
         }
@@ -139,9 +139,8 @@ object TokenUsageRefreshScheduler {
     fun schedule(context: Context) {
         val appContext = context.applicationContext
         val settings = TokenUsageRefreshSettingsStore(appContext).load()
-        val hasOAuth = OAuthStore(appContext).load() != null
-        val hasWindowsPairing = TokenSyncStore(appContext).load() != null
-        if (!shouldSchedule(settings, hasOAuth, hasWindowsPairing)) {
+        val source = sourceAvailability(appContext, AndroidDataSourcePriorityStore(appContext).load().token)
+        if (!shouldSchedule(settings, source.internet, source.windowsLan)) {
             cancel(appContext)
             return
         }
@@ -151,7 +150,7 @@ object TokenUsageRefreshScheduler {
             TimeUnit.MINUTES,
         )
             .setConstraints(
-                networkRequirement(hasOAuth, hasWindowsPairing).constraints(),
+                networkRequirement(source.internet, source.windowsLan).constraints(),
             )
             .setBackoffCriteria(
                 BackoffPolicy.EXPONENTIAL,

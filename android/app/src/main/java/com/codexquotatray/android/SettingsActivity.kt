@@ -35,6 +35,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -57,6 +58,8 @@ import com.codexquotatray.android.source.DataSourcePriority
 import com.codexquotatray.android.usage.TokenSyncPairing
 import com.codexquotatray.android.usage.AndroidLanDiagnosticsFormatter
 import com.codexquotatray.android.usage.TokenSyncStore
+import com.codexquotatray.android.usage.RemoteMachine
+import com.codexquotatray.android.usage.RemoteSyncStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettingsStore
 import com.codexquotatray.android.usage.TokenUsageRefreshSettings
 import com.codexquotatray.android.usage.TokenUsageRefreshScheduler
@@ -87,6 +90,10 @@ private enum class SettingsDestination(val title: String) {
     SYNC("数据"),
     THEME("显示与主题"),
     TOKEN_PAIRING("Windows 配对"),
+    REMOTE_SYNC("远程同步"),
+    REMOTE_SYNC_CONNECTION("服务器连接"),
+    REMOTE_SYNC_WINDOWS("Windows 电脑"),
+    REMOTE_SYNC_ECS("ECS 服务器"),
     UPDATE("更新"),
 }
 
@@ -121,13 +128,33 @@ private const val UPDATE_STATUS_IDLE = "尚未检查"
 internal fun sourcePriorityOptions(): List<SettingsSegmentOption> = listOf(
     SettingsSegmentOption(0, "OpenAI 优先"),
     SettingsSegmentOption(1, "Windows 优先"),
+    SettingsSegmentOption(2, "远程同步"),
 )
 
-internal fun sourcePriorityValue(priority: DataSourcePriority): Int =
-    if (priority == DataSourcePriority.OPENAI_FIRST) 0 else 1
+internal fun sourcePriorityValue(priority: DataSourcePriority): Int = when (priority) {
+    DataSourcePriority.OPENAI_FIRST -> 0
+    DataSourcePriority.WINDOWS_FIRST -> 1
+    DataSourcePriority.REMOTE_WINDOWS, DataSourcePriority.REMOTE_ECS -> 2
+}
 
-internal fun sourcePriorityFromValue(value: Int): DataSourcePriority =
-    if (value == 0) DataSourcePriority.OPENAI_FIRST else DataSourcePriority.WINDOWS_FIRST
+internal fun sourcePriorityFromValue(value: Int, current: DataSourcePriority): DataSourcePriority = when (value) {
+    0 -> DataSourcePriority.OPENAI_FIRST
+    1 -> DataSourcePriority.WINDOWS_FIRST
+    else -> current.takeIf { it.remoteMachine != null } ?: DataSourcePriority.REMOTE_WINDOWS
+}
+
+@Composable
+private fun RemoteSourceDeviceSelector(priority: DataSourcePriority, onSelect: (DataSourcePriority) -> Unit) {
+    if (priority.remoteMachine == null) return
+    val devices = listOf(DataSourcePriority.REMOTE_WINDOWS, DataSourcePriority.REMOTE_ECS)
+    SettingsInlineLabel("远程设备")
+    SettingsSegmentedSelector(
+        options = devices.mapIndexed { index, choice -> SettingsSegmentOption(index, checkNotNull(choice.remoteMachine).label) },
+        selectedValue = devices.indexOf(priority),
+        enabled = true,
+        onSelected = { onSelect(devices[it]) },
+    )
+}
 
 internal fun updateStatusDisplay(
     status: String,
@@ -147,6 +174,8 @@ class SettingsActivity : ComponentActivity() {
     private val refreshStore by lazy { QuotaRefreshSettingsStore(this) }
     private val themeStore by lazy { ThemeSettingsStore(this) }
     private val tokenStore by lazy { TokenSyncStore(this) }
+    private val remoteSyncStore by lazy { RemoteSyncStore(this) }
+    private var remoteSyncResumeGeneration by mutableIntStateOf(0)
     private val tokenRefreshStore by lazy { TokenUsageRefreshSettingsStore(this) }
     private val updateSettingsStore by lazy { UpdateSettingsStore(this) }
     private val sourcePriorityStore by lazy { AndroidDataSourcePriorityStore(this) }
@@ -292,6 +321,9 @@ class SettingsActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (destination == SettingsDestination.REMOTE_SYNC) {
+            remoteSyncResumeGeneration++
+        }
         renderState()
         tryInstallPendingUpdate()
         if (themeMode == ThemeMode.SYSTEM) {
@@ -341,6 +373,16 @@ class SettingsActivity : ComponentActivity() {
                 SettingsDestination.SYNC -> SyncSettings()
                 SettingsDestination.THEME -> ThemeSettings()
                 SettingsDestination.TOKEN_PAIRING -> TokenPairingSettings()
+                SettingsDestination.REMOTE_SYNC -> RemoteSyncOverview(
+                    store = remoteSyncStore,
+                    resumeGeneration = remoteSyncResumeGeneration,
+                    onConnection = { openDestination(SettingsDestination.REMOTE_SYNC_CONNECTION) },
+                    onWindows = { openDestination(SettingsDestination.REMOTE_SYNC_WINDOWS) },
+                    onEcs = { openDestination(SettingsDestination.REMOTE_SYNC_ECS) },
+                )
+                SettingsDestination.REMOTE_SYNC_CONNECTION -> RemoteSyncConnectionPage(remoteSyncStore, ::onRemoteConnectionChanged)
+                SettingsDestination.REMOTE_SYNC_WINDOWS -> RemoteSyncDevicePage(remoteSyncStore, RemoteMachine.WINDOWS)
+                SettingsDestination.REMOTE_SYNC_ECS -> RemoteSyncDevicePage(remoteSyncStore, RemoteMachine.ECS)
                 SettingsDestination.UPDATE -> UpdateSettingsPage()
             }
         }
@@ -361,6 +403,8 @@ class SettingsActivity : ComponentActivity() {
                     title = "Windows 配对",
                     trailing = pairing?.displayName ?: "未配对",
                 ) { openDestination(SettingsDestination.TOKEN_PAIRING) }
+                SettingsDivider()
+                SettingsNavigationRow("远程同步") { openDestination(SettingsDestination.REMOTE_SYNC) }
             }
         }
         SettingsSection("通知与数据") {
@@ -682,8 +726,9 @@ class SettingsActivity : ComponentActivity() {
                     options = sourcePriorityOptions(),
                     selectedValue = sourcePriorityValue(quotaSourcePriority),
                     enabled = true,
-                    onSelected = { selectQuotaSourcePriority(sourcePriorityFromValue(it)) },
+                    onSelected = { selectQuotaSourcePriority(sourcePriorityFromValue(it, quotaSourcePriority)) },
                 )
+                RemoteSourceDeviceSelector(quotaSourcePriority, ::selectQuotaSourcePriority)
                 SettingsDivider()
                 SettingsToggleRow(
                     "回到前台时刷新",
@@ -718,8 +763,9 @@ class SettingsActivity : ComponentActivity() {
                     options = sourcePriorityOptions(),
                     selectedValue = sourcePriorityValue(tokenSourcePriority),
                     enabled = true,
-                    onSelected = { selectTokenSourcePriority(sourcePriorityFromValue(it)) },
+                    onSelected = { selectTokenSourcePriority(sourcePriorityFromValue(it, tokenSourcePriority)) },
                 )
+                RemoteSourceDeviceSelector(tokenSourcePriority, ::selectTokenSourcePriority)
                 SettingsDivider()
                 SettingsToggleRow(
                     "回到前台时同步",
@@ -805,6 +851,13 @@ class SettingsActivity : ComponentActivity() {
             Intent(this, SettingsActivity::class.java)
                 .putExtra(EXTRA_DESTINATION, value.name),
         )
+    }
+
+    private fun onRemoteConnectionChanged() {
+        QuotaRefreshScheduler.schedule(this)
+        TokenUsageRefreshScheduler.schedule(this)
+        com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
+        finish()
     }
 
     private fun renderState() {
@@ -903,14 +956,18 @@ class SettingsActivity : ComponentActivity() {
     }
 
     private fun selectQuotaSourcePriority(priority: DataSourcePriority) {
+        if (!sourcePriorityStore.save(sourcePriorityStore.load().copy(quota = priority))) return
         quotaSourcePriority = priority
-        sourcePriorityStore.save(sourcePriorityStore.load().copy(quota = priority))
+        QuotaRefreshScheduler.schedule(this)
+        com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
         AppLogStore.record(this, "额度数据来源优先级已更新")
     }
 
     private fun selectTokenSourcePriority(priority: DataSourcePriority) {
+        if (!sourcePriorityStore.save(sourcePriorityStore.load().copy(token = priority))) return
         tokenSourcePriority = priority
-        sourcePriorityStore.save(sourcePriorityStore.load().copy(token = priority))
+        TokenUsageRefreshScheduler.schedule(this)
+        com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
         AppLogStore.record(this, "Token 数据来源优先级已更新")
     }
 
@@ -1080,7 +1137,7 @@ class SettingsActivity : ComponentActivity() {
         }
         if (cleared) {
             com.codexquotatray.android.widget.QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
-            TokenUsageRefreshScheduler.cancel(this)
+            TokenUsageRefreshScheduler.schedule(this)
             QuotaRefreshScheduler.schedule(this)
             renderState()
             Toast.makeText(this, "Windows 配对已解除", Toast.LENGTH_SHORT).show()

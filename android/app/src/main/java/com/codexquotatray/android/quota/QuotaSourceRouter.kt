@@ -3,6 +3,7 @@ package com.codexquotatray.android.quota
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.source.DataSourcePriority
 import com.codexquotatray.android.usage.TokenSyncPairing
+import com.codexquotatray.android.usage.RemoteMachine
 
 internal data class QuotaSourceRead(
     val quota: DirectQuotaResult,
@@ -16,10 +17,15 @@ class QuotaSourceRouter {
         hasWindows: Boolean,
         openAI: () -> QuotaSourceRead,
         windows: () -> QuotaSourceRead,
+        remote: (RemoteMachine) -> QuotaSourceRead = {
+            throw QuotaReadException(QuotaReadFailureKind.SERVER, "尚未配置远程同步")
+        },
     ): QuotaSourceRead {
         val providers = when (priority) {
             DataSourcePriority.OPENAI_FIRST -> listOf(hasOpenAI to openAI, hasWindows to windows)
             DataSourcePriority.WINDOWS_FIRST -> listOf(hasWindows to windows, hasOpenAI to openAI)
+            DataSourcePriority.REMOTE_WINDOWS, DataSourcePriority.REMOTE_ECS ->
+                return remote(checkNotNull(priority.remoteMachine))
         }
         var firstUnavailable: QuotaSourceRead? = null
         var firstFailure: Exception? = null

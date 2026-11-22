@@ -28,6 +28,25 @@ class TokenUsageSourceRouterTest {
         assertThrows(TokenUsageException::class.java) { none.read(false) }
     }
 
+    @Test fun remoteTokenFailureNeverChecksOtherProviders() {
+        val router = TokenUsageSourceRouter(
+            priorityStore = object : DataSourcePriorityStore {
+                override fun load() = DataSourcePrioritySettings(token = DataSourcePriority.REMOTE_ECS)
+                override fun save(value: DataSourcePrioritySettings) = true
+            },
+            hasOpenAI = { throw AssertionError("OpenAI must not be checked") },
+            hasWindows = { throw AssertionError("Windows LAN must not be checked") },
+            openAI = { throw AssertionError("OpenAI must not be called") },
+            windows = { throw AssertionError("Windows LAN must not be called") },
+            remote = {
+                assertEquals(RemoteMachine.ECS, it)
+                throw failure()
+            },
+        )
+        val error = assertThrows(TokenUsageException::class.java) { router.read(false) }
+        assertEquals(TokenUsageFailureKind.OFFLINE, error.kind)
+    }
+
     @Test fun retryableTokenFailureWinsOverPermanentFailureInEitherOrder() {
         listOf(
             DataSourcePriority.OPENAI_FIRST,

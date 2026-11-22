@@ -18,11 +18,17 @@ import com.codexquotatray.android.auth.OAuthRefreshReason
 import com.codexquotatray.android.auth.OAuthStore
 import com.codexquotatray.android.auth.ProcessCredentialRefreshCoordinator
 import com.codexquotatray.android.protocol.DirectQuotaResult
+import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
 import com.codexquotatray.android.source.DataSourcePriorityStore
 import com.codexquotatray.android.usage.CodexUsageClient
 import com.codexquotatray.android.usage.AndroidLanDiagnosticLogger
 import com.codexquotatray.android.usage.QuotaNetworkTimeouts
+import com.codexquotatray.android.usage.RemoteMachine
+import com.codexquotatray.android.usage.RemoteSyncClient
+import com.codexquotatray.android.usage.RemoteSyncException
+import com.codexquotatray.android.usage.RemoteSyncFailure
+import com.codexquotatray.android.usage.RemoteSyncStore
 import com.codexquotatray.android.usage.TokenSyncPairingStore
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.TokenSyncPairing
@@ -76,6 +82,8 @@ class CodexQuotaRepository(
     private val sourceRouter: QuotaSourceRouter = QuotaSourceRouter(),
 ) {
     private val appContext = context.applicationContext
+    private val remoteStore by lazy { RemoteSyncStore(appContext) }
+    private val remoteClient by lazy { RemoteSyncClient() }
     private val alertEvaluator by lazy { QuotaAlertEvaluator(alertStateStore) }
     private val alertSettingsStore by lazy { QuotaAlertSettingsStore(appContext) }
     private val fallbackResolver by lazy {
@@ -91,8 +99,8 @@ class CodexQuotaRepository(
     }
     private val successCommitter by lazy {
         QuotaSuccessfulRefreshCommitter(
-            saveSnapshot = { result, completedAtMillis, windowsDeviceIdentity ->
-                snapshotStore.save(result, completedAtMillis, windowsDeviceIdentity)
+            saveSnapshot = { result, completedAtMillis, sourceIdentity ->
+                snapshotStore.save(result, completedAtMillis, sourceIdentity)
             },
             evaluateAlerts = alertEvaluator::evaluate,
             markSuccessfulRefresh = alertStateStore::markSuccessfulRefresh,
@@ -156,8 +164,36 @@ class CodexQuotaRepository(
                 commitAndReturn(fetched.quota, fetched.pairing)
                 QuotaSourceRead(fetched.quota, fetched.pairing)
             },
+            remote = { QuotaSourceRead(refreshRemote(it)) },
         )
         return resolved.quota
+    }
+
+    private fun refreshRemote(machine: RemoteMachine): DirectQuotaResult {
+        val settings = remoteStore.load()
+        val connection = settings.connection
+        val identity = settings.cacheIdentity(machine)
+        if (connection == null || identity == null) {
+            throw QuotaReadException(QuotaReadFailureKind.SERVER, "请先配置远程同步的服务器连接")
+        }
+        val snapshot = try {
+            remoteStore.readSnapshot(remoteClient, connection, machine)
+        } catch (error: RemoteSyncException) {
+            val kind = when (error.kind) {
+                RemoteSyncFailure.AUTHORIZATION, RemoteSyncFailure.INVALID_RESPONSE -> QuotaReadFailureKind.INVALID_RESPONSE
+                RemoteSyncFailure.SERVER -> QuotaReadFailureKind.SERVER
+            }
+            throw QuotaReadException(kind, error.userMessage, error)
+        } catch (error: IOException) {
+            throw QuotaReadException(QuotaReadFailureKind.NETWORK, "无法连接远程同步服务器", error)
+        }
+        val quota = snapshot?.quota?.takeIf { it.quotaState != "unavailable" }?.copy(source = QuotaSource.REMOTE)
+            ?: throw QuotaReadException(QuotaReadFailureKind.INVALID_RESPONSE, "${machine.label}暂无额度快照")
+        val committed = remoteStore.commitIfCurrent(identity, machine) {
+            sourcePriorityStore.load().quota.remoteMachine == machine && successCommitter.commit(quota, identity)
+        }
+        if (!committed) throw QuotaReadException(QuotaReadFailureKind.INVALID_RESPONSE, "远程同步来源已更改，请重试")
+        return quota
     }
 
     fun login(onUpdate: (OAuthLoginUpdate) -> Unit = {}): OAuthCredentials {
@@ -336,6 +372,9 @@ class CodexQuotaRepository(
         result: DirectQuotaResult,
         expectedPairing: TokenSyncPairing?,
     ): DirectQuotaResult {
+        if (sourcePriorityStore.load().quota.remoteMachine != null) {
+            throw QuotaReadException(QuotaReadFailureKind.INVALID_RESPONSE, "额度数据来源已更改，请重试")
+        }
         if (result.quotaState != "unavailable") {
             if (expectedPairing == null) {
                 successCommitter.commit(result)

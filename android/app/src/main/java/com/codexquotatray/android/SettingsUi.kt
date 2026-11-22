@@ -18,13 +18,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -36,6 +37,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -305,6 +307,7 @@ internal fun SettingsInfoRow(
     value: String,
     valueColor: Color? = null,
     valueMaxLines: Int = 2,
+    wrapValue: Boolean = false,
 ) {
     val palette = LocalQuotaPalette.current
     Row(
@@ -316,7 +319,7 @@ internal fun SettingsInfoRow(
     ) {
         Text(
             text = title,
-            modifier = Modifier.weight(1f),
+            modifier = if (wrapValue) Modifier else Modifier.weight(1f),
             color = palette.color(palette.body),
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium,
@@ -324,8 +327,10 @@ internal fun SettingsInfoRow(
         Spacer(Modifier.width(16.dp))
         Text(
             text = value,
+            modifier = if (wrapValue) Modifier.weight(1f) else Modifier,
             color = valueColor ?: palette.color(palette.secondary),
             fontSize = 14.sp,
+            textAlign = if (wrapValue) TextAlign.End else null,
             maxLines = valueMaxLines,
             overflow = TextOverflow.Ellipsis,
         )
@@ -503,27 +508,54 @@ internal fun SettingsTextInput(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
+    enabled: Boolean = true,
+    placeholder: String? = null,
 ) {
     val palette = LocalQuotaPalette.current
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = SettingsUiTokens.actionHorizontalInset, vertical = 4.dp),
-        label = { Text(label) },
-        singleLine = true,
-        visualTransformation = visualTransformation,
-        shape = RoundedCornerShape(16.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = palette.color(palette.accent),
-            focusedLabelColor = palette.color(palette.accent),
-            cursorColor = palette.color(palette.accent),
-            unfocusedBorderColor = palette.color(palette.border),
-            unfocusedLabelColor = palette.color(palette.secondary),
-        ),
-    )
+    val inputBackdrop = rememberLayerBackdrop()
+    Box(Modifier.fillMaxWidth().padding(horizontal = SettingsUiTokens.actionHorizontalInset, vertical = 4.dp)) {
+        Box(
+            Modifier
+                .matchParentSize()
+                .alpha(0f)
+                .layerBackdrop(inputBackdrop)
+                .background(palette.color(palette.background)),
+        )
+        GlassSurface(
+            backdrop = inputBackdrop,
+            shape = RoundedCornerShape(SettingsUiTokens.groupCornerRadius),
+            surfaceAlpha = 0.8f,
+        ) {
+            TextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(label) },
+                placeholder = if (placeholder == null) null else ({ Text(placeholder) }),
+                singleLine = true,
+                enabled = enabled,
+                keyboardOptions = keyboardOptions,
+                visualTransformation = visualTransformation,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    disabledContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent,
+                    focusedTextColor = palette.color(palette.body),
+                    unfocusedTextColor = palette.color(palette.body),
+                    disabledTextColor = palette.color(palette.secondary),
+                    focusedLabelColor = palette.color(palette.accent),
+                    unfocusedLabelColor = palette.color(palette.secondary),
+                    disabledLabelColor = palette.color(palette.secondary),
+                    cursorColor = palette.color(palette.accent),
+                ),
+            )
+        }
+    }
 }
 
 @Composable

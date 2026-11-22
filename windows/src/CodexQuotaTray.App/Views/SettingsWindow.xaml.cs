@@ -5,6 +5,7 @@ using CodexQuotaTray.Core;
 using BackdropKind = CodexQuotaTray.Core.Models.BackdropKind;
 using CodexQuotaTray.Core.Persistence;
 using CodexQuotaTray.Core.Presentation;
+using CodexQuotaTray.Core.TokenUsage;
 using CodexQuotaTray.Core.Updates;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -25,21 +26,41 @@ public sealed partial class SettingsWindow : Window
     private const double MinimumHeightDips = 420;
     private readonly SettingsViewModel viewModel;
     private readonly Func<CancellationToken, Task>? debugTestNotification;
+    private readonly RemoteSyncPublisher? remoteSyncPublisher;
     private readonly BackdropService backdrop = new();
     private readonly AppWindow appWindow;
     private SettingsContentPage? currentSettingsPage;
     private bool showingSettingsHome;
     private bool accountRefreshStarted;
     private bool exiting;
+    private bool remoteSyncInitialized;
+    private bool updatingRemoteSyncToggle;
+    private bool savingRemoteSync;
 
     public SettingsWindow(
         SettingsViewModel viewModel,
         string displayName,
         Func<CancellationToken, Task>? debugTestNotification = null)
+        : this(viewModel, displayName, debugTestNotification, null)
+    {
+    }
+
+    internal SettingsWindow(
+        SettingsViewModel viewModel,
+        string displayName,
+        Func<CancellationToken, Task>? debugTestNotification,
+        RemoteSyncPublisher? remoteSyncPublisher)
     {
         this.viewModel = viewModel;
         this.debugTestNotification = debugTestNotification;
+        this.remoteSyncPublisher = remoteSyncPublisher;
         InitializeComponent();
+        RemoteSyncCard.Visibility = remoteSyncPublisher is null ? Visibility.Collapsed : Visibility.Visible;
+        if (remoteSyncPublisher is not null)
+        {
+            remoteSyncPublisher.StateChanged += OnRemoteSyncStateChanged;
+            UpdateRemoteSyncControls();
+        }
         Title = $"{displayName} 设置";
         ApplyAboutIcon();
         AboutProductNameText.Text = displayName;
@@ -100,6 +121,114 @@ public sealed partial class SettingsWindow : Window
 #endif
     }
 
+    private void OnRemoteSyncStateChanged() => _ = DispatcherQueue.TryEnqueue(UpdateRemoteSyncControls);
+
+    private void UpdateRemoteSyncControls()
+    {
+        if (exiting || remoteSyncPublisher is null)
+        {
+            return;
+        }
+
+        var state = remoteSyncPublisher.State;
+        if (!remoteSyncInitialized && state.Status != RemoteSyncStatus.Loading)
+        {
+            remoteSyncInitialized = true;
+            RemoteSyncAddress.Text = state.Configuration?.Origin.AbsoluteUri ?? string.Empty;
+        }
+        updatingRemoteSyncToggle = true;
+        RemoteSyncToggle.IsOn = state.Configuration?.Enabled == true;
+        updatingRemoteSyncToggle = false;
+        var editable = remoteSyncInitialized && !savingRemoteSync;
+        RemoteSyncToggle.IsEnabled = editable;
+        RemoteSyncSave.IsEnabled = editable;
+        RemoteSyncAddress.IsEnabled = editable;
+        RemoteSyncUploadKey.IsEnabled = editable;
+        RemoteSyncUploadKey.PlaceholderText = state.Configuration is null ? string.Empty : "已保存，使用原地址时可留空";
+        var status = state.Status switch
+        {
+            RemoteSyncStatus.Loading => "正在加载连接设置…",
+            RemoteSyncStatus.Disabled => state.Configuration is null ? "未配置连接" : "已关闭",
+            RemoteSyncStatus.WaitingForSnapshot => "等待可上传的快照",
+            RemoteSyncStatus.Uploading => "正在连接并上传…",
+            RemoteSyncStatus.Connected => "尚未成功上传",
+            RemoteSyncStatus.InvalidKey => "上传密钥无效或未获授权",
+            RemoteSyncStatus.InvalidConfiguration => "无法读取已保存的连接，请重新配置",
+            _ => "连接或上传失败，将自动重试",
+        };
+        if (state.LastSuccessfulUploadUtc is { } lastUpload)
+        {
+            var time = $"最近上传成功：{LanStatusTimeFormatter.Format(lastUpload, DateTimeOffset.UtcNow)}";
+            RemoteConnectionStatus.Text = state.Status is RemoteSyncStatus.InvalidKey or RemoteSyncStatus.Unavailable
+                ? $"{time} · {status}"
+                : time;
+        }
+        else
+        {
+            RemoteConnectionStatus.Text = status;
+        }
+    }
+
+    private async void OnSaveRemoteSync(object sender, RoutedEventArgs args) =>
+        await SaveRemoteSyncAsync(RemoteSyncToggle.IsOn, useDraft: true);
+
+    private async void OnRemoteSyncToggled(object sender, RoutedEventArgs args)
+    {
+        if (remoteSyncInitialized && !updatingRemoteSyncToggle && !savingRemoteSync)
+        {
+            var enable = RemoteSyncToggle.IsOn;
+            await SaveRemoteSyncAsync(enable, useDraft: enable);
+        }
+    }
+
+    private async Task SaveRemoteSyncAsync(bool enabled, bool useDraft)
+    {
+        if (remoteSyncPublisher is null || savingRemoteSync || !remoteSyncInitialized)
+        {
+            return;
+        }
+
+        savingRemoteSync = true;
+        RemoteSyncError.Visibility = Visibility.Collapsed;
+        UpdateRemoteSyncControls();
+        try
+        {
+            var saved = remoteSyncPublisher.State.Configuration;
+            var useSavedKey = string.IsNullOrWhiteSpace(RemoteSyncUploadKey.Password);
+            var configuration = useDraft
+                ? new RemoteSyncConfiguration(
+                    RemoteSyncAddress.Text,
+                    useSavedKey ? saved?.UploadKey ?? string.Empty : RemoteSyncUploadKey.Password,
+                    enabled)
+                : saved is null ? null : new RemoteSyncConfiguration(saved.Origin.AbsoluteUri, saved.UploadKey, enabled);
+            if (useDraft && useSavedKey && saved is not null && configuration?.Origin != saved.Origin)
+            {
+                throw new ArgumentException("更换服务器地址时，请重新输入上传密钥。");
+            }
+            await remoteSyncPublisher.SaveAsync(configuration, CancellationToken.None);
+            if (useDraft && configuration is not null)
+            {
+                RemoteSyncAddress.Text = configuration.Origin.AbsoluteUri;
+                RemoteSyncUploadKey.Password = string.Empty;
+            }
+        }
+        catch (ArgumentException error)
+        {
+            RemoteSyncError.Text = error.Message;
+            RemoteSyncError.Visibility = Visibility.Visible;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            RemoteSyncError.Text = "保存远程同步设置失败";
+            RemoteSyncError.Visibility = Visibility.Visible;
+        }
+        finally
+        {
+            savingRemoteSync = false;
+            UpdateRemoteSyncControls();
+        }
+    }
+
     internal void ApplyTheme(ThemeMode mode)
     {
         if (exiting)
@@ -146,6 +275,10 @@ public sealed partial class SettingsWindow : Window
         }
 
         exiting = true;
+        if (remoteSyncPublisher is not null)
+        {
+            remoteSyncPublisher.StateChanged -= OnRemoteSyncStateChanged;
+        }
         try
         {
             appWindow.Hide();

@@ -4,6 +4,8 @@ import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import com.codexquotatray.android.auth.OAuthStore
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
 import org.json.JSONObject
 import java.io.File
 import java.security.KeyStore
@@ -30,10 +32,11 @@ interface TokenSyncPairingStore {
 internal interface TokenUsageCacheStore {
     fun save(pairing: TokenSyncPairing, snapshot: TokenUsageSnapshot): Boolean
     fun saveOpenAI(snapshot: TokenUsageSnapshot, cacheIdentity: String): Boolean = false
+    fun saveRemote(snapshot: TokenUsageSnapshot, cacheIdentity: String): Boolean = false
     fun clear(): Boolean
 }
 
-/** Shared by pairing changes and the final sync commit boundary. */
+/** Serializes paired and remote connection changes with quota and Token cache commits. */
 internal object TokenUsagePairingLifecycle {
     private val lock = Any()
 
@@ -174,9 +177,27 @@ class TokenUsageCache private constructor(private val file: File) : TokenUsageCa
                     !openAICacheIdentity.isNullOrBlank() &&
                         root.optString("pairingIdentity") == "openai:$openAICacheIdentity"
                 }
-                null -> null
+                DataTransport.REMOTE, null -> null
             }
         }
+    }.getOrNull()
+
+    fun loadForCurrentSource(context: Context): TokenUsageSnapshot? {
+        val machine = AndroidDataSourcePriorityStore(context).load().token.remoteMachine
+        if (machine == null) {
+            return loadForAvailableSources(TokenSyncStore(context).load(), OAuthStore(context).load()?.cacheIdentity)
+        }
+        val identity = RemoteSyncStore(context).load().cacheIdentity(machine) ?: return null
+        return loadRemote(identity)
+    }
+
+    internal fun loadRemote(cacheIdentity: String): TokenUsageSnapshot? = runCatching {
+        val remoteFile = remoteFile()
+        if (!remoteFile.isFile || remoteFile.length() > MAXIMUM_BYTES) return@runCatching null
+        val root = JSONObject(remoteFile.readText(Charsets.UTF_8))
+        if (root.optString("pairingIdentity") != cacheIdentity) return@runCatching null
+        root.optJSONObject("snapshot")?.let { TokenUsageJson.parse(it.toString()) }
+            ?.takeIf { it.transport == DataTransport.REMOTE }
     }.getOrNull()
 
     override fun save(pairing: TokenSyncPairing, snapshot: TokenUsageSnapshot): Boolean = runCatching {
@@ -191,9 +212,16 @@ class TokenUsageCache private constructor(private val file: File) : TokenUsageCa
         )
     }.getOrDefault(false)
 
-    private fun write(identity: String, snapshot: TokenUsageSnapshot): Boolean {
-        file.parentFile?.mkdirs()
-        val temporary = File(file.parentFile, file.name + ".tmp")
+    override fun saveRemote(snapshot: TokenUsageSnapshot, cacheIdentity: String): Boolean = runCatching {
+        require(cacheIdentity.isNotBlank() && snapshot.transport == DataTransport.REMOTE)
+        write(cacheIdentity, snapshot, destination = remoteFile())
+    }.getOrDefault(false)
+
+    private fun remoteFile() = File(file.parentFile, "token-usage-remote-cache.json")
+
+    private fun write(identity: String, snapshot: TokenUsageSnapshot, destination: File = file): Boolean {
+        destination.parentFile?.mkdirs()
+        val temporary = File(destination.parentFile, destination.name + ".tmp")
         val bytes = JSONObject()
             .put("pairingIdentity", identity)
             .put("snapshot", JSONObject(TokenUsageJson.serialize(snapshot)))
@@ -203,11 +231,11 @@ class TokenUsageCache private constructor(private val file: File) : TokenUsageCa
         temporary.outputStream().use { output ->
             output.write(bytes)
             output.flush()
-            (output as java.io.FileOutputStream).fd.sync()
+            output.fd.sync()
         }
         java.nio.file.Files.move(
             temporary.toPath(),
-            file.toPath(),
+            destination.toPath(),
             java.nio.file.StandardCopyOption.ATOMIC_MOVE,
             java.nio.file.StandardCopyOption.REPLACE_EXISTING,
         )

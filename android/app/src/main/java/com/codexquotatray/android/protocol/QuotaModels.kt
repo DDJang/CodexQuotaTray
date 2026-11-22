@@ -41,6 +41,7 @@ data class ResetCredit(
 )
 
 enum class QuotaSource {
+    REMOTE,
     DIRECT,
     WINDOWS,
 }

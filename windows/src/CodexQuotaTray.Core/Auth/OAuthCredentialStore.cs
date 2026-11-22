@@ -37,7 +37,7 @@ public sealed class DpapiOAuthCredentialStore(string path) : IOAuthCredentialSto
                 return null;
             }
 
-            var clearBytes = Unprotect(protectedBytes);
+            var clearBytes = CurrentUserDpapi.Unprotect(protectedBytes);
             return JsonSerializer.Deserialize<OAuthCredentials>(clearBytes, JsonOptions);
         }
         catch (Exception error) when (error is CryptographicException or JsonException or IOException or UnauthorizedAccessException)
@@ -51,7 +51,7 @@ public sealed class DpapiOAuthCredentialStore(string path) : IOAuthCredentialSto
         var directory = Path.GetDirectoryName(path) ?? throw new InvalidOperationException("A credential directory is required.");
         Directory.CreateDirectory(directory);
         var clearBytes = JsonSerializer.SerializeToUtf8Bytes(credentials, JsonOptions);
-        var protectedBytes = Protect(clearBytes);
+        var protectedBytes = CurrentUserDpapi.Protect(clearBytes);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
@@ -96,8 +96,11 @@ public sealed class DpapiOAuthCredentialStore(string path) : IOAuthCredentialSto
 
         return Task.CompletedTask;
     }
+}
 
-    private static byte[] Protect(byte[] value)
+internal static class CurrentUserDpapi
+{
+    internal static byte[] Protect(byte[] value)
     {
         var input = new DataBlob(value);
         var output = default(DATA_BLOB);
@@ -117,7 +120,7 @@ public sealed class DpapiOAuthCredentialStore(string path) : IOAuthCredentialSto
         }
     }
 
-    private static byte[] Unprotect(byte[] value)
+    internal static byte[] Unprotect(byte[] value)
     {
         var input = new DataBlob(value);
         var output = default(DATA_BLOB);

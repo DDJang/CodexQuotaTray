@@ -9,12 +9,14 @@ import com.codexquotatray.android.protocol.QuotaWindow
 import com.codexquotatray.android.protocol.ResetCredit
 import com.codexquotatray.android.protocol.ResetCreditSnapshot
 import com.codexquotatray.android.usage.TokenUsagePairingLifecycle
+import com.codexquotatray.android.usage.RemoteSyncStore
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
 
 /**
  * Stores only the last successful quota response, never credentials or raw HTTP data.
  * It lets the foreground page display the result produced by WorkManager.
  */
-class QuotaSnapshotStore(context: Context) {
+class QuotaSnapshotStore(private val context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(
         PREFERENCES_NAME,
         Context.MODE_PRIVATE,
@@ -23,7 +25,7 @@ class QuotaSnapshotStore(context: Context) {
     fun save(
         result: DirectQuotaResult,
         lastSuccessfulRefreshAtMillis: Long = System.currentTimeMillis(),
-        windowsDeviceIdentity: String? = null,
+        sourceIdentity: String? = null,
     ): Unit = TokenUsagePairingLifecycle.withLock {
         val root = JSONObject()
             .putNullable("planType", result.planType)
@@ -31,9 +33,10 @@ class QuotaSnapshotStore(context: Context) {
             .put("updatedAtMillis", result.updatedAtMillis)
             .put("lastSuccessfulRefreshAtMillis", lastSuccessfulRefreshAtMillis)
             .put("source", result.source.name)
+            .putNullable("remoteIdentity", sourceIdentity.takeIf { result.source == QuotaSource.REMOTE })
             .putNullable(
                 "windowsDeviceIdentity",
-                result.source.takeIf { it == QuotaSource.WINDOWS }?.let { windowsDeviceIdentity },
+                sourceIdentity.takeIf { result.source == QuotaSource.WINDOWS },
             )
             .put(
                 "windows",
@@ -58,21 +61,38 @@ class QuotaSnapshotStore(context: Context) {
                 "resetCredits",
                 result.resetCredits?.let(QuotaSnapshotResetCreditsCodec::encode) ?: JSONObject.NULL,
             )
-        preferences.edit()
-            .putString(KEY_SNAPSHOT, root.toString())
-            .putLong(KEY_LAST_SUCCESSFUL_REFRESH_AT_MILLIS, lastSuccessfulRefreshAtMillis)
-            .commit()
+        val edit = preferences.edit()
+        if (result.source == QuotaSource.REMOTE) {
+            edit.putString(KEY_REMOTE_SNAPSHOT, root.toString()).commit()
+        } else {
+            edit.putString(KEY_SNAPSHOT, root.toString())
+                .putLong(KEY_LAST_SUCCESSFUL_REFRESH_AT_MILLIS, lastSuccessfulRefreshAtMillis)
+                .commit()
+        }
         Unit
     }
 
-    fun load(currentWindowsDeviceIdentity: String? = null): DirectQuotaResult? =
+    fun loadForCurrentSource(currentWindowsDeviceIdentity: String?): DirectQuotaResult? {
+        val machine = AndroidDataSourcePriorityStore(context).load().quota.remoteMachine
+            ?: return load(currentWindowsDeviceIdentity)
+        val identity = RemoteSyncStore(context).load().cacheIdentity(machine) ?: return null
+        return load(remoteIdentity = identity)
+    }
+
+    fun load(currentWindowsDeviceIdentity: String? = null, remoteIdentity: String? = null): DirectQuotaResult? =
         TokenUsagePairingLifecycle.withLock {
-            val raw = preferences.getString(KEY_SNAPSHOT, null) ?: return@withLock null
+            val key = if (remoteIdentity == null) KEY_SNAPSHOT else KEY_REMOTE_SNAPSHOT
+            val raw = preferences.getString(key, null) ?: return@withLock null
             runCatching {
                 val root = JSONObject(raw)
                 val source = root.stringOrNull("source")
                     ?.let { runCatching { QuotaSource.valueOf(it) }.getOrNull() }
                     ?: QuotaSource.DIRECT
+                if (remoteIdentity != null &&
+                    (source != QuotaSource.REMOTE || root.stringOrNull("remoteIdentity") != remoteIdentity)
+                ) {
+                    return@runCatching null
+                }
                 if (!shouldRestoreQuotaSnapshot(
                         source,
                         root.stringOrNull("windowsDeviceIdentity"),
@@ -151,6 +171,7 @@ class QuotaSnapshotStore(context: Context) {
     companion object {
         private const val PREFERENCES_NAME = "quota_snapshot"
         private const val KEY_SNAPSHOT = "last_successful_snapshot"
+        private const val KEY_REMOTE_SNAPSHOT = "last_remote_snapshot"
         private const val KEY_LAST_SUCCESSFUL_REFRESH_AT_MILLIS = "last_successful_refresh_at_millis"
     }
 }

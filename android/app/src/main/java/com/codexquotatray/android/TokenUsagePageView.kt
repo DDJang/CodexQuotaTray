@@ -92,6 +92,7 @@ import com.codexquotatray.android.usage.shouldForceTokenUsageRefresh
 import com.codexquotatray.android.usage.isLanAttemptStale
 import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
 import com.codexquotatray.android.source.DataSourcePriority
+import com.codexquotatray.android.usage.RemoteSyncStore
 import com.codexquotatray.android.source.sourcePriorityChanged
 import java.time.Instant
 import java.time.DayOfWeek
@@ -108,6 +109,7 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     private val refreshSettings by lazy { TokenUsageRefreshSettingsStore(host) }
     private val oauthStore by lazy { OAuthStore(host) }
     private val sourcePriorityStore by lazy { AndroidDataSourcePriorityStore(host) }
+    private val remoteSyncStore by lazy { RemoteSyncStore(host) }
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var destroyed = false
@@ -123,8 +125,13 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         private set
     private var lastObservedPriority: DataSourcePriority? = null
     private var lastObservedOpenAIIdentity: String? = null
+    private var lastRemoteIdentity: String? = null
 
-    val canSync get() = !syncing && (store.load() != null || oauthStore.hasCredentials())
+    val canSync get() = !syncing && if (currentPriority().remoteMachine != null) {
+        currentRemoteIdentity() != null
+    } else {
+        store.load() != null || oauthStore.hasCredentials()
+    }
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -154,7 +161,26 @@ internal class TokenUsagePageController(private val host: MainActivity) {
      * starts one source-change sync while retaining the current snapshot.
      */
     fun reconcilePairingState(): Boolean {
+        val priority = currentPriority()
+        val previousRemote = lastObservedPriority?.remoteMachine != null
         val priorityChanged = observeTokenPriority()
+        val remoteIdentity = currentRemoteIdentity()
+        val remoteChanged = remoteIdentity != lastRemoteIdentity || (previousRemote && priorityChanged)
+        lastRemoteIdentity = remoteIdentity
+        if (priority.remoteMachine != null) {
+            paired = remoteIdentity != null
+            if (remoteChanged || snapshot?.transport != DataTransport.REMOTE) snapshot = null
+            val cached = remoteIdentity?.let(cache::loadRemote)
+            if (cached != null && (snapshot == null || hasNewerTokenUsageSnapshot(snapshot, cached))) {
+                snapshot = cached
+                status = RefreshStatusFormatter.loaded(tokenUsageSourceLabel(cached), formatSyncTime(cached.generatedAtUtc))
+            } else if (snapshot == null && (!syncing || remoteChanged)) {
+                status = if (paired) "远程同步已配置 · 暂无 Token 快照" else "请先配置远程同步的服务器连接"
+            }
+            if (priorityChanged || remoteChanged) requestSync(AutomaticRefreshReason.SOURCE_CHANGED)
+            return priorityChanged || remoteChanged
+        }
+        if (previousRemote) snapshot = null
         val currentPairing = store.load()
         val hasOAuth = oauthStore.hasCredentials()
         val identity = oauthStore.load()?.cacheIdentity
@@ -202,6 +228,8 @@ internal class TokenUsagePageController(private val host: MainActivity) {
         val presentationStartedAt = SystemClock.elapsedRealtime()
         val snapshotAtStart = snapshot
         val statusAtStart = status
+        val requestPriority = currentPriority()
+        val requestRemoteIdentity = currentRemoteIdentity()
         syncing = true
         status = RefreshStatusFormatter.tokenRefreshing(snapshot != null)
         worker.execute {
@@ -224,6 +252,12 @@ internal class TokenUsagePageController(private val host: MainActivity) {
                     if (destroyed) return@postDelayed
                     syncing = false
                     reconcilePairingState()
+                    if ((requestPriority.remoteMachine != null || currentPriority().remoteMachine != null) &&
+                        (requestPriority != currentPriority() || requestRemoteIdentity != currentRemoteIdentity())
+                    ) {
+                        if (visible) requestSync(AutomaticRefreshReason.SOURCE_CHANGED)
+                        return@postDelayed
+                    }
                     result.onSuccess {
                         // The login may have changed since the background commit.
                         // Only restore a cache that still belongs to the current sources.
@@ -254,10 +288,15 @@ internal class TokenUsagePageController(private val host: MainActivity) {
     }
 
     private fun loadCachedSnapshot(): TokenUsageSnapshot? =
-        cache.loadForAvailableSources(store.load(), oauthStore.load()?.cacheIdentity)
+        cache.loadForCurrentSource(host)
+
+    private fun currentPriority(): DataSourcePriority = sourcePriorityStore.load().token
+
+    private fun currentRemoteIdentity(): String? =
+        currentPriority().remoteMachine?.let { remoteSyncStore.load().cacheIdentity(it) }
 
     private fun observeTokenPriority(): Boolean {
-        val currentPriority = sourcePriorityStore.load().token
+        val currentPriority = currentPriority()
         val changed = sourcePriorityChanged(lastObservedPriority, currentPriority)
         lastObservedPriority = currentPriority
         return changed
@@ -275,6 +314,7 @@ internal fun tokenSnapshotForLoginIdentity(
 
 internal fun tokenUsageSourceLabel(snapshot: TokenUsageSnapshot): String = when {
     snapshot.transport == DataTransport.OPENAI -> "OpenAI · 账户"
+    snapshot.transport == DataTransport.REMOTE -> if (snapshot.scope == TokenUsageScope.ACCOUNT) "远程同步 · 账户" else "远程同步 · 本机"
     snapshot.scope == TokenUsageScope.ACCOUNT -> "Windows · 账户"
     else -> "Windows · 本机"
 }

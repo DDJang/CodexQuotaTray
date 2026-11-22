@@ -16,6 +16,7 @@ The documents in this directory have two lifecycles:
 | Architecture | [TECH_DESIGN](TECH_DESIGN.md) | System architecture and identity boundaries |
 | Protocol | [API_CONTRACT](API_CONTRACT.md) | Protocol and persistence contracts |
 | Privacy | [PRIVACY](PRIVACY.md) | Privacy and read-only boundaries |
+| Self-hosting | [Relay deployment](../relay/README.md) | ECS and app configuration |
 | Dependencies | [DEPENDENCIES](DEPENDENCIES.md) | Dependency and license records |
 | Signing | [CODE_SIGNING](CODE_SIGNING.md) | Code-signing policy |
 | Release | [RELEASE](RELEASE.md) | User-facing release guidance |
