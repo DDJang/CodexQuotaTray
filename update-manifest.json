@@ -13,15 +13,15 @@
     "publishedAt": "2026-11-22T06:22:31Z"
   },
   "android": {
-    "version": "0.11.10",
-    "tag": "android-v0.11.10",
+    "version": "0.12.0",
+    "tag": "android-v0.12.0",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.11.10.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.11.10/CodexQuotaTray-Android-v0.11.10.apk",
-      "sha256": "71d53fbba8a06189403da40b1d28a818500f119595d355b110c2775a46ce70c5",
-      "size": 3238290
+      "name": "CodexQuotaTray-Android-v0.12.0.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.12.0/CodexQuotaTray-Android-v0.12.0.apk",
+      "sha256": "f6640a211312d75e758119434b5efa933b3e091dd31a18f1c83384ed10e0dc0b",
+      "size": 3488446
     },
-    "releaseNotes": "### 首页滚动与布局\n\n- 优化额度页和统计页的滚动体验，内容经过顶部标题区域时以渐变模糊过渡，避免卡片突然截断。\n- 统一页面边缘的阻尼回弹；内容不足一屏时也可轻微拉动，松手后回到原位。\n- 根据底部导航栏和系统安全区保留空间，确保最后一条内容可以完整滚动到按钮上方。\n- 切换额度页和统计页时，保留各自的滚动位置。\n",
-    "publishedAt": "2026-10-01T13:35:36Z"
+    "releaseNotes": "### 远程同步\n\n- 可通过自托管的 HTTPS 服务器查看 Windows 电脑和 ECS 的额度、Token 统计及重置卡到期明细。\n- 额度与 Token 统计可独立选择远程设备。读取失败时保留该设备的最近快照，无需切换来源。\n- 设置中可查看服务器地址和最近一次成功连接的时间，并编辑或移除连接。\n",
+    "publishedAt": "2026-11-22T06:24:55Z"
   }
 }
