@@ -17,7 +17,7 @@ data class TokenUsageDay(
     val reasoningTokens: Long?,
 )
 
-enum class DataTransport { OPENAI, WINDOWS }
+enum class DataTransport { OPENAI, WINDOWS, REMOTE }
 
 enum class TokenUsageScope { ACCOUNT, LOCAL }
 

@@ -2,6 +2,7 @@ package com.codexquotatray.android.quota
 
 import com.codexquotatray.android.protocol.DirectQuotaResult
 import com.codexquotatray.android.source.DataSourcePriority
+import com.codexquotatray.android.usage.RemoteMachine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -13,6 +14,26 @@ class QuotaSourceRouterTest {
     @Test fun openAIFirstFallsBackToWindows() = assertRoute(DataSourcePriority.OPENAI_FIRST, "openai", true, "windows")
     @Test fun windowsFirstUsesWindowsSuccess() = assertRoute(DataSourcePriority.WINDOWS_FIRST, "windows", false, "windows")
     @Test fun windowsFirstFallsBackToOpenAI() = assertRoute(DataSourcePriority.WINDOWS_FIRST, "windows", true, "openai")
+
+    @Test fun remoteQuotaFailureNeverReadsAnotherProvider() {
+        for (priority in listOf(DataSourcePriority.REMOTE_WINDOWS, DataSourcePriority.REMOTE_ECS)) {
+            val selected = if (priority == DataSourcePriority.REMOTE_WINDOWS) RemoteMachine.WINDOWS else RemoteMachine.ECS
+            val error = assertThrows(QuotaReadException::class.java) {
+                router.read(
+                    priority,
+                    hasOpenAI = true,
+                    hasWindows = true,
+                    openAI = { throw AssertionError("OpenAI must not be called") },
+                    windows = { throw AssertionError("Windows LAN must not be called") },
+                    remote = {
+                        assertEquals(selected, it)
+                        throw failure(QuotaReadFailureKind.NETWORK)
+                    },
+                )
+            }
+            assertEquals(QuotaReadFailureKind.NETWORK, error.kind)
+        }
+    }
 
     @Test fun unavailableOpenAIFirstFallsBackToWindows() {
         val result = router.read(

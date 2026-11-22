@@ -22,6 +22,7 @@ internal data class TokenUsageSourceRead(
     val expectedPairing: TokenSyncPairing? = pairing,
     val identityStillCurrent: () -> Boolean = { true },
     val openAICacheIdentity: String? = null,
+    val remoteCacheIdentity: String? = null,
 )
 
 internal fun interface TokenUsageProvider {
@@ -35,6 +36,9 @@ internal class TokenUsageSourceRouter(
     private val openAI: TokenUsageProvider,
     private val windows: TokenUsageProvider,
     private val identity: () -> String = { "token-router" },
+    private val remote: (RemoteMachine) -> TokenUsageSourceRead = {
+        throw TokenUsageException(TokenUsageFailureKind.UNAVAILABLE, "尚未配置远程同步")
+    },
 ) {
     constructor(context: Context) : this(
         priorityStore = AndroidDataSourcePriorityStore(context),
@@ -44,18 +48,27 @@ internal class TokenUsageSourceRouter(
         windows = WindowsTokenUsageProvider(context),
         identity = {
             val priority = AndroidDataSourcePriorityStore(context).load().token
-            val pairing = TokenSyncStore(context).load()?.singleFlightIdentity().orEmpty()
-            "$priority:${CredentialGeneration.current()}:$pairing"
+            val machine = priority.remoteMachine
+            if (machine == null) {
+                val pairing = TokenSyncStore(context).load()?.singleFlightIdentity().orEmpty()
+                "$priority:${CredentialGeneration.current()}:$pairing"
+            } else {
+                "$priority:${RemoteSyncStore(context).load().cacheIdentity(machine).orEmpty()}"
+            }
         },
+        remote = RemoteTokenUsageProvider(context)::read,
     )
 
     fun singleFlightIdentity(forceRefresh: Boolean): String =
         identity() + if (forceRefresh) ":force" else ":normal"
 
     fun read(forceRefresh: Boolean): TokenUsageSourceRead {
-        val providers = when (priorityStore.load().token) {
+        val priority = priorityStore.load().token
+        val providers = when (priority) {
             DataSourcePriority.OPENAI_FIRST -> listOf(hasOpenAI() to openAI, hasWindows() to windows)
             DataSourcePriority.WINDOWS_FIRST -> listOf(hasWindows() to windows, hasOpenAI() to openAI)
+            DataSourcePriority.REMOTE_WINDOWS, DataSourcePriority.REMOTE_ECS ->
+                return remote(checkNotNull(priority.remoteMachine))
         }
         var firstFailure: Exception? = null
         var firstRetryableFailure: Exception? = null
@@ -74,6 +87,35 @@ internal class TokenUsageSourceRouter(
             TokenUsageFailureKind.UNAVAILABLE,
             "尚未配置可用的 Token 数据来源",
         )
+    }
+}
+
+internal class RemoteTokenUsageProvider(context: Context) {
+    private val store = RemoteSyncStore(context)
+    private val client = RemoteSyncClient()
+
+    fun read(machine: RemoteMachine): TokenUsageSourceRead {
+        val settings = store.load()
+        val connection = settings.connection
+        val identity = settings.cacheIdentity(machine)
+        if (connection == null || identity == null) {
+            throw TokenUsageException(TokenUsageFailureKind.UNAVAILABLE, "请先配置远程同步的服务器连接")
+        }
+        val snapshot = try {
+            store.readSnapshot(client, connection, machine)
+        } catch (error: RemoteSyncException) {
+            val kind = when (error.kind) {
+                RemoteSyncFailure.AUTHORIZATION -> TokenUsageFailureKind.PAIRING_INVALID
+                RemoteSyncFailure.INVALID_RESPONSE -> TokenUsageFailureKind.INVALID_RESPONSE
+                RemoteSyncFailure.SERVER -> TokenUsageFailureKind.SERVER
+            }
+            throw TokenUsageException(kind, error.userMessage)
+        } catch (_: java.io.IOException) {
+            throw TokenUsageException(TokenUsageFailureKind.OFFLINE, "无法连接远程同步服务器")
+        }
+        val usage = snapshot?.tokenUsage
+            ?: throw TokenUsageException(TokenUsageFailureKind.UNAVAILABLE, "${machine.label}暂无 Token 快照")
+        return TokenUsageSourceRead(snapshot = usage.copy(transport = DataTransport.REMOTE), remoteCacheIdentity = identity)
     }
 }
 

@@ -14,11 +14,15 @@ import java.io.File
 class SettingsStructureTest {
     @Test
     fun sourcePrioritySelectorsKeepIndependentValueMappings() {
-        assertEquals(listOf("OpenAI 优先", "Windows 优先"), sourcePriorityOptions().map { it.label })
+        assertEquals(listOf("OpenAI 优先", "Windows 优先", "远程同步"), sourcePriorityOptions().map { it.label })
         assertEquals(0, sourcePriorityValue(DataSourcePriority.OPENAI_FIRST))
         assertEquals(1, sourcePriorityValue(DataSourcePriority.WINDOWS_FIRST))
-        assertEquals(DataSourcePriority.OPENAI_FIRST, sourcePriorityFromValue(0))
-        assertEquals(DataSourcePriority.WINDOWS_FIRST, sourcePriorityFromValue(1))
+        assertEquals(2, sourcePriorityValue(DataSourcePriority.REMOTE_WINDOWS))
+        assertEquals(2, sourcePriorityValue(DataSourcePriority.REMOTE_ECS))
+        assertEquals(DataSourcePriority.OPENAI_FIRST, sourcePriorityFromValue(0, DataSourcePriority.REMOTE_ECS))
+        assertEquals(DataSourcePriority.WINDOWS_FIRST, sourcePriorityFromValue(1, DataSourcePriority.OPENAI_FIRST))
+        assertEquals(DataSourcePriority.REMOTE_WINDOWS, sourcePriorityFromValue(2, DataSourcePriority.OPENAI_FIRST))
+        assertEquals(DataSourcePriority.REMOTE_ECS, sourcePriorityFromValue(2, DataSourcePriority.REMOTE_ECS))
     }
 
     @Test

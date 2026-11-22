@@ -5,12 +5,13 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import com.codexquotatray.android.protocol.DirectQuotaResult
+import com.codexquotatray.android.protocol.QuotaSource
 import com.codexquotatray.android.quota.QuotaSnapshotStore
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
 import com.codexquotatray.android.usage.TokenUsageCache
 import com.codexquotatray.android.usage.TokenUsageSummary
 import com.codexquotatray.android.usage.TokenSyncStore
 import com.codexquotatray.android.usage.cacheIdentity
-import com.codexquotatray.android.auth.OAuthStore
 
 object QuotaWidgetBridge {
     fun publish(
@@ -18,6 +19,8 @@ object QuotaWidgetBridge {
         result: DirectQuotaResult,
     ) {
         if (!hasWidgets(context)) return
+        val remote = AndroidDataSourcePriorityStore(context).load().quota.remoteMachine != null
+        if (remote != (result.source == QuotaSource.REMOTE)) return
         sendUpdate(
             context,
             QuotaWidgetProjection.fromResult(
@@ -32,7 +35,7 @@ object QuotaWidgetBridge {
         if (!hasWidgets(context)) return
         val appContext = context.applicationContext
         val pairingIdentity = TokenSyncStore(appContext).load()?.cacheIdentity()
-        val snapshot = QuotaSnapshotStore(appContext).load(pairingIdentity)
+        val snapshot = QuotaSnapshotStore(appContext).loadForCurrentSource(pairingIdentity)
         if (snapshot == null || snapshot.quotaState == "unavailable") {
             sendClear(appContext)
         } else {
@@ -48,9 +51,7 @@ object QuotaWidgetBridge {
     }
 
     private fun tokenSummary(context: Context): QuotaWidgetTokenSummary? {
-        val pairing = TokenSyncStore(context).load()
-        val identity = OAuthStore(context).load()?.cacheIdentity
-        return TokenUsageCache(context).loadForAvailableSources(pairing, identity)?.summary?.let { summary ->
+        return TokenUsageCache(context).loadForCurrentSource(context)?.summary?.let { summary ->
             summary.toQuotaWidgetTokenSummary()
         }
     }

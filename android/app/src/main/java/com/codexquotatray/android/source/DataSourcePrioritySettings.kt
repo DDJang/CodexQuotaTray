@@ -1,11 +1,28 @@
 package com.codexquotatray.android.source
 
 import android.content.Context
+import com.codexquotatray.android.auth.OAuthStore
+import com.codexquotatray.android.usage.RemoteMachine
+import com.codexquotatray.android.usage.RemoteSyncStore
+import com.codexquotatray.android.usage.TokenSyncStore
 
-enum class DataSourcePriority {
+enum class DataSourcePriority(val remoteMachine: RemoteMachine? = null) {
     OPENAI_FIRST,
     WINDOWS_FIRST,
+    REMOTE_WINDOWS(RemoteMachine.WINDOWS),
+    REMOTE_ECS(RemoteMachine.ECS),
 }
+
+internal data class SourceAvailability(val internet: Boolean, val windowsLan: Boolean) {
+    val available: Boolean get() = internet || windowsLan
+}
+
+internal fun sourceAvailability(context: Context, priority: DataSourcePriority): SourceAvailability =
+    if (priority.remoteMachine == null) {
+        SourceAvailability(OAuthStore(context).load() != null, TokenSyncStore(context).load() != null)
+    } else {
+        SourceAvailability(RemoteSyncStore(context).load().connection != null, false)
+    }
 
 internal fun sourcePriorityChanged(
     lastObservedPriority: DataSourcePriority?,

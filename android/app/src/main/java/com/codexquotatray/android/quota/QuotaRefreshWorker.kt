@@ -2,8 +2,8 @@ package com.codexquotatray.android.quota
 
 import android.content.Context
 import com.codexquotatray.android.AppLogStore
-import com.codexquotatray.android.auth.OAuthStore
-import com.codexquotatray.android.usage.TokenSyncStore
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
+import com.codexquotatray.android.source.sourceAvailability
 import com.codexquotatray.android.refresh.AppAutomaticRefreshCoordinator
 import com.codexquotatray.android.refresh.AutomaticRefreshChannel
 import androidx.work.BackoffPolicy
@@ -31,17 +31,16 @@ class QuotaRefreshWorker(
             AppLogStore.record(applicationContext, "额度后台任务已跳过：设置已关闭")
             return Result.success()
         }
-        val hasOAuth = OAuthStore(applicationContext).load() != null
-        val hasWindowsPairing = TokenSyncStore(applicationContext).load() != null
+        val source = sourceAvailability(applicationContext, AndroidDataSourcePriorityStore(applicationContext).load().quota)
         AndroidWorkerNetworkDiagnostics.record(
             applicationContext,
             "Quota",
             QuotaRefreshScheduler.networkRequirement(
-                hasOAuth = hasOAuth,
-                hasWindowsPairing = hasWindowsPairing,
+                hasOAuth = source.internet,
+                hasWindowsPairing = source.windowsLan,
             ),
         )
-        if (!hasOAuth && !hasWindowsPairing) {
+        if (!source.available) {
             AppLogStore.record(applicationContext, "额度后台任务已跳过：缺少可用数据源", "WARN")
             return Result.success()
         }
@@ -63,7 +62,11 @@ class QuotaRefreshWorker(
             }
             AppLogStore.record(
                 applicationContext,
-                if (result.source == QuotaSource.WINDOWS) "额度后台任务 Windows fallback 成功" else "额度后台任务 OpenAI direct 成功",
+                when (result.source) {
+                    QuotaSource.WINDOWS -> "额度后台任务 Windows fallback 成功"
+                    QuotaSource.DIRECT -> "额度后台任务 OpenAI direct 成功"
+                    QuotaSource.REMOTE -> "额度后台任务远程同步成功"
+                },
             )
             Result.success()
         } catch (error: QuotaReadException) {
@@ -102,16 +105,15 @@ object QuotaRefreshScheduler {
         val appContext = context.applicationContext
         val settings = QuotaRefreshSettingsStore(appContext).load()
         val workManager = WorkManager.getInstance(appContext)
-        val hasOAuth = OAuthStore(appContext).load() != null
-        val hasWindowsPairing = TokenSyncStore(appContext).load() != null
-        if (!shouldSchedule(settings, hasOAuth, hasWindowsPairing)) {
+        val source = sourceAvailability(appContext, AndroidDataSourcePriorityStore(appContext).load().quota)
+        if (!shouldSchedule(settings, source.internet, source.windowsLan)) {
             cancel(appContext)
             return
         }
 
         val constraints = networkRequirement(
-            hasOAuth = hasOAuth,
-            hasWindowsPairing = hasWindowsPairing,
+            hasOAuth = source.internet,
+            hasWindowsPairing = source.windowsLan,
         ).constraints()
         val request = PeriodicWorkRequestBuilder<QuotaRefreshWorker>(
             settings.normalizedIntervalMinutes.toLong(),

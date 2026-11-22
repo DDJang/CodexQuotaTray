@@ -6,7 +6,7 @@ import com.codexquotatray.android.protocol.QuotaBucketPolicy
 import com.codexquotatray.android.protocol.QuotaWindow
 import com.codexquotatray.android.protocol.ResetCreditSnapshot
 
-/** The one success path shared by Direct OpenAI and Windows LAN quota results. */
+/** The success path shared by all quota providers. */
 internal class QuotaSuccessfulRefreshCommitter(
     private val saveSnapshot: (DirectQuotaResult, Long, String?) -> Unit,
     private val evaluateAlerts: (List<QuotaWindow>) -> List<QuotaAlertEvent>,
@@ -18,10 +18,10 @@ internal class QuotaSuccessfulRefreshCommitter(
     private val evaluateResetCreditAlerts: (ResetCreditSnapshot?, Long) -> List<QuotaAlertEvent> = { _, _ -> emptyList() },
     private val reconcileResetCreditReminder: () -> Unit = {},
 ) {
-    fun commit(result: DirectQuotaResult, windowsDeviceIdentity: String? = null): Boolean {
+    fun commit(result: DirectQuotaResult, sourceIdentity: String? = null): Boolean {
         if (result.quotaState == "unavailable") return false
         val completedAtMillis = nowMillis()
-        saveSnapshot(result, completedAtMillis, windowsDeviceIdentity)
+        saveSnapshot(result, completedAtMillis, sourceIdentity)
         val events = buildList {
             addAll(evaluateAlerts(QuotaBucketPolicy.canonicalWindows(result)))
             addAll(evaluateResetCreditAlerts(result.resetCredits, completedAtMillis))
@@ -36,7 +36,7 @@ internal class QuotaSuccessfulRefreshCommitter(
             restoreAlerts()
         }
         runCatching { reconcileResetCreditReminder() }
-        runCatching { publishWidget(result, completedAtMillis, windowsDeviceIdentity) }
+        runCatching { publishWidget(result, completedAtMillis, sourceIdentity) }
         return true
     }
 }

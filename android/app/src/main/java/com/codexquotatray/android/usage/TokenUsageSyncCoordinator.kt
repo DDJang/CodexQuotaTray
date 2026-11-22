@@ -3,6 +3,8 @@ package com.codexquotatray.android.usage
 import android.content.Context
 import com.codexquotatray.android.auth.CodexProcessLock
 import com.codexquotatray.android.refresh.AutomaticRefreshReason
+import com.codexquotatray.android.source.AndroidDataSourcePriorityStore
+import com.codexquotatray.android.source.DataSourcePriorityStore
 import java.io.IOException
 
 internal fun interface TokenUsageSyncTransport {
@@ -27,6 +29,8 @@ internal class TokenUsageSyncCoordinator(
     private val notifyCompleted: () -> Unit = {},
     private val diagnostics: LanDiagnosticLogger = NoOpLanDiagnosticLogger,
     private val sourceRouter: TokenUsageSourceRouter? = null,
+    private val remoteStore: RemoteSyncStore? = null,
+    private val sourcePriorityStore: DataSourcePriorityStore? = null,
 ) {
     constructor(context: Context) : this(
         transport = TokenUsageSyncClient(context),
@@ -35,17 +39,32 @@ internal class TokenUsageSyncCoordinator(
         notifyCompleted = { TokenUsageRefreshEvents.notifyCompleted(context.applicationContext) },
         diagnostics = AndroidLanDiagnosticLogger(context),
         sourceRouter = TokenUsageSourceRouter(context),
+        remoteStore = RemoteSyncStore(context),
+        sourcePriorityStore = AndroidDataSourcePriorityStore(context),
     )
 
     fun sync(forceRefresh: Boolean = false): TokenUsageRefreshResult {
         val router = checkNotNull(sourceRouter) { "A routed Token coordinator is required" }
         return TokenUsageSyncSingleFlight.runRefresh(router.singleFlightIdentity(forceRefresh)) {
             val read = router.read(forceRefresh)
+            val remoteIdentity = read.remoteCacheIdentity
+            if (remoteIdentity != null) {
+                val priorities = sourcePriorityStore ?: throw TokenUsageCommitException()
+                val machine = priorities.load().token.remoteMachine ?: throw TokenUsageCommitException()
+                val committed = remoteStore?.commitIfCurrent(remoteIdentity, machine) {
+                    priorities.load().token.remoteMachine == machine && cache.saveRemote(read.snapshot, remoteIdentity)
+                } == true
+                if (!committed) throw TokenUsageCommitException()
+                notifyCompleted()
+                return@runRefresh TokenUsageRefreshResult(read.snapshot, null)
+            }
+            if (sourcePriorityStore?.load()?.token?.remoteMachine != null) throw TokenUsageCommitException()
             // Same lock order as logout: OAuth lifecycle, then pairing/cache commit.
             synchronized(CodexProcessLock.monitor) {
                 TokenUsagePairingLifecycle.withLock {
                     if (!read.identityStillCurrent()) throw TokenUsageCommitException()
                     val committed = when (read.snapshot.transport) {
+                        DataTransport.REMOTE -> false
                         DataTransport.OPENAI -> cache.saveOpenAI(
                             read.snapshot,
                             read.openAICacheIdentity ?: throw TokenUsageCommitException(),

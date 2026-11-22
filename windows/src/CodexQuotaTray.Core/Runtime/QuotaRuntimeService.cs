@@ -1354,7 +1354,7 @@ public sealed class QuotaRuntimeService :
         SetCurrent(projector.Project(latestNormalized, cache.LastSuccessUtc, Settings.ShowRemainingPercent, Settings.Use24HourTime));
     }
 
-    internal static QuotaLanSnapshot ToLanSnapshot(NormalizedQuotaSnapshot snapshot, DateTimeOffset generatedAtUtc)
+    public static QuotaLanSnapshot ToLanSnapshot(NormalizedQuotaSnapshot snapshot, DateTimeOffset generatedAtUtc)
     {
         var visibleWindows = snapshot.Windows
             .Where(window => QuotaBucketPolicy.IsCanonical(window.BucketId))
