@@ -13,15 +13,15 @@
     "publishedAt": "2026-11-23T07:56:49Z"
   },
   "android": {
-    "version": "0.12.0",
-    "tag": "android-v0.12.0",
+    "version": "0.12.1",
+    "tag": "android-v0.12.1",
     "apk": {
-      "name": "CodexQuotaTray-Android-v0.12.0.apk",
-      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.12.0/CodexQuotaTray-Android-v0.12.0.apk",
-      "sha256": "f6640a211312d75e758119434b5efa933b3e091dd31a18f1c83384ed10e0dc0b",
+      "name": "CodexQuotaTray-Android-v0.12.1.apk",
+      "url": "https://github.com/DDJang/CodexQuotaTray/releases/download/android-v0.12.1/CodexQuotaTray-Android-v0.12.1.apk",
+      "sha256": "97fac1fbce0728b35ac08e82be430f8de6dde9539db4ec9746ca345a3ab798f3",
       "size": 3488446
     },
-    "releaseNotes": "### 远程同步\n\n- 可通过自托管的 HTTPS 服务器查看 Windows 电脑和 ECS 的额度、Token 统计及重置卡到期明细。\n- 额度与 Token 统计可独立选择远程设备。读取失败时保留该设备的最近快照，无需切换来源。\n- 设置中可查看服务器地址和最近一次成功连接的时间，并编辑或移除连接。\n",
-    "publishedAt": "2026-11-22T06:24:55Z"
+    "releaseNotes": "### 主页刷新\n\n- 在「设置 → 个性化 → 主页刷新」中可选择仅刷新当前页，或一键刷新额度与统计。\n\n### 远程同步\n\n- 远程设备页的刷新状态至少显示 700 毫秒，减少快速刷新时的闪烁。\n",
+    "publishedAt": "2026-11-23T07:57:39Z"
   }
 }
