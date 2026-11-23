@@ -89,6 +89,7 @@ private enum class SettingsDestination(val title: String) {
     NOTIFICATIONS("通知"),
     SYNC("数据"),
     THEME("显示与主题"),
+    HOME_REFRESH("主页刷新"),
     TOKEN_PAIRING("Windows 配对"),
     REMOTE_SYNC("远程同步"),
     REMOTE_SYNC_CONNECTION("服务器连接"),
@@ -173,6 +174,7 @@ class SettingsActivity : ComponentActivity() {
     private val oauthStore by lazy { OAuthStore(this) }
     private val refreshStore by lazy { QuotaRefreshSettingsStore(this) }
     private val themeStore by lazy { ThemeSettingsStore(this) }
+    private val homeRefreshStore by lazy { HomeRefreshSettingsStore(this) }
     private val tokenStore by lazy { TokenSyncStore(this) }
     private val remoteSyncStore by lazy { RemoteSyncStore(this) }
     private var remoteSyncResumeGeneration by mutableIntStateOf(0)
@@ -199,6 +201,7 @@ class SettingsActivity : ComponentActivity() {
     private var quotaSourcePriority by mutableStateOf(DataSourcePriority.OPENAI_FIRST)
     private var tokenSourcePriority by mutableStateOf(DataSourcePriority.WINDOWS_FIRST)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
+    private var homeRefreshBehavior by mutableStateOf(HomeRefreshBehavior.CURRENT_PAGE)
     private var systemThemeVersion by mutableStateOf(0)
     private var pairing by mutableStateOf<TokenSyncPairing?>(null)
     private var showClearPairingDialog by mutableStateOf(false)
@@ -372,6 +375,7 @@ class SettingsActivity : ComponentActivity() {
                 SettingsDestination.NOTIFICATIONS -> NotificationSettings()
                 SettingsDestination.SYNC -> SyncSettings()
                 SettingsDestination.THEME -> ThemeSettings()
+                SettingsDestination.HOME_REFRESH -> HomeRefreshSettings()
                 SettingsDestination.TOKEN_PAIRING -> TokenPairingSettings()
                 SettingsDestination.REMOTE_SYNC -> RemoteSyncOverview(
                     store = remoteSyncStore,
@@ -425,6 +429,10 @@ class SettingsActivity : ComponentActivity() {
             SettingsGroup {
                 SettingsNavigationRow("主题", themeLabel(themeMode)) {
                     openDestination(SettingsDestination.THEME)
+                }
+                SettingsDivider()
+                SettingsNavigationRow(SettingsDestination.HOME_REFRESH.title, homeRefreshBehavior.label) {
+                    openDestination(SettingsDestination.HOME_REFRESH)
                 }
             }
         }
@@ -814,6 +822,21 @@ class SettingsActivity : ComponentActivity() {
     }
 
     @Composable
+    private fun ColumnScope.HomeRefreshSettings() {
+        SettingsSection("刷新按钮行为") {
+            SettingsGroup {
+                HomeRefreshBehavior.entries.forEachIndexed { index, behavior ->
+                    if (index > 0) SettingsDivider()
+                    SettingsSelectionRow(behavior.label, homeRefreshBehavior == behavior) {
+                        homeRefreshStore.save(behavior)
+                        homeRefreshBehavior = behavior
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
     private fun ColumnScope.TokenPairingSettings() {
         val locale = LocalLocale.current.platformLocale
         SettingsSection("Windows") {
@@ -882,6 +905,7 @@ class SettingsActivity : ComponentActivity() {
             tokenSourcePriority = priorities.token
         }
         themeMode = themeStore.load()
+        homeRefreshBehavior = homeRefreshStore.load()
         pairing = tokenStore.load()
         updateSettingsStore.load().also { update ->
             updateSource = update.source

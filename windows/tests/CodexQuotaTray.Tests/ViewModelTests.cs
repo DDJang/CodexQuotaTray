@@ -823,6 +823,22 @@ public sealed class ViewModelTests
     }
 
     [TestMethod]
+    public void PhoneSyncDetailsCollapseWhenEmptyOrDisabled()
+    {
+        var runtime = new StubRuntimeControl(AppSettings.Defaults with { PhoneTokenSyncEnabled = true });
+        var platform = new StubSettingsPlatformActions { TokenSyncMobileStatusText = "最近手机连接：今天 11:57" };
+        var viewModel = new SettingsViewModel(runtime, platform, new StubSettingsPageActions());
+
+        Assert.IsFalse(viewModel.ShowTokenSyncEndpoint);
+        Assert.IsTrue(viewModel.ShowTokenSyncMobileStatus);
+
+        viewModel.PhoneTokenSyncEnabled = false;
+
+        Assert.IsTrue(viewModel.HasTokenSyncStatusText);
+        Assert.IsFalse(viewModel.ShowTokenSyncMobileStatus);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void ErrorDialogToggleAutoSavesAndRollsBackWhenPersistenceFails(bool rejectSettings)
@@ -1262,7 +1278,7 @@ public sealed class ViewModelTests
 
         public string TokenSyncDeviceNameText => string.Empty;
 
-        public string TokenSyncMobileStatusText => string.Empty;
+        public string TokenSyncMobileStatusText { get; init; } = string.Empty;
 
         public string? TokenSyncPairingInfo => null;
 

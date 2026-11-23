@@ -27,8 +27,10 @@ internal const val ACTION_OPEN_FROM_WIDGET = "com.codexquotatray.android.action.
 class MainActivity : ComponentActivity() {
     private lateinit var quota: QuotaPageController
     private lateinit var usage: TokenUsagePageController
+    private val homeRefreshStore by lazy { HomeRefreshSettingsStore(this) }
     private var selectedIndex by mutableIntStateOf(0)
     private var themeMode by mutableStateOf(ThemeMode.SYSTEM)
+    private var homeRefreshBehavior by mutableStateOf(HomeRefreshBehavior.CURRENT_PAGE)
     private var systemThemeVersion by mutableIntStateOf(0)
     private var foregroundRegistration: AutoCloseable? = null
     private var updateReminderRegistration: AutoCloseable? = null
@@ -48,6 +50,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppTheme.applySystemBars(this)
         themeMode = AppTheme.mode(this)
+        homeRefreshBehavior = homeRefreshStore.load()
         AppLogStore.record(this, "应用启动")
         quota = QuotaPageController(this)
         usage = TokenUsagePageController(this)
@@ -81,13 +84,20 @@ class MainActivity : ComponentActivity() {
             systemThemeVersion
             val palette = rememberAnimatedThemePalette(AppTheme.palette(this, themeMode))
             CodexQuotaTheme(palette) {
+                val refreshBoth = homeRefreshBehavior == HomeRefreshBehavior.QUOTA_AND_STATISTICS
+                val refreshQuota = refreshBoth || selectedIndex == 0
+                val refreshStatistics = refreshBoth || selectedIndex == 1
                 DashboardScaffold(
                     selectedIndex = selectedIndex,
                     onSelected = ::selectTab,
                     onSettings = ::openSettings,
-                    actionEnabled = if (selectedIndex == 0) quota.canRefresh else usage.canSync,
-                    actionBusy = if (selectedIndex == 0) quota.busy else usage.syncing,
-                    onAction = { if (selectedIndex == 0) quota.refresh() else usage.requestSync() },
+                    actionEnabled = (refreshQuota && quota.canRefresh) || (refreshStatistics && usage.canSync),
+                    actionBusy = (refreshQuota && quota.busy) || (refreshStatistics && usage.syncing),
+                    actionDescription = if (refreshBoth) "刷新额度与统计" else null,
+                    onAction = {
+                        if (refreshQuota) quota.refresh()
+                        if (refreshStatistics) usage.requestSync()
+                    },
                     modalContent = { chromeBackdrop ->
                         updatePrompt?.let { release ->
                             UpdateAvailableDialog(
@@ -137,6 +147,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onResume() {
         super.onResume()
+        homeRefreshBehavior = homeRefreshStore.load()
         QuotaWidgetBridge.syncFromCurrentMainSnapshot(this)
         tryInstallPendingUpdate()
         if (::quota.isInitialized && selectedIndex == 0) quota.onVisible()

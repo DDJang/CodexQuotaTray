@@ -1,5 +1,6 @@
 package com.codexquotatray.android
 
+import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.text.KeyboardOptions
@@ -26,6 +27,7 @@ import com.codexquotatray.android.usage.RemoteSyncSettings
 import com.codexquotatray.android.usage.RemoteSyncStore
 import com.codexquotatray.android.usage.TokenUsageScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
@@ -168,7 +170,7 @@ internal fun RemoteSyncDevicePage(store: RemoteSyncStore, machine: RemoteMachine
     var refreshing by remember { mutableStateOf(true) }
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(refresh) {
-        refreshing = true
+        val presentationStartedAt = SystemClock.elapsedRealtime()
         message = null
         try {
             val connection = withContext(Dispatchers.IO) { store.load().connection }
@@ -181,14 +183,17 @@ internal fun RemoteSyncDevicePage(store: RemoteSyncStore, machine: RemoteMachine
             message = error.userMessage
         } catch (_: IOException) {
             message = "无法连接到服务器。"
-        } finally {
-            refreshing = false
         }
+        delay(remainingRefreshPresentationMillis(presentationStartedAt, SystemClock.elapsedRealtime()))
+        refreshing = false
     }
 
     SettingsGroup {
         SettingsActionButton(if (refreshing) "正在刷新…" else "刷新", enabled = !refreshing) {
-            refresh++
+            if (!refreshing) {
+                refreshing = true
+                refresh++
+            }
         }
         if (!refreshing && message == null && snapshot == null) {
             SettingsInfoRow("状态", "暂无同步数据")
