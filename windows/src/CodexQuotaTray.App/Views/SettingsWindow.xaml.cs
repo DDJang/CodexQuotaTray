@@ -133,14 +133,17 @@ public sealed partial class SettingsWindow : Window
         var state = remoteSyncPublisher.State;
         if (!remoteSyncInitialized && state.Status != RemoteSyncStatus.Loading)
         {
-            remoteSyncInitialized = true;
             RemoteSyncAddress.Text = state.Configuration?.Origin.AbsoluteUri ?? string.Empty;
+            remoteSyncInitialized = true;
         }
         updatingRemoteSyncToggle = true;
         RemoteSyncToggle.IsOn = state.Configuration?.Enabled == true;
         updatingRemoteSyncToggle = false;
         var editable = remoteSyncInitialized && !savingRemoteSync;
-        RemoteSyncToggle.IsEnabled = editable;
+        var hasConnectionDetails = state.Configuration is not null
+            || (!string.IsNullOrWhiteSpace(RemoteSyncAddress.Text)
+                && !string.IsNullOrWhiteSpace(RemoteSyncUploadKey.Password));
+        RemoteSyncToggle.IsEnabled = editable && hasConnectionDetails;
         RemoteSyncSave.IsEnabled = editable;
         RemoteSyncAddress.IsEnabled = editable;
         RemoteSyncUploadKey.IsEnabled = editable;
@@ -148,7 +151,8 @@ public sealed partial class SettingsWindow : Window
         var status = state.Status switch
         {
             RemoteSyncStatus.Loading => "正在加载连接设置…",
-            RemoteSyncStatus.Disabled => state.Configuration is null ? "未配置连接" : "已关闭",
+            RemoteSyncStatus.Disabled when !hasConnectionDetails => "填写服务器地址和上传密钥后即可启用",
+            RemoteSyncStatus.Disabled => "已关闭",
             RemoteSyncStatus.WaitingForSnapshot => "等待可上传的快照",
             RemoteSyncStatus.Uploading => "正在连接并上传…",
             RemoteSyncStatus.Connected => "尚未成功上传",
@@ -156,7 +160,7 @@ public sealed partial class SettingsWindow : Window
             RemoteSyncStatus.InvalidConfiguration => "无法读取已保存的连接，请重新配置",
             _ => "连接或上传失败，将自动重试",
         };
-        if (state.LastSuccessfulUploadUtc is { } lastUpload)
+        if (state.Configuration is { Enabled: true } && state.LastSuccessfulUploadUtc is { } lastUpload)
         {
             var time = $"最近上传成功：{LanStatusTimeFormatter.Format(lastUpload, DateTimeOffset.UtcNow)}";
             RemoteConnectionStatus.Text = state.Status is RemoteSyncStatus.InvalidKey or RemoteSyncStatus.Unavailable
@@ -166,6 +170,14 @@ public sealed partial class SettingsWindow : Window
         else
         {
             RemoteConnectionStatus.Text = status;
+        }
+    }
+
+    private void OnRemoteSyncDraftChanged(object sender, RoutedEventArgs args)
+    {
+        if (remoteSyncInitialized && !savingRemoteSync)
+        {
+            UpdateRemoteSyncControls();
         }
     }
 

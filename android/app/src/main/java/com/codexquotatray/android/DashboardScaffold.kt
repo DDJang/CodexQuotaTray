@@ -57,6 +57,7 @@ internal fun DashboardScaffold(
     actionBusy: Boolean,
     onAction: () -> Unit,
     modifier: Modifier = Modifier,
+    actionDescription: String? = null,
     modalContent: @Composable BoxScope.(Backdrop) -> Unit = {},
     content: @Composable (Int) -> Unit,
 ) {
@@ -165,7 +166,7 @@ internal fun DashboardScaffold(
             backdrop = chromeBackdrop,
             actionEnabled = actionEnabled,
             actionBusy = actionBusy,
-            actionDescription = if (selectedIndex == 0) "刷新额度" else "同步统计",
+            actionDescription = actionDescription ?: if (selectedIndex == 0) "刷新额度" else "同步统计",
             onAction = onAction,
             modifier = Modifier
                 .align(Alignment.BottomCenter)

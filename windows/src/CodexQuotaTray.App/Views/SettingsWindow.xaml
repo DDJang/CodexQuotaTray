@@ -485,9 +485,9 @@
                                         IsOn="{Binding PhoneTokenSyncEnabled, Mode=TwoWay}"
                                         Style="{StaticResource SettingsToggleSwitchStyle}" />
                                 </Grid>
-                                <TextBlock Text="{Binding TokenSyncStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                                <TextBlock Text="{Binding TokenSyncEndpointText}" Style="{StaticResource SettingsDescriptionStyle}" />
-                                <TextBlock Text="{Binding TokenSyncMobileStatusText}" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBlock Text="{Binding TokenSyncStatusText}" Visibility="{Binding HasTokenSyncStatusText, Converter={StaticResource BooleanToVisibilityConverter}}" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBlock Text="{Binding TokenSyncEndpointText}" Visibility="{Binding ShowTokenSyncEndpoint, Converter={StaticResource BooleanToVisibilityConverter}}" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBlock Text="{Binding TokenSyncMobileStatusText}" Visibility="{Binding ShowTokenSyncMobileStatus, Converter={StaticResource BooleanToVisibilityConverter}}" Style="{StaticResource SettingsDescriptionStyle}" />
                                 <Expander
                                     x:Name="TokenSyncPairingExpander"
                                     Header="配对新手机"
@@ -561,12 +561,13 @@
                                         x:Name="RemoteSyncToggle"
                                         Grid.Column="1"
                                         AutomationProperties.Name="远程同步"
+                                        IsEnabled="False"
                                         Toggled="OnRemoteSyncToggled"
                                         Style="{StaticResource SettingsToggleSwitchStyle}" />
                                 </Grid>
-                                <TextBlock x:Name="RemoteConnectionStatus" AutomationProperties.LiveSetting="Polite" Style="{StaticResource SettingsDescriptionStyle}" />
-                                <TextBox x:Name="RemoteSyncAddress" Header="HTTPS 服务器地址" PlaceholderText="https://sync.example.com" MaxLength="512" />
-                                <PasswordBox x:Name="RemoteSyncUploadKey" Header="Windows 上传密钥" MaxLength="64" />
+                                <TextBlock x:Name="RemoteConnectionStatus" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Style="{StaticResource SettingsDescriptionStyle}" />
+                                <TextBox x:Name="RemoteSyncAddress" Header="HTTPS 服务器地址" PlaceholderText="https://sync.example.com" MaxLength="512" TextChanged="OnRemoteSyncDraftChanged" />
+                                <PasswordBox x:Name="RemoteSyncUploadKey" Header="Windows 上传密钥" MaxLength="64" PasswordChanged="OnRemoteSyncDraftChanged" />
                                 <Button x:Name="RemoteSyncSave" Content="保存连接" HorizontalAlignment="Left" Click="OnSaveRemoteSync" Style="{StaticResource SettingsActionButtonStyle}" />
                                 <TextBlock x:Name="RemoteSyncError" Visibility="Collapsed" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite" Style="{StaticResource SettingsDescriptionStyle}" />
                             </StackPanel>

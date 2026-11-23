@@ -102,13 +102,21 @@ public sealed partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool notifyResetCreditExpiry;
     [ObservableProperty] private int resetCreditExpiryLeadHours = 24;
     [ObservableProperty] private bool silentStartup;
-    [ObservableProperty] private bool phoneTokenSyncEnabled;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowTokenSyncEndpoint), nameof(ShowTokenSyncMobileStatus))]
+    private bool phoneTokenSyncEnabled;
     [ObservableProperty] private bool tokenRefreshOnPanelOpen;
-    [ObservableProperty] private string tokenSyncStatusText = string.Empty;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasTokenSyncStatusText))]
+    private string tokenSyncStatusText = string.Empty;
     [ObservableProperty] private string tokenSyncAddressText = string.Empty;
     [ObservableProperty] private string tokenSyncDeviceNameText = string.Empty;
-    [ObservableProperty] private string tokenSyncEndpointText = string.Empty;
-    [ObservableProperty] private string tokenSyncMobileStatusText = string.Empty;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowTokenSyncEndpoint))]
+    private string tokenSyncEndpointText = string.Empty;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowTokenSyncMobileStatus))]
+    private string tokenSyncMobileStatusText = string.Empty;
     [ObservableProperty] private string? tokenSyncPairingInfo;
     [ObservableProperty] private RefreshMode selectedRefreshMode;
     [ObservableProperty] private RefreshMode selectedTokenRefreshMode;
@@ -294,6 +302,12 @@ public sealed partial class SettingsViewModel : ObservableObject
     public bool CanEditUpdateReminders => IsWindowsUpdateAvailable && AutomaticUpdateChecksEnabled;
 
     public bool CanCheckForWindowsUpdates => !UpdateCheckInProgress;
+
+    public bool HasTokenSyncStatusText => !string.IsNullOrWhiteSpace(TokenSyncStatusText);
+
+    public bool ShowTokenSyncEndpoint => PhoneTokenSyncEnabled && !string.IsNullOrWhiteSpace(TokenSyncEndpointText);
+
+    public bool ShowTokenSyncMobileStatus => PhoneTokenSyncEnabled && !string.IsNullOrWhiteSpace(TokenSyncMobileStatusText);
 
     public bool HasUpdateStatusText => !string.IsNullOrEmpty(UpdateStatusText);
 
